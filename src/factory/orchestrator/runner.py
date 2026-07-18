@@ -4,13 +4,14 @@ from pathlib import Path
 
 from factory.kb.retrieval import select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
-from factory.orchestrator.ledger import Task
+from factory.orchestrator.ledger import Task, load_tasks, next_todo, set_status
 from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
     run_review,
     run_validation,
 )
+from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
 from factory.validation.kb_validator import parse_entry
 
@@ -69,3 +70,31 @@ def run_task(
         feedback = "\n".join(findings) if findings else "review requested changes"
 
     return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
+
+
+def run_next(
+    repo_root: Path,
+    backend: AgentBackend,
+    gates: GateRunner,
+    *,
+    model_backend: str = "anthropic:claude-opus-4-8",
+    session_id: str | None = None,
+    git_info: dict | None = None,
+) -> Path | None:
+    tasks = load_tasks(repo_root / "tasks")
+    task = next_todo(tasks)
+    if task is None:
+        return None
+
+    result = run_task(task, backend, gates, repo_root)
+    set_status(task, "done" if result.outcome == "completed" else result.outcome)
+
+    sid = session_id or _default_session_id()
+    record = build_record(sid, model_backend, [result], git_info or {})
+    return write_session(repo_root / "sessions", record)
+
+
+def _default_session_id() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
