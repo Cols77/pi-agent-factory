@@ -21,3 +21,19 @@ def test_prompt_is_deterministic_and_includes_key_parts():
 def test_no_feedback_no_kb_still_valid():
     out = compose_prompt(AgentRole.REVIEW, TASK)
     assert "T-001" in out and "crit A" in out
+
+
+def test_compose_prompt_tolerates_non_dict_manifest_context():
+    """Malformed manifest with context=None should not raise AttributeError."""
+    manifest = {"context": None}
+    out = compose_prompt(AgentRole.DEV, TASK, manifest=manifest)
+    assert isinstance(out, str)
+    assert "T-001" in out
+
+
+def test_compose_prompt_tolerates_non_dict_context_value():
+    """Malformed manifest with context as non-dict should degrade gracefully."""
+    manifest = {"context": "invalid_string"}
+    out = compose_prompt(AgentRole.DEV, TASK, manifest=manifest)
+    assert isinstance(out, str)
+    assert "T-001" in out

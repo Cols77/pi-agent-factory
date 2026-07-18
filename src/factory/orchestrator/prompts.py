@@ -30,7 +30,10 @@ def compose_prompt(
     if manifest is not None:
         lines.append("")
         lines.append("## Context (from manifest)")
-        for f in manifest.get("context", {}).get("source_files", []):
+        ctx = manifest.get("context")
+        if not isinstance(ctx, dict):
+            ctx = {}
+        for f in ctx.get("source_files", []):
             lines.append(f"- {f}")
 
     if kb_entries:
