@@ -1,13 +1,7 @@
 import sys
-import os
+from pathlib import Path
 
-# Fix sys.path to avoid shadowing stdlib modules BEFORE any other imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path = [p for p in sys.path if os.path.abspath(p) != script_dir]
-
-from pathlib import Path  # noqa: E402
-
-from factory.validation.kb_validator import validate_entry_file  # noqa: E402
+from factory.validation.kb_validator import validate_entry_file
 
 if __name__ == "__main__":
     errors = validate_entry_file(Path(sys.argv[1]))

@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import os
-import sys
+import subprocess
 
-# Remove the current script directory from sys.path to prevent local modules
-# (like types.py) from shadowing standard library modules
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-while _script_dir in sys.path:
-    sys.path.remove(_script_dir)
-if "" in sys.path:
-    sys.path.remove("")
-
-import subprocess  # noqa: E402
+# Single source of truth for each gate's command line, shared by the
+# individual gate scripts (lint.py, typecheck.py, unit.py, sim_smoke.py) and
+# all.py, so they can never drift out of sync with each other.
+LINT_CMD = ["ruff", "check", "."]
+TYPECHECK_CMD = ["pyright"]
+# tests/gates/test_all_gate.py spawns `python scripts/gates/all.py` as a
+# subprocess, and all.py runs this exact command as its unit-gate step. If
+# that test were included here, every run of the unit suite would recurse
+# into itself without bound, so it's excluded everywhere this command is used.
+UNIT_CMD = ["pytest", "-m", "unit", "-q", "--ignore=tests/gates/test_all_gate.py"]
+SIM_CMD = ["pytest", "-m", "sim", "-q"]
 
 
 def run_and_propagate(cmd: list[str]) -> int:

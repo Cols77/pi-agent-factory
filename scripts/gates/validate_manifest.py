@@ -1,14 +1,8 @@
+import json
 import sys
-import os
+from pathlib import Path
 
-# Fix sys.path to avoid shadowing stdlib modules BEFORE any other imports
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path = [p for p in sys.path if os.path.abspath(p) != script_dir]
-
-import json  # noqa: E402
-from pathlib import Path  # noqa: E402
-
-from factory.validation.manifest_validator import validate_manifest  # noqa: E402
+from factory.validation.manifest_validator import validate_manifest
 
 if __name__ == "__main__":
     manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))

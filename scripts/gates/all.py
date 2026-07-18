@@ -1,13 +1,7 @@
 import sys
-from _proc import run_and_propagate
+from _proc import LINT_CMD, TYPECHECK_CMD, UNIT_CMD, run_and_propagate
 
-GATES = [
-    ["ruff", "check", "."],
-    ["pyright"],
-    # Excludes test_all_gate.py: that test spawns this very script, so
-    # including it here would make all.py recurse into itself without bound.
-    ["pytest", "-m", "unit", "-q", "--ignore=tests/gates/test_all_gate.py"],
-]
+GATES = [LINT_CMD, TYPECHECK_CMD, UNIT_CMD]
 
 if __name__ == "__main__":
     for cmd in GATES:
