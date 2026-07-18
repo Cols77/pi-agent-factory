@@ -3,12 +3,15 @@ from __future__ import annotations
 from fnmatch import fnmatch
 from pathlib import Path
 
-from factory.validation.kb_validator import parse_entry
+from factory.validation.kb_validator import parse_entry, validate_entry
 
 
 def _iter_entries(kb_dir: Path):
     for path in sorted(kb_dir.glob("kb-*.md")):
-        yield parse_entry(path)
+        entry = parse_entry(path)
+        if validate_entry(entry, path):
+            continue  # skip entries that fail schema/filename validation
+        yield entry
 
 
 def select_entries(kb_dir: Path, touched_files: list[str], signatures: list[str]) -> list[str]:

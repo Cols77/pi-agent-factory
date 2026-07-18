@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from factory.validation.kb_validator import parse_entry
+from factory.validation.kb_validator import parse_entry, validate_entry
 
 
 def build_index(kb_dir: Path) -> dict:
     index: dict[str, dict] = {}
     for path in sorted(kb_dir.glob("kb-*.md")):
         e = parse_entry(path)
+        if validate_entry(e, path):
+            continue  # skip entries that fail schema/filename validation
         scope = e.get("scope", {})
         index[str(e["id"])] = {
             "files": scope.get("files", []),

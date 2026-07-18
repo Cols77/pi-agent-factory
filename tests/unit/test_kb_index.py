@@ -16,3 +16,16 @@ def test_build_index_writes_file(tmp_path):
     assert idx["kb-0001"]["status"] == "active"
     written = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
     assert written == idx
+
+
+def test_build_index_skips_invalid_entry_without_crashing(tmp_path):
+    shutil.copy(SRC_KB / "kb-0001-pybullet-arming.md", tmp_path / "kb-0001-pybullet-arming.md")
+    # Missing the required "id" field entirely: would raise KeyError if
+    # indexed without validation first.
+    (tmp_path / "kb-0002-broken.md").write_text(
+        "---\ntitle: t\nstatus: active\nseverity: low\ntags: []\nscope:\n  files: []\n---\nbody\n",
+        encoding="utf-8",
+    )
+    idx = build_index(tmp_path)
+    assert "kb-0001" in idx
+    assert len(idx) == 1
