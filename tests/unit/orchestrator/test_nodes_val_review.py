@@ -33,3 +33,18 @@ def test_review_changes_when_gate_red_even_if_dod_claimed():
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
     outcome, ev, findings = run_review(b, FakeGateRunner({"full": [1]}), _task())
     assert outcome == NodeOutcome.CHANGES  # cannot self-certify past a red gate
+
+
+def test_review_notes_backend_failure():
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(False, {}, "simulated backend failure")]})
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    assert outcome == NodeOutcome.CHANGES
+    assert ev.extra["backend_ok"] is False
+    assert ev.extra["backend_raw"] == "simulated backend failure"
+
+
+def test_review_does_not_note_backend_failure_when_ok():
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    assert outcome == NodeOutcome.PASS
+    assert "backend_ok" not in ev.extra

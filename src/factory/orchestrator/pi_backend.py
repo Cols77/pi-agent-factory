@@ -35,6 +35,38 @@ def parse_pi_json(stdout: str) -> dict:
         return {}
 
 
+def _has_json_events_without_text_field(stdout: str) -> bool:
+    """Best-effort detector for final-review Finding 1+2: the event stream contains
+    valid JSON objects, but none of them carry a string "text" field the way
+    parse_pi_json expects. That's a strong signal that a JSON field-name assumption
+    (e.g. Pi renamed/never used "text" in this event shape) is wrong, rather than
+    the agent having genuinely said nothing.
+
+    Kept separate from parse_pi_json (not folded into it) so parse_pi_json's tested
+    signature and behavior stay untouched, per the finding.
+
+    Limits: this is a heuristic over line-delimited JSON, not a full understanding
+    of Pi's event protocol. A stream that mixes text-bearing and non-text events in
+    some other unexpected way, or non-JSON/binary stdout, is not guaranteed to be
+    classified correctly — see the finding's "When You're in Over Your Head" note.
+    """
+    saw_json_object = False
+    saw_text_field = False
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            saw_json_object = True
+            if isinstance(event.get("text"), str):
+                saw_text_field = True
+    return saw_json_object and not saw_text_field
+
+
 class PiAgentBackend:
     def __init__(self, repo_root: Path, extension_path: Path, model: str | None = None) -> None:
         self._repo_root = repo_root
@@ -52,4 +84,30 @@ class PiAgentBackend:
         proc = subprocess.run(
             cmd, cwd=self._repo_root, env=env, capture_output=True, text=True
         )
-        return AgentResult(ok=proc.returncode == 0, output=parse_pi_json(proc.stdout), raw=proc.stdout)
+        output = parse_pi_json(proc.stdout)
+        ok = proc.returncode == 0
+        raw = proc.stdout
+
+        # Finding 1+2 (final review): a zero exit code with non-empty stdout that
+        # yields an empty parsed output is normally read as "the agent said
+        # nothing". If the stdout actually contains valid JSON events that just
+        # never carry a "text" field, that reading is wrong — parse_pi_json's
+        # field-name assumption doesn't match this event stream. Force ok=False
+        # and attach a distinct, diagnosable raw message instead of silently
+        # looking identical to a genuinely empty response.
+        if (
+            ok
+            and proc.stdout.strip()
+            and not output
+            and _has_json_events_without_text_field(proc.stdout)
+        ):
+            ok = False
+            raw = (
+                "pi_backend: possible field-name mismatch — subprocess exited 0 with "
+                "non-empty stdout containing valid JSON events, but none had a string "
+                '"text" field, so parse_pi_json extracted no output. This looks like an '
+                "empty agent response but is more likely parse_pi_json's event-shape "
+                "assumption being wrong for this stream. Raw stdout:\n" + proc.stdout
+            )
+
+        return AgentResult(ok=ok, output=output, raw=raw)

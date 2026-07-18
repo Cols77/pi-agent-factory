@@ -5,24 +5,40 @@ from pathlib import Path
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
-from factory.orchestrator.types import AgentRole, NodeEvent, NodeOutcome
+from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, NodeOutcome
 from factory.validation.manifest_validator import validate_manifest
+
+
+def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
+    """Finding 1+2 (final review): surface `result.ok is False` as a distinct
+    diagnostic signal in NodeEvent.extra, separate from a legitimately bad/empty
+    agent output, without changing retry/circuit-breaker control flow or outcomes.
+    """
+    if not result.ok:
+        extra["backend_ok"] = False
+        extra["backend_raw"] = result.raw
+    return extra
 
 
 def run_context_gatherer(
     backend: AgentBackend, task: Task, repo_root: Path, max_attempts: int = 2
 ) -> tuple[NodeOutcome, dict | None, NodeEvent]:
     errors: list[str] = []
+    result: AgentResult | None = None
     for attempt in range(1, max_attempts + 1):
         result = backend.run(AgentRole.CONTEXT_GATHERER, compose_prompt(AgentRole.CONTEXT_GATHERER, task))
         manifest = result.output
         if manifest.get("reject"):
-            return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", attempt,
-                                                       {"reason": manifest["reject"]})
+            extra = _note_backend_failure({"reason": manifest["reject"]}, result)
+            return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", attempt, extra)
         errors = validate_manifest(manifest, repo_root)
         if not errors and manifest.get("coherence", {}).get("proven"):
-            return NodeOutcome.PASS, manifest, NodeEvent("context-gather", "pass", attempt)
-    return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", max_attempts, {"errors": errors})
+            extra = _note_backend_failure({}, result)
+            return NodeOutcome.PASS, manifest, NodeEvent("context-gather", "pass", attempt, extra)
+    extra = {"errors": errors}
+    if result is not None:
+        extra = _note_backend_failure(extra, result)
+    return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", max_attempts, extra)
 
 
 def run_dev(
@@ -34,11 +50,16 @@ def run_dev(
     max_iters: int = 3,
     feedback: str | None = None,
 ) -> tuple[NodeOutcome, NodeEvent]:
+    result: AgentResult | None = None
     for attempt in range(1, max_iters + 1):
-        backend.run(AgentRole.DEV, compose_prompt(AgentRole.DEV, task, manifest, kb_entries, feedback))
+        result = backend.run(AgentRole.DEV, compose_prompt(AgentRole.DEV, task, manifest, kb_entries, feedback))
         if gates.run("unit") == 0:
-            return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, {"tests": "green"})
-    return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, {"reason": "unit tests red"})
+            extra = _note_backend_failure({"tests": "green"}, result)
+            return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
+    extra = {"reason": "unit tests red"}
+    if result is not None:
+        extra = _note_backend_failure(extra, result)
+    return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, extra)
 
 
 def run_validation(gates: GateRunner) -> tuple[NodeOutcome, NodeEvent]:
@@ -56,9 +77,11 @@ def run_review(
     dod_met = bool(out.get("dod_met"))
     gate = gates.run("full")
     if gate == 0 and dod_met and not findings:
-        return NodeOutcome.PASS, NodeEvent("review", "pass"), []
+        extra = _note_backend_failure({}, result)
+        return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
+    extra = _note_backend_failure({"findings": len(findings), "gate": gate}, result)
     return (
         NodeOutcome.CHANGES,
-        NodeEvent("review", "changes-requested", 1, {"findings": len(findings), "gate": gate}),
+        NodeEvent("review", "changes-requested", 1, extra),
         findings,
     )

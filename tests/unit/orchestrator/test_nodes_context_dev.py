@@ -49,3 +49,33 @@ def test_dev_escalates_when_unit_never_green():
     g = FakeGateRunner({"unit": [1, 1, 1]})
     outcome, ev = run_dev(b, g, _task(), {}, [], max_iters=3)
     assert outcome == NodeOutcome.ESCALATE and ev.attempts == 3
+
+
+def test_context_gatherer_notes_backend_failure(tmp_path):
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [
+        AgentResult(False, {}, "simulated backend failure"),
+        AgentResult(False, {}, "simulated backend failure"),
+    ]})
+    outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
+    assert outcome == NodeOutcome.REJECT and manifest is None
+    assert ev.extra["backend_ok"] is False
+    assert ev.extra["backend_raw"] == "simulated backend failure"
+
+
+def test_dev_notes_backend_failure_on_escalate():
+    b = FakeAgentBackend({AgentRole.DEV: [
+        AgentResult(False, {}, "simulated backend failure") for _ in range(3)
+    ]})
+    g = FakeGateRunner({"unit": [1, 1, 1]})
+    outcome, ev = run_dev(b, g, _task(), {}, [], max_iters=3)
+    assert outcome == NodeOutcome.ESCALATE
+    assert ev.extra["backend_ok"] is False
+    assert ev.extra["backend_raw"] == "simulated backend failure"
+
+
+def test_dev_does_not_note_backend_failure_when_ok():
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
+    g = FakeGateRunner({"unit": [0]})
+    outcome, ev = run_dev(b, g, _task(), {}, [])
+    assert outcome == NodeOutcome.PASS
+    assert "backend_ok" not in ev.extra
