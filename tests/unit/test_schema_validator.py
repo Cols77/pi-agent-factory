@@ -24,6 +24,17 @@ def test_missing_required_field_reports_error():
     assert errors  # non-empty
 
 
+def test_bad_datetime_format_reports_error():
+    obj = {
+        "task_id": "T-001",
+        "generated_by": "context-gatherer",
+        "generated_at": "not-a-date",
+        "coherence": {"proven": True, "checks": []},
+        "context": {"task": "t", "source_files": [], "skills": []},
+    }
+    assert any("generated_at" in e for e in validate(obj, MANIFEST))
+
+
 def test_bad_task_id_pattern_reports_error():
     obj = {
         "task_id": "001",

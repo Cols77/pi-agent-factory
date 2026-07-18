@@ -14,6 +14,6 @@ def validate(instance: dict, schema_path: Path | str) -> list[str]:
     Returns a list of human-readable error strings; empty means valid.
     """
     schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
-    validator = Draft202012Validator(schema)
+    validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
     errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
     return [f"{'/'.join(str(p) for p in e.path) or '<root>'}: {e.message}" for e in errors]
