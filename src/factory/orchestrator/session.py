@@ -24,7 +24,7 @@ def build_record(
                 "outcome": r.outcome,
                 "iterations": r.iterations,
                 "nodes": [
-                    {"node": e.node, "result": e.result, "attempts": e.attempts} for e in r.events
+                    {"node": e.node, "result": e.result, "attempts": e.attempts, "extra": e.extra} for e in r.events
                 ],
                 "commits": [],
                 "dod": {"met": r.dod_met},
