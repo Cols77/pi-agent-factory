@@ -62,3 +62,88 @@ def test_context_reject_short_circuits(tmp_path):
                                                               "coherence": {"proven": False, "checks": []}})]}
     r = run_task(task, FakeAgentBackend(scripts), FakeGateRunner(), repo)
     assert r.outcome == "rejected"
+
+
+def test_validation_fails_until_exhausted(tmp_path):
+    """Validation gate fails every cycle until max_review_cycles is exhausted.
+
+    Expected: outcome='escalated', iterations=max_review_cycles
+    Scenario: dev succeeds each cycle, unit gate passes, but sim gate fails every time.
+    """
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    max_review_cycles = 2
+
+    # Validation fails when sim gate returns non-zero
+    # Each cycle: run_dev (calls unit once) -> run_validation (calls sim once)
+    # Need: 2 DEV results, unit=[0,0], sim=[1,1]
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})],
+    }
+    gates = FakeGateRunner({
+        "unit": [0, 0],  # unit passes both cycles
+        "sim": [1, 1],   # sim fails both cycles
+    })
+    r = run_task(task, FakeAgentBackend(scripts), gates, repo, max_review_cycles=max_review_cycles)
+
+    assert r.outcome == "escalated"
+    assert r.iterations == max_review_cycles
+
+
+def test_review_requests_changes_until_exhausted(tmp_path):
+    """Review requests changes every cycle until max_review_cycles is exhausted.
+
+    Expected: outcome='escalated', iterations=max_review_cycles
+    Scenario: dev succeeds, gates pass, but review always returns dod_met=False.
+    """
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    max_review_cycles = 2
+
+    # Each cycle: run_dev (dev agent + unit gate) -> run_validation (sim gate) -> run_review (review agent + full gate)
+    # Need: 2 DEV, 2 REVIEW (each with dod_met=False), unit=[0,0], sim=[0,0], full=[0,0]
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})],
+        AgentRole.REVIEW: [
+            AgentResult(True, {"dod_met": False, "findings": ["still broken"]}),
+            AgentResult(True, {"dod_met": False, "findings": ["still broken"]}),
+        ],
+    }
+    gates = FakeGateRunner({
+        "unit": [0, 0],   # unit passes both cycles
+        "sim": [0, 0],    # sim passes both cycles
+        "full": [0, 0],   # full gate passes both cycles (but dod_met=False means review fails)
+    })
+    r = run_task(task, FakeAgentBackend(scripts), gates, repo, max_review_cycles=max_review_cycles)
+
+    assert r.outcome == "escalated"
+    assert r.iterations == max_review_cycles
+
+
+def test_dev_escalates_immediately(tmp_path):
+    """Dev exhausts its own max_dev_iters retries and escalates on first cycle.
+
+    Expected: outcome='escalated', iterations=1
+    Scenario: unit gate fails max_dev_iters times, causing dev to return ESCALATE.
+    run_task should return immediately without continuing the review loop.
+    """
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    max_dev_iters = 3
+
+    # run_dev loops max_dev_iters times calling DEV agent and unit gate
+    # All unit calls must fail (non-zero) to exhaust dev
+    # Need: max_dev_iters DEV results, unit=[1,1,1]
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {}), AgentResult(True, {})],
+    }
+    gates = FakeGateRunner({
+        "unit": [1, 1, 1],  # unit fails all attempts, causing dev to escalate
+    })
+    r = run_task(task, FakeAgentBackend(scripts), gates, repo, max_dev_iters=max_dev_iters)
+
+    assert r.outcome == "escalated"
+    assert r.iterations == 1  # Should return after first iteration, not continue looping
