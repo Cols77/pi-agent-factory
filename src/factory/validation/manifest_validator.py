@@ -17,8 +17,16 @@ def validate_manifest(manifest: dict, repo_root: Path) -> list[str]:
         return errors
 
     coherence = manifest.get("coherence", {})
-    if not coherence.get("proven"):
-        return []
+    if coherence.get("proven") is not True:
+        return ["coherence.proven must be true for the gate to pass"]
+
+    failing_checks = [
+        c.get("name", "<unnamed>")
+        for c in coherence.get("checks", [])
+        if c.get("pass") is not True
+    ]
+    if failing_checks:
+        return [f"coherence.proven is true but check(s) failed: {', '.join(failing_checks)}"]
 
     ctx = manifest.get("context", {})
     refs: list[str] = []

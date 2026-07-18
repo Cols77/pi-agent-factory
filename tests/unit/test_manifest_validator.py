@@ -35,8 +35,19 @@ def test_anchor_is_stripped_before_existence_check(tmp_path):
     assert validate_manifest(m, tmp_path) == []
 
 
-def test_unproven_manifest_skips_path_checks(tmp_path):
+def test_unproven_manifest_fails_gate(tmp_path):
     m = _manifest(tmp_path, source_files=["nope.py"])
     m["coherence"]["proven"] = False
-    # schema still ok; path checks skipped when not proven
-    assert validate_manifest(m, tmp_path) == []
+    # Gate per spec: "coherence.proven === true" is required to pass, even
+    # though the manifest is otherwise schema-valid (a REJECT manifest).
+    errors = validate_manifest(m, tmp_path)
+    assert errors
+    assert any("proven" in e for e in errors)
+
+
+def test_proven_true_with_failing_check_fails_gate(tmp_path):
+    m = _manifest(tmp_path)
+    m["coherence"]["checks"] = [{"name": "task-exists", "pass": False, "evidence": "missing"}]
+    errors = validate_manifest(m, tmp_path)
+    assert errors
+    assert any("task-exists" in e for e in errors)
