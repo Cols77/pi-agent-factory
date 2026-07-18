@@ -39,3 +39,26 @@ def run_dev(
         if gates.run("unit") == 0:
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, {"tests": "green"})
     return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, {"reason": "unit tests red"})
+
+
+def run_validation(gates: GateRunner) -> tuple[NodeOutcome, NodeEvent]:
+    if gates.run("sim") == 0:
+        return NodeOutcome.PASS, NodeEvent("validation", "pass")
+    return NodeOutcome.FAIL, NodeEvent("validation", "fail")
+
+
+def run_review(
+    backend: AgentBackend, gates: GateRunner, task: Task
+) -> tuple[NodeOutcome, NodeEvent, list[str]]:
+    result = backend.run(AgentRole.REVIEW, compose_prompt(AgentRole.REVIEW, task))
+    out = result.output
+    findings = list(out.get("findings", []))
+    dod_met = bool(out.get("dod_met"))
+    gate = gates.run("full")
+    if gate == 0 and dod_met and not findings:
+        return NodeOutcome.PASS, NodeEvent("review", "pass"), []
+    return (
+        NodeOutcome.CHANGES,
+        NodeEvent("review", "changes-requested", 1, {"findings": len(findings), "gate": gate}),
+        findings,
+    )
