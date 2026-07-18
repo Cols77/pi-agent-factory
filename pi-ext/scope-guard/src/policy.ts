@@ -21,8 +21,16 @@ export function decide(
   }
 
   if (WRITE_TOOLS.includes(event.toolName)) {
-    const path = event.input.path;
-    if (!path) {
+    // Defensive: `event.input` crosses an external (Pi runtime) boundary and
+    // may not actually conform to our declared type at runtime (absent,
+    // null, a non-object, or missing/non-string `path`). Fail closed with
+    // the same block result as the "no path" case rather than throwing.
+    const input: unknown = event.input;
+    const path =
+      typeof input === "object" && input !== null
+        ? (input as { path?: unknown }).path
+        : undefined;
+    if (typeof path !== "string" || !path) {
       return { block: true, reason: "scope-guard: write tool called without a path" };
     }
     if (!isPathAllowed(path, ctx.cwd, allowGlobs)) {

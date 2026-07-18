@@ -25,6 +25,21 @@ describe("decide", () => {
     const r = decide(ev("write", {}), ctx, ["src/**"], "deny");
     expect(r?.block).toBe(true);
   });
+  test("blocks write with undefined input (fail-closed, malformed event)", () => {
+    const malformed = { toolName: "write", input: undefined } as unknown as ToolCallEvent;
+    const r = decide(malformed, ctx, ["src/**"], "deny");
+    expect(r?.block).toBe(true);
+  });
+  test("blocks write with non-object input (fail-closed, malformed event)", () => {
+    const malformed = { toolName: "write", input: "not-an-object" } as unknown as ToolCallEvent;
+    const r = decide(malformed, ctx, ["src/**"], "deny");
+    expect(r?.block).toBe(true);
+  });
+  test("blocks write with non-string path field (fail-closed, malformed event)", () => {
+    const malformed = { toolName: "edit", input: { path: 123 } } as unknown as ToolCallEvent;
+    const r = decide(malformed, ctx, ["src/**"], "deny");
+    expect(r?.block).toBe(true);
+  });
   test("blocks bash when policy deny", () => {
     expect(decide(ev("bash", { command: "ls" }), ctx, [], "deny")?.block).toBe(true);
   });
