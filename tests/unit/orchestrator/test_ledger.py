@@ -31,3 +31,13 @@ def test_set_status_rewrites(tmp_path):
     task = load_tasks(tmp_path)[0]
     set_status(task, "done")
     assert load_tasks(tmp_path)[0].status == "done"
+
+
+def test_scalar_dod_normalized_to_list(tmp_path):
+    # Write a task file with scalar (non-list) dod value
+    (tmp_path / "T-001-a.md").write_text(
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod: single scalar value\n---\nbody\n",
+        encoding="utf-8",
+    )
+    tasks = load_tasks(tmp_path)
+    assert tasks[0].dod == ["single scalar value"]

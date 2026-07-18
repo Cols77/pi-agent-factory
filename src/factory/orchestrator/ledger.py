@@ -24,11 +24,17 @@ def _parse(path: Path) -> Task:
     missing = [k for k in _REQUIRED if k not in meta]
     if missing:
         raise ValueError(f"{path.name}: missing required field(s): {missing}")
+    # Normalize dod: if it's a scalar string, wrap it in a list; if already a list, use as-is
+    dod_value = meta["dod"]
+    if isinstance(dod_value, str):
+        dod = [dod_value]
+    else:
+        dod = list(dod_value)  # type: ignore[arg-type]
     return Task(
         id=str(meta["id"]),
         title=str(meta["title"]),
         status=str(meta["status"]),
-        dod=list(meta["dod"]),  # type: ignore[arg-type]
+        dod=dod,
         body=post.content,
         path=path,
     )
