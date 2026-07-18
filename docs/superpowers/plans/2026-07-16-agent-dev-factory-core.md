@@ -6,11 +6,12 @@
 
 **Architecture:** Pure-Python foundation. Product code lives behind Protocol interfaces (`FlightController`, `Planner`, `Perception`) so a deterministic `Fake` and a real `PyBullet` adapter are interchangeable. Factory machinery is deterministic: JSON-Schema-validated artifacts (context manifest, KB entry, session record), glob/substring KB retrieval with no inference, and gate scripts that return exit codes only. Nothing here calls an LLM.
 
-**Tech Stack:** Python 3.11, `uv` (env/deps), `ruff` (lint/format), `pyright` (types), `pytest` (tests, markers `unit`/`sim`), `jsonschema` (draft 2020-12), `pyyaml` + `python-frontmatter` (KB parsing), `gym-pybullet-drones` + `pybullet` (sim).
+**Tech Stack:** Python 3.11, `uv` (env/deps), `ruff` (lint/format), `pyright` (types), `pytest` (tests, markers `unit`/`sim`), `jsonschema` (draft 2020-12), `pyyaml` + `python-frontmatter` (KB parsing), `gym-pybullet-drones` (pinned GitHub commit; brings `pybullet`) for sim.
 
 ## Global Constraints
 
-- Python **>= 3.11** (exact floor; use 3.11 features freely, e.g. `X | None`).
+- Python **>= 3.11, < 3.13** (floor for 3.11 syntax like `X | None`; capped below 3.13 so the heavy binary deps — pybullet/torch via gym-pybullet-drones — have Windows wheels).
+- The sim dependency **`gym-pybullet-drones` is installed from a pinned GitHub commit** (`e712698`), not PyPI (it is unpublished). `uv sync` will pull heavy transitive deps (torch via stable-baselines3); allow a long timeout. If the git dependency genuinely fails to build/install, that is a BLOCKED report, not something to hack around.
 - Platform is **Windows 10** + PowerShell; a POSIX `bash` is also available. All gate entrypoints are **Python scripts** (`python scripts/gates/<name>.py`) for cross-platform parity — no `.sh`-only gates.
 - **Gates return exit codes only** (0 = pass, non-zero = fail). No gate prints a verdict that a caller must parse; routing is the exit code.
 - **KB is append-first.** Retrieval is deterministic (fnmatch globs + substring), never semantic. No hard deletes in this plan.
@@ -80,13 +81,13 @@ tasks/.gitkeep  context-manifests/.gitkeep  sessions/.gitkeep
 [project]
 name = "cool-physical-ai-project"
 version = "0.0.1"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 dependencies = [
   "jsonschema>=4.21",
   "pyyaml>=6.0",
   "python-frontmatter>=1.1",
-  "gym-pybullet-drones>=1.0.0",
-  "pybullet>=3.2.6",
+  "numpy>=2.2",
+  "gym-pybullet-drones @ git+https://github.com/utiasDSL/gym-pybullet-drones.git@e712698a05a80728b06572819dcf044596707754",
 ]
 
 [dependency-groups]
