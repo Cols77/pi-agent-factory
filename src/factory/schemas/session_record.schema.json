@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["session_id", "started_at", "model_backend", "tasks"],
+  "properties": {
+    "session_id": {"type": "string"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": ["string", "null"]},
+    "model_backend": {"type": "string"},
+    "git": {"type": "object"},
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task_id", "outcome", "nodes"],
+        "properties": {
+          "task_id": {"type": "string", "pattern": "^T-[0-9]+$"},
+          "title": {"type": "string"},
+          "outcome": {"enum": ["completed", "rejected", "escalated"]},
+          "iterations": {"type": "integer", "minimum": 0},
+          "nodes": {"type": "array", "items": {"type": "object", "required": ["node", "result"]}},
+          "commits": {"type": "array", "items": {"type": "string"}},
+          "dod": {"type": "object"}
+        }
+      }
+    },
+    "kb_changes": {"type": "object"},
+    "escalations": {"type": "array"},
+    "resume": {"type": "object"}
+  }
+}

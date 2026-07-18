@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["task_id", "generated_by", "generated_at", "coherence", "context"],
+  "properties": {
+    "task_id": {"type": "string", "pattern": "^T-[0-9]+$"},
+    "generated_by": {"const": "context-gatherer"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "coherence": {
+      "type": "object",
+      "required": ["proven", "checks"],
+      "properties": {
+        "proven": {"type": "boolean"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "pass"],
+            "properties": {
+              "name": {"type": "string"},
+              "pass": {"type": "boolean"},
+              "evidence": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["task", "source_files", "skills"],
+      "properties": {
+        "spec": {"type": "array", "items": {"type": "string"}},
+        "plan": {"type": "array", "items": {"type": "string"}},
+        "task": {"type": "string"},
+        "prior_session": {"type": ["string", "null"]},
+        "source_files": {"type": "array", "items": {"type": "string"}},
+        "kb_entries": {"type": "array", "items": {"type": "string"}},
+        "skills": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "reject": {"type": ["object", "null"]}
+  }
+}

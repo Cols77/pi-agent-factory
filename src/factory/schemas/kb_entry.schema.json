@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "title", "status", "severity", "tags", "scope"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^kb-[0-9]{4}$"},
+    "title": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "superseded", "archived"]},
+    "severity": {"enum": ["high", "medium", "low"]},
+    "created": {"type": "string"},
+    "last_seen": {"type": "string"},
+    "occurrences": {"type": "integer", "minimum": 1},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "scope": {
+      "type": "object",
+      "required": ["files"],
+      "properties": {
+        "files": {"type": "array", "items": {"type": "string"}},
+        "error_signatures": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "detection": {"type": "string"}
+  }
+}
