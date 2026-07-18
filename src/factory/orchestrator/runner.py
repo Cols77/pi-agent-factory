@@ -77,7 +77,13 @@ def run_next(
     backend: AgentBackend,
     gates: GateRunner,
     *,
-    model_backend: str = "anthropic:claude-opus-4-8",
+    # Finding 3 (final review): PiAgentBackend never passes --model to the real
+    # `pi` CLI (it runs on Pi's own ambient/default model selection), so naming a
+    # specific model here would be a false claim baked into the session record.
+    # "pi:unspecified" honestly reflects "ran via Pi's own model selection, not
+    # explicitly chosen by the orchestrator" instead of a model that was never
+    # actually selected.
+    model_backend: str = "pi:unspecified",
     session_id: str | None = None,
     git_info: dict | None = None,
 ) -> Path | None:
