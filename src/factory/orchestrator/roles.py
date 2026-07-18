@@ -11,6 +11,14 @@ class Scope:
     bash: str  # "allow" | "deny"
 
 
+# Finding 4 (final review): AgentRole.VALIDATION and AgentRole.SESSION_WRITER have
+# full entries below (skills/scope/prompt, including the scope-guard env-var
+# contract) for completeness, but neither is ever invoked as a real agent today.
+# run_validation (nodes.py) runs the sim gate directly with no agent call, and
+# session writing (session.build_record/write_session) is pure Python. So the
+# Scope/prompt/skill rows for those two roles are intentionally dead code right
+# now: a deterministic gate/pure-Python step is preferable to an LLM agent for
+# these two steps. No functional change implied by this comment.
 ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.CONTEXT_GATHERER: ["verification-before-completion", "context-completeness-audit"],
     AgentRole.DEV: [
