@@ -8,6 +8,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.2",
     "@types/node": "^18.19.130",
     "minimatch": "^10.0.0",
     "typescript": "^5.5.0",
