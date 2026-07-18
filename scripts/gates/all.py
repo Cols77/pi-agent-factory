@@ -4,7 +4,9 @@ from _proc import run_and_propagate
 GATES = [
     ["ruff", "check", "."],
     ["pyright"],
-    ["pytest", "-m", "unit", "-q"],
+    # Excludes test_all_gate.py: that test spawns this very script, so
+    # including it here would make all.py recurse into itself without bound.
+    ["pytest", "-m", "unit", "-q", "--ignore=tests/gates/test_all_gate.py"],
 ]
 
 if __name__ == "__main__":
