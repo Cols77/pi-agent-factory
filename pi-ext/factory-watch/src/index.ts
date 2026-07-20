@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
-import { buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
+import { buildListCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus } from "./status-format.js";
 
@@ -127,6 +127,20 @@ export default function factoryWatch(pi: PiApi): void {
       stopPolling();
       ctx.ui.setWidget("factory", undefined);
       ctx.ui.notify("factory stopped", "info");
+    },
+  });
+
+  pi.registerCommand("factory-tasks", {
+    description: "List factory tasks grouped by status",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const cmd = buildListCommand();
+      const result = spawnSync(cmd.bin, cmd.args, { cwd: ctx.cwd, encoding: "utf-8" });
+      if (result.status !== 0) {
+        ctx.ui.notify(`factory-tasks failed: ${result.stderr || "unknown error"}`, "error");
+        return;
+      }
+      const lines = result.stdout.split(/\r?\n/).filter((line) => line.length > 0);
+      ctx.ui.setWidget("factory-tasks", lines);
     },
   });
 }

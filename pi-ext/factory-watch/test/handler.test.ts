@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
@@ -40,10 +41,15 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
 }
 
 describe("factory-watch commands", () => {
-  test("registers both factory and factory-stop", () => {
+  beforeEach(() => {
+    vi.mocked(spawnSync).mockReset();
+  });
+
+  test("registers factory, factory-stop, and factory-tasks", () => {
     const { commands } = capture();
     expect(commands.has("factory")).toBe(true);
     expect(commands.has("factory-stop")).toBe(true);
+    expect(commands.has("factory-tasks")).toBe(true);
   });
 
   test("/factory notifies an error and does nothing else when no model is active", async () => {
@@ -81,5 +87,36 @@ describe("factory-watch commands", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("/factory-tasks renders the task board via a widget", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "TODO (1)\n  T-001  Example task\n",
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("factory-tasks")!.handler("", ctx);
+
+    expect(ctx.ui.setWidget).toHaveBeenCalledWith("factory-tasks", [
+      "TODO (1)",
+      "  T-001  Example task",
+    ]);
+  });
+
+  test("/factory-tasks notifies an error when the CLI call fails", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "boom",
+    } as ReturnType<typeof spawnSync>);
+
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("factory-tasks")!.handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("boom"), "error");
   });
 });
