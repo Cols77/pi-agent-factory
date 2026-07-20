@@ -1,7 +1,16 @@
 from pathlib import Path
 
 import pytest
-from factory.orchestrator.ledger import Task, format_task_board, load_tasks, next_todo, set_status
+from factory.orchestrator.ledger import (
+    Task,
+    TaskNotFoundError,
+    TaskNotTodoError,
+    format_task_board,
+    get_task,
+    load_tasks,
+    next_todo,
+    set_status,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -72,3 +81,26 @@ def test_format_task_board_preserves_input_order_within_group():
     tasks = [_task("T-002", "b", "todo"), _task("T-001", "a", "todo")]
     board = format_task_board(tasks)
     assert board.index("T-002") < board.index("T-001")
+
+
+def test_get_task_found():
+    tasks = [_task("T-001", "a", "todo"), _task("T-002", "b", "done")]
+    assert get_task(tasks, "T-002").title == "b"
+
+
+def test_get_task_not_found_returns_none():
+    tasks = [_task("T-001", "a", "todo")]
+    assert get_task(tasks, "T-999") is None
+
+
+def test_task_not_found_error_message():
+    err = TaskNotFoundError("T-999")
+    assert err.task_id == "T-999"
+    assert "T-999" in str(err)
+
+
+def test_task_not_todo_error_message():
+    err = TaskNotTodoError("T-001", "done")
+    assert err.task_id == "T-001"
+    assert err.status == "done"
+    assert "T-001" in str(err) and "done" in str(err)

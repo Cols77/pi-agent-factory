@@ -48,6 +48,23 @@ def next_todo(tasks: list[Task]) -> Task | None:
     return next((t for t in tasks if t.status == "todo"), None)
 
 
+def get_task(tasks: list[Task], task_id: str) -> Task | None:
+    return next((t for t in tasks if t.id == task_id), None)
+
+
+class TaskNotFoundError(RuntimeError):
+    def __init__(self, task_id: str) -> None:
+        super().__init__(f"task not found: {task_id}")
+        self.task_id = task_id
+
+
+class TaskNotTodoError(RuntimeError):
+    def __init__(self, task_id: str, status: str) -> None:
+        super().__init__(f"task {task_id} is not todo (status: {status})")
+        self.task_id = task_id
+        self.status = status
+
+
 def set_status(task: Task, status: str) -> None:
     post = frontmatter.load(str(task.path))
     post["status"] = status
