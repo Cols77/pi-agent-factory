@@ -211,6 +211,9 @@ def test_validation_exhaustion_reports_actual_last_node(tmp_path):
     assert final["node"] == "validation", f"Expected node='validation', got {final['node']}"
     assert final["node_state"] == "fail", f"Expected node_state='fail', got {final['node_state']}"
     assert final["outcome"] == "escalated"
+    # Cycle counts should reflect the number of review cycles exhausted
+    assert final["attempt"] == max_review_cycles, f"Expected attempt={max_review_cycles}, got {final['attempt']}"
+    assert final["max_attempts"] == max_review_cycles, f"Expected max_attempts={max_review_cycles}, got {final['max_attempts']}"
 
 
 def test_review_exhaustion_reports_actual_last_node(tmp_path):
@@ -251,3 +254,6 @@ def test_review_exhaustion_reports_actual_last_node(tmp_path):
     assert final["node"] == "review", f"Expected node='review', got {final['node']}"
     assert final["node_state"] == "changes-requested", f"Expected node_state='changes-requested', got {final['node_state']}"
     assert final["outcome"] == "escalated"
+    # Cycle counts should reflect the number of review cycles exhausted
+    assert final["attempt"] == max_review_cycles, f"Expected attempt={max_review_cycles}, got {final['attempt']}"
+    assert final["max_attempts"] == max_review_cycles, f"Expected max_attempts={max_review_cycles}, got {final['max_attempts']}"

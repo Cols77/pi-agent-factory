@@ -61,7 +61,13 @@ def is_pid_alive(pid: int) -> bool:
 
 def acquire_lock(path: Path, pid: int, started_at: str) -> None:
     """Raise AlreadyRunningError if a live lock already exists; otherwise
-    (no lock, or a stale lock left by a dead process) write a fresh lock."""
+    (no lock, or a stale lock left by a dead process) write a fresh lock.
+
+    Note: read_lock + is_pid_alive and write_lock are not atomic, leaving a TOCTOU
+    race where two processes could both pass the check and write a lock. This is an
+    accepted limitation given the invocation model (human-triggered or Pi extension
+    single-run launch, not tight concurrent spawning).
+    """
     existing = read_lock(path)
     if existing is not None and is_pid_alive(existing.pid):
         raise AlreadyRunningError(existing.pid)
