@@ -53,3 +53,26 @@ def set_status(task: Task, status: str) -> None:
     post["status"] = status
     task.path.write_text(frontmatter.dumps(post), encoding="utf-8")
     task.status = status
+
+
+_STATUS_ORDER = ("todo", "done", "rejected", "escalated")
+
+
+def format_task_board(tasks: list[Task]) -> str:
+    if not tasks:
+        return "no tasks"
+
+    by_status: dict[str, list[Task]] = {}
+    for t in tasks:
+        by_status.setdefault(t.status, []).append(t)
+
+    order = [s for s in _STATUS_ORDER if s in by_status]
+    order += sorted(s for s in by_status if s not in _STATUS_ORDER)
+
+    lines: list[str] = []
+    for status in order:
+        group = by_status[status]
+        lines.append(f"{status.upper()} ({len(group)})")
+        lines.extend(f"  {t.id}  {t.title}" for t in group)
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")

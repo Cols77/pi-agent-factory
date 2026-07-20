@@ -1,5 +1,7 @@
+from pathlib import Path
+
 import pytest
-from factory.orchestrator.ledger import load_tasks, next_todo, set_status
+from factory.orchestrator.ledger import Task, format_task_board, load_tasks, next_todo, set_status
 
 pytestmark = pytest.mark.unit
 
@@ -10,6 +12,10 @@ def _write(tmp_path, name, status="todo"):
         f"status: {status}\ndod:\n  - x\n---\nbody\n",
         encoding="utf-8",
     )
+
+
+def _task(id_, title, status):
+    return Task(id=id_, title=title, status=status, dod=["x"], body="", path=Path(f"{id_}.md"))
 
 
 def test_load_and_next_todo(tmp_path):
@@ -41,3 +47,28 @@ def test_scalar_dod_normalized_to_list(tmp_path):
     )
     tasks = load_tasks(tmp_path)
     assert tasks[0].dod == ["single scalar value"]
+
+
+def test_format_task_board_groups_by_status_with_counts():
+    tasks = [
+        _task("T-001", "First task", "todo"),
+        _task("T-002", "Second task", "done"),
+        _task("T-003", "Third task", "todo"),
+    ]
+    board = format_task_board(tasks)
+    assert "TODO (2)" in board
+    assert "DONE (1)" in board
+    assert "T-001  First task" in board
+    assert "T-003  Third task" in board
+    assert "T-002  Second task" in board
+    assert board.index("TODO (2)") < board.index("DONE (1)")
+
+
+def test_format_task_board_empty_ledger():
+    assert format_task_board([]) == "no tasks"
+
+
+def test_format_task_board_preserves_input_order_within_group():
+    tasks = [_task("T-002", "b", "todo"), _task("T-001", "a", "todo")]
+    board = format_task_board(tasks)
+    assert board.index("T-002") < board.index("T-001")

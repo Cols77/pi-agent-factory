@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator.backends import SubprocessGateRunner
+from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.orchestrator.runner import run_next
@@ -26,13 +27,18 @@ def _now_id() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="factory.orchestrator")
-    parser.add_argument("command", choices=["run"])
+    parser.add_argument("command", choices=["run", "list"])
     parser.add_argument("--repo", default=".")
     parser.add_argument("--provider", default=None, help="Pi provider, e.g. openrouter")
     parser.add_argument("--model", default=None, help="Pi model id, e.g. anthropic/claude-opus-4")
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
+
+    if args.command == "list":
+        print(format_task_board(load_tasks(repo_root / "tasks")))
+        return
+
     ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
     backend = PiAgentBackend(
         repo_root=repo_root, extension_path=ext, provider=args.provider, model=args.model
