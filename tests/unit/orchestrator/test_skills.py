@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 from factory.orchestrator.skills import load_skill_block
 
 pytestmark = pytest.mark.unit
