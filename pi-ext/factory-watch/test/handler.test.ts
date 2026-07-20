@@ -59,16 +59,12 @@ describe("factory-watch commands", () => {
     vi.mocked(spawnSync).mockReset();
   });
 
-  // NOTE: the source plan's Task 13 test list also asserts `factory-run`, but
-  // that command isn't wired until Task 14 (a separate, later task -- see
-  // docs/superpowers/plans/2026-07-20-factory-plan-and-run.md:2473). Asserting
-  // it here would make this test permanently fail within Task 13's own scope,
-  // so it's deferred to Task 14, which is the one that actually adds it.
-  test("registers factory, factory-stop, factory-tasks, and plan", () => {
+  test("registers factory, factory-stop, factory-tasks, factory-run, and plan", () => {
     const { commands } = capture();
     expect(commands.has("factory")).toBe(true);
     expect(commands.has("factory-stop")).toBe(true);
     expect(commands.has("factory-tasks")).toBe(true);
+    expect(commands.has("factory-run")).toBe(true);
     expect(commands.has("plan")).toBe(true);
   });
 
