@@ -66,7 +66,7 @@ def run_task(
         iterations += 1
 
         d_outcome, d_ev = run_dev(
-            backend, gates, task, manifest, kb_entries, max_dev_iters, feedback, status=status
+            backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback, status=status
         )
         events.append(d_ev)
         if d_outcome == NodeOutcome.ESCALATE:
@@ -81,7 +81,7 @@ def run_task(
             feedback = "functional/sim tests failed"
             continue
 
-        r_outcome, r_ev, findings = run_review(backend, gates, task, status=status)
+        r_outcome, r_ev, findings = run_review(backend, gates, task, repo_root, status=status)
         events.append(r_ev)
         if r_outcome == NodeOutcome.PASS:
             _report_node(status, task.id, r_ev, 1, outcome="completed")

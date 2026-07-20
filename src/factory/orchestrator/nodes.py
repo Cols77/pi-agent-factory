@@ -43,7 +43,8 @@ def run_context_gatherer(
             )
 
         result = backend.run(
-            AgentRole.CONTEXT_GATHERER, compose_prompt(AgentRole.CONTEXT_GATHERER, task),
+            AgentRole.CONTEXT_GATHERER,
+            compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills"),
             on_snippet=_on_snippet,
         )
         manifest = result.output
@@ -66,6 +67,7 @@ def run_dev(
     task: Task,
     manifest: dict,
     kb_entries: list[dict],
+    repo_root: Path,
     max_iters: int = 3,
     feedback: str | None = None,
     status: StatusReporter = NullStatusReporter(),
@@ -84,7 +86,11 @@ def run_dev(
             )
 
         result = backend.run(
-            AgentRole.DEV, compose_prompt(AgentRole.DEV, task, manifest, kb_entries, feedback),
+            AgentRole.DEV,
+            compose_prompt(
+                AgentRole.DEV, task, manifest, kb_entries, feedback,
+                skills_dir=repo_root / ".pi" / "skills",
+            ),
             on_snippet=_on_snippet,
         )
         if gates.run("unit") == 0:
@@ -109,6 +115,7 @@ def run_review(
     backend: AgentBackend,
     gates: GateRunner,
     task: Task,
+    repo_root: Path,
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
     status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
@@ -119,7 +126,11 @@ def run_review(
             attempt=1, max_attempts=1, snippet=text,
         )
 
-    result = backend.run(AgentRole.REVIEW, compose_prompt(AgentRole.REVIEW, task), on_snippet=_on_snippet)
+    result = backend.run(
+        AgentRole.REVIEW,
+        compose_prompt(AgentRole.REVIEW, task, skills_dir=repo_root / ".pi" / "skills"),
+        on_snippet=_on_snippet,
+    )
     out = result.output
     findings = list(out.get("findings", []))
     dod_met = bool(out.get("dod_met"))

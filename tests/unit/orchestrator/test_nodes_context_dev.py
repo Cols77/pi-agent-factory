@@ -5,6 +5,7 @@ from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.nodes import run_context_gatherer, run_dev
 from factory.orchestrator.status import FakeStatusReporter
+from ._skill_fixtures import write_skill_stubs
 
 pytestmark = pytest.mark.unit
 
@@ -26,33 +27,38 @@ def _manifest(tmp_path, proven=True, reject=None):
 
 
 def test_context_gatherer_pass(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path))]})
     outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
     assert outcome == NodeOutcome.PASS and manifest is not None and ev.result == "pass"
 
 
 def test_context_gatherer_reject_on_reject_field(tmp_path):
+    write_skill_stubs(tmp_path)
     m = _manifest(tmp_path, proven=False, reject={"reason": "DoD unclear"})
     b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, m)]})
     outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
     assert outcome == NodeOutcome.REJECT and manifest is None
 
 
-def test_dev_passes_when_unit_green():
+def test_dev_passes_when_unit_green(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
     g = FakeGateRunner({"unit": [0]})
-    outcome, ev = run_dev(b, g, _task(), {}, [])
+    outcome, ev = run_dev(b, g, _task(), {}, [], tmp_path)
     assert outcome == NodeOutcome.PASS
 
 
-def test_dev_escalates_when_unit_never_green():
+def test_dev_escalates_when_unit_never_green(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}) for _ in range(3)]})
     g = FakeGateRunner({"unit": [1, 1, 1]})
-    outcome, ev = run_dev(b, g, _task(), {}, [], max_iters=3)
+    outcome, ev = run_dev(b, g, _task(), {}, [], tmp_path, max_iters=3)
     assert outcome == NodeOutcome.ESCALATE and ev.attempts == 3
 
 
 def test_context_gatherer_notes_backend_failure(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [
         AgentResult(False, {}, "simulated backend failure"),
         AgentResult(False, {}, "simulated backend failure"),
@@ -63,26 +69,29 @@ def test_context_gatherer_notes_backend_failure(tmp_path):
     assert ev.extra["backend_raw"] == "simulated backend failure"
 
 
-def test_dev_notes_backend_failure_on_escalate():
+def test_dev_notes_backend_failure_on_escalate(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [
         AgentResult(False, {}, "simulated backend failure") for _ in range(3)
     ]})
     g = FakeGateRunner({"unit": [1, 1, 1]})
-    outcome, ev = run_dev(b, g, _task(), {}, [], max_iters=3)
+    outcome, ev = run_dev(b, g, _task(), {}, [], tmp_path, max_iters=3)
     assert outcome == NodeOutcome.ESCALATE
     assert ev.extra["backend_ok"] is False
     assert ev.extra["backend_raw"] == "simulated backend failure"
 
 
-def test_dev_does_not_note_backend_failure_when_ok():
+def test_dev_does_not_note_backend_failure_when_ok(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
     g = FakeGateRunner({"unit": [0]})
-    outcome, ev = run_dev(b, g, _task(), {}, [])
+    outcome, ev = run_dev(b, g, _task(), {}, [], tmp_path)
     assert outcome == NodeOutcome.PASS
     assert "backend_ok" not in ev.extra
 
 
 def test_context_gatherer_reports_running_each_attempt(tmp_path):
+    write_skill_stubs(tmp_path)
     status = FakeStatusReporter()
     b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path))]})
     run_context_gatherer(b, _task(), tmp_path, status=status)
@@ -92,7 +101,8 @@ def test_context_gatherer_reports_running_each_attempt(tmp_path):
     assert status.calls[0]["max_attempts"] == 2
 
 
-def test_dev_reports_running_each_attempt_and_passes_on_snippet():
+def test_dev_reports_running_each_attempt_and_passes_on_snippet(tmp_path):
+    write_skill_stubs(tmp_path)
     status = FakeStatusReporter()
 
     class SnippetCapturingBackend:
@@ -103,9 +113,8 @@ def test_dev_reports_running_each_attempt_and_passes_on_snippet():
 
     b = SnippetCapturingBackend()
     g = FakeGateRunner({"unit": [0]})
-    run_dev(b, g, _task(), {}, [], status=status)
+    run_dev(b, g, _task(), {}, [], tmp_path, status=status)
     assert status.calls[0]["node"] == "dev"
     assert status.calls[0]["node_state"] == "running"
-    # A second report should have arrived carrying the live snippet.
     snippets = [c["snippet"] for c in status.calls if c["snippet"]]
     assert snippets == ["partial output"]

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.roles import ROLE_PROMPTS, ROLE_SKILLS
+from factory.orchestrator.skills import load_skill_block
 from factory.orchestrator.types import AgentRole
 
 
@@ -11,6 +14,8 @@ def compose_prompt(
     manifest: dict | None = None,
     kb_entries: list[dict] | None = None,
     feedback: str | None = None,
+    *,
+    skills_dir: Path,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Role: {role.value}")
@@ -18,7 +23,7 @@ def compose_prompt(
     lines.append("")
     lines.append("## Loaded skills")
     for skill in ROLE_SKILLS[role]:
-        lines.append(f"- {skill}")
+        lines.append(load_skill_block(skills_dir, skill))
     lines.append("")
     lines.append(f"## Task {task.id}: {task.title}")
     lines.append(task.body.strip())

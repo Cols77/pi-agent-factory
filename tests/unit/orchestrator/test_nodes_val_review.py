@@ -5,6 +5,7 @@ from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.nodes import run_validation, run_review
 from factory.orchestrator.status import FakeStatusReporter
+from ._skill_fixtures import write_skill_stubs
 
 pytestmark = pytest.mark.unit
 
@@ -18,35 +19,40 @@ def test_validation_pass_and_fail():
     assert run_validation(FakeGateRunner({"sim": [1]}))[0] == NodeOutcome.FAIL
 
 
-def test_review_pass_requires_green_gate_and_dod_and_no_findings():
+def test_review_pass_requires_green_gate_and_dod_and_no_findings(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
-    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), tmp_path)
     assert outcome == NodeOutcome.PASS and findings == []
 
 
-def test_review_changes_when_findings_present():
+def test_review_changes_when_findings_present(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": ["DRY: dup"]})]})
-    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), tmp_path)
     assert outcome == NodeOutcome.CHANGES and findings == ["DRY: dup"]
 
 
-def test_review_changes_when_gate_red_even_if_dod_claimed():
+def test_review_changes_when_gate_red_even_if_dod_claimed(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
-    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [1]}), _task())
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [1]}), _task(), tmp_path)
     assert outcome == NodeOutcome.CHANGES  # cannot self-certify past a red gate
 
 
-def test_review_notes_backend_failure():
+def test_review_notes_backend_failure(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(False, {}, "simulated backend failure")]})
-    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), tmp_path)
     assert outcome == NodeOutcome.CHANGES
     assert ev.extra["backend_ok"] is False
     assert ev.extra["backend_raw"] == "simulated backend failure"
 
 
-def test_review_does_not_note_backend_failure_when_ok():
+def test_review_does_not_note_backend_failure_when_ok(tmp_path):
+    write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
-    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
+    outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), tmp_path)
     assert outcome == NodeOutcome.PASS
     assert "backend_ok" not in ev.extra
 
@@ -59,9 +65,10 @@ def test_validation_reports_running():
     assert status.calls[0]["task_id"] == "T-001"
 
 
-def test_review_reports_running():
+def test_review_reports_running(tmp_path):
+    write_skill_stubs(tmp_path)
     status = FakeStatusReporter()
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
-    run_review(b, FakeGateRunner({"full": [0]}), _task(), status=status)
+    run_review(b, FakeGateRunner({"full": [0]}), _task(), tmp_path, status=status)
     assert status.calls[0]["node"] == "review"
     assert status.calls[0]["node_state"] == "running"

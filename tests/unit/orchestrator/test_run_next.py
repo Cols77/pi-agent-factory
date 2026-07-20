@@ -5,6 +5,7 @@ from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
+from ._skill_fixtures import write_skill_stubs
 
 pytestmark = pytest.mark.unit
 
@@ -15,6 +16,7 @@ def _repo(tmp_path):
         "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    write_skill_stubs(tmp_path)
     return tmp_path
 
 
