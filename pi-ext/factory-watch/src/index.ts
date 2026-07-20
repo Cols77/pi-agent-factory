@@ -6,6 +6,7 @@ import { openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
+import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus } from "./status-format.js";
 
@@ -33,22 +34,64 @@ export default function factoryWatch(pi: PiApi): void {
     }
   }
 
+  function isAlreadyRunning(ctx: ExtCommandCtx, lockPath: string): boolean {
+    const existingLockRaw = readFileIfExists(lockPath);
+    if (existingLockRaw === null) {
+      return false;
+    }
+    const existingLock = parseLock(existingLockRaw);
+    if (existingLock !== null && isPidAlive(existingLock.pid)) {
+      ctx.ui.notify(
+        `factory already running (pid ${existingLock.pid}) -- use /factory-stop first`,
+        "warning",
+      );
+      return true;
+    }
+    return false;
+  }
+
+  function launchAndWatch(ctx: ExtCommandCtx, cmd: Command, label: string): void {
+    const statusPath = join(ctx.cwd, STATUS_FILE);
+    const lockPath = join(ctx.cwd, LOCK_FILE);
+    const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
+    const child = spawn(cmd.bin, cmd.args, {
+      cwd: ctx.cwd,
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+    });
+    child.unref();
+
+    stopPolling();
+    pollHandle = setInterval(() => {
+      // ctx captured by this closure can outlive its session (e.g. a
+      // single `-p` turn ending, or ctx.newSession()/fork()/reload() in an
+      // interactive one) -- touching ctx.ui after that throws. Stop
+      // polling instead of taking the whole host process down with an
+      // uncaught exception on the next tick.
+      try {
+        const raw = readFileIfExists(statusPath);
+        const record = raw === null ? null : parseStatus(raw);
+        ctx.ui.setWidget("factory", formatStatusLines(record));
+
+        const stillLocked = readFileIfExists(lockPath) !== null;
+        if (!stillLocked) {
+          stopPolling();
+          ctx.ui.notify("factory run finished", "info");
+        }
+      } catch {
+        stopPolling();
+      }
+    }, POLL_INTERVAL_MS);
+
+    ctx.ui.notify(`factory started (${label})`, "info");
+  }
+
   pi.registerCommand("factory", {
     description: "Run the next todo factory task, watching progress live",
     handler: async (_args: string, ctx: ExtCommandCtx) => {
       const lockPath = join(ctx.cwd, LOCK_FILE);
-      const statusPath = join(ctx.cwd, STATUS_FILE);
-
-      const existingLockRaw = readFileIfExists(lockPath);
-      if (existingLockRaw !== null) {
-        const existingLock = parseLock(existingLockRaw);
-        if (existingLock !== null && isPidAlive(existingLock.pid)) {
-          ctx.ui.notify(
-            `factory already running (pid ${existingLock.pid}) -- use /factory-stop first`,
-            "warning",
-          );
-          return;
-        }
+      if (isAlreadyRunning(ctx, lockPath)) {
+        return;
       }
 
       if (ctx.model === undefined) {
@@ -57,37 +100,7 @@ export default function factoryWatch(pi: PiApi): void {
       }
 
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id);
-      const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
-      const child = spawn(cmd.bin, cmd.args, {
-        cwd: ctx.cwd,
-        detached: true,
-        stdio: ["ignore", logFd, logFd],
-      });
-      child.unref();
-
-      stopPolling();
-      pollHandle = setInterval(() => {
-        // ctx captured by this closure can outlive its session (e.g. a
-        // single `-p` turn ending, or ctx.newSession()/fork()/reload() in an
-        // interactive one) -- touching ctx.ui after that throws. Stop
-        // polling instead of taking the whole host process down with an
-        // uncaught exception on the next tick.
-        try {
-          const raw = readFileIfExists(statusPath);
-          const record = raw === null ? null : parseStatus(raw);
-          ctx.ui.setWidget("factory", formatStatusLines(record));
-
-          const stillLocked = readFileIfExists(lockPath) !== null;
-          if (!stillLocked) {
-            stopPolling();
-            ctx.ui.notify("factory run finished", "info");
-          }
-        } catch {
-          stopPolling();
-        }
-      }, POLL_INTERVAL_MS);
-
-      ctx.ui.notify(`factory started (${ctx.model.provider}/${ctx.model.id})`, "info");
+      launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
     },
   });
 
