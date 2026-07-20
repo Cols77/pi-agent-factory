@@ -67,10 +67,34 @@ def _has_json_events_without_text_field(stdout: str) -> bool:
     return saw_json_object and not saw_text_field
 
 
+def _build_command(
+    prompt: str,
+    extension_path: Path,
+    provider: str | None,
+    model: str | None,
+) -> list[str]:
+    """Build the `pi` invocation. Pi defaults to the "google" provider when
+    --provider/--model are omitted, so an explicit provider/model must be
+    passed through to use anything else (e.g. openrouter)."""
+    cmd = ["pi", "-p", prompt, "--mode", "json", "--extension", str(extension_path)]
+    if provider:
+        cmd += ["--provider", provider]
+    if model:
+        cmd += ["--model", model]
+    return cmd
+
+
 class PiAgentBackend:
-    def __init__(self, repo_root: Path, extension_path: Path, model: str | None = None) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        extension_path: Path,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
         self._repo_root = repo_root
         self._extension_path = extension_path
+        self._provider = provider
         self._model = model
 
     def run(self, role: AgentRole, prompt: str) -> AgentResult:
@@ -80,7 +104,7 @@ class PiAgentBackend:
             "PI_SCOPE_ALLOW": ",".join(scope.allow),
             "PI_SCOPE_BASH": scope.bash,
         }
-        cmd = ["pi", "-p", prompt, "--mode", "json", "--extension", str(self._extension_path)]
+        cmd = _build_command(prompt, self._extension_path, self._provider, self._model)
         proc = subprocess.run(
             cmd, cwd=self._repo_root, env=env, capture_output=True, text=True
         )

@@ -1,5 +1,11 @@
+from pathlib import Path
+
 import pytest
-from factory.orchestrator.pi_backend import _has_json_events_without_text_field, parse_pi_json
+from factory.orchestrator.pi_backend import (
+    _build_command,
+    _has_json_events_without_text_field,
+    parse_pi_json,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -41,3 +47,26 @@ def test_field_mismatch_not_signaled_for_normal_empty_response():
 
 def test_field_mismatch_not_signaled_for_empty_stdout():
     assert _has_json_events_without_text_field("") is False
+
+
+# _build_command: pure command-construction, testable without a real subprocess.
+
+
+def test_build_command_omits_provider_and_model_when_unset():
+    cmd = _build_command("hello", Path("ext.ts"), None, None)
+    assert cmd == ["pi", "-p", "hello", "--mode", "json", "--extension", "ext.ts"]
+
+
+def test_build_command_includes_provider_and_model_when_set():
+    cmd = _build_command("hello", Path("ext.ts"), "openrouter", "anthropic/claude-opus-4")
+    assert cmd == [
+        "pi", "-p", "hello", "--mode", "json", "--extension", "ext.ts",
+        "--provider", "openrouter",
+        "--model", "anthropic/claude-opus-4",
+    ]
+
+
+def test_build_command_provider_only():
+    cmd = _build_command("hello", Path("ext.ts"), "openrouter", None)
+    assert "--provider" in cmd and "openrouter" in cmd
+    assert "--model" not in cmd

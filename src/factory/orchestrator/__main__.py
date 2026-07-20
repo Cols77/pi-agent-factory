@@ -20,14 +20,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="factory.orchestrator")
     parser.add_argument("command", choices=["run"])
     parser.add_argument("--repo", default=".")
+    parser.add_argument("--provider", default=None, help="Pi provider, e.g. openrouter")
+    parser.add_argument("--model", default=None, help="Pi model id, e.g. anthropic/claude-opus-4")
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
     ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
-    backend = PiAgentBackend(repo_root=repo_root, extension_path=ext)
+    backend = PiAgentBackend(
+        repo_root=repo_root, extension_path=ext, provider=args.provider, model=args.model
+    )
     gates = SubprocessGateRunner(repo_root)
 
-    path = run_next(repo_root, backend, gates, git_info=_git_info(repo_root))
+    kwargs = {}
+    if args.provider and args.model:
+        kwargs["model_backend"] = f"{args.provider}:{args.model}"
+
+    path = run_next(repo_root, backend, gates, git_info=_git_info(repo_root), **kwargs)
     print("no todo tasks" if path is None else f"session written: {path}")
 
 
