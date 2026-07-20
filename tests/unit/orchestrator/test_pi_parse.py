@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from factory.orchestrator.pi_backend import (
     _build_command,
+    _extract_snippet,
     _has_json_events_without_text_field,
     parse_pi_json,
 )
@@ -70,3 +71,21 @@ def test_build_command_provider_only():
     cmd = _build_command("hello", Path("ext.ts"), "openrouter", None)
     assert "--provider" in cmd and "openrouter" in cmd
     assert "--model" not in cmd
+
+
+def test_extract_snippet_returns_text_field():
+    line = '{"type": "assistant_text", "text": "hello"}'
+    assert _extract_snippet(line) == "hello"
+
+
+def test_extract_snippet_empty_for_non_text_event():
+    line = '{"type": "tool_call", "name": "read_file"}'
+    assert _extract_snippet(line) == ""
+
+
+def test_extract_snippet_empty_for_malformed_json():
+    assert _extract_snippet("not json at all") == ""
+
+
+def test_extract_snippet_empty_for_blank_line():
+    assert _extract_snippet("   ") == ""

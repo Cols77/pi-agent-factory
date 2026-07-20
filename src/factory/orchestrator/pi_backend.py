@@ -36,6 +36,24 @@ def parse_pi_json(stdout: str) -> dict:
         return {}
 
 
+def _extract_snippet(line: str) -> str:
+    """Extract the "text" field from a single line of Pi's json event stream,
+    for live-snippet reporting as output streams in. Returns "" if the line
+    isn't a JSON object with a string "text" field. Kept separate from
+    parse_pi_json (which still processes the full accumulated stdout at the
+    end, unchanged) so that function's tested behavior stays untouched."""
+    line = line.strip()
+    if not line:
+        return ""
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(event, dict) and isinstance(event.get("text"), str):
+        return event["text"]
+    return ""
+
+
 def _has_json_events_without_text_field(stdout: str) -> bool:
     """Best-effort detector for final-review Finding 1+2: the event stream contains
     valid JSON objects, but none of them carry a string "text" field the way
@@ -108,12 +126,24 @@ class PiAgentBackend:
             "PI_SCOPE_BASH": scope.bash,
         }
         cmd = _build_command(prompt, self._extension_path, self._provider, self._model)
-        proc = subprocess.run(
-            cmd, cwd=self._repo_root, env=env, capture_output=True, text=True
+        proc = subprocess.Popen(
+            cmd, cwd=self._repo_root, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
-        output = parse_pi_json(proc.stdout)
+        lines: list[str] = []
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            lines.append(line)
+            if on_snippet is not None:
+                snippet = _extract_snippet(line)
+                if snippet:
+                    on_snippet(snippet[-200:])
+        proc.wait()
+        stdout = "".join(lines)
+
+        output = parse_pi_json(stdout)
         ok = proc.returncode == 0
-        raw = proc.stdout
+        raw = stdout
 
         # Finding 1+2 (final review): a zero exit code with non-empty stdout that
         # yields an empty parsed output is normally read as "the agent said
@@ -124,9 +154,9 @@ class PiAgentBackend:
         # looking identical to a genuinely empty response.
         if (
             ok
-            and proc.stdout.strip()
+            and stdout.strip()
             and not output
-            and _has_json_events_without_text_field(proc.stdout)
+            and _has_json_events_without_text_field(stdout)
         ):
             ok = False
             raw = (
@@ -134,7 +164,7 @@ class PiAgentBackend:
                 "non-empty stdout containing valid JSON events, but none had a string "
                 '"text" field, so parse_pi_json extracted no output. This looks like an '
                 "empty agent response but is more likely parse_pi_json's event-shape "
-                "assumption being wrong for this stream. Raw stdout:\n" + proc.stdout
+                "assumption being wrong for this stream. Raw stdout:\n" + stdout
             )
 
         return AgentResult(ok=ok, output=output, raw=raw)
