@@ -11,17 +11,41 @@ sub-agent sessions, which load `scope-guard` instead).
   detached, and polls `sessions/.factory-status.json` (written by the
   orchestrator, see Plan A) once a second, rendering it via a widget. Refuses
   to start a second run while `sessions/.factory-run.lock` shows a live PID.
+- `/factory-run [task-id]` — like `/factory`, but targets one specific task
+  (`status: todo` only). With no argument, lists todo tasks via
+  `factory.orchestrator list --json` and shows an interactive picker.
 - `/factory-stop` — reads the lock file's PID and terminates it: a forceful
   process-tree kill on Windows (`taskkill /PID <pid> /T /F` — a non-forceful
   `/T` alone is unreliable for plain console processes on Windows, so this
   skips straight to force), or `SIGTERM` to the process group followed by
   `SIGKILL` after a few seconds if still alive on POSIX.
+- `/factory-tasks` — shows the task ledger, grouped by status, as a widget.
+- `/plan <topic>` — starts a fresh session seeded with the real, full content
+  of the vendored `brainstorming`/`writing-plans` skills (hard-loaded via
+  Pi's own exported `loadSkills`/`stripFrontmatter`, not the soft
+  advertise-and-hope-the-model-reads-it path) plus the topic. Ends with
+  `uv run python -m factory.orchestrator.plan_to_tasks <plan-file>`
+  deterministically turning the saved plan into `tasks/T-*.md` files, ready
+  for `/factory-run`.
 
 ## No new IPC
 
 Everything here reads files Plan A's orchestrator already writes
 (`sessions/.factory-status.json`, `sessions/.factory-run.lock`) — no sockets,
 no named pipes.
+
+## Hard skill loading
+
+`/plan` never relies on the model choosing to read a skill file. It reads
+`.pi/skills/brainstorming/SKILL.md` and `.pi/skills/writing-plans/SKILL.md`
+itself (via Pi's own exported `loadSkills`/`stripFrontmatter`) and injects
+their full content into the seed message -- the same `<skill name="..."
+location="...">` shape Pi's native `/skill:name` expansion produces. The
+orchestrator's sub-agent roles do the equivalent on the Python side
+(`factory/orchestrator/skills.py`'s `load_skill_block`, used by
+`compose_prompt`). All 10 vendored skills are marked
+`disable-model-invocation: true` in their frontmatter -- they're never meant
+to be reachable any other way.
 
 ## Load into Pi
 
