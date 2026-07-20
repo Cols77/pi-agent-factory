@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import argparse
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+import frontmatter
 
 _TASK_HEADER = re.compile(r"^### Task (\d+): (.+)$", re.MULTILINE)
 _FILES_BLOCK = re.compile(r"\*\*Files:\*\*\n(.*?)(?=\n\n\*\*Interfaces:\*\*)", re.DOTALL)
 _PRODUCES_LINE = re.compile(r"^- Produces:\s*(.+)$", re.MULTILINE)
+_ID_RE = re.compile(r"^T-(\d+)$")
+
+_FIXED_DOD_ITEM = "All steps in this task complete; tests/gates pass; committed"
 
 
 @dataclass
@@ -14,6 +22,12 @@ class ParsedPlanTask:
     title: str
     files_block: str
     produces: list[str]
+
+
+class NoTasksFoundError(RuntimeError):
+    def __init__(self, plan_path: str) -> None:
+        super().__init__(f"no '### Task N:' sections found in {plan_path}")
+        self.plan_path = plan_path
 
 
 def parse_plan_tasks(text: str) -> list[ParsedPlanTask]:
@@ -41,3 +55,102 @@ def parse_plan_tasks(text: str) -> list[ParsedPlanTask]:
             )
         )
     return tasks
+
+
+def _slugify(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug or "task"
+
+
+def _max_existing_id(tasks_dir: Path) -> int:
+    max_n = 0
+    if not tasks_dir.exists():
+        return max_n
+    for path in tasks_dir.glob("T-*.md"):
+        post = frontmatter.load(str(path))
+        m = _ID_RE.match(str(post.get("id", "")))
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return max_n
+
+
+def _already_parsed_task_numbers(tasks_dir: Path, source_plan: str) -> set[int]:
+    done: set[int] = set()
+    if not tasks_dir.exists():
+        return done
+    for path in tasks_dir.glob("T-*.md"):
+        post = frontmatter.load(str(path))
+        if post.get("source_plan") == source_plan and "source_task" in post.metadata:
+            done.add(int(post["source_task"]))  # type: ignore[arg-type]
+    return done
+
+
+def _write_task_file(tasks_dir: Path, task_id: str, task: ParsedPlanTask, source_plan: str) -> Path:
+    dod = list(task.produces)
+    dod.append(_FIXED_DOD_ITEM)
+    body = f"{task.files_block}\n\nFull steps: {source_plan}, Task {task.number}.\n"
+    post = frontmatter.Post(
+        body,
+        id=task_id,
+        title=task.title,
+        status="todo",
+        dod=dod,
+        source_plan=source_plan,
+        source_task=task.number,
+    )
+    path = tasks_dir / f"{task_id}-{_slugify(task.title)}.md"
+    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+    return path
+
+
+def run(plan_path: Path, repo_root: Path) -> list[str]:
+    """Parse plan_path and write one tasks/T-*.md per task section found.
+    Returns the list of newly-created task ids (empty if this plan was
+    already fully parsed -- idempotent on rerun). Raises NoTasksFoundError,
+    writing nothing, if the plan has zero '### Task N:' sections."""
+    text = plan_path.read_text(encoding="utf-8")
+    parsed = parse_plan_tasks(text)
+    if not parsed:
+        raise NoTasksFoundError(str(plan_path))
+
+    tasks_dir = repo_root / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+
+    source_plan = plan_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    already_done = _already_parsed_task_numbers(tasks_dir, source_plan)
+    next_n = _max_existing_id(tasks_dir) + 1
+
+    created: list[str] = []
+    for task in parsed:
+        if task.number in already_done:
+            continue
+        task_id = f"T-{next_n:03d}"
+        next_n += 1
+        _write_task_file(tasks_dir, task_id, task, source_plan)
+        created.append(task_id)
+    return created
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="factory.orchestrator.plan_to_tasks")
+    parser.add_argument("plan_file")
+    parser.add_argument("--repo", default=".")
+    args = parser.parse_args()
+
+    repo_root = Path(args.repo).resolve()
+    plan_path = Path(args.plan_file).resolve()
+
+    try:
+        created = run(plan_path, repo_root)
+    except NoTasksFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    if not created:
+        print("no new tasks (already parsed)")
+    else:
+        print("created: " + ", ".join(created))
+
+
+if __name__ == "__main__":
+    main()

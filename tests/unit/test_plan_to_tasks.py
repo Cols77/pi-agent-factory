@@ -1,5 +1,8 @@
+from pathlib import Path
+
+import frontmatter
 import pytest
-from factory.orchestrator.plan_to_tasks import parse_plan_tasks
+from factory.orchestrator.plan_to_tasks import NoTasksFoundError, parse_plan_tasks, run
 
 pytestmark = pytest.mark.unit
 
@@ -83,3 +86,53 @@ def test_task_without_produces_line_has_empty_list():
     tasks = parse_plan_tasks(PLAN_TASK_WITHOUT_PRODUCES)
     assert tasks[0].produces == []
     assert "Modify: `pyproject.toml`" in tasks[0].files_block
+
+
+def _write_plan(tmp_path: Path, name: str, text: str) -> Path:
+    plans_dir = tmp_path / "docs" / "superpowers" / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    path = plans_dir / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_run_creates_one_task_file_per_plan_task(tmp_path):
+    plan_path = _write_plan(tmp_path, "2026-07-20-feature.md", PLAN_TWO_TASKS)
+    created = run(plan_path, tmp_path)
+    assert created == ["T-001", "T-002"]
+
+    t1 = frontmatter.load(str(tmp_path / "tasks" / "T-001-first-component.md"))
+    assert t1["title"] == "First Component"
+    assert t1["status"] == "todo"
+    assert "`do_a(x: int) -> int`." in t1["dod"]
+    assert "tests/gates pass" in t1["dod"][-1]
+    assert "Create: `src/a.py`" in t1.content
+    assert "docs/superpowers/plans/2026-07-20-feature.md, Task 1." in t1.content
+    assert t1["source_plan"] == "docs/superpowers/plans/2026-07-20-feature.md"
+    assert t1["source_task"] == 1
+
+
+def test_run_numbers_ids_after_existing_tasks(tmp_path):
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "T-001-example.md").write_text(
+        "---\nid: T-001\ntitle: existing\nstatus: todo\ndod:\n  - x\n---\nbody\n", encoding="utf-8")
+    plan_path = _write_plan(tmp_path, "2026-07-20-feature.md", PLAN_TWO_TASKS)
+    created = run(plan_path, tmp_path)
+    assert created == ["T-002", "T-003"]
+
+
+def test_run_is_idempotent_on_rerun(tmp_path):
+    plan_path = _write_plan(tmp_path, "2026-07-20-feature.md", PLAN_TWO_TASKS)
+    first = run(plan_path, tmp_path)
+    second = run(plan_path, tmp_path)
+    assert first == ["T-001", "T-002"]
+    assert second == []
+    assert len(list((tmp_path / "tasks").glob("T-*.md"))) == 2
+
+
+def test_run_raises_and_writes_nothing_when_no_tasks_found(tmp_path):
+    plan_path = _write_plan(tmp_path, "2026-07-20-empty.md", PLAN_NO_TASKS)
+    with pytest.raises(NoTasksFoundError):
+        run(plan_path, tmp_path)
+    assert not (tmp_path / "tasks").exists() or list((tmp_path / "tasks").glob("T-*.md")) == []
