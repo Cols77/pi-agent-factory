@@ -55,3 +55,37 @@ def test_compose_prompt_requires_every_vendored_skill_to_exist(tmp_path):
     (tmp_path / ".pi" / "skills").mkdir(parents=True)  # empty -- nothing vendored
     with pytest.raises(FileNotFoundError):
         compose_prompt(AgentRole.REVIEW, TASK, skills_dir=tmp_path / ".pi" / "skills")
+
+
+# Repo root, resolved from this file's location (tests/unit/orchestrator/test_prompts.py).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REAL_SKILLS_DIR = _REPO_ROOT / ".pi" / "skills"
+
+
+def test_compose_prompt_works_against_real_vendored_skills_for_live_roles():
+    """Regression guard for the final-review "Finding": ROLE_SKILLS must stay in
+    sync with what's actually vendored under the real .pi/skills/ directory for
+    every role that is actually invoked today (CONTEXT_GATHERER, DEV, REVIEW --
+    see nodes.py). Deliberately does NOT use write_skill_stubs, since that helper
+    stubs over exactly the gap this test needs to catch: it exercises the REAL
+    repo .pi/skills/ directory, not a synthetic one. If any of the 8 skills these
+    three roles depend on were ever deleted/renamed under .pi/skills/ without
+    updating ROLE_SKILLS (or vice versa), load_skill_block would raise
+    FileNotFoundError and this test would fail.
+    """
+    kb = [{"id": "kb-0001", "title": "watch arming"}]
+
+    context_gatherer_prompt = compose_prompt(
+        AgentRole.CONTEXT_GATHERER, TASK, skills_dir=_REAL_SKILLS_DIR,
+    )
+    dev_prompt = compose_prompt(
+        AgentRole.DEV, TASK, manifest=None, kb_entries=kb, feedback=None,
+        skills_dir=_REAL_SKILLS_DIR,
+    )
+    review_prompt = compose_prompt(
+        AgentRole.REVIEW, TASK, skills_dir=_REAL_SKILLS_DIR,
+    )
+
+    for prompt in (context_gatherer_prompt, dev_prompt, review_prompt):
+        assert isinstance(prompt, str)
+        assert "T-001" in prompt
