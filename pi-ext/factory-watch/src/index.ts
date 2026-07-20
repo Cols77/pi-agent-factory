@@ -67,14 +67,23 @@ export default function factoryWatch(pi: PiApi): void {
 
       stopPolling();
       pollHandle = setInterval(() => {
-        const raw = readFileIfExists(statusPath);
-        const record = raw === null ? null : parseStatus(raw);
-        ctx.ui.setWidget("factory", formatStatusLines(record));
+        // ctx captured by this closure can outlive its session (e.g. a
+        // single `-p` turn ending, or ctx.newSession()/fork()/reload() in an
+        // interactive one) -- touching ctx.ui after that throws. Stop
+        // polling instead of taking the whole host process down with an
+        // uncaught exception on the next tick.
+        try {
+          const raw = readFileIfExists(statusPath);
+          const record = raw === null ? null : parseStatus(raw);
+          ctx.ui.setWidget("factory", formatStatusLines(record));
 
-        const stillLocked = readFileIfExists(lockPath) !== null;
-        if (!stillLocked) {
+          const stillLocked = readFileIfExists(lockPath) !== null;
+          if (!stillLocked) {
+            stopPolling();
+            ctx.ui.notify("factory run finished", "info");
+          }
+        } catch {
           stopPolling();
-          ctx.ui.notify("factory run finished", "info");
         }
       }, POLL_INTERVAL_MS);
 

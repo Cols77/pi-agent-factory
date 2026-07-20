@@ -1,6 +1,20 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import type { CommandDef, ExtCommandCtx, PiApi, UiApi } from "../src/pi-types.js";
+
+vi.mock("node:child_process", () => ({
+  spawn: vi.fn(() => {
+    const child = new EventEmitter() as EventEmitter & { unref: () => void };
+    child.unref = () => {};
+    return child;
+  }),
+  spawnSync: vi.fn(),
+}));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, openSync: vi.fn(() => 0) };
+});
 
 function capture(): { commands: Map<string, CommandDef>; pi: PiApi } {
   const commands = new Map<string, CommandDef>();
@@ -44,5 +58,28 @@ describe("factory-watch commands", () => {
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only" });
     await commands.get("factory-stop")!.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("not running"), "info");
+  });
+
+  test("/factory's poll loop stops instead of crashing once ctx goes stale", async () => {
+    // Reproduces a real crash seen running `pi -p "/factory"`: in print mode
+    // (and after ctx.newSession()/fork()/reload() in an interactive one),
+    // ctx.ui becomes stale and throws on access. Before the fix, the next
+    // setInterval tick threw uncaught and took the whole host process down.
+    vi.useFakeTimers();
+    try {
+      const { commands } = capture();
+      const setWidget = vi.fn(() => {
+        throw new Error("This extension ctx is stale after session replacement or reload.");
+      });
+      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget };
+      const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
+
+      await commands.get("factory")!.handler("", ctx);
+
+      expect(() => vi.advanceTimersByTime(5_000)).not.toThrow();
+      expect(setWidget).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
