@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 from datetime import datetime, timezone
@@ -31,12 +32,18 @@ def main() -> None:
     parser.add_argument("--repo", default=".")
     parser.add_argument("--provider", default=None, help="Pi provider, e.g. openrouter")
     parser.add_argument("--model", default=None, help="Pi model id, e.g. anthropic/claude-opus-4")
+    parser.add_argument("--task", default=None, help="Task id to run (default: next todo task)")
+    parser.add_argument("--json", action="store_true", help="list command only: output tasks as JSON")
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
 
     if args.command == "list":
-        print(format_task_board(load_tasks(repo_root / "tasks")))
+        tasks = load_tasks(repo_root / "tasks")
+        if args.json:
+            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]))
+        else:
+            print(format_task_board(tasks))
         return
 
     ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
@@ -63,7 +70,7 @@ def main() -> None:
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
-            session_id=session_id, status=status, **kwargs,
+            session_id=session_id, status=status, task_id=args.task, **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}")
     except Exception as exc:

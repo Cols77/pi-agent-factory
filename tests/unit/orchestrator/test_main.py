@@ -57,3 +57,39 @@ def test_main_list_prints_task_board_and_touches_no_run_state(tmp_path, monkeypa
     assert "T-001  Example task" in out
     assert not (tmp_path / "sessions" / ".factory-run.lock").exists()
     assert not (tmp_path / "sessions" / ".factory-status.json").exists()
+
+
+def test_main_run_passes_task_id_through(tmp_path, monkeypatch):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (tmp_path / "tasks").mkdir()
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["factory.orchestrator", "run", "--repo", str(tmp_path), "--task", "T-042"],
+    )
+
+    captured = {}
+
+    def fake_run_next(*args, **kwargs):
+        captured["task_id"] = kwargs.get("task_id")
+        return None
+
+    monkeypatch.setattr("factory.orchestrator.__main__.run_next", fake_run_next)
+    main()
+    assert captured["task_id"] == "T-042"
+
+
+def test_main_list_json_outputs_structured_tasks(tmp_path, monkeypatch, capsys):
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "T-001-a.md").write_text(
+        "---\nid: T-001\ntitle: Example task\nstatus: todo\ndod:\n  - x\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["factory.orchestrator", "list", "--repo", str(tmp_path), "--json"])
+    main()
+
+    out = json.loads(capsys.readouterr().out)
+    assert out == [{"id": "T-001", "title": "Example task", "status": "todo"}]
