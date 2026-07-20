@@ -2,7 +2,7 @@ import json
 import pytest
 from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.ledger import load_tasks
+from factory.orchestrator.ledger import TaskNotFoundError, TaskNotTodoError, load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
 from ._skill_fixtures import write_skill_stubs
@@ -55,3 +55,29 @@ def test_run_next_passes_status_through_to_run_task(tmp_path):
     run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
               session_id="s1", git_info={"branch": "main"}, status=status)
     assert len(status.calls) > 0
+
+
+def test_run_next_targets_specific_task_id(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "tasks" / "T-002.md").write_text(
+        "---\nid: T-002\ntitle: second\nstatus: todo\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
+    path = run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+                    session_id="s1", git_info={"branch": "main"}, task_id="T-002")
+    assert path and path.exists()
+    tasks = {t.id: t.status for t in load_tasks(repo / "tasks")}
+    assert tasks["T-002"] == "done"
+    assert tasks["T-001"] == "todo"  # untouched -- T-002 was targeted, not T-001
+
+
+def test_run_next_raises_for_unknown_task_id(tmp_path):
+    repo = _repo(tmp_path)
+    with pytest.raises(TaskNotFoundError):
+        run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-999")
+
+
+def test_run_next_raises_for_non_todo_task_id(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: t\nstatus: done\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
+    with pytest.raises(TaskNotTodoError):
+        run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-001")

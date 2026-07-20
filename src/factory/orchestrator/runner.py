@@ -4,7 +4,15 @@ from pathlib import Path
 
 from factory.kb.retrieval import select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
-from factory.orchestrator.ledger import Task, load_tasks, next_todo, set_status
+from factory.orchestrator.ledger import (
+    Task,
+    TaskNotFoundError,
+    TaskNotTodoError,
+    get_task,
+    load_tasks,
+    next_todo,
+    set_status,
+)
 from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
@@ -114,11 +122,19 @@ def run_next(
     session_id: str | None = None,
     git_info: dict | None = None,
     status: StatusReporter = NullStatusReporter(),
+    task_id: str | None = None,
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
-    task = next_todo(tasks)
-    if task is None:
-        return None
+    if task_id is not None:
+        task = get_task(tasks, task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        if task.status != "todo":
+            raise TaskNotTodoError(task_id, task.status)
+    else:
+        task = next_todo(tasks)
+        if task is None:
+            return None
 
     result = run_task(task, backend, gates, repo_root, status=status)
     set_status(task, "done" if result.outcome == "completed" else result.outcome)
