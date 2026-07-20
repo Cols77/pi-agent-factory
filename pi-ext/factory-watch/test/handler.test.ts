@@ -31,12 +31,14 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
     notify: vi.fn(),
     setStatus: vi.fn(),
     setWidget: vi.fn(),
+    select: vi.fn(),
   };
   return {
     cwd: overrides.cwd ?? process.cwd(),
     ui: overrides.ui ?? ui,
     model:
       "model" in overrides ? overrides.model : { provider: "openrouter", id: "anthropic/claude-opus-4" },
+    newSession: overrides.newSession ?? vi.fn(),
   };
 }
 
@@ -77,7 +79,7 @@ describe("factory-watch commands", () => {
       const setWidget = vi.fn(() => {
         throw new Error("This extension ctx is stale after session replacement or reload.");
       });
-      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget };
+      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget, select: vi.fn() };
       const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
 
       await commands.get("factory")!.handler("", ctx);

@@ -3,21 +3,29 @@ export interface Command {
   args: string[];
 }
 
-export function buildRunCommand(provider: string, modelId: string): Command {
-  return {
-    bin: "uv",
-    args: [
-      "run", "python", "-m", "factory.orchestrator", "run",
-      "--provider", provider,
-      "--model", modelId,
-    ],
-  };
+export function buildRunCommand(provider: string, modelId: string, taskId?: string): Command {
+  const args = [
+    "run", "python", "-m", "factory.orchestrator", "run",
+    "--provider", provider,
+    "--model", modelId,
+  ];
+  if (taskId !== undefined) {
+    args.push("--task", taskId);
+  }
+  return { bin: "uv", args };
 }
 
 export function buildListCommand(): Command {
   return {
     bin: "uv",
     args: ["run", "python", "-m", "factory.orchestrator", "list"],
+  };
+}
+
+export function buildListJsonCommand(): Command {
+  return {
+    bin: "uv",
+    args: ["run", "python", "-m", "factory.orchestrator", "list", "--json"],
   };
 }
 
