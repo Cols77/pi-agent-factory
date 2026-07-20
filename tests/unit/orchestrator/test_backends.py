@@ -22,3 +22,11 @@ def test_fake_gate_defaults_to_zero_then_scripted():
     assert g.run("unit") == 1
     assert g.run("unit") == 0
     assert g.run("sim") == 0  # unscripted default
+
+
+def test_fake_backend_accepts_and_ignores_on_snippet():
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {"n": 1})]})
+    seen: list[str] = []
+    result = b.run(AgentRole.DEV, "p", on_snippet=seen.append)
+    assert result.output["n"] == 1
+    assert seen == []  # FakeAgentBackend never calls it -- no real streaming to report

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from factory.orchestrator.roles import ROLE_SCOPE
@@ -97,7 +98,9 @@ class PiAgentBackend:
         self._provider = provider
         self._model = model
 
-    def run(self, role: AgentRole, prompt: str) -> AgentResult:
+    def run(
+        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+    ) -> AgentResult:
         scope = ROLE_SCOPE[role]
         env = {
             **os.environ,

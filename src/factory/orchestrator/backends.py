@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -9,7 +10,9 @@ from factory.orchestrator.types import AgentResult, AgentRole
 
 
 class AgentBackend(Protocol):
-    def run(self, role: AgentRole, prompt: str) -> AgentResult: ...
+    def run(
+        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+    ) -> AgentResult: ...
 
 
 class GateRunner(Protocol):
@@ -20,7 +23,9 @@ class FakeAgentBackend:
     def __init__(self, scripts: dict[AgentRole, list[AgentResult]]) -> None:
         self._scripts = {k: list(v) for k, v in scripts.items()}
 
-    def run(self, role: AgentRole, prompt: str) -> AgentResult:
+    def run(
+        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+    ) -> AgentResult:
         queue = self._scripts.get(role)
         assert queue, f"FakeAgentBackend: no scripted result for {role}"
         return queue.pop(0)
