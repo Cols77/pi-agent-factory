@@ -174,3 +174,80 @@ def test_run_task_reports_node_result_after_each_node(tmp_path):
     # run_task reports the definitive result after the node returns.
     assert ("context-gather", "pass") in node_states
     assert ("review", "pass") in node_states
+
+
+def test_validation_exhaustion_reports_actual_last_node(tmp_path):
+    """When validation fails until exhausted, final status report must report validation, not review.
+
+    This is a regression test for the bug where the final status report hardcoded
+    node="review"/node_state="changes-requested" regardless of the actual last node.
+    When validation causes the exhaustion, the final report should have
+    node="validation" and node_state="fail".
+    """
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    max_review_cycles = 2
+    status = FakeStatusReporter()
+
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})],
+    }
+    gates = FakeGateRunner({
+        "unit": [0, 0],  # unit passes both cycles
+        "sim": [1, 1],   # sim fails both cycles
+    })
+    r = run_task(task, FakeAgentBackend(scripts), gates, repo,
+                 max_review_cycles=max_review_cycles, status=status)
+
+    assert r.outcome == "escalated"
+
+    # Find the final status call (the one with outcome set)
+    final_calls = [c for c in status.calls if c["outcome"] is not None]
+    assert len(final_calls) == 1
+    final = final_calls[0]
+
+    # The final report should reflect the actual last node that ran
+    assert final["node"] == "validation", f"Expected node='validation', got {final['node']}"
+    assert final["node_state"] == "fail", f"Expected node_state='fail', got {final['node_state']}"
+    assert final["outcome"] == "escalated"
+
+
+def test_review_exhaustion_reports_actual_last_node(tmp_path):
+    """When review requests changes until exhausted, final status report must report review.
+
+    Ensures the fix for validation exhaustion doesn't break the review exhaustion case:
+    the final report should have node="review" and node_state="changes-requested".
+    """
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    max_review_cycles = 2
+    status = FakeStatusReporter()
+
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})],
+        AgentRole.REVIEW: [
+            AgentResult(True, {"dod_met": False, "findings": ["still broken"]}),
+            AgentResult(True, {"dod_met": False, "findings": ["still broken"]}),
+        ],
+    }
+    gates = FakeGateRunner({
+        "unit": [0, 0],   # unit passes both cycles
+        "sim": [0, 0],    # sim passes both cycles
+        "full": [0, 0],   # full gate passes both cycles
+    })
+    r = run_task(task, FakeAgentBackend(scripts), gates, repo,
+                 max_review_cycles=max_review_cycles, status=status)
+
+    assert r.outcome == "escalated"
+
+    # Find the final status call (the one with outcome set)
+    final_calls = [c for c in status.calls if c["outcome"] is not None]
+    assert len(final_calls) == 1
+    final = final_calls[0]
+
+    # The final report should reflect the actual last node that ran (review)
+    assert final["node"] == "review", f"Expected node='review', got {final['node']}"
+    assert final["node_state"] == "changes-requested", f"Expected node_state='changes-requested', got {final['node_state']}"
+    assert final["outcome"] == "escalated"

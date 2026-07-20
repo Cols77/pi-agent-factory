@@ -89,10 +89,8 @@ def run_task(
         _report_node(status, task.id, r_ev, 1)
         feedback = "\n".join(findings) if findings else "review requested changes"
 
-    status.report(
-        task_id=task.id, node="review", node_state="changes-requested",
-        attempt=iterations, max_attempts=max_review_cycles, outcome="escalated",
-    )
+    last_event = events[-1]
+    _report_node(status, task.id, last_event, 1, outcome="escalated")
     return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
 
 
