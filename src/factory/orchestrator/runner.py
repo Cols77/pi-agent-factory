@@ -102,12 +102,14 @@ def run_next(
     backend: AgentBackend,
     gates: GateRunner,
     *,
-    # Finding 3 (final review): PiAgentBackend never passes --model to the real
-    # `pi` CLI (it runs on Pi's own ambient/default model selection), so naming a
-    # specific model here would be a false claim baked into the session record.
-    # "pi:unspecified" honestly reflects "ran via Pi's own model selection, not
-    # explicitly chosen by the orchestrator" instead of a model that was never
-    # actually selected.
+    # Finding 3 (final review), corrected 2026-07-20: PiAgentBackend DOES pass
+    # --provider/--model through to the real `pi` CLI when the caller supplies
+    # them (see pi_backend.py's _build_command, and __main__.py's --provider/
+    # --model flags) -- verified live via `pi -p` with an explicit override.
+    # This default only covers the case where the caller supplies neither, in
+    # which case the run falls back to Pi's own ambient/default model
+    # selection, so "pi:unspecified" still honestly labels that fallback path
+    # (as opposed to a model that was actively chosen but not recorded).
     model_backend: str = "pi:unspecified",
     session_id: str | None = None,
     git_info: dict | None = None,
