@@ -3,6 +3,7 @@ from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.runner import run_task
+from factory.orchestrator.status import FakeStatusReporter
 
 pytestmark = pytest.mark.unit
 
@@ -147,3 +148,29 @@ def test_dev_escalates_immediately(tmp_path):
 
     assert r.outcome == "escalated"
     assert r.iterations == 1  # Should return after first iteration, not continue looping
+
+
+def test_run_task_reports_final_outcome(tmp_path):
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    status = FakeStatusReporter()
+
+    run_task(task, FakeAgentBackend(_scripts()), FakeGateRunner(), repo, status=status)
+
+    final_calls = [c for c in status.calls if c["outcome"] is not None]
+    assert len(final_calls) == 1
+    assert final_calls[0]["outcome"] == "completed"
+
+
+def test_run_task_reports_node_result_after_each_node(tmp_path):
+    repo = _repo(tmp_path)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+    status = FakeStatusReporter()
+
+    run_task(task, FakeAgentBackend(_scripts()), FakeGateRunner(), repo, status=status)
+
+    node_states = [(c["node"], c["node_state"]) for c in status.calls]
+    # "pass" for context-gather should appear (not just "running"), proving
+    # run_task reports the definitive result after the node returns.
+    assert ("context-gather", "pass") in node_states
+    assert ("review", "pass") in node_states

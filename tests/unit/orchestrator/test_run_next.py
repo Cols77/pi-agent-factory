@@ -4,6 +4,7 @@ from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.runner import run_next
+from factory.orchestrator.status import FakeStatusReporter
 
 pytestmark = pytest.mark.unit
 
@@ -44,3 +45,11 @@ def test_run_next_writes_session_and_marks_done(tmp_path):
 def test_run_next_none_when_no_todo(tmp_path):
     (tmp_path / "tasks").mkdir()
     assert run_next(tmp_path, FakeAgentBackend({}), FakeGateRunner(), session_id="s1") is None
+
+
+def test_run_next_passes_status_through_to_run_task(tmp_path):
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+              session_id="s1", git_info={"branch": "main"}, status=status)
+    assert len(status.calls) > 0
