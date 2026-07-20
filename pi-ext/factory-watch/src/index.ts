@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
-import { buildListCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
+import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus } from "./status-format.js";
@@ -13,6 +13,8 @@ import { homedir } from "node:os";
 import { loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
+import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
+import type { TaskSummary } from "./task-picker.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -159,6 +161,51 @@ export default function factoryWatch(pi: PiApi): void {
       }
       const lines = result.stdout.split(/\r?\n/).filter((line) => line.length > 0);
       ctx.ui.setWidget("factory-tasks", lines);
+    },
+  });
+
+  pi.registerCommand("factory-run", {
+    description: "Run the factory on one specific task",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const lockPath = join(ctx.cwd, LOCK_FILE);
+      if (isAlreadyRunning(ctx, lockPath)) {
+        return;
+      }
+
+      if (ctx.model === undefined) {
+        ctx.ui.notify("no model selected in this session -- can't launch factory", "error");
+        return;
+      }
+
+      let taskId = args.trim();
+      if (taskId === "") {
+        const cmd = buildListJsonCommand();
+        const result = spawnSync(cmd.bin, cmd.args, { cwd: ctx.cwd, encoding: "utf-8" });
+        if (result.status !== 0) {
+          ctx.ui.notify(`factory-run failed to list tasks: ${result.stderr || "unknown error"}`, "error");
+          return;
+        }
+        let tasks: TaskSummary[];
+        try {
+          tasks = JSON.parse(result.stdout) as TaskSummary[];
+        } catch {
+          ctx.ui.notify("factory-run failed to parse task list", "error");
+          return;
+        }
+        const todoTasks = tasks.filter((t) => t.status === "todo");
+        if (todoTasks.length === 0) {
+          ctx.ui.notify("no todo tasks", "info");
+          return;
+        }
+        const selected = await ctx.ui.select("Run which task?", todoTasks.map(formatTaskOption));
+        if (selected === undefined) {
+          return;
+        }
+        taskId = parseTaskIdFromOption(selected);
+      }
+
+      const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
+      launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`);
     },
   });
 

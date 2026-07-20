@@ -174,4 +174,60 @@ describe("factory-watch commands", () => {
       { deliverAs: "followUp" },
     );
   });
+
+  test("/factory-run notifies when no todo tasks exist, without spawning", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([{ id: "T-001", title: "done one", status: "done" }]),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("factory-run")!.handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no todo tasks"), "info");
+    expect(ctx.ui.select).not.toHaveBeenCalled();
+  });
+
+  test("/factory-run shows a picker over todo tasks and does nothing if cancelled", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        { id: "T-001", title: "First", status: "todo" },
+        { id: "T-002", title: "Second", status: "todo" },
+      ]),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const ui: UiApi = {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue(undefined),
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ ui });
+    await commands.get("factory-run")!.handler("", ctx);
+
+    expect(ui.select).toHaveBeenCalledWith("Run which task?", ["T-001  First", "T-002  Second"]);
+  });
+
+  test("/factory-run uses an inline task id without listing or showing a picker", async () => {
+    const { commands } = capture();
+    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn() };
+    const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
+    await commands.get("factory-run")!.handler("T-003", ctx);
+
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(ui.select).not.toHaveBeenCalled();
+    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("T-003"), "info");
+  });
+
+  test("/factory-run notifies an error and does nothing else when no model is active", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx({ model: undefined });
+    await commands.get("factory-run")!.handler("", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no model"), "error");
+  });
 });
