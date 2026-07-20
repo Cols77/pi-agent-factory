@@ -4,6 +4,7 @@ from factory.orchestrator.types import AgentRole, AgentResult, NodeOutcome
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.nodes import run_validation, run_review
+from factory.orchestrator.status import FakeStatusReporter
 
 pytestmark = pytest.mark.unit
 
@@ -48,3 +49,19 @@ def test_review_does_not_note_backend_failure_when_ok():
     outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task())
     assert outcome == NodeOutcome.PASS
     assert "backend_ok" not in ev.extra
+
+
+def test_validation_reports_running():
+    status = FakeStatusReporter()
+    run_validation(FakeGateRunner({"sim": [0]}), "T-001", status=status)
+    assert status.calls[0]["node"] == "validation"
+    assert status.calls[0]["node_state"] == "running"
+    assert status.calls[0]["task_id"] == "T-001"
+
+
+def test_review_reports_running():
+    status = FakeStatusReporter()
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
+    run_review(b, FakeGateRunner({"full": [0]}), _task(), status=status)
+    assert status.calls[0]["node"] == "review"
+    assert status.calls[0]["node_state"] == "running"

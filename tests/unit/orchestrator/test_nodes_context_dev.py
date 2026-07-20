@@ -4,6 +4,7 @@ from factory.orchestrator.types import AgentRole, AgentResult, NodeOutcome
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.nodes import run_context_gatherer, run_dev
+from factory.orchestrator.status import FakeStatusReporter
 
 pytestmark = pytest.mark.unit
 
@@ -79,3 +80,32 @@ def test_dev_does_not_note_backend_failure_when_ok():
     outcome, ev = run_dev(b, g, _task(), {}, [])
     assert outcome == NodeOutcome.PASS
     assert "backend_ok" not in ev.extra
+
+
+def test_context_gatherer_reports_running_each_attempt(tmp_path):
+    status = FakeStatusReporter()
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path))]})
+    run_context_gatherer(b, _task(), tmp_path, status=status)
+    assert status.calls[0]["node"] == "context-gather"
+    assert status.calls[0]["node_state"] == "running"
+    assert status.calls[0]["attempt"] == 1
+    assert status.calls[0]["max_attempts"] == 2
+
+
+def test_dev_reports_running_each_attempt_and_passes_on_snippet():
+    status = FakeStatusReporter()
+
+    class SnippetCapturingBackend:
+        def run(self, role, prompt, on_snippet=None):
+            if on_snippet is not None:
+                on_snippet("partial output")
+            return AgentResult(True, {})
+
+    b = SnippetCapturingBackend()
+    g = FakeGateRunner({"unit": [0]})
+    run_dev(b, g, _task(), {}, [], status=status)
+    assert status.calls[0]["node"] == "dev"
+    assert status.calls[0]["node_state"] == "running"
+    # A second report should have arrived carrying the live snippet.
+    snippets = [c["snippet"] for c in status.calls if c["snippet"]]
+    assert snippets == ["partial output"]

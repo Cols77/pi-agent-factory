@@ -5,6 +5,7 @@ from pathlib import Path
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
+from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, NodeOutcome
 from factory.validation.manifest_validator import validate_manifest
 
@@ -21,12 +22,30 @@ def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
 
 
 def run_context_gatherer(
-    backend: AgentBackend, task: Task, repo_root: Path, max_attempts: int = 2
+    backend: AgentBackend,
+    task: Task,
+    repo_root: Path,
+    max_attempts: int = 2,
+    status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, dict | None, NodeEvent]:
     errors: list[str] = []
     result: AgentResult | None = None
     for attempt in range(1, max_attempts + 1):
-        result = backend.run(AgentRole.CONTEXT_GATHERER, compose_prompt(AgentRole.CONTEXT_GATHERER, task))
+        status.report(
+            task_id=task.id, node="context-gather", node_state="running",
+            attempt=attempt, max_attempts=max_attempts,
+        )
+
+        def _on_snippet(text: str) -> None:
+            status.report(
+                task_id=task.id, node="context-gather", node_state="running",
+                attempt=attempt, max_attempts=max_attempts, snippet=text,
+            )
+
+        result = backend.run(
+            AgentRole.CONTEXT_GATHERER, compose_prompt(AgentRole.CONTEXT_GATHERER, task),
+            on_snippet=_on_snippet,
+        )
         manifest = result.output
         if manifest.get("reject"):
             extra = _note_backend_failure({"reason": manifest["reject"]}, result)
@@ -49,10 +68,25 @@ def run_dev(
     kb_entries: list[dict],
     max_iters: int = 3,
     feedback: str | None = None,
+    status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent]:
     result: AgentResult | None = None
     for attempt in range(1, max_iters + 1):
-        result = backend.run(AgentRole.DEV, compose_prompt(AgentRole.DEV, task, manifest, kb_entries, feedback))
+        status.report(
+            task_id=task.id, node="dev", node_state="running",
+            attempt=attempt, max_attempts=max_iters,
+        )
+
+        def _on_snippet(text: str) -> None:
+            status.report(
+                task_id=task.id, node="dev", node_state="running",
+                attempt=attempt, max_attempts=max_iters, snippet=text,
+            )
+
+        result = backend.run(
+            AgentRole.DEV, compose_prompt(AgentRole.DEV, task, manifest, kb_entries, feedback),
+            on_snippet=_on_snippet,
+        )
         if gates.run("unit") == 0:
             extra = _note_backend_failure({"tests": "green"}, result)
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
@@ -62,16 +96,30 @@ def run_dev(
     return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, extra)
 
 
-def run_validation(gates: GateRunner) -> tuple[NodeOutcome, NodeEvent]:
+def run_validation(
+    gates: GateRunner, task_id: str = "", status: StatusReporter = NullStatusReporter()
+) -> tuple[NodeOutcome, NodeEvent]:
+    status.report(task_id=task_id, node="validation", node_state="running", attempt=1, max_attempts=1)
     if gates.run("sim") == 0:
         return NodeOutcome.PASS, NodeEvent("validation", "pass")
     return NodeOutcome.FAIL, NodeEvent("validation", "fail")
 
 
 def run_review(
-    backend: AgentBackend, gates: GateRunner, task: Task
+    backend: AgentBackend,
+    gates: GateRunner,
+    task: Task,
+    status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
-    result = backend.run(AgentRole.REVIEW, compose_prompt(AgentRole.REVIEW, task))
+    status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
+
+    def _on_snippet(text: str) -> None:
+        status.report(
+            task_id=task.id, node="review", node_state="running",
+            attempt=1, max_attempts=1, snippet=text,
+        )
+
+    result = backend.run(AgentRole.REVIEW, compose_prompt(AgentRole.REVIEW, task), on_snippet=_on_snippet)
     out = result.output
     findings = list(out.get("findings", []))
     dod_met = bool(out.get("dod_met"))
