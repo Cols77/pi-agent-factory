@@ -1,6 +1,7 @@
 ---
 name: context-completeness-audit
 description: Use as the Context-Gatherer role before emitting a context manifest - prove spec/plan/task/prior-session coherence with real evidence, or reject the task back to plan-time when you cannot
+disable-model-invocation: true
 ---
 
 # Context Completeness Audit

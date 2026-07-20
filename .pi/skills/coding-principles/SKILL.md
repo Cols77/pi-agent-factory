@@ -1,6 +1,7 @@
 ---
 name: coding-principles
 description: Use as the Review role to evaluate a change for YAGNI/DRY and Definition-of-Done, and to emit the structured verdict the gate requires
+disable-model-invocation: true
 ---
 
 # Coding Principles Review

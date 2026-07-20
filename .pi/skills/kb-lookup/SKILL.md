@@ -1,6 +1,7 @@
 ---
 name: kb-lookup
 description: Use as the Dev role when the prompt lists knowledge-base entry IDs - read the full entry before implementing, since only the id and title are injected automatically
+disable-model-invocation: true
 ---
 
 # KB Lookup
