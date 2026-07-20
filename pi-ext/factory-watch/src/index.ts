@@ -9,12 +9,17 @@ import { buildListCommand, buildRunCommand, buildWindowsKillArgs } from "./proce
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus } from "./status-format.js";
+import { homedir } from "node:os";
+import { loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
+import type { ReplacedSessionCtx } from "./pi-types.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
 const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
+const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
 
 function readFileIfExists(path: string): string | null {
   try {
@@ -154,6 +159,43 @@ export default function factoryWatch(pi: PiApi): void {
       }
       const lines = result.stdout.split(/\r?\n/).filter((line) => line.length > 0);
       ctx.ui.setWidget("factory-tasks", lines);
+    },
+  });
+
+  pi.registerCommand("plan", {
+    description: "Start an interactive planning session (brainstorming -> writing-plans)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const topic = args.trim();
+      if (topic === "") {
+        ctx.ui.notify("usage: /plan <topic>", "error");
+        return;
+      }
+
+      const { skills } = loadSkills({
+        cwd: ctx.cwd,
+        agentDir: join(homedir(), ".pi", "agent"),
+        skillPaths: [],
+        includeDefaults: true,
+      });
+
+      const skillBlocks: string[] = [];
+      for (const name of PLAN_SKILL_NAMES) {
+        const skill = skills.find((s) => s.name === name);
+        if (skill === undefined) {
+          ctx.ui.notify(`/plan: skill not found: ${name}`, "error");
+          return;
+        }
+        const content = readFileSync(skill.filePath, "utf-8");
+        const body = stripFrontmatter(content).trim();
+        skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
+      }
+
+      const seedText = buildPlanSeedPrompt(topic, skillBlocks);
+      await ctx.newSession({
+        withSession: async (session: ReplacedSessionCtx) => {
+          await session.sendUserMessage(seedText, { deliverAs: "followUp" });
+        },
+      });
     },
   });
 }

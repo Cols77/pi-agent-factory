@@ -1,8 +1,20 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
-import type { CommandDef, ExtCommandCtx, PiApi, UiApi } from "../src/pi-types.js";
+import type { CommandDef, ExtCommandCtx, PiApi, ReplacedSessionCtx, UiApi } from "../src/pi-types.js";
+
+// This test file lives at <repo-root>/pi-ext/factory-watch/test/, so three
+// levels up from here is always the real repo root -- regardless of what
+// directory `npm test`/vitest itself was invoked from. This matters because
+// npm always runs package scripts with process.cwd() set to the package
+// directory (pi-ext/factory-watch), *not* the repo root, so `process.cwd()`
+// on its own does not reach this repo's real vendored `.pi/skills/`.
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -38,7 +50,7 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
     ui: overrides.ui ?? ui,
     model:
       "model" in overrides ? overrides.model : { provider: "openrouter", id: "anthropic/claude-opus-4" },
-    newSession: overrides.newSession ?? vi.fn(),
+    newSession: overrides.newSession ?? vi.fn(async () => ({ cancelled: false })),
   };
 }
 
@@ -47,11 +59,17 @@ describe("factory-watch commands", () => {
     vi.mocked(spawnSync).mockReset();
   });
 
-  test("registers factory, factory-stop, and factory-tasks", () => {
+  // NOTE: the source plan's Task 13 test list also asserts `factory-run`, but
+  // that command isn't wired until Task 14 (a separate, later task -- see
+  // docs/superpowers/plans/2026-07-20-factory-plan-and-run.md:2473). Asserting
+  // it here would make this test permanently fail within Task 13's own scope,
+  // so it's deferred to Task 14, which is the one that actually adds it.
+  test("registers factory, factory-stop, factory-tasks, and plan", () => {
     const { commands } = capture();
     expect(commands.has("factory")).toBe(true);
     expect(commands.has("factory-stop")).toBe(true);
     expect(commands.has("factory-tasks")).toBe(true);
+    expect(commands.has("plan")).toBe(true);
   });
 
   test("/factory notifies an error and does nothing else when no model is active", async () => {
@@ -120,5 +138,40 @@ describe("factory-watch commands", () => {
     await commands.get("factory-tasks")!.handler("", ctx);
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("boom"), "error");
+  });
+
+  test("/plan rejects an empty topic without starting a session", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("plan")!.handler("   ", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("usage: /plan"), "error");
+    expect(ctx.newSession).not.toHaveBeenCalled();
+  });
+
+  test("/plan notifies when a required skill isn't vendored in this repo", async () => {
+    const { commands } = capture();
+    const emptyDir = mkdtempSync(join(tmpdir(), "factory-watch-plan-test-"));
+    const ctx = fakeCtx({ cwd: emptyDir });
+    await commands.get("plan")!.handler("some topic", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("skill not found"), "error");
+    expect(ctx.newSession).not.toHaveBeenCalled();
+  });
+
+  test("/plan seeds a fresh session with the topic once skills are found", async () => {
+    const { commands } = capture();
+    // This repo's real .pi/skills/ has brainstorming + writing-plans vendored
+    // (Task 3), so pointing ctx.cwd at the real repo root (REPO_ROOT, not
+    // process.cwd() -- see note above) exercises the real
+    // loadSkills()+readFileSync() path end to end.
+    const ctx = fakeCtx({ cwd: REPO_ROOT });
+    await commands.get("plan")!.handler("add battery-aware RTB", ctx);
+    expect(ctx.newSession).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(ctx.newSession).mock.calls[0]![0];
+    const session: ReplacedSessionCtx = { sendUserMessage: vi.fn() };
+    await call!.withSession!(session);
+    expect(session.sendUserMessage).toHaveBeenCalledWith(
+      expect.stringContaining("add battery-aware RTB"),
+      { deliverAs: "followUp" },
+    );
   });
 });
