@@ -44,6 +44,7 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
     setStatus: vi.fn(),
     setWidget: vi.fn(),
     select: vi.fn(),
+    custom: vi.fn(),
   };
   return {
     cwd: overrides.cwd ?? process.cwd(),
@@ -93,7 +94,7 @@ describe("factory-watch commands", () => {
       const setWidget = vi.fn(() => {
         throw new Error("This extension ctx is stale after session replacement or reload.");
       });
-      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget, select: vi.fn() };
+      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget, select: vi.fn(), custom: vi.fn() };
       const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
 
       await commands.get("factory")!.handler("", ctx);
@@ -201,6 +202,7 @@ describe("factory-watch commands", () => {
       setStatus: vi.fn(),
       setWidget: vi.fn(),
       select: vi.fn().mockResolvedValue(undefined),
+      custom: vi.fn(),
     };
     const { commands } = capture();
     const ctx = fakeCtx({ ui });
@@ -211,7 +213,7 @@ describe("factory-watch commands", () => {
 
   test("/factory-run uses an inline task id without listing or showing a picker", async () => {
     const { commands } = capture();
-    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn() };
+    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(), custom: vi.fn() };
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
     await commands.get("factory-run")!.handler("T-003", ctx);
 
