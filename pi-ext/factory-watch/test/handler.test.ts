@@ -228,4 +228,27 @@ describe("factory-watch commands", () => {
     await commands.get("factory-run")!.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no model"), "error");
   });
+
+  test("/review-plans notifies when no docs are found, without opening a viewer", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only" });
+    await commands.get("review-plans")!.handler("", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no specs, plans, or tasks"), "info");
+  });
+
+  test("/review-plans does nothing further when the picker is cancelled", async () => {
+    const select = vi.fn().mockResolvedValue(undefined);
+    const custom = vi.fn();
+    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select, custom };
+    const { commands } = capture();
+    // This repo's real root has real specs/plans/tasks (Task 2's listDocs will find some),
+    // so the picker is genuinely shown here rather than short-circuited by the empty-list path.
+    // Deliberately REPO_ROOT, not process.cwd() -- see the note atop this file: npm always runs
+    // package scripts with process.cwd() set to the package directory (pi-ext/factory-watch),
+    // which has no docs/tasks dirs of its own and would hit the empty-list branch instead.
+    const ctx = fakeCtx({ cwd: REPO_ROOT, ui });
+    await commands.get("review-plans")!.handler("", ctx);
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(custom).not.toHaveBeenCalled();
+  });
 });

@@ -10,11 +10,14 @@ import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus } from "./status-format.js";
 import { homedir } from "node:os";
-import { loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
 import type { TaskSummary } from "./task-picker.js";
+import { listDocs } from "./doc-lister.js";
+import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
+import { ScrollableMarkdown } from "./scrollable-markdown.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -243,6 +246,49 @@ export default function factoryWatch(pi: PiApi): void {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
         },
       });
+    },
+  });
+
+  pi.registerCommand("review-plans", {
+    description: "Browse and view specs, plans, and tasks in a scrollable, rendered view",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const docs = listDocs(ctx.cwd);
+      if (docs.length === 0) {
+        ctx.ui.notify("no specs, plans, or tasks found", "info");
+        return;
+      }
+
+      const selectedLabel = await ctx.ui.select(
+        "Review which document?",
+        docs.map((d) => d.label),
+      );
+      if (selectedLabel === undefined) {
+        return;
+      }
+      const doc = docs.find((d) => d.label === selectedLabel);
+      if (doc === undefined) {
+        ctx.ui.notify("review-plans: selected document not found", "error");
+        return;
+      }
+
+      let raw: string;
+      try {
+        raw = readFileSync(doc.path, "utf-8");
+      } catch (err) {
+        ctx.ui.notify(`review-plans: failed to read ${doc.path}: ${String(err)}`, "error");
+        return;
+      }
+
+      let displayText = raw;
+      if (doc.type === "task") {
+        const parsed = parseTaskFrontmatter(raw);
+        displayText = parsed ? `${formatTaskHeader(parsed)}\n\n${parsed.body}` : raw;
+      }
+
+      const markdownTheme = getMarkdownTheme();
+      await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => {
+        return new ScrollableMarkdown(displayText, markdownTheme, tui, () => done(undefined));
+      }, { overlay: true, overlayOptions: { width: "90%", maxHeight: "90%", anchor: "center" } });
     },
   });
 }
