@@ -49,6 +49,62 @@ export interface CommandDef {
   handler: (args: string, ctx: ExtCommandCtx) => Promise<void>;
 }
 
+// Minimal structural subset of Pi's real event ctx (ExtensionContext) --
+// only the field these hooks actually read.
+export interface EventCtx {
+  cwd: string;
+}
+
+export interface ToolCallEvent {
+  type: "tool_call";
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolCallEventResult {
+  block?: boolean;
+  reason?: string;
+}
+
+export interface TextContent {
+  type: "text";
+  text: string;
+}
+
+export interface ToolResultEvent {
+  type: "tool_result";
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  isError: boolean;
+}
+
+export interface ToolResultEventResult {
+  content?: TextContent[];
+}
+
+export interface BeforeAgentStartEvent {
+  type: "before_agent_start";
+  systemPrompt: string;
+}
+
+export interface BeforeAgentStartEventResult {
+  systemPrompt?: string;
+}
+
 export interface PiApi {
   registerCommand(name: string, def: CommandDef): void;
+  on(
+    event: "tool_call",
+    handler: (event: ToolCallEvent, ctx: EventCtx) => ToolCallEventResult | void,
+  ): void;
+  on(
+    event: "tool_result",
+    handler: (event: ToolResultEvent, ctx: EventCtx) => ToolResultEventResult | void,
+  ): void;
+  on(
+    event: "before_agent_start",
+    handler: (event: BeforeAgentStartEvent, ctx: EventCtx) => BeforeAgentStartEventResult | void,
+  ): void;
 }

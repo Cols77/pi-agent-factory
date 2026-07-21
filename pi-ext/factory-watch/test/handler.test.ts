@@ -33,6 +33,7 @@ function capture(): { commands: Map<string, CommandDef>; pi: PiApi } {
   const commands = new Map<string, CommandDef>();
   const pi: PiApi = {
     registerCommand: (name, def) => commands.set(name, def),
+    on: () => {},
   };
   factoryWatch(pi);
   return { commands, pi };

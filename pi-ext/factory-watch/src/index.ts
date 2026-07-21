@@ -18,6 +18,7 @@ import type { TaskSummary } from "./task-picker.js";
 import { listDocs } from "./doc-lister.js";
 import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
+import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -35,6 +36,8 @@ function readFileIfExists(path: string): string | null {
 }
 
 export default function factoryWatch(pi: PiApi): void {
+  registerWriteChunkGuard(pi);
+
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
   function stopPolling(): void {
