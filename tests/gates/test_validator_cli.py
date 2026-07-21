@@ -31,4 +31,4 @@ def test_invalid_session_exits_one(tmp_path):
 
 
 def test_valid_kb_entry_exits_zero():
-    assert _run("validate_kb.py", "kb/kb-0001-pybullet-arming.md") == 0
+    assert _run("validate_kb.py", "kb/kb-0001-example-entry.md") == 0

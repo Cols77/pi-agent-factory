@@ -8,7 +8,7 @@ KB_DIR = Path(__file__).resolve().parents[2] / "kb"
 
 
 def test_seeded_entry_parses_and_validates():
-    path = KB_DIR / "kb-0001-pybullet-arming.md"
+    path = KB_DIR / "kb-0001-example-entry.md"
     data = parse_entry(path)
     assert data["id"] == "kb-0001"
     assert validate_entry_file(path) == []

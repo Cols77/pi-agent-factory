@@ -8,12 +8,12 @@ KB_DIR = Path(__file__).resolve().parents[2] / "kb"
 
 
 def test_matches_by_file_glob():
-    ids = select_entries(KB_DIR, ["src/drone/pybullet_flight_controller.py"], [])
+    ids = select_entries(KB_DIR, ["src/example/retry_client.py"], [])
     assert "kb-0001" in ids
 
 
 def test_matches_by_signature_substring():
-    ids = select_entries(KB_DIR, [], ["AssertionError: max_altitude > 0.6"])
+    ids = select_entries(KB_DIR, [], ["ConnectionResetError: connection reset by peer"])
     assert "kb-0001" in ids
 
 
@@ -25,7 +25,7 @@ def test_invalid_entry_skipped_without_crashing(tmp_path):
     import shutil
 
     shutil.copy(
-        KB_DIR / "kb-0001-pybullet-arming.md", tmp_path / "kb-0001-pybullet-arming.md"
+        KB_DIR / "kb-0001-example-entry.md", tmp_path / "kb-0001-example-entry.md"
     )
     # Missing the required "id" field entirely: would raise KeyError if
     # selected without validation first.
@@ -34,5 +34,5 @@ def test_invalid_entry_skipped_without_crashing(tmp_path):
         "tags: []\nscope:\n  files: ['*']\n---\nbody\n",
         encoding="utf-8",
     )
-    ids = select_entries(tmp_path, [], ["AssertionError: max_altitude > 0.6"])
+    ids = select_entries(tmp_path, [], ["ConnectionResetError: connection reset by peer"])
     assert ids == ["kb-0001"]

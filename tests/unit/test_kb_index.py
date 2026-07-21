@@ -10,7 +10,7 @@ SRC_KB = Path(__file__).resolve().parents[2] / "kb"
 
 
 def test_build_index_writes_file(tmp_path):
-    shutil.copy(SRC_KB / "kb-0001-pybullet-arming.md", tmp_path / "kb-0001-pybullet-arming.md")
+    shutil.copy(SRC_KB / "kb-0001-example-entry.md", tmp_path / "kb-0001-example-entry.md")
     idx = build_index(tmp_path)
     assert "kb-0001" in idx
     assert idx["kb-0001"]["status"] == "active"
@@ -19,7 +19,7 @@ def test_build_index_writes_file(tmp_path):
 
 
 def test_build_index_skips_invalid_entry_without_crashing(tmp_path):
-    shutil.copy(SRC_KB / "kb-0001-pybullet-arming.md", tmp_path / "kb-0001-pybullet-arming.md")
+    shutil.copy(SRC_KB / "kb-0001-example-entry.md", tmp_path / "kb-0001-example-entry.md")
     # Missing the required "id" field entirely: would raise KeyError if
     # indexed without validation first.
     (tmp_path / "kb-0002-broken.md").write_text(
