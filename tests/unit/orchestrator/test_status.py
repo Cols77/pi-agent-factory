@@ -27,23 +27,39 @@ def test_file_status_reporter_writes_json(tmp_path):
     record = json.loads(path.read_text(encoding="utf-8"))
     assert record["session_id"] == "s1"
     assert record["task_id"] == "T-001"
-    assert record["node"] == "dev"
-    assert record["node_state"] == "running"
-    assert record["attempt"] == 2
-    assert record["max_attempts"] == 3
-    assert record["snippet"] == "working on it"
-    assert record["outcome"] is None
+    assert record["current_node"] == "dev"
+    assert record["current_state"] == "running"
+    assert len(record["pipeline"]) == 1
+    assert record["pipeline"][0]["node"] == "dev"
+    assert record["pipeline"][0]["node_state"] == "running"
+    assert record["pipeline"][0]["snippet"] == "working on it"
     assert "updated_at" in record
 
 
-def test_file_status_reporter_overwrites_on_each_report(tmp_path):
+def test_file_status_reporter_accumulates_pipeline(tmp_path):
+    path = tmp_path / "status.json"
+    reporter = FileStatusReporter(path=path, session_id="s1")
+    reporter.report(task_id="T-001", node="context-gather", node_state="pass", attempt=1, max_attempts=2,
+                    handoff="3 files, coherence=yes")
+    reporter.report(task_id="T-001", node="dev", node_state="running", attempt=1, max_attempts=3)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["current_node"] == "dev"
+    assert len(record["pipeline"]) == 2
+    assert record["pipeline"][0]["node"] == "context-gather"
+    assert record["pipeline"][0]["handoff"] == "3 files, coherence=yes"
+    assert record["pipeline"][1]["node"] == "dev"
+
+
+def test_file_status_reporter_updates_existing_node(tmp_path):
     path = tmp_path / "status.json"
     reporter = FileStatusReporter(path=path, session_id="s1")
     reporter.report(task_id="T-001", node="context-gather", node_state="running", attempt=1, max_attempts=2)
-    reporter.report(task_id="T-001", node="dev", node_state="pass", attempt=1, max_attempts=3)
+    reporter.report(task_id="T-001", node="context-gather", node_state="pass", attempt=2, max_attempts=2,
+                    handoff="→ dev: 3 files")
     record = json.loads(path.read_text(encoding="utf-8"))
-    assert record["node"] == "dev"
-    assert record["node_state"] == "pass"
+    assert len(record["pipeline"]) == 1  # same node updated, not duplicated
+    assert record["pipeline"][0]["node_state"] == "pass"
+    assert record["pipeline"][0]["handoff"] == "→ dev: 3 files"
 
 
 def test_file_status_reporter_leaves_no_tmp_file(tmp_path):

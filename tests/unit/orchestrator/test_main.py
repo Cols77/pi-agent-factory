@@ -33,8 +33,14 @@ def test_main_error_status_on_run_next_exception(tmp_path, monkeypatch):
     assert status_path.exists(), f"Status file should exist at {status_path}"
 
     status_data = json.loads(status_path.read_text(encoding="utf-8"))
-    assert status_data["node_state"] == "error", f"Expected node_state='error', got {status_data['node_state']}"
-    assert "boom" in status_data["snippet"], f"Expected 'boom' in snippet, got {status_data['snippet']}"
+    # New format uses current_node/current_state with pipeline
+    state = status_data.get("current_state", status_data.get("node_state"))
+    assert state == "error", f"Expected node_state='error', got {state}"
+    # Error snippet is in the pipeline entry
+    pipeline = status_data.get("pipeline", [])
+    error_entry = next((p for p in pipeline if p["node"] == "orchestrator"), None)
+    assert error_entry is not None, f"Expected orchestrator in pipeline, got {pipeline}"
+    assert "boom" in error_entry["snippet"], f"Expected 'boom' in snippet, got {error_entry['snippet']}"
 
     # Assert the lock file was cleaned up (finally block ran)
     lock_path = sessions_dir / ".factory-run.lock"

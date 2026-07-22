@@ -160,8 +160,9 @@ def test_run_task_reports_final_outcome(tmp_path):
     run_task(task, FakeAgentBackend(_scripts()), FakeGateRunner(), repo, status=status)
 
     final_calls = [c for c in status.calls if c["outcome"] is not None]
-    assert len(final_calls) == 1
-    assert final_calls[0]["outcome"] == "completed"
+    assert final_calls[-1]["outcome"] == "completed"  # last outcome is completion
+    # Intermediate nodes may also report outcomes (e.g. context-gather reject)
+    assert len(final_calls) >= 1
 
 
 def test_run_task_reports_node_result_after_each_node(tmp_path):

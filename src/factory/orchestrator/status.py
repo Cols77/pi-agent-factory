@@ -23,6 +23,7 @@ class StatusReporter(Protocol):
         max_attempts: int,
         snippet: str = "",
         outcome: str | None = None,
+        handoff: str | None = None,
     ) -> None: ...
 
 
@@ -37,6 +38,7 @@ class NullStatusReporter:
         max_attempts: int,
         snippet: str = "",
         outcome: str | None = None,
+        handoff: str | None = None,
     ) -> None:
         pass
 
@@ -46,6 +48,7 @@ class FileStatusReporter:
     path: Path
     session_id: str
     started_at: str = field(default_factory=_now)
+    _pipeline: list[dict] = field(default_factory=list)
 
     def report(
         self,
@@ -57,16 +60,36 @@ class FileStatusReporter:
         max_attempts: int,
         snippet: str = "",
         outcome: str | None = None,
+        handoff: str | None = None,
     ) -> None:
-        record = {
-            "session_id": self.session_id,
-            "task_id": task_id,
+        # Update or append the pipeline entry for this node
+        entry = {
             "node": node,
             "node_state": node_state,
             "attempt": attempt,
             "max_attempts": max_attempts,
             "snippet": snippet,
             "outcome": outcome,
+            "handoff": handoff,
+            "updated_at": _now(),
+        }
+        # Find existing entry for this node (same node name) and update it,
+        # or append if this is a new node in the pipeline
+        replaced = False
+        for i, existing in enumerate(self._pipeline):
+            if existing["node"] == node:
+                self._pipeline[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            self._pipeline.append(entry)
+
+        record = {
+            "session_id": self.session_id,
+            "task_id": task_id,
+            "current_node": node,
+            "current_state": node_state,
+            "pipeline": self._pipeline,
             "started_at": self.started_at,
             "updated_at": _now(),
         }
@@ -90,6 +113,7 @@ class FakeStatusReporter:
         max_attempts: int,
         snippet: str = "",
         outcome: str | None = None,
+        handoff: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -100,5 +124,6 @@ class FakeStatusReporter:
                 "max_attempts": max_attempts,
                 "snippet": snippet,
                 "outcome": outcome,
+                "handoff": handoff,
             }
         )

@@ -21,6 +21,18 @@ def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
     return extra
 
 
+def _summarize_manifest(manifest: dict | None) -> str:
+    """Extract a one-line summary of the manifest for the handoff status."""
+    if manifest is None:
+        return "no manifest"
+    ctx = manifest.get("context", {})
+    files = ctx.get("source_files", [])
+    n_files = len(files) if isinstance(files, list) else 0
+    coherence = manifest.get("coherence", {})
+    proven = coherence.get("proven", False)
+    return f"{n_files} files, coherence={'yes' if proven else 'no'}"
+
+
 def run_context_gatherer(
     backend: AgentBackend,
     task: Task,
@@ -50,14 +62,35 @@ def run_context_gatherer(
         manifest = result.output
         if manifest.get("reject"):
             extra = _note_backend_failure({"reason": manifest["reject"]}, result)
+            status.report(
+                task_id=task.id, node="context-gather", node_state="reject",
+                attempt=attempt, max_attempts=max_attempts,
+                handoff=f"rejected: {manifest['reject']}",
+            )
             return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", attempt, extra)
         errors = validate_manifest(manifest, repo_root)
         if not errors and manifest.get("coherence", {}).get("proven"):
             extra = _note_backend_failure({}, result)
+            handoff = _summarize_manifest(manifest)
+            status.report(
+                task_id=task.id, node="context-gather", node_state="pass",
+                attempt=attempt, max_attempts=max_attempts,
+                handoff=f"→ dev: {handoff}",
+            )
             return NodeOutcome.PASS, manifest, NodeEvent("context-gather", "pass", attempt, extra)
+        status.report(
+            task_id=task.id, node="context-gather", node_state="running",
+            attempt=attempt, max_attempts=max_attempts,
+            handoff=f"validation errors: {'; '.join(errors[:3])}",
+        )
     extra = {"errors": errors}
     if result is not None:
         extra = _note_backend_failure(extra, result)
+    status.report(
+        task_id=task.id, node="context-gather", node_state="reject",
+        attempt=max_attempts, max_attempts=max_attempts,
+        handoff=f"failed after {max_attempts} attempts", outcome="rejected",
+    )
     return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", max_attempts, extra)
 
 
@@ -95,19 +128,39 @@ def run_dev(
         )
         if gates.run("unit") == 0:
             extra = _note_backend_failure({"tests": "green"}, result)
+            status.report(
+                task_id=task.id, node="dev", node_state="pass",
+                attempt=attempt, max_attempts=max_iters,
+                handoff="→ validation: unit tests green",
+            )
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
+        status.report(
+            task_id=task.id, node="dev", node_state="running",
+            attempt=attempt, max_attempts=max_iters,
+            handoff=f"unit tests failed, retry {attempt}/{max_iters}",
+        )
     extra = {"reason": "unit tests red"}
     if result is not None:
         extra = _note_backend_failure(extra, result)
+    status.report(
+        task_id=task.id, node="dev", node_state="escalate",
+        attempt=max_iters, max_attempts=max_iters,
+        handoff="escalated: unit tests still red", outcome="escalated",
+    )
     return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, extra)
 
 
 def run_validation(
     gates: GateRunner, task_id: str = "", status: StatusReporter = NullStatusReporter()
 ) -> tuple[NodeOutcome, NodeEvent]:
-    status.report(task_id=task_id, node="validation", node_state="running", attempt=1, max_attempts=1)
+    status.report(task_id=task_id, node="validation", node_state="running", attempt=1, max_attempts=1,
+                 handoff="running sim gate")
     if gates.run("sim") == 0:
+        status.report(task_id=task_id, node="validation", node_state="pass", attempt=1, max_attempts=1,
+                     handoff="→ review: sim tests green")
         return NodeOutcome.PASS, NodeEvent("validation", "pass")
+    status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
+                 handoff="sim tests failed")
     return NodeOutcome.FAIL, NodeEvent("validation", "fail")
 
 
@@ -137,8 +190,19 @@ def run_review(
     gate = gates.run("full")
     if gate == 0 and dod_met and not findings:
         extra = _note_backend_failure({}, result)
+        status.report(
+            task_id=task.id, node="review", node_state="pass",
+            attempt=1, max_attempts=1,
+            handoff="✓ task complete, DoD met, gates pass", outcome="completed",
+        )
         return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
+    finding_summary = f"{len(findings)} finding(s)" if findings else "DoD not met"
     extra = _note_backend_failure({"findings": len(findings), "gate": gate}, result)
+    status.report(
+        task_id=task.id, node="review", node_state="changes-requested",
+        attempt=1, max_attempts=1,
+        handoff=f"→ dev: {finding_summary}, gate={'pass' if gate == 0 else 'fail'}",
+    )
     return (
         NodeOutcome.CHANGES,
         NodeEvent("review", "changes-requested", 1, extra),
