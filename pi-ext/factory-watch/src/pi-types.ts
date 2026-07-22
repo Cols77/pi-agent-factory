@@ -29,6 +29,8 @@ export interface UiApi {
   setStatus(key: string, text: string | undefined): void;
   setWidget(key: string, content: string[] | undefined): void;
   select(title: string, options: string[]): Promise<string | undefined>;
+  confirm(title: string, message: string): Promise<boolean>;
+  editor(title: string, prefill?: string): Promise<string | undefined>;
   custom<T>(
     factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: T) => void) => Component,
     options?: { overlay?: boolean; overlayOptions?: OverlayOptions },

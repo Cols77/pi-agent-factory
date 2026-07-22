@@ -45,6 +45,8 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
     setStatus: vi.fn(),
     setWidget: vi.fn(),
     select: vi.fn(),
+    confirm: vi.fn(async () => true),
+    editor: vi.fn(async () => undefined),
     custom: vi.fn(),
   };
   return {
@@ -95,7 +97,15 @@ describe("factory-watch commands", () => {
       const setWidget = vi.fn(() => {
         throw new Error("This extension ctx is stale after session replacement or reload.");
       });
-      const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget, select: vi.fn(), custom: vi.fn() };
+      const ui: UiApi = {
+        notify: vi.fn(),
+        setStatus: vi.fn(),
+        setWidget,
+        select: vi.fn(),
+        confirm: vi.fn(async () => true),
+        editor: vi.fn(async () => undefined),
+        custom: vi.fn(),
+      };
       const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
 
       await commands.get("factory")!.handler("", ctx);
@@ -203,6 +213,8 @@ describe("factory-watch commands", () => {
       setStatus: vi.fn(),
       setWidget: vi.fn(),
       select: vi.fn().mockResolvedValue(undefined),
+      confirm: vi.fn(async () => true),
+      editor: vi.fn(async () => undefined),
       custom: vi.fn(),
     };
     const { commands } = capture();
@@ -214,7 +226,15 @@ describe("factory-watch commands", () => {
 
   test("/factory-run with inline task id opens a new session when task file exists", async () => {
     const { commands } = capture();
-    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(), custom: vi.fn() };
+    const ui: UiApi = {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      setWidget: vi.fn(),
+      select: vi.fn(),
+      confirm: vi.fn(async () => true),
+      editor: vi.fn(async () => undefined),
+      custom: vi.fn(),
+    };
     const newSession = vi.fn(async () => ({ cancelled: false }));
     const ctx = fakeCtx({ cwd: REPO_ROOT, ui, newSession });
     // T-029 exists in this repo's tasks/ directory
@@ -230,7 +250,15 @@ describe("factory-watch commands", () => {
 
   test("/factory-run with inline task id notifies error when task file not found", async () => {
     const { commands } = capture();
-    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(), custom: vi.fn() };
+    const ui: UiApi = {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      setWidget: vi.fn(),
+      select: vi.fn(),
+      confirm: vi.fn(async () => true),
+      editor: vi.fn(async () => undefined),
+      custom: vi.fn(),
+    };
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
     await commands.get("factory-run")!.handler("T-999", ctx);
     expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("task file not found"), "error");
@@ -246,7 +274,15 @@ describe("factory-watch commands", () => {
   test("/review-plans does nothing further when the picker is cancelled", async () => {
     const select = vi.fn().mockResolvedValue(undefined);
     const custom = vi.fn();
-    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select, custom };
+    const ui: UiApi = {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      setWidget: vi.fn(),
+      select,
+      confirm: vi.fn(async () => true),
+      editor: vi.fn(async () => undefined),
+      custom,
+    };
     const { commands } = capture();
     // This repo's real root has real specs/plans/tasks (Task 2's listDocs will find some),
     // so the picker is genuinely shown here rather than short-circuited by the empty-list path.
