@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -95,7 +96,8 @@ def _build_command(
     """Build the `pi` invocation. Pi defaults to the "google" provider when
     --provider/--model are omitted, so an explicit provider/model must be
     passed through to use anything else (e.g. openrouter)."""
-    cmd = ["pi", "-p", prompt, "--mode", "json", "--extension", str(extension_path)]
+    pi_bin = shutil.which("pi") or "pi"
+    cmd = [pi_bin, "-p", prompt, "--mode", "json", "--extension", str(extension_path)]
     if provider:
         cmd += ["--provider", provider]
     if model:
