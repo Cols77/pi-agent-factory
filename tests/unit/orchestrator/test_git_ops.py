@@ -53,3 +53,31 @@ def test_fake_git_ops_records_commit_messages_only_when_has_uncommitted():
     dirty = FakeGitOps(head="def456", has_uncommitted=True)
     assert dirty.commit_all(None, "msg") is True
     assert dirty.commit_messages == ["msg"]
+
+
+def test_subprocess_git_ops_changed_files_lists_modified_paths(tmp_path):
+    repo = _init_repo(tmp_path)
+    start = SubprocessGitOps().head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "b.txt").write_text("new\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "change"], cwd=repo, check=True)
+
+    files = SubprocessGitOps().changed_files(repo, start)
+
+    assert sorted(files) == ["a.txt", "b.txt"]
+
+
+def test_subprocess_git_ops_changed_files_empty_when_nothing_changed(tmp_path):
+    repo = _init_repo(tmp_path)
+    start = SubprocessGitOps().head_commit(repo)
+    assert SubprocessGitOps().changed_files(repo, start) == []
+
+
+def test_fake_git_ops_returns_scripted_changed_files():
+    fake = FakeGitOps(changed_files_result=["src/a.py", "src/b.py"])
+    assert fake.changed_files(None, "abc123") == ["src/a.py", "src/b.py"]
+
+
+def test_fake_git_ops_changed_files_defaults_to_empty():
+    assert FakeGitOps().changed_files(None, "abc123") == []
