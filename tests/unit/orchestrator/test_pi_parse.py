@@ -55,13 +55,16 @@ def test_field_mismatch_not_signaled_for_empty_stdout():
 
 def test_build_command_omits_provider_and_model_when_unset():
     cmd = _build_command("hello", Path("ext.ts"), None, None)
-    assert cmd == ["pi", "-p", "hello", "--mode", "json", "--extension", "ext.ts"]
+    # Binary may resolve to full path on Windows (pi.CMD), so check args, not bin
+    assert cmd[0].endswith("pi") or cmd[0].endswith("pi.CMD") or cmd[0].endswith("pi.cmd")
+    assert cmd[1:] == ["-p", "hello", "--mode", "json", "--extension", "ext.ts"]
 
 
 def test_build_command_includes_provider_and_model_when_set():
     cmd = _build_command("hello", Path("ext.ts"), "openrouter", "anthropic/claude-opus-4")
-    assert cmd == [
-        "pi", "-p", "hello", "--mode", "json", "--extension", "ext.ts",
+    assert cmd[0].endswith("pi") or cmd[0].endswith("pi.CMD") or cmd[0].endswith("pi.cmd")
+    assert cmd[1:] == [
+        "-p", "hello", "--mode", "json", "--extension", "ext.ts",
         "--provider", "openrouter",
         "--model", "anthropic/claude-opus-4",
     ]

@@ -137,7 +137,9 @@ def run_next(
             return None
 
     result = run_task(task, backend, gates, repo_root, status=status)
-    set_status(task, "done" if result.outcome == "completed" else result.outcome)
+    # Only mark done on success. Rejected/escalated tasks go back to todo
+    # so they can be retried (possibly with a different agent or after fixes).
+    set_status(task, "done" if result.outcome == "completed" else "todo")
 
     sid = session_id or _default_session_id()
     record = build_record(sid, model_backend, [result], git_info or {})
