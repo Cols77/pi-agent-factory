@@ -2,7 +2,7 @@
 // (project-local auto-discovery via .pi/extensions/ also works once installed there)
 
 import { spawn, spawnSync } from "node:child_process";
-import { openSync, readFileSync } from "node:fs";
+import { mkdirSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
@@ -66,6 +66,7 @@ export default function factoryWatch(pi: PiApi): void {
   function launchAndWatch(ctx: ExtCommandCtx, cmd: Command, label: string): void {
     const statusPath = join(ctx.cwd, STATUS_FILE);
     const lockPath = join(ctx.cwd, LOCK_FILE);
+    mkdirSync(join(ctx.cwd, "sessions"), { recursive: true });
     const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
     const child = spawn(cmd.bin, cmd.args, {
       cwd: ctx.cwd,
