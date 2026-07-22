@@ -11,6 +11,7 @@ SKILL_NAMES = [
     "kb-lookup",
     "requesting-code-review",
     "coding-principles",
+    "session-report",
 ]
 
 

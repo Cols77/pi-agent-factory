@@ -5,7 +5,7 @@ from pathlib import Path
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.roles import ROLE_PROMPTS, ROLE_SKILLS
 from factory.orchestrator.skills import load_skill_block
-from factory.orchestrator.types import AgentRole
+from factory.orchestrator.types import AgentRole, NodeEvent
 
 
 def compose_prompt(
@@ -15,6 +15,8 @@ def compose_prompt(
     kb_entries: list[dict] | None = None,
     feedback: str | None = None,
     *,
+    events: list[NodeEvent] | None = None,
+    existing_kb_titles: list[tuple[str, str]] | None = None,
     skills_dir: Path,
 ) -> str:
     lines: list[str] = []
@@ -51,5 +53,18 @@ def compose_prompt(
         lines.append("")
         lines.append("## Feedback to address")
         lines.append(feedback)
+
+    if events:
+        lines.append("")
+        lines.append("## What happened this run")
+        for ev in events:
+            plural = "attempt" if ev.attempts == 1 else "attempts"
+            lines.append(f"- {ev.node}: {ev.result} ({ev.attempts} {plural})")
+
+    if existing_kb_titles:
+        lines.append("")
+        lines.append("## Existing knowledge base entries")
+        for kb_id, title in existing_kb_titles:
+            lines.append(f"- {kb_id}: {title}")
 
     return "\n".join(lines)

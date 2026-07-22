@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from factory.orchestrator.types import AgentRole
+from factory.orchestrator.types import AgentRole, NodeEvent
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
 from ._skill_fixtures import write_skill_stubs
@@ -89,3 +89,43 @@ def test_compose_prompt_works_against_real_vendored_skills_for_live_roles():
     for prompt in (context_gatherer_prompt, dev_prompt, review_prompt):
         assert isinstance(prompt, str)
         assert "T-001" in prompt
+
+
+def test_compose_prompt_includes_events_section_when_provided(tmp_path):
+    write_skill_stubs(tmp_path)
+    skills_dir = tmp_path / ".pi" / "skills"
+    events = [
+        NodeEvent("context-gather", "pass", 1),
+        NodeEvent("dev", "pass", 2),
+    ]
+    prompt = compose_prompt(
+        AgentRole.SESSION_REVIEW, TASK, events=events, skills_dir=skills_dir,
+    )
+    assert "## What happened this run" in prompt
+    assert "context-gather: pass (1 attempt)" in prompt
+    assert "dev: pass (2 attempts)" in prompt
+
+
+def test_compose_prompt_omits_events_section_when_not_provided(tmp_path):
+    write_skill_stubs(tmp_path)
+    skills_dir = tmp_path / ".pi" / "skills"
+    prompt = compose_prompt(AgentRole.DEV, TASK, skills_dir=skills_dir)
+    assert "## What happened this run" not in prompt
+
+
+def test_compose_prompt_includes_existing_kb_titles_when_provided(tmp_path):
+    write_skill_stubs(tmp_path)
+    skills_dir = tmp_path / ".pi" / "skills"
+    prompt = compose_prompt(
+        AgentRole.SESSION_REVIEW, TASK,
+        existing_kb_titles=[("kb-0001", "Flaky retry")], skills_dir=skills_dir,
+    )
+    assert "## Existing knowledge base entries" in prompt
+    assert "kb-0001: Flaky retry" in prompt
+
+
+def test_compose_prompt_omits_existing_kb_titles_section_when_not_provided(tmp_path):
+    write_skill_stubs(tmp_path)
+    skills_dir = tmp_path / ".pi" / "skills"
+    prompt = compose_prompt(AgentRole.DEV, TASK, skills_dir=skills_dir)
+    assert "## Existing knowledge base entries" not in prompt
