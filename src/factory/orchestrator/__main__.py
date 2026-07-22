@@ -4,10 +4,12 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator.backends import SubprocessGateRunner
+from factory.orchestrator.human_review import StdioHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
@@ -34,6 +36,10 @@ def main() -> None:
     parser.add_argument("--model", default=None, help="Pi model id, e.g. anthropic/claude-opus-4")
     parser.add_argument("--task", default=None, help="Task id to run (default: next todo task)")
     parser.add_argument("--json", action="store_true", help="list command only: output tasks as JSON")
+    parser.add_argument(
+        "--auto", action="store_true",
+        help="skip the human review gate; fully automated (today's behavior)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
@@ -41,9 +47,9 @@ def main() -> None:
     if args.command == "list":
         tasks = load_tasks(repo_root / "tasks")
         if args.json:
-            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]))
+            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]), file=sys.stderr)
         else:
-            print(format_task_board(tasks))
+            print(format_task_board(tasks), file=sys.stderr)
         return
 
     ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
@@ -63,16 +69,18 @@ def main() -> None:
     try:
         acquire_lock(lock_path, os.getpid(), session_id)
     except AlreadyRunningError as exc:
-        print(f"factory orchestrator already running (pid {exc.pid}); refusing to start a second run")
+        print(f"factory orchestrator already running (pid {exc.pid}); refusing to start a second run", file=sys.stderr)
         raise SystemExit(1) from exc
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
+    human_review = None if args.auto else StdioHumanReviewGate()
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
-            session_id=session_id, status=status, task_id=args.task, **kwargs,
+            session_id=session_id, status=status, task_id=args.task,
+            human_review=human_review, **kwargs,
         )
-        print("no todo tasks" if path is None else f"session written: {path}")
+        print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:
         status.report(
             task_id="", node="orchestrator", node_state="error",
