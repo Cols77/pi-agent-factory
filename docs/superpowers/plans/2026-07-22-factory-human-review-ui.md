@@ -580,7 +580,9 @@ git commit -m "feat: wire HumanReviewGate into run_task/run_next"
 
 - [ ] **Step 1: Manually verify today's behavior first**
 
-Run: `cd /c/coding/pi-agent-factory && uv run python -m factory.orchestrator list --repo .` and confirm it prints the task board as before (baseline, no test framework covers `__main__.py` today -- this is deliberately a manual-verification task, matching how thin CLI-argument glue is handled elsewhere in this plan-writing convention when no existing test file covers it).
+Run: `cd /c/coding/pi-agent-factory && uv run python -m factory.orchestrator list --repo .` and confirm it prints the task board as before (baseline).
+
+**Correction (post-review):** the claim that "no test framework covers `__main__.py` today" was false -- `tests/unit/orchestrator/test_main.py` already existed and already covered the `list` command's stdout output. Those pre-existing tests are exactly what caught the regression this step introduced (moving `list`'s output to stderr) before it shipped. This step should have been treated as automated-test-covered, not manual-verification-only.
 
 - [ ] **Step 2: Implement**
 
