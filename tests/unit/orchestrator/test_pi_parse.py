@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -10,10 +11,26 @@ from factory.orchestrator.pi_backend import (
 
 pytestmark = pytest.mark.unit
 
-# Minimal stand-in for Pi's json event stream: assistant text deltas carrying a json block.
+# Minimal stand-in for Pi's real v3 json event stream: one "message_end" event
+# per complete assistant message, each carrying its full text in
+# message.content[].text. Two events here (as if two separate assistant
+# turns) whose concatenated text spans a fenced json block, matching how
+# parse_pi_json is expected to reconstruct text across multiple messages.
 STREAM = "\n".join([
-    '{"type": "assistant_text", "text": "Here is the manifest:\\n```json\\n{\\"task_id\\": \\"T-001\\","}',
-    '{"type": "assistant_text", "text": " \\"ok\\": true}\\n```\\nDone."}',
+    json.dumps({
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": 'Here is the manifest:\n```json\n{"task_id": "T-001",'}],
+        },
+    }),
+    json.dumps({
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": ' "ok": true}\n```\nDone.'}],
+        },
+    }),
 ])
 
 
@@ -24,11 +41,15 @@ def test_parse_extracts_last_json_block():
 
 
 def test_parse_returns_empty_when_no_block():
-    assert parse_pi_json('{"type":"assistant_text","text":"no json here"}') == {}
+    line = json.dumps({
+        "type": "message_end",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "no json here"}]},
+    })
+    assert parse_pi_json(line) == {}
 
 
 # Finding 1+2 (final review): tests for the pure helper that detects the
-# field-name-mismatch signature -- valid JSON events with no "text" field.
+# field-name-mismatch signature -- valid JSON events with no assistant text.
 
 
 def test_field_mismatch_detected_when_events_have_no_text_field():
@@ -40,9 +61,12 @@ def test_field_mismatch_detected_when_events_have_no_text_field():
 
 
 def test_field_mismatch_not_signaled_for_normal_empty_response():
-    # Valid "text" fields present, just no fenced json block -> genuinely empty
+    # Valid assistant text present, just no fenced json block -> genuinely empty
     # response, not a field-name mismatch.
-    stream = '{"type":"assistant_text","text":"no json here"}'
+    stream = json.dumps({
+        "type": "message_end",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "no json here"}]},
+    })
     assert _has_json_events_without_text_field(stream) is False
 
 
@@ -82,9 +106,20 @@ def test_build_command_provider_only():
     assert "--model" not in cmd
 
 
-def test_extract_snippet_returns_text_field():
-    line = '{"type": "assistant_text", "text": "hello"}'
+def test_extract_snippet_returns_delta_from_text_delta_event():
+    line = json.dumps({
+        "type": "message_update",
+        "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "hello"},
+    })
     assert _extract_snippet(line) == "hello"
+
+
+def test_extract_snippet_empty_for_non_text_delta_message_update():
+    line = json.dumps({
+        "type": "message_update",
+        "assistantMessageEvent": {"type": "text_start", "contentIndex": 0},
+    })
+    assert _extract_snippet(line) == ""
 
 
 def test_extract_snippet_empty_for_non_text_event():

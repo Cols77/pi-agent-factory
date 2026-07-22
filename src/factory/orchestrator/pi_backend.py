@@ -15,8 +15,35 @@ from factory.orchestrator.types import AgentResult, AgentRole
 _JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 
+def _assistant_text_blocks(message: object) -> list[str]:
+    """Extract text block contents from a message dict with role "assistant".
+    Returns [] if message isn't an assistant message dict with a text-bearing
+    content list. Shared by parse_pi_json and _has_json_events_without_text_field
+    so both agree on exactly what "the text field" means for Pi's real v3
+    event stream (see module docstring note below for the format itself)."""
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [
+        block["text"]
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+    ]
+
+
 def parse_pi_json(stdout: str) -> dict:
-    """Reconstruct assistant text from Pi's json event stream, return last ```json block."""
+    """Reconstruct assistant text from Pi's json event stream, return last ```json block.
+
+    Pi's --mode json emits one "message_end" event per complete message
+    (fired once, not per delta), shaped like:
+      {"type": "message_end", "message": {"role": "assistant",
+       "content": [{"type": "text", "text": "..."}], ...}}
+    Live incremental deltas arrive separately as "message_update" events
+    (see _extract_snippet) and are not used here, since message_end's
+    content already carries each message's complete final text.
+    """
     text_parts: list[str] = []
     for line in stdout.splitlines():
         line = line.strip()
@@ -26,8 +53,8 @@ def parse_pi_json(stdout: str) -> dict:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(event, dict) and isinstance(event.get("text"), str):
-            text_parts.append(event["text"])
+        if isinstance(event, dict) and event.get("type") == "message_end":
+            text_parts.extend(_assistant_text_blocks(event.get("message")))
     full = "".join(text_parts)
     blocks = _JSON_BLOCK.findall(full)
     if not blocks:
@@ -39,11 +66,15 @@ def parse_pi_json(stdout: str) -> dict:
 
 
 def _extract_snippet(line: str) -> str:
-    """Extract the "text" field from a single line of Pi's json event stream,
-    for live-snippet reporting as output streams in. Returns "" if the line
-    isn't a JSON object with a string "text" field. Kept separate from
-    parse_pi_json (which still processes the full accumulated stdout at the
-    end, unchanged) so that function's tested behavior stays untouched."""
+    """Extract the incremental text delta from a single line of Pi's json
+    event stream, for live-snippet reporting as output streams in. Returns ""
+    unless the line is a "message_update" event carrying a "text_delta"
+    assistantMessageEvent, e.g.:
+      {"type": "message_update",
+       "assistantMessageEvent": {"type": "text_delta", "delta": "chunk"}, ...}
+    Kept separate from parse_pi_json (which reads complete messages from
+    message_end events, not deltas) so that function's tested behavior stays
+    untouched."""
     line = line.strip()
     if not line:
         return ""
@@ -51,17 +82,22 @@ def _extract_snippet(line: str) -> str:
         event = json.loads(line)
     except json.JSONDecodeError:
         return ""
-    if isinstance(event, dict) and isinstance(event.get("text"), str):
-        return event["text"]
-    return ""
+    if not isinstance(event, dict) or event.get("type") != "message_update":
+        return ""
+    assistant_event = event.get("assistantMessageEvent")
+    if not isinstance(assistant_event, dict) or assistant_event.get("type") != "text_delta":
+        return ""
+    delta = assistant_event.get("delta")
+    return delta if isinstance(delta, str) else ""
 
 
 def _has_json_events_without_text_field(stdout: str) -> bool:
     """Best-effort detector for final-review Finding 1+2: the event stream contains
-    valid JSON objects, but none of them carry a string "text" field the way
-    parse_pi_json expects. That's a strong signal that a JSON field-name assumption
-    (e.g. Pi renamed/never used "text" in this event shape) is wrong, rather than
-    the agent having genuinely said nothing.
+    valid JSON objects, but none of them carry assistant text the way
+    parse_pi_json expects (a "message_end" event with an assistant message's
+    text content blocks). That's a strong signal that a JSON field-name
+    assumption (e.g. Pi changed its event shape) is wrong, rather than the
+    agent having genuinely said nothing.
 
     Kept separate from parse_pi_json (not folded into it) so parse_pi_json's tested
     signature and behavior stay untouched, per the finding.
@@ -83,7 +119,7 @@ def _has_json_events_without_text_field(stdout: str) -> bool:
             continue
         if isinstance(event, dict):
             saw_json_object = True
-            if isinstance(event.get("text"), str):
+            if event.get("type") == "message_end" and _assistant_text_blocks(event.get("message")):
                 saw_text_field = True
     return saw_json_object and not saw_text_field
 
