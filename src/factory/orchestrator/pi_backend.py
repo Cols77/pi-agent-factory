@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -87,17 +88,28 @@ def _has_json_events_without_text_field(stdout: str) -> bool:
     return saw_json_object and not saw_text_field
 
 
+# Windows cmd.exe has an 8191-char command-line limit. Since pi is a .cmd
+# wrapper, any invocation over this limit fails with ENOENT/"command line too long".
+# Prompts beyond this threshold are written to a temp file and passed via
+# pi's @file syntax instead of -p.
+_CMDLINE_PROMPT_LIMIT = 4000  # chars — safe margin below 8191
+
+
 def _build_command(
     prompt: str,
     extension_path: Path,
     provider: str | None,
     model: str | None,
+    *,
+    prompt_file: str | None = None,
 ) -> list[str]:
-    """Build the `pi` invocation. Pi defaults to the "google" provider when
-    --provider/--model are omitted, so an explicit provider/model must be
-    passed through to use anything else (e.g. openrouter)."""
+    """Build the `pi` invocation. If prompt_file is given, use @file syntax
+    instead of -p to avoid Windows command-line length limits."""
     pi_bin = shutil.which("pi") or "pi"
-    cmd = [pi_bin, "-p", prompt, "--mode", "json", "--extension", str(extension_path)]
+    if prompt_file is not None:
+        cmd = [pi_bin, "-p", f"@{prompt_file}", "--mode", "json", "--extension", str(extension_path)]
+    else:
+        cmd = [pi_bin, "-p", prompt, "--mode", "json", "--extension", str(extension_path)]
     if provider:
         cmd += ["--provider", provider]
     if model:
@@ -127,21 +139,37 @@ class PiAgentBackend:
             "PI_SCOPE_ALLOW": ",".join(scope.allow),
             "PI_SCOPE_BASH": scope.bash,
         }
-        cmd = _build_command(prompt, self._extension_path, self._provider, self._model)
-        proc = subprocess.Popen(
-            cmd, cwd=self._repo_root, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        lines: list[str] = []
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            lines.append(line)
-            if on_snippet is not None:
-                snippet = _extract_snippet(line)
-                if snippet:
-                    on_snippet(snippet[-200:])
-        proc.wait()
-        stdout = "".join(lines)
+        # Use a temp file for long prompts to avoid Windows' command-line length limit
+        prompt_file: str | None = None
+        try:
+            if len(prompt) > _CMDLINE_PROMPT_LIMIT:
+                fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="pi_prompt_")
+                os.write(fd, prompt.encode("utf-8"))
+                os.close(fd)
+            cmd = _build_command(
+                prompt, self._extension_path, self._provider, self._model,
+                prompt_file=prompt_file,
+            )
+            proc = subprocess.Popen(
+                cmd, cwd=self._repo_root, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+            lines: list[str] = []
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                lines.append(line)
+                if on_snippet is not None:
+                    snippet = _extract_snippet(line)
+                    if snippet:
+                        on_snippet(snippet[-200:])
+            proc.wait()
+            stdout = "".join(lines)
+        finally:
+            if prompt_file is not None:
+                try:
+                    os.unlink(prompt_file)
+                except OSError:
+                    pass
 
         output = parse_pi_json(stdout)
         ok = proc.returncode == 0
