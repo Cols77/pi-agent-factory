@@ -1701,7 +1701,9 @@ Change the `/factory` handler:
   });
 ```
 
-Apply the same `parseAutoFlag`/branch pattern to `/factory-run`'s handler (parse `--auto` out of `args` before the existing task-id trimming/listing logic, same `if (auto) { launchAndWatch(...) } else { await launchInteractiveReview(...) }` branch at its existing `launchAndWatch` call site).
+**Stale as of implementation** (discovered during Task 9, verified via `git log`/`git show`): a separate, concurrent commit (`43bae3e`, "/factory-run is now interactive") removed `/factory-run`'s orchestrator-spawn mechanism entirely 3 minutes before this plan document was committed, replacing it with seeding a new interactive Pi session (`ctx.newSession(...)`) -- no child process, nothing for a foreground/detached branch to attach to. The instruction below (apply the same branch pattern) no longer applies; what was actually done: `/factory-run`'s handler runs its `args` through the same `parseAutoFlag` helper so `--auto` is accepted and stripped (`/factory-run --auto T-001` still resolves task `T-001`), but is otherwise inert -- documented in a code comment at the call site and in the README. Left here for history rather than rewritten, since the original instruction is what Task 9 was dispatched against.
+
+~~Apply the same `parseAutoFlag`/branch pattern to `/factory-run`'s handler (parse `--auto` out of `args` before the existing task-id trimming/listing logic, same `if (auto) { launchAndWatch(...) } else { await launchInteractiveReview(...) }` branch at its existing `launchAndWatch` call site).~~
 
 Add a section to `pi-ext/factory-watch/README.md` documenting `--auto` next to the existing `/factory`/`/factory-run` entries.
 
