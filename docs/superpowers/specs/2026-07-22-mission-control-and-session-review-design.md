@@ -110,7 +110,32 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "<command to run>"
 ```
 Wrapped as a small TS helper (e.g. `spawnTerminalWindow(command: string, args: string[]): void`) used by both the dashboard-launch and the drill-down-launch call sites. POSIX platforms get a best-effort fallback (e.g. `xterm -e`/`gnome-terminal --`/`open -a Terminal`) -- untested, since this environment is Windows-only; flagged for whoever eventually needs it on another platform to verify.
 
-## 7. `run_review` gains `manifest`/`kb_entries`
+## 7. `run_review` gains KB entries -- selected against the actual diff, not dev's prediction
+
+**Corrected from this design's first draft** (which proposed simply mirroring `run_dev`'s `manifest`/`kb_entries` verbatim): the manifest's `context.source_files` is context-gatherer's *prediction*, made before dev runs. By the time review runs, dev's real changes may have diverged from that prediction. Selecting review's KB entries against the stale prediction would give it the wrong signal; selecting against what dev *actually* changed is the accurate one. Review also does **not** receive the manifest itself -- scope-creep (dev touching files outside the original prediction) is something review can already notice by reading the actual change and the task description directly; handing it a pre-dev guess as a comparison baseline risks anchoring it on the wrong scope rather than the real one.
+
+This requires a real `start_commit` captured **unconditionally** at the top of `run_task`, not only when `human_review` is configured (Section 3's original design gated it behind `if human_review is not None`). Change:
+```python
+start_commit = git_ops.head_commit(repo_root) if human_review is not None else None
+```
+to:
+```python
+start_commit = git_ops.head_commit(repo_root)
+```
+`git_ops` already defaults to a real `SubprocessGitOps()` instance regardless of whether `human_review` is set, so this is a one-line change, not new plumbing -- `head_commit` just runs `git rev-parse HEAD` once at task start, negligible cost even when nothing else uses it.
+
+`GitOps` (`git_ops.py`, Task 1 of the human-review-UI plan) gains a new method:
+```python
+def changed_files(self, repo_root: Path, start_commit: str) -> list[str]: ...
+```
+`SubprocessGitOps` implements it via `git diff --name-only <start_commit>..HEAD`; `FakeGitOps` gains a scriptable `changed_files` list for tests.
+
+`run_task` computes review's KB entries right before calling `run_review`:
+```python
+review_kb_ids = select_entries(repo_root / "kb", git_ops.changed_files(repo_root, start_commit), [])
+review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
+```
+reusing the existing `select_entries`/`_load_kb_entries` helpers unchanged -- only the file list feeding them is new.
 
 `run_review`'s signature changes from:
 ```python
@@ -118,9 +143,9 @@ def run_review(backend, gates, task, repo_root, status=...) -> tuple[NodeOutcome
 ```
 to:
 ```python
-def run_review(backend, gates, task, manifest, kb_entries, repo_root, status=...) -> tuple[NodeOutcome, NodeEvent, list[str]]:
+def run_review(backend, gates, task, kb_entries, repo_root, status=...) -> tuple[NodeOutcome, NodeEvent, list[str]]:
 ```
-matching `run_dev`'s existing parameter shape exactly, and its `compose_prompt` call gains the same two arguments `run_dev` already passes. `run_task`'s call site updates accordingly (it already holds both values in scope from earlier in the function, no new plumbing needed there). `compose_prompt`'s own signature/behavior for including manifest/kb_entries in a role's prompt already exists (that's how `run_dev` gets them today) -- review only needed to start passing them through.
+(`kb_entries` only -- no `manifest` parameter), and its `compose_prompt` call passes `kb_entries=kb_entries` (leaving `manifest=None`, the default, so `compose_prompt`'s existing manifest-formatting section is simply omitted for review's prompt, no changes needed there).
 
 ## 8. The session-review agent
 
@@ -132,7 +157,9 @@ matching `run_dev`'s existing parameter shape exactly, and its `compose_prompt` 
 
 **A real gap this design caught in its own first draft**: `compose_prompt` has no parameter today for "what happened during the run" -- not for any role. `run_task`'s `TaskResult.events: list[NodeEvent]` (each carrying `node`/`result`/`attempts`/`extra`) is exactly the pipeline history the session-review agent needs to analyze, but nothing currently threads it into a prompt. `compose_prompt` needs a new optional parameter, e.g. `events: list[NodeEvent] | None = None`, formatted similarly to how `manifest`/`kb_entries`/`feedback` are conditionally appended today (e.g. `"- context-gather: pass (1 attempt)"`, `"- dev: pass (2 attempts)"`, `"- review: pass"` per event) -- used only by the `SESSION_REVIEW` call site; every other role keeps passing `None` for it, unaffected.
 
-**Wiring**: invoked once at the end of `run_next`, after `write_session` persists the session record -- `backend.run(AgentRole.SESSION_REVIEW, compose_prompt(AgentRole.SESSION_REVIEW, task, events=result.events, ...))`, reporting a `session-review` status node the same way other stages do (also visible in mission control as a final row, if a task run is being watched live).
+**Avoiding duplicate KB entries**: `select_entries` (file-glob/error-signature relevance) isn't suited to "does something like this already exist" -- that's a different question than "is this entry relevant to these files." Rather than relying on the agent to remember to check `kb/**` itself via its own tools, `compose_prompt` includes a plain enumeration of every existing entry's id + title (cheap -- titles only, not full entries) whenever composing the `SESSION_REVIEW` prompt, via a new small pure function in `kb/retrieval.py` (or a new sibling module if that file's existing scope doesn't fit): `list_kb_titles(kb_dir: Path) -> list[tuple[str, str]]`, reading each `kb-*.md`'s `id`/`title` frontmatter fields without the relevance filtering `select_entries` does.
+
+**Wiring**: invoked once at the end of `run_next`, after `write_session` persists the session record -- `backend.run(AgentRole.SESSION_REVIEW, compose_prompt(AgentRole.SESSION_REVIEW, task, events=result.events, existing_kb_titles=list_kb_titles(repo_root / "kb"), ...))`, reporting a `session-review` status node the same way other stages do (also visible in mission control as a final row, if a task run is being watched live).
 
 **Required prerequisite** (already flagged by the existing code comment this design confirms): vendor `.pi/skills/session-report/SKILL.md` under this repo's `.pi/skills/` -- `ROLE_SKILLS[AgentRole.SESSION_REVIEW]` already names `"session-report"`, and `compose_prompt`/`load_skill_block` hard-fail with `FileNotFoundError` if a named skill isn't vendored. This did not matter while the role was dead; it will crash immediately on first real use otherwise.
 
@@ -143,4 +170,5 @@ matching `run_dev`'s existing parameter shape exactly, and its `compose_prompt` 
 - **Placeholder scan**: no TBD/TODO. The two explicitly-flagged judgment calls (confirming nothing else depends on `buildFactoryRunPrompt` before deletion; verifying the POSIX terminal-spawning fallback on a non-Windows machine) are real open items for the implementer, not vague hand-waving -- each has a concrete, checkable action.
 - **Internal consistency**: Section 3's transcript design and Section 5's drill-down both key off `session_id` read from the status file, not passed as a separate argument -- consistent. Section 7's `run_review` signature change and Section 8's `SESSION_REVIEW` invocation both slot into `run_task` without touching each other.
 - **A real gap caught during this self-review, not just before it**: the first draft of Section 8 claimed the session-review agent could analyze "what happened" using data compose_prompt already assembles -- checking `prompts.py` directly showed that's false; no role's prompt today includes the pipeline's events/outcome history. Corrected by adding an explicit `events` parameter to `compose_prompt` in Section 8, used only by `SESSION_REVIEW`. This is exactly the kind of claim that needed verifying against the real file rather than assumed from the surrounding design's shape.
+- **Section 7 was substantively wrong in its first draft** (not caught by self-review -- caught by the user directly): it proposed giving `run_review` the exact same `manifest`/`kb_entries` `run_dev` gets, on the assumption that "matching an existing pattern" was sufficient justification. It wasn't -- the manifest is a pre-dev prediction, and reusing it for review conflates "what dev was told to work on" with "what review should evaluate," which are only the same thing if dev's actual changes never diverge from the prediction. Corrected to select review's KB entries against the actual diff (new `GitOps.changed_files`, `start_commit` now captured unconditionally) and to drop the manifest from review's prompt entirely. Worth remembering: matching an existing code shape is not itself a justification -- each role's context needs its own reasoning about what that role actually does with it.
 - **Scope check**: four fairly independent pieces (restore /factory-run, mission control, review context-wiring, session-review agent) bundled into one spec because they were discovered together and the user asked they be planned together -- but they decompose cleanly into separate implementation tasks (already reflected in how each section above is self-contained).
