@@ -2,7 +2,7 @@
 // (project-local auto-discovery via .pi/extensions/ also works once installed there)
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, openSync, readFileSync } from "node:fs";
+import { mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
@@ -26,6 +26,7 @@ const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
 const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
+const RUN_SKILL_NAMES = ["test-driven-development", "systematic-debugging", "receiving-code-review", "kb-lookup"];
 
 function readFileIfExists(path: string): string | null {
   try {
@@ -33,6 +34,71 @@ function readFileIfExists(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+function findTaskFile(cwd: string, taskId: string): string | null {
+  // Task files are in tasks/ directory, named like T-029-<slug>.md
+  const tasksDir = join(cwd, "tasks");
+  try {
+    const entries = readdirSync(tasksDir);
+    const match = entries.find((e) => e.startsWith(taskId + "-") && e.endsWith(".md"));
+    return match ? join(tasksDir, match) : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSourcePlan(taskContent: string): string | null {
+  // Extract source_plan field from frontmatter
+  const match = taskContent.match(/^source_plan:\s*(.+)$/m);
+  return match ? match[1]!.trim() : null;
+}
+
+function buildFactoryRunPrompt(
+  task: { id: string; title: string; dod: string[]; body: string },
+  planContent: string | null,
+  skillBlocks: string[],
+): string {
+  const lines: string[] = [];
+
+  lines.push(`Implement factory task **${task.id}: ${task.title}**.`);
+  lines.push("");
+
+  // Task body
+  lines.push("## Task");
+  lines.push(task.body.trim());
+  lines.push("");
+
+  // Definition of Done
+  lines.push("## Definition of Done");
+  for (const crit of task.dod) {
+    lines.push(`- ${crit}`);
+  }
+  lines.push("");
+
+  // Plan steps
+  if (planContent !== null) {
+    lines.push("## Implementation Plan (reference)");
+    lines.push("Follow the steps from the plan below for this specific task.");
+    lines.push(planContent.trim());
+    lines.push("");
+  }
+
+  // Skills
+  if (skillBlocks.length > 0) {
+    lines.push("## Loaded skills");
+    lines.push(...skillBlocks);
+    lines.push("");
+  }
+
+  // Instructions
+  lines.push("## Instructions");
+  lines.push("- Follow TDD: write the failing test first, then implement the minimal code to pass.");
+  lines.push("- Commit after each coherent step.");
+  lines.push("- Run `uv run pytest tests/ -q` to verify tests pass.");
+  lines.push("- When all DoD criteria are met and tests/gates pass, you're done.");
+
+  return lines.join("\n");
 }
 
 export default function factoryWatch(pi: PiApi): void {
@@ -172,18 +238,8 @@ export default function factoryWatch(pi: PiApi): void {
   });
 
   pi.registerCommand("factory-run", {
-    description: "Run the factory on one specific task",
+    description: "Run a factory task interactively in a new session",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const lockPath = join(ctx.cwd, LOCK_FILE);
-      if (isAlreadyRunning(ctx, lockPath)) {
-        return;
-      }
-
-      if (ctx.model === undefined) {
-        ctx.ui.notify("no model selected in this session -- can't launch factory", "error");
-        return;
-      }
-
       let taskId = args.trim();
       if (taskId === "") {
         const cmd = buildListJsonCommand();
@@ -211,8 +267,55 @@ export default function factoryWatch(pi: PiApi): void {
         taskId = parseTaskIdFromOption(selected);
       }
 
-      const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
-      launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`);
+      // Read the task file to get plan reference
+      const taskPath = findTaskFile(ctx.cwd, taskId);
+      if (taskPath === null) {
+        ctx.ui.notify(`factory-run: task file not found for ${taskId}`, "error");
+        return;
+      }
+      const taskContent = readFileSync(taskPath, "utf-8");
+      const parsed = parseTaskFrontmatter(taskContent);
+      if (parsed === null) {
+        ctx.ui.notify(`factory-run: failed to parse task ${taskId}`, "error");
+        return;
+      }
+
+      // Find and read the plan file for full step details
+      let planContent: string | null = null;
+      const sourcePlan = extractSourcePlan(taskContent);
+      if (sourcePlan !== null) {
+        const planPath = join(ctx.cwd, sourcePlan);
+        try {
+          planContent = readFileSync(planPath, "utf-8");
+        } catch {
+          // Plan file not found — proceed without it
+        }
+      }
+
+      // Load dev skills
+      const { skills } = loadSkills({
+        cwd: ctx.cwd,
+        agentDir: join(homedir(), ".pi", "agent"),
+        skillPaths: [],
+        includeDefaults: true,
+      });
+      const skillBlocks: string[] = [];
+      for (const name of RUN_SKILL_NAMES) {
+        const skill = skills.find((s) => s.name === name);
+        if (skill !== undefined) {
+          const content = readFileSync(skill.filePath, "utf-8");
+          const body = stripFrontmatter(content).trim();
+          skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
+        }
+      }
+
+      // Build the interactive prompt
+      const seedText = buildFactoryRunPrompt(parsed, planContent, skillBlocks);
+      await ctx.newSession({
+        withSession: async (session: ReplacedSessionCtx) => {
+          await session.sendUserMessage(seedText, { deliverAs: "followUp" });
+        },
+      });
     },
   });
 

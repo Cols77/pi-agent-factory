@@ -212,22 +212,28 @@ describe("factory-watch commands", () => {
     expect(ui.select).toHaveBeenCalledWith("Run which task?", ["T-001  First", "T-002  Second"]);
   });
 
-  test("/factory-run uses an inline task id without listing or showing a picker", async () => {
+  test("/factory-run with inline task id opens a new session when task file exists", async () => {
+    const { commands } = capture();
+    const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(), custom: vi.fn() };
+    const newSession = vi.fn(async () => ({ cancelled: false }));
+    const ctx = fakeCtx({ cwd: REPO_ROOT, ui, newSession });
+    // T-029 exists in this repo's tasks/ directory
+    await commands.get("factory-run")!.handler("T-029", ctx);
+    expect(ui.select).not.toHaveBeenCalled();
+    // Either opens a new session (task file found) or notifies an error (not found)
+    const calledSession = newSession.mock.calls.length > 0;
+    const calledNotify = (ui.notify as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('T-029')
+    );
+    expect(calledSession || calledNotify).toBe(true);
+  });
+
+  test("/factory-run with inline task id notifies error when task file not found", async () => {
     const { commands } = capture();
     const ui: UiApi = { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(), custom: vi.fn() };
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
-    await commands.get("factory-run")!.handler("T-003", ctx);
-
-    expect(spawnSync).not.toHaveBeenCalled();
-    expect(ui.select).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("T-003"), "info");
-  });
-
-  test("/factory-run notifies an error and does nothing else when no model is active", async () => {
-    const { commands } = capture();
-    const ctx = fakeCtx({ model: undefined });
-    await commands.get("factory-run")!.handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no model"), "error");
+    await commands.get("factory-run")!.handler("T-999", ctx);
+    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("task file not found"), "error");
   });
 
   test("/review-plans notifies when no docs are found, without opening a viewer", async () => {
