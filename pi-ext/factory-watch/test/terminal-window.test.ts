@@ -18,6 +18,16 @@ describe("spawnTerminalWindow", () => {
     );
   });
 
+  test("on win32 with empty args, omits -ArgumentList entirely", () => {
+    vi.mocked(spawn).mockClear();
+    spawnTerminalWindow("node", [], { cwd: "/repo" }, "win32");
+    expect(spawn).toHaveBeenCalledWith(
+      "powershell",
+      ["-NoExit", "-Command", "Start-Process node"],
+      { cwd: "/repo", detached: true, stdio: "ignore" },
+    );
+  });
+
   test("on darwin, uses `open -a Terminal`", () => {
     vi.mocked(spawn).mockClear();
     spawnTerminalWindow("node", ["dashboard.ts"], { cwd: "/repo" }, "darwin");

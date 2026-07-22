@@ -8,12 +8,20 @@ export function spawnTerminalWindow(
 ): void {
   let child: ReturnType<typeof spawn>;
   if (platform === "win32") {
-    const argList = args.map((a) => `'${a}'`).join(",");
-    child = spawn(
-      "powershell",
-      ["-NoExit", "-Command", `Start-Process ${command} -ArgumentList ${argList}`],
-      { cwd: options.cwd, detached: true, stdio: "ignore" },
-    );
+    if (args.length === 0) {
+      child = spawn(
+        "powershell",
+        ["-NoExit", "-Command", `Start-Process ${command}`],
+        { cwd: options.cwd, detached: true, stdio: "ignore" },
+      );
+    } else {
+      const argList = args.map((a) => `'${a}'`).join(",");
+      child = spawn(
+        "powershell",
+        ["-NoExit", "-Command", `Start-Process ${command} -ArgumentList ${argList}`],
+        { cwd: options.cwd, detached: true, stdio: "ignore" },
+      );
+    }
   } else if (platform === "darwin") {
     child = spawn("open", ["-a", "Terminal", command, ...args], {
       cwd: options.cwd, detached: true, stdio: "ignore",
