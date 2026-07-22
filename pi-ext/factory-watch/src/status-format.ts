@@ -55,6 +55,7 @@ const NODE_LABELS: Record<string, string> = {
   dev: "developer",
   validation: "validation",
   review: "reviewer",
+  "human-review": "human-review",
 };
 
 // Icons for node states
@@ -65,6 +66,7 @@ const STATE_ICONS: Record<string, string> = {
   reject: "✗",
   escalate: "↑",
   "changes-requested": "↻",
+  blocked: "⊘",
 };
 
 function iconForState(state: string): string {
@@ -135,4 +137,24 @@ export function formatStatusLines(record: StatusRecord | null, now: Date = new D
   }
 
   return lines;
+}
+
+export interface MissionControlRow {
+  node: string;
+  label: string;
+  state: string;
+  handoff: string | null;
+}
+
+export function formatMissionControlRows(record: StatusRecord | null, stageOrder: string[]): MissionControlRow[] {
+  const byNode = new Map((record?.pipeline ?? []).map((entry) => [entry.node, entry]));
+  return stageOrder.map((node) => {
+    const entry = byNode.get(node);
+    return {
+      node,
+      label: labelForNode(node),
+      state: entry?.node_state ?? "pending",
+      handoff: entry?.handoff ?? null,
+    };
+  });
 }

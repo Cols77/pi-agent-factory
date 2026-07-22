@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatStatusLines, parseStatus, secondsAgo } from "../src/status-format.js";
+import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows } from "../src/status-format.js";
 import type { StatusRecord, PipelineEntry } from "../src/status-format.js";
 
 const NOW = new Date("2026-07-20T10:16:52Z");
@@ -119,5 +119,81 @@ describe("formatStatusLines", () => {
     };
     const lines = formatStatusLines(record, NOW);
     expect(lines.some((l) => l.includes("outcome: completed"))).toBe(true);
+  });
+
+  test("formatStatusLines renders the blocked icon, not the default fallback", () => {
+    const record: StatusRecord = {
+      session_id: "s1",
+      task_id: "T-001",
+      current_node: "human-review",
+      current_state: "blocked",
+      pipeline: [
+        {
+          node: "human-review",
+          node_state: "blocked",
+          attempt: 1,
+          max_attempts: 1,
+          snippet: "",
+          outcome: null,
+          handoff: "waiting for you to review the diff",
+          updated_at: "2026-07-22T00:00:00Z",
+        },
+      ],
+      started_at: "2026-07-22T00:00:00Z",
+      updated_at: "2026-07-22T00:00:00Z",
+    };
+    const lines = formatStatusLines(record);
+    expect(lines[1]).toBe("⊘ human-review: blocked  (1/1)");
+  });
+});
+
+const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
+
+describe("formatMissionControlRows", () => {
+  test("shows every stage in fixed order, pending for stages not yet reached", () => {
+    const record: StatusRecord = {
+      session_id: "s1",
+      task_id: "T-001",
+      current_node: "dev",
+      current_state: "running",
+      pipeline: [
+        {
+          node: "context-gather",
+          node_state: "pass",
+          attempt: 1,
+          max_attempts: 1,
+          snippet: "",
+          outcome: null,
+          handoff: "-> dev: 3 files",
+          updated_at: "2026-07-22T00:00:00Z",
+        },
+        {
+          node: "dev",
+          node_state: "running",
+          attempt: 1,
+          max_attempts: 3,
+          snippet: "",
+          outcome: null,
+          handoff: null,
+          updated_at: "2026-07-22T00:00:01Z",
+        },
+      ],
+      started_at: "2026-07-22T00:00:00Z",
+      updated_at: "2026-07-22T00:00:01Z",
+    };
+    const rows = formatMissionControlRows(record, STAGE_ORDER);
+    expect(rows).toEqual([
+      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files" },
+      { node: "dev", label: "developer", state: "running", handoff: null },
+      { node: "validation", label: "validation", state: "pending", handoff: null },
+      { node: "review", label: "reviewer", state: "pending", handoff: null },
+      { node: "human-review", label: "human-review", state: "pending", handoff: null },
+    ]);
+  });
+
+  test("returns all-pending rows when record is null", () => {
+    const rows = formatMissionControlRows(null, STAGE_ORDER);
+    expect(rows.every((r) => r.state === "pending")).toBe(true);
+    expect(rows).toHaveLength(5);
   });
 });
