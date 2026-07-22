@@ -1,4 +1,5 @@
 import json
+import subprocess
 import pytest
 from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
@@ -17,6 +18,11 @@ def _repo(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
     write_skill_stubs(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
     return tmp_path
 
 
@@ -32,6 +38,7 @@ def _scripts():
         AgentRole.CONTEXT_GATHERER: [AgentResult(True, manifest)],
         AgentRole.DEV: [AgentResult(True, {})],
         AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})],
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
     }
 
 
@@ -81,3 +88,56 @@ def test_run_next_raises_for_non_todo_task_id(tmp_path):
         "---\nid: T-001\ntitle: t\nstatus: done\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
     with pytest.raises(TaskNotTodoError):
         run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-001")
+
+
+def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_path):
+    repo = _repo(tmp_path)
+
+    # Seed a kb/ entry whose scope.files glob matches a file dev is scripted
+    # to "change" -- but that file is NOT in the manifest's predicted
+    # source_files (which only lists src/x.py). This is committed before
+    # run_next runs, so it's part of the repo's start_commit state.
+    (repo / "kb").mkdir()
+    (repo / "kb" / "kb-0002-new-thing.md").write_text(
+        "---\nid: kb-0002\ntitle: New thing needs a longer timeout\nstatus: active\n"
+        "severity: low\ntags: []\nscope:\n  files:\n    - \"src/new_thing.py\"\n---\nbody\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "add kb entry"], cwd=repo, check=True)
+
+    manifest = {
+        "task_id": "T-001", "generated_by": "context-gatherer",
+        "generated_at": "2026-07-16T14:32:10Z",
+        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
+        "reject": None,
+    }
+    captured = {}
+
+    class ScriptedBackend:
+        def run(self, role, prompt, on_snippet=None):
+            if role == AgentRole.CONTEXT_GATHERER:
+                return AgentResult(True, manifest)
+            if role == AgentRole.DEV:
+                # Simulate dev actually changing a file that matches the KB
+                # entry's scope glob but is absent from the manifest's
+                # predicted source_files -- proving review's KB selection
+                # must use the real diff, not the manifest.
+                (repo / "src" / "new_thing.py").write_text("y = 2\n", encoding="utf-8")
+                subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+                subprocess.run(["git", "commit", "-q", "-m", "dev change"], cwd=repo, check=True)
+                return AgentResult(True, {})
+            if role == AgentRole.REVIEW:
+                captured["prompt"] = prompt
+                return AgentResult(True, {"dod_met": True, "findings": []})
+            if role == AgentRole.SESSION_REVIEW:
+                return AgentResult(True, {})
+            raise AssertionError(f"unexpected role {role}")
+
+    run_next(repo, ScriptedBackend(), FakeGateRunner(), session_id="s1", git_info={"branch": "main"})
+
+    assert "kb-0002" in captured["prompt"]
+    assert "New thing needs a longer timeout" in captured["prompt"]

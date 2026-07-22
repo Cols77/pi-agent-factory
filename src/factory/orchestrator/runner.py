@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from factory.kb.retrieval import select_entries
+from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.git_ops import GitOps, SubprocessGitOps
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
@@ -21,9 +21,11 @@ from factory.orchestrator.nodes import (
     run_review,
     run_validation,
 )
+from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
-from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
+from factory.orchestrator.transcripts import write_role_transcript
+from factory.orchestrator.types import AgentRole, NodeEvent, NodeOutcome, TaskResult
 from factory.validation.kb_validator import parse_entry
 
 
@@ -59,11 +61,14 @@ def run_task(
     status: StatusReporter = NullStatusReporter(),
     human_review: HumanReviewGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
+    transcript_dir: Path | None = None,
 ) -> TaskResult:
     events: list[NodeEvent] = []
-    start_commit = git_ops.head_commit(repo_root) if human_review is not None else None
+    start_commit = git_ops.head_commit(repo_root)
 
-    c_outcome, manifest, c_ev = run_context_gatherer(backend, task, repo_root, status=status)
+    c_outcome, manifest, c_ev = run_context_gatherer(
+        backend, task, repo_root, transcript_dir=transcript_dir, status=status
+    )
     events.append(c_ev)
     if c_outcome == NodeOutcome.REJECT or manifest is None:
         _report_node(status, task.id, c_ev, c_ev.attempts, outcome="rejected")
@@ -79,7 +84,8 @@ def run_task(
         iterations += 1
 
         d_outcome, d_ev = run_dev(
-            backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback, status=status
+            backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
+            transcript_dir=transcript_dir, status=status,
         )
         events.append(d_ev)
         if d_outcome == NodeOutcome.ESCALATE:
@@ -94,11 +100,22 @@ def run_task(
             feedback = "functional/sim tests failed"
             continue
 
-        r_outcome, r_ev, findings = run_review(backend, gates, task, repo_root, status=status)
+        review_changed_files = git_ops.changed_files(repo_root, start_commit)
+        review_kb_ids = select_entries(repo_root / "kb", review_changed_files, [])
+        review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
+
+        r_outcome, r_ev, findings = run_review(
+            backend, gates, task, review_kb_entries, repo_root,
+            transcript_dir=transcript_dir, status=status,
+        )
         events.append(r_ev)
         if r_outcome == NodeOutcome.PASS:
             if human_review is not None:
                 assert start_commit is not None
+                status.report(
+                    task_id=task.id, node="human-review", node_state="blocked",
+                    attempt=1, max_attempts=1, handoff="waiting for you to review the diff",
+                )
                 decision = human_review.request_review(task.id, start_commit)
                 if decision.decision == "approve":
                     git_ops.commit_all(repo_root, "review: address direct edits during human review")
@@ -140,6 +157,7 @@ def run_next(
     task_id: str | None = None,
     human_review: HumanReviewGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
+    transcript_dir: Path | None = None,
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
     if task_id is not None:
@@ -154,7 +172,8 @@ def run_next(
             return None
 
     result = run_task(
-        task, backend, gates, repo_root, status=status, human_review=human_review, git_ops=git_ops
+        task, backend, gates, repo_root, status=status, human_review=human_review,
+        git_ops=git_ops, transcript_dir=transcript_dir,
     )
     # Only mark done on success. Rejected/escalated tasks go back to todo
     # so they can be retried (possibly with a different agent or after fixes).
@@ -162,7 +181,23 @@ def run_next(
 
     sid = session_id or _default_session_id()
     record = build_record(sid, model_backend, [result], git_info or {})
-    return write_session(repo_root / "sessions", record)
+    path = write_session(repo_root / "sessions", record)
+
+    status.report(task_id=task.id, node="session-review", node_state="running", attempt=1, max_attempts=1)
+    session_review_prompt = compose_prompt(
+        AgentRole.SESSION_REVIEW, task,
+        events=result.events, existing_kb_titles=list_kb_titles(repo_root / "kb"),
+        skills_dir=repo_root / ".pi" / "skills",
+    )
+    session_review_result = backend.run(AgentRole.SESSION_REVIEW, session_review_prompt)
+    if transcript_dir is not None:
+        write_role_transcript(transcript_dir, "session-review", 1, session_review_result.raw)
+    status.report(
+        task_id=task.id, node="session-review", node_state="pass",
+        attempt=1, max_attempts=1, outcome="completed",
+    )
+
+    return path
 
 
 def _default_session_id() -> str:

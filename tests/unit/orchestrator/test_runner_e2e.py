@@ -1,3 +1,4 @@
+import subprocess
 import pytest
 from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.ledger import Task
@@ -15,6 +16,11 @@ def _repo(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
     write_skill_stubs(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
     return tmp_path
 
 

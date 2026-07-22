@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import pytest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.git_ops import FakeGitOps
@@ -18,6 +19,11 @@ def _repo(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
     write_skill_stubs(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
     return tmp_path
 
 
@@ -34,6 +40,7 @@ def _scripts(review_findings=None, n_review_calls=1):
         AgentRole.CONTEXT_GATHERER: [AgentResult(True, manifest)],
         AgentRole.DEV: [AgentResult(True, {})] * n_review_calls,
         AgentRole.REVIEW: [review_result] * n_review_calls,
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
     }
 
 
