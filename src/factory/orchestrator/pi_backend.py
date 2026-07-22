@@ -152,7 +152,8 @@ class PiAgentBackend:
             )
             proc = subprocess.Popen(
                 cmd, cwd=self._repo_root, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
             )
             lines: list[str] = []
             assert proc.stdout is not None
