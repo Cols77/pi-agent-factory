@@ -63,6 +63,7 @@ def main() -> None:
         kwargs["model_backend"] = f"{args.provider}:{args.model}"
 
     session_id = _now_id()
+    transcript_dir = repo_root / "sessions" / ".factory-transcripts" / session_id
     lock_path = repo_root / "sessions" / ".factory-run.lock"
     status_path = repo_root / "sessions" / ".factory-status.json"
 
@@ -78,7 +79,7 @@ def main() -> None:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
             session_id=session_id, status=status, task_id=args.task,
-            human_review=human_review, **kwargs,
+            human_review=human_review, transcript_dir=transcript_dir, **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:
