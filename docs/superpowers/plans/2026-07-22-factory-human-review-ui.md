@@ -776,7 +776,14 @@ export function parseDiffStat(numstatOutput: string): FileStat[] {
     if (line.trim() === "") {
       continue;
     }
-    const [added, removed, path] = line.split("\t");
+    // Explicit indexed access + fallback, not destructuring -- TS types
+    // destructured array elements as possibly undefined regardless of how
+    // many parts we expect, and these fallbacks are pure defensive code
+    // (git's own numstat format always produces 3 tab-separated parts).
+    const parts = line.split("\t");
+    const added = parts[0] ?? "0";
+    const removed = parts[1] ?? "0";
+    const path = parts[2] ?? "";
     entries.push({ path, status: "M", added: Number(added), removed: Number(removed) });
   }
   return entries;
@@ -788,7 +795,9 @@ function parseNameStatus(nameStatusOutput: string): Map<string, "A" | "M" | "D">
     if (line.trim() === "") {
       continue;
     }
-    const [code, path] = line.split("\t");
+    const parts = line.split("\t");
+    const code = parts[0] ?? "";
+    const path = parts[1] ?? "";
     const normalized = code.startsWith("A") ? "A" : code.startsWith("D") ? "D" : "M";
     statuses.set(path, normalized);
   }
@@ -819,8 +828,8 @@ export function computeFileDiffText(cwd: string, startCommit: string, file: stri
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm test -- review-diff`
-Expected: PASS (all)
+Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm run typecheck && npm test -- review-diff`
+Expected: PASS (all, zero typecheck errors)
 
 - [ ] **Step 5: Commit**
 
@@ -971,8 +980,8 @@ export function resolveEditorLaunch(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm test -- review-editor-launch`
-Expected: PASS (all 8)
+Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm run typecheck && npm test -- review-editor-launch`
+Expected: PASS (all 8, zero typecheck errors)
 
 - [ ] **Step 5: Commit**
 
@@ -1081,8 +1090,8 @@ export function writeReviewDecision(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm test -- review-protocol`
-Expected: PASS (all 5)
+Run: `cd /c/coding/pi-agent-factory/pi-ext/factory-watch && npm run typecheck && npm test -- review-protocol`
+Expected: PASS (all 5, zero typecheck errors)
 
 - [ ] **Step 5: Commit**
 
