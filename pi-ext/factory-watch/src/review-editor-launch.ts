@@ -1,4 +1,4 @@
-const KNOWN_TERMINAL_EDITORS = ["vim", "nvim", "vi", "nano", "emacs -nw"];
+const KNOWN_TERMINAL_EDITOR_COMMANDS = ["vim", "nvim", "vi", "nano"];
 
 export type EditorLaunchPlan =
   | { ok: true; useTmux: boolean; command: string; args: string[] }
@@ -19,7 +19,9 @@ export function resolveEditorLaunch(
 
   if (spec !== undefined) {
     const { command, args } = splitCommand(spec);
-    const isKnownTerminalEditor = KNOWN_TERMINAL_EDITORS.some((known) => spec.trim() === known);
+    const isKnownTerminalEditor =
+      KNOWN_TERMINAL_EDITOR_COMMANDS.includes(command) ||
+      (command === "emacs" && args.includes("-nw"));
     if (isKnownTerminalEditor && !useTmux) {
       return {
         ok: false,

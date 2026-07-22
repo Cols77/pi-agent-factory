@@ -46,4 +46,33 @@ describe("resolveEditorLaunch", () => {
     const result = resolveEditorLaunch({ VISUAL: "vim", TMUX: "/tmp/tmux-1000/default,1234,0" }, true);
     expect(result).toEqual({ ok: true, useTmux: true, command: "vim", args: [] });
   });
+
+  test("rejects terminal editors invoked with arguments (vim with config)", () => {
+    const result = resolveEditorLaunch({ VISUAL: "vim -u ~/.vimrc" }, true);
+    expect(result).toEqual({
+      ok: false,
+      error: "edit requires a GUI editor -- vim can't safely share pi's terminal (set $VISUAL, or use tmux)",
+    });
+  });
+
+  test("rejects terminal editors invoked with arguments (nvim with line number)", () => {
+    const result = resolveEditorLaunch({ VISUAL: "nvim +42 file.txt" }, true);
+    expect(result).toEqual({
+      ok: false,
+      error: "edit requires a GUI editor -- nvim can't safely share pi's terminal (set $VISUAL, or use tmux)",
+    });
+  });
+
+  test("accepts plain emacs (without -nw) as a GUI editor", () => {
+    const result = resolveEditorLaunch({ VISUAL: "emacs" }, true);
+    expect(result).toEqual({ ok: true, useTmux: false, command: "emacs", args: [] });
+  });
+
+  test("still rejects emacs -nw as a terminal editor", () => {
+    const result = resolveEditorLaunch({ VISUAL: "emacs -nw" }, true);
+    expect(result).toEqual({
+      ok: false,
+      error: "edit requires a GUI editor -- emacs can't safely share pi's terminal (set $VISUAL, or use tmux)",
+    });
+  });
 });
