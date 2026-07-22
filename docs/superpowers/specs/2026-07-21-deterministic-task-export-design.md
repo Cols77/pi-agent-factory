@@ -116,6 +116,14 @@ Extracted into a pure helper `exportNewTasks(ctx, beforeMs)` for testability,
 following the extension's existing pattern of thin handlers calling pure-ish
 helpers.
 
+Two new pure functions in `process-control.ts`:
+- `buildPlanToTasksCommand(planFile: string): Command` — `uv run python -m
+  factory.orchestrator.plan_to_tasks <planFile> --repo <cwd>`
+- `buildSetStatusCommand(taskId: string, status: string): Command` — `uv run
+  python -m factory.orchestrator set-status <taskId> <status> --repo <cwd>`
+Both take `cwd` from the handler's `ctx.cwd`, consistent with `buildRunCommand`
+and `buildListCommand`'s existing pattern.
+
 ### 3.3 Interactive mark-done loop (`pi-ext/factory-watch/src/index.ts`)
 
 After export, if any new task ids were created:
