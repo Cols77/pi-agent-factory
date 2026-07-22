@@ -872,6 +872,24 @@ describe("resolveEditorLaunch", () => {
     expect(resolveEditorLaunch({ VISUAL: "emacs -nw" }, true).ok).toBe(false);
   });
 
+  test("plain emacs (no -nw) is treated as a GUI editor", () => {
+    expect(resolveEditorLaunch({ VISUAL: "emacs" }, true)).toEqual({
+      ok: true, useTmux: false, command: "emacs", args: [],
+    });
+  });
+
+  test("rejects a terminal editor invoked with extra arguments", () => {
+    const result = resolveEditorLaunch({ VISUAL: "vim -u ~/.vimrc" }, true);
+    expect(result).toEqual({
+      ok: false,
+      error: "edit requires a GUI editor -- vim can't safely share pi's terminal (set $VISUAL, or use tmux)",
+    });
+  });
+
+  test("rejects nvim invoked with extra arguments", () => {
+    expect(resolveEditorLaunch({ VISUAL: "nvim +42 file.txt" }, true).ok).toBe(false);
+  });
+
   test("falls back to code -w when neither env var is set and code is on PATH", () => {
     const result = resolveEditorLaunch({}, true);
     expect(result).toEqual({ ok: true, useTmux: false, command: "code", args: ["-w"] });
@@ -906,8 +924,6 @@ Expected: FAIL with a module-not-found error for `../src/review-editor-launch.js
 
 ```typescript
 // pi-ext/factory-watch/src/review-editor-launch.ts
-const KNOWN_TERMINAL_EDITORS = ["vim", "nvim", "vi", "nano", "emacs -nw"];
-
 export type EditorLaunchPlan =
   | { ok: true; useTmux: boolean; command: string; args: string[] }
   | { ok: false; error: string };
@@ -927,7 +943,13 @@ export function resolveEditorLaunch(
 
   if (spec !== undefined) {
     const { command, args } = splitCommand(spec);
-    const isKnownTerminalEditor = KNOWN_TERMINAL_EDITORS.some((known) => spec.trim() === known);
+    // Match on the COMMAND (first word), not the whole spec string -- otherwise
+    // "vim -u ~/.vimrc" or "nvim +42 file.txt" (real invocations with args)
+    // slip past this check and get launched directly against pi's own
+    // terminal. "emacs -nw" is the one two-part case: plain `emacs` is a GUI
+    // app, only the -nw flag makes it terminal-based.
+    const isKnownTerminalEditor =
+      ["vim", "nvim", "vi", "nano"].includes(command) || (command === "emacs" && args.includes("-nw"));
     if (isKnownTerminalEditor && !useTmux) {
       return {
         ok: false,
