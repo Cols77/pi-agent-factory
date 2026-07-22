@@ -29,3 +29,14 @@ def select_entries(kb_dir: Path, touched_files: list[str], signatures: list[str]
         if file_hit or sig_hit:
             hits.add(str(entry["id"]))
     return sorted(hits)
+
+
+def list_kb_titles(kb_dir: Path) -> list[tuple[str, str]]:
+    titles: list[tuple[str, str]] = []
+    for path in sorted(kb_dir.glob("kb-*.md")):
+        entry = parse_entry(path)
+        entry_id = entry.get("id")
+        title = entry.get("title")
+        if entry_id is not None and title is not None:
+            titles.append((str(entry_id), str(title)))
+    return titles

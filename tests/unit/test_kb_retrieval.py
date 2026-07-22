@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from factory.kb.retrieval import select_entries
+from factory.kb.retrieval import select_entries, list_kb_titles
 
 pytestmark = pytest.mark.unit
 
@@ -36,3 +36,23 @@ def test_invalid_entry_skipped_without_crashing(tmp_path):
     )
     ids = select_entries(tmp_path, [], ["ConnectionResetError: connection reset by peer"])
     assert ids == ["kb-0001"]
+
+
+def test_list_kb_titles_returns_id_and_title_for_every_entry():
+    titles = list_kb_titles(KB_DIR)
+    assert ("kb-0001", "Example: flaky retry needs a longer backoff") in titles
+
+
+def test_list_kb_titles_empty_dir_returns_empty_list(tmp_path):
+    assert list_kb_titles(tmp_path) == []
+
+
+def test_list_kb_titles_includes_inactive_entries(tmp_path):
+    # Unlike select_entries, list_kb_titles is for duplicate-avoidance
+    # awareness, not task relevance -- it should not filter by status.
+    (tmp_path / "kb-0099-retired.md").write_text(
+        "---\nid: kb-0099\ntitle: Retired issue\nstatus: retired\nseverity: low\n"
+        "tags: []\nscope:\n  files: []\n---\nbody\n",
+        encoding="utf-8",
+    )
+    assert ("kb-0099", "Retired issue") in list_kb_titles(tmp_path)
