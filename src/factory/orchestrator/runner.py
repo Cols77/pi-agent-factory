@@ -4,6 +4,8 @@ from pathlib import Path
 
 from factory.kb.retrieval import select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
+from factory.orchestrator.git_ops import GitOps, SubprocessGitOps
+from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
 from factory.orchestrator.ledger import (
     Task,
     TaskNotFoundError,
@@ -55,8 +57,11 @@ def run_task(
     max_dev_iters: int = 3,
     max_review_cycles: int = 3,
     status: StatusReporter = NullStatusReporter(),
+    human_review: HumanReviewGate | None = None,
+    git_ops: GitOps = SubprocessGitOps(),
 ) -> TaskResult:
     events: list[NodeEvent] = []
+    start_commit = git_ops.head_commit(repo_root) if human_review is not None else None
 
     c_outcome, manifest, c_ev = run_context_gatherer(backend, task, repo_root, status=status)
     events.append(c_ev)
@@ -92,6 +97,16 @@ def run_task(
         r_outcome, r_ev, findings = run_review(backend, gates, task, repo_root, status=status)
         events.append(r_ev)
         if r_outcome == NodeOutcome.PASS:
+            if human_review is not None:
+                assert start_commit is not None
+                decision = human_review.request_review(task.id, start_commit)
+                if decision.decision == "approve":
+                    git_ops.commit_all(repo_root, "review: address direct edits during human review")
+                    _report_node(status, task.id, r_ev, 1, outcome="completed")
+                    return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
+                _report_node(status, task.id, r_ev, 1)
+                feedback = format_review_feedback(decision.comments)
+                continue
             _report_node(status, task.id, r_ev, 1, outcome="completed")
             return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
         _report_node(status, task.id, r_ev, 1)
@@ -123,6 +138,8 @@ def run_next(
     git_info: dict | None = None,
     status: StatusReporter = NullStatusReporter(),
     task_id: str | None = None,
+    human_review: HumanReviewGate | None = None,
+    git_ops: GitOps = SubprocessGitOps(),
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
     if task_id is not None:
@@ -136,7 +153,9 @@ def run_next(
         if task is None:
             return None
 
-    result = run_task(task, backend, gates, repo_root, status=status)
+    result = run_task(
+        task, backend, gates, repo_root, status=status, human_review=human_review, git_ops=git_ops
+    )
     # Only mark done on success. Rejected/escalated tasks go back to todo
     # so they can be retried (possibly with a different agent or after fixes).
     set_status(task, "done" if result.outcome == "completed" else "todo")
