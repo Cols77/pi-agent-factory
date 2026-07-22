@@ -13,7 +13,10 @@ export function parseDiffStat(numstatOutput: string): FileStat[] {
     if (line.trim() === "") {
       continue;
     }
-    const [added, removed, path] = line.split("\t");
+    const parts = line.split("\t");
+    const added = parts[0] ?? "0";
+    const removed = parts[1] ?? "0";
+    const path = parts[2] ?? "";
     entries.push({ path, status: "M", added: Number(added), removed: Number(removed) });
   }
   return entries;
@@ -25,7 +28,9 @@ function parseNameStatus(nameStatusOutput: string): Map<string, "A" | "M" | "D">
     if (line.trim() === "") {
       continue;
     }
-    const [code, path] = line.split("\t");
+    const parts = line.split("\t");
+    const code = parts[0] ?? "";
+    const path = parts[1] ?? "";
     const normalized = code.startsWith("A") ? "A" : code.startsWith("D") ? "D" : "M";
     statuses.set(path, normalized);
   }
