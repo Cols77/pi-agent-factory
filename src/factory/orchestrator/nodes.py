@@ -6,6 +6,7 @@ from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
+from factory.orchestrator.transcripts import write_role_transcript
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, NodeOutcome
 from factory.validation.manifest_validator import validate_manifest
 
@@ -38,6 +39,7 @@ def run_context_gatherer(
     task: Task,
     repo_root: Path,
     max_attempts: int = 2,
+    transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, dict | None, NodeEvent]:
     errors: list[str] = []
@@ -59,6 +61,8 @@ def run_context_gatherer(
             compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills"),
             on_snippet=_on_snippet,
         )
+        if transcript_dir is not None:
+            write_role_transcript(transcript_dir, "context-gather", attempt, result.raw)
         manifest = result.output
         if manifest.get("reject"):
             extra = _note_backend_failure({"reason": manifest["reject"]}, result)
@@ -103,6 +107,7 @@ def run_dev(
     repo_root: Path,
     max_iters: int = 3,
     feedback: str | None = None,
+    transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent]:
     result: AgentResult | None = None
@@ -126,6 +131,8 @@ def run_dev(
             ),
             on_snippet=_on_snippet,
         )
+        if transcript_dir is not None:
+            write_role_transcript(transcript_dir, "dev", attempt, result.raw)
         if gates.run("unit") == 0:
             extra = _note_backend_failure({"tests": "green"}, result)
             status.report(
@@ -168,7 +175,9 @@ def run_review(
     backend: AgentBackend,
     gates: GateRunner,
     task: Task,
+    kb_entries: list[dict],
     repo_root: Path,
+    transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
     status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
@@ -181,9 +190,11 @@ def run_review(
 
     result = backend.run(
         AgentRole.REVIEW,
-        compose_prompt(AgentRole.REVIEW, task, skills_dir=repo_root / ".pi" / "skills"),
+        compose_prompt(AgentRole.REVIEW, task, kb_entries=kb_entries, skills_dir=repo_root / ".pi" / "skills"),
         on_snippet=_on_snippet,
     )
+    if transcript_dir is not None:
+        write_role_transcript(transcript_dir, "review", 1, result.raw)
     out = result.output
     findings = list(out.get("findings", []))
     dod_met = bool(out.get("dod_met"))
