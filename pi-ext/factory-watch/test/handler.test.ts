@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
@@ -91,6 +91,8 @@ describe("factory-watch commands", () => {
     // (and after ctx.newSession()/fork()/reload() in an interactive one),
     // ctx.ui becomes stale and throws on access. Before the fix, the next
     // setInterval tick threw uncaught and took the whole host process down.
+    // This guard lives in launchAndWatch's poll loop, which only the --auto
+    // path uses now that a bare /factory opens the foreground review path.
     vi.useFakeTimers();
     try {
       const { commands } = capture();
@@ -108,13 +110,141 @@ describe("factory-watch commands", () => {
       };
       const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
 
-      await commands.get("factory")!.handler("", ctx);
+      await commands.get("factory")!.handler("--auto", ctx);
 
       expect(() => vi.advanceTimersByTime(5_000)).not.toThrow();
       expect(setWidget).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("/factory --auto still uses the detached launchAndWatch path", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("factory")!.handler("--auto", ctx);
+    expect(spawn).toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("factory started"), "info");
+  });
+
+  test("/factory without --auto spawns non-detached and opens the review overlay on review_pending", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
+    };
+    child.stdout = new EventEmitter();
+    child.stdin = { write: vi.fn() };
+    child.unref = () => {};
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+    // computeReviewFiles shells out to `git diff --numstat`/`--name-status`
+    // via spawnSync -- give it an empty-but-parseable result (this test
+    // only cares that the overlay opens and a decision is written back).
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
+      confirm: vi.fn(async () => true), editor: vi.fn(),
+      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ ui });
+
+    const handlerDone = commands.get("factory")!.handler("", ctx);
+    child.stdout.emit(
+      "data",
+      Buffer.from(JSON.stringify({ type: "review_pending", task_id: "T-001", start_commit: "abc123" }) + "\n"),
+    );
+    child.emit("exit", 0);
+    await handlerDone;
+
+    expect(ui.custom).toHaveBeenCalled();
+    expect(child.stdin.write).toHaveBeenCalledWith(
+      JSON.stringify({ decision: "approve", comments: {} }) + "\n",
+    );
+  });
+
+  test("/factory without --auto reassembles a review_pending line split across two stdout chunks", async () => {
+    // A single `data` event is not guaranteed to align with line boundaries --
+    // this reproduces a review_pending JSON line arriving in two pieces (no
+    // trailing newline on the first chunk) and confirms the handler still
+    // parses it as one line instead of dropping it or crashing on partial JSON.
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
+    };
+    child.stdout = new EventEmitter();
+    child.stdin = { write: vi.fn() };
+    child.unref = () => {};
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
+      confirm: vi.fn(async () => true), editor: vi.fn(),
+      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ ui });
+
+    const fullLine = JSON.stringify({ type: "review_pending", task_id: "T-002", start_commit: "def456" }) + "\n";
+    const splitPoint = Math.floor(fullLine.length / 2);
+
+    const handlerDone = commands.get("factory")!.handler("", ctx);
+    // First chunk: no newline yet -- must not fire early or throw on partial JSON.
+    child.stdout.emit("data", Buffer.from(fullLine.slice(0, splitPoint)));
+    expect(ui.custom).not.toHaveBeenCalled();
+    // Second chunk completes the line.
+    child.stdout.emit("data", Buffer.from(fullLine.slice(splitPoint)));
+    child.emit("exit", 0);
+    await handlerDone;
+
+    expect(ui.custom).toHaveBeenCalledTimes(1);
+    expect(child.stdin.write).toHaveBeenCalledWith(
+      JSON.stringify({ decision: "approve", comments: {} }) + "\n",
+    );
+  });
+
+  test("/factory without --auto handles two review_pending lines delivered in a single chunk", async () => {
+    // The converse boundary case: multiple newline-terminated lines arriving
+    // together in one `data` event must each be parsed and handled once,
+    // not merged or dropped.
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
+    };
+    child.stdout = new EventEmitter();
+    child.stdin = { write: vi.fn() };
+    child.unref = () => {};
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
+      confirm: vi.fn(async () => true), editor: vi.fn(),
+      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ ui });
+
+    const line1 = JSON.stringify({ type: "review_pending", task_id: "T-003", start_commit: "aaa111" }) + "\n";
+    const line2 = JSON.stringify({ type: "review_pending", task_id: "T-004", start_commit: "bbb222" }) + "\n";
+
+    const handlerDone = commands.get("factory")!.handler("", ctx);
+    child.stdout.emit("data", Buffer.from(line1 + line2));
+    child.emit("exit", 0);
+    await handlerDone;
+
+    expect(ui.custom).toHaveBeenCalledTimes(2);
+    expect(child.stdin.write).toHaveBeenCalledTimes(2);
   });
 
   test("/factory-tasks renders the task board via a widget", async () => {

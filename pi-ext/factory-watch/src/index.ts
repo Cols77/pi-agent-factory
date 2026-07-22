@@ -19,6 +19,9 @@ import { listDocs } from "./doc-lister.js";
 import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
+import { computeReviewFiles } from "./review-diff.js";
+import { parseReviewPendingLine, writeReviewDecision } from "./review-protocol.js";
+import { runReviewLoop } from "./review-overlay.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -27,6 +30,12 @@ const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
 const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
 const RUN_SKILL_NAMES = ["test-driven-development", "systematic-debugging", "receiving-code-review", "kb-lookup"];
+
+function parseAutoFlag(args: string): { auto: boolean; rest: string } {
+  const auto = /(^|\s)--auto(\s|$)/.test(args);
+  const rest = args.replace("--auto", "").trim();
+  return { auto, rest };
+}
 
 function readFileIfExists(path: string): string | null {
   try {
@@ -166,9 +175,42 @@ export default function factoryWatch(pi: PiApi): void {
     ctx.ui.notify(`factory started (${label})`, "info");
   }
 
+  async function launchInteractiveReview(ctx: ExtCommandCtx, cmd: Command, label: string): Promise<void> {
+    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    ctx.ui.notify(`factory started (${label}, human review on)`, "info");
+
+    // child.stdout "data" chunks are not guaranteed to align with line
+    // boundaries -- a single review_pending JSON line can arrive split
+    // across two chunks (or several lines can arrive in one chunk).
+    // Buffer across events and only parse complete, newline-terminated
+    // lines; keep any trailing partial line for the next chunk.
+    let buffer = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString("utf-8");
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+
+        const message = parseReviewPendingLine(line);
+        if (message === null) {
+          continue;
+        }
+        const files = computeReviewFiles(ctx.cwd, message.start_commit);
+        void runReviewLoop(ctx.ui, ctx.cwd, message.task_id, message.start_commit, files).then(
+          (decision) => writeReviewDecision(child.stdin, decision),
+        );
+      }
+    });
+
+    await new Promise<void>((resolve) => child.on("exit", () => resolve()));
+    ctx.ui.notify("factory run finished", "info");
+  }
+
   pi.registerCommand("factory", {
     description: "Run the next todo factory task, watching progress live",
-    handler: async (_args: string, ctx: ExtCommandCtx) => {
+    handler: async (args: string, ctx: ExtCommandCtx) => {
       const lockPath = join(ctx.cwd, LOCK_FILE);
       if (isAlreadyRunning(ctx, lockPath)) {
         return;
@@ -179,8 +221,13 @@ export default function factoryWatch(pi: PiApi): void {
         return;
       }
 
+      const { auto } = parseAutoFlag(args);
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id);
-      launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
+      if (auto) {
+        launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
+      } else {
+        await launchInteractiveReview(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
+      }
     },
   });
 
@@ -240,7 +287,15 @@ export default function factoryWatch(pi: PiApi): void {
   pi.registerCommand("factory-run", {
     description: "Run a factory task interactively in a new session",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      let taskId = args.trim();
+      // /factory-run no longer spawns the orchestrator itself (see
+      // buildFactoryRunPrompt/newSession below) -- it seeds an interactive
+      // session for the *current* model to do the work live, which is
+      // already a human-driven foreground mode. There is no detached child
+      // process here for a `--auto` flag to switch away from, so this only
+      // strips a stray `--auto` out of the task-id text rather than
+      // branching into launchAndWatch/launchInteractiveReview.
+      const { rest } = parseAutoFlag(args);
+      let taskId = rest;
       if (taskId === "") {
         const cmd = buildListJsonCommand();
         const result = spawnSync(cmd.bin, cmd.args, { cwd: ctx.cwd, encoding: "utf-8" });

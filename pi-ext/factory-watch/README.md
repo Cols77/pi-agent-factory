@@ -6,14 +6,32 @@ sub-agent sessions, which load `scope-guard` instead).
 
 ## Commands
 
-- `/factory` — reads the session's currently active model (`ctx.model`), runs
-  `uv run python -m factory.orchestrator run --provider <provider> --model <id>`
-  detached, and polls `sessions/.factory-status.json` (written by the
-  orchestrator, see Plan A) once a second, rendering it via a widget. Refuses
-  to start a second run while `sessions/.factory-run.lock` shows a live PID.
-- `/factory-run [task-id]` — like `/factory`, but targets one specific task
-  (`status: todo` only). With no argument, lists todo tasks via
-  `factory.orchestrator list --json` and shows an interactive picker.
+- `/factory [--auto]` — reads the session's currently active model
+  (`ctx.model`), runs
+  `uv run python -m factory.orchestrator run --provider <provider> --model <id>`,
+  and watches its progress. Refuses to start a second run while
+  `sessions/.factory-run.lock` shows a live PID.
+  - Without `--auto` (the default): spawns the orchestrator **non-detached**
+    with piped stdio. When the orchestrator's automated review passes, it
+    writes a `review_pending` JSON line to stdout and blocks on stdin for a
+    decision; this extension opens a review overlay (file-list summary +
+    full diff drill-down, `c` to comment, `e` to edit, `a`/`r` to
+    approve/reject) and writes the decision back to the child's stdin. This
+    is the human-in-the-loop path.
+  - With `--auto`: reproduces the original fully-automated behavior
+    unchanged -- detached spawn, no stdin/stdout piping, no review gate,
+    polls `sessions/.factory-status.json` (written by the orchestrator, see
+    Plan A) once a second and renders it via a widget.
+- `/factory-run [--auto] [task-id]` — targets one specific task (`status:
+  todo` only): with no task id, lists todo tasks via
+  `factory.orchestrator list --json` and shows an interactive picker. Unlike
+  `/factory`, this does not spawn the orchestrator at all -- it seeds a
+  **new interactive Pi session** with the task's full text, DoD, plan
+  reference, and dev skills, so the current model does the work live in this
+  session (already a human-driven, foreground mode). `--auto` is accepted
+  and stripped from the task-id text for forward-compatible argument
+  parsing, but has no effect on behavior here -- there is no detached child
+  process for it to switch away from.
 - `/factory-stop` — reads the lock file's PID and terminates it: a forceful
   process-tree kill on Windows (`taskkill /PID <pid> /T /F` — a non-forceful
   `/T` alone is unreliable for plain console processes on Windows, so this
