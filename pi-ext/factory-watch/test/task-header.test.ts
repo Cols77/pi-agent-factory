@@ -24,6 +24,21 @@ body here
 
 const NOT_A_TASK_MD = "# Just a doc\n\nNo frontmatter here.\n";
 
+// Matches python-frontmatter/PyYAML's actual default dumping style (see
+// ledger.py's set_status, the real writer of every task file): list items
+// sit at the SAME indentation as their parent key, not indented under it.
+// This is the format every real task file on disk actually uses.
+const TASK_UNINDENTED_DOD_MD = `---
+dod:
+- 'first criterion'
+- second criterion, no quotes
+id: T-029
+status: todo
+title: Real-format task
+---
+body here
+`;
+
 describe("parseTaskFrontmatter", () => {
   test("parses a task with a list dod", () => {
     const parsed = parseTaskFrontmatter(TASK_MD);
@@ -46,6 +61,17 @@ describe("parseTaskFrontmatter", () => {
       title: "Single-line task",
       status: "done",
       dod: ["a single scalar criterion"],
+      body: "body here",
+    });
+  });
+
+  test("parses a task whose dod list items aren't indented under the key (real file format)", () => {
+    const parsed = parseTaskFrontmatter(TASK_UNINDENTED_DOD_MD);
+    expect(parsed).toEqual({
+      id: "T-029",
+      title: "Real-format task",
+      status: "todo",
+      dod: ["first criterion", "second criterion, no quotes"],
       body: "body here",
     });
   });

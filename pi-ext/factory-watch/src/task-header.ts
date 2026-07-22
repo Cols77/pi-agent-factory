@@ -34,7 +34,15 @@ export function parseTaskFrontmatter(content: string): ParsedTask | null {
   let inDodList = false;
 
   for (const line of frontmatter.split(/\r?\n/)) {
-    const listItem = line.match(/^\s+-\s+(.*)$/);
+    // Leading whitespace is optional: python-frontmatter/PyYAML's default
+    // dumper (used by ledger.py's set_status, the actual writer of every
+    // real task file) puts list items at the SAME indentation as their
+    // parent key ("dod:\n- item"), not indented under it ("dod:\n  - item").
+    // Both are valid YAML; only requiring \s+ here silently failed to parse
+    // dod on every real task file, masked everywhere except /factory-run
+    // (the only caller that treats a parse failure as a hard error instead
+    // of falling back to raw text).
+    const listItem = line.match(/^\s*-\s+(.*)$/);
     if (inDodList && listItem) {
       dod.push(unquote(listItem[1] ?? ""));
       continue;
