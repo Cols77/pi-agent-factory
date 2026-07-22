@@ -22,3 +22,18 @@ def test_dev_can_write_src_and_run_bash():
     s = ROLE_SCOPE[AgentRole.DEV]
     assert "src/**" in s.allow
     assert s.bash == "allow"
+
+
+def test_session_review_role_has_kb_write_scope():
+    scope = ROLE_SCOPE[AgentRole.SESSION_REVIEW]
+    assert "kb/**" in scope.allow
+    assert "sessions/**" in scope.allow
+    assert scope.bash == "deny"
+
+
+def test_session_review_role_names_session_report_skill():
+    assert ROLE_SKILLS[AgentRole.SESSION_REVIEW] == ["session-report"]
+
+
+def test_session_writer_role_no_longer_exists():
+    assert not hasattr(AgentRole, "SESSION_WRITER")

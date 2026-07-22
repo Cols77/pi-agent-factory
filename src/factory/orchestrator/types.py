@@ -9,7 +9,7 @@ class AgentRole(str, Enum):
     DEV = "dev"
     VALIDATION = "validation"
     REVIEW = "review"
-    SESSION_WRITER = "session-writer"
+    SESSION_REVIEW = "session-review"
 
 
 class NodeOutcome(str, Enum):
