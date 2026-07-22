@@ -19,28 +19,24 @@ class Scope:
 # deterministic gate is preferable to an LLM agent for this step. No
 # functional change implied by this comment.
 #
-# AgentRole.SESSION_REVIEW (formerly SESSION_WRITER) is wired up for real:
-# its skill is vendored under .pi/skills/session-report/SKILL.md, so
-# skills.py's load_skill_block() and prompts.py's compose_prompt() can load it
-# without raising FileNotFoundError.
+# AgentRole.SESSION_REVIEW: its skill is now vendored under .pi/skills/session-report/SKILL.md,
+# and its scope and prompt are defined below. However, it is not yet invoked
+# anywhere in runner.py or nodes.py -- that wiring is separate, upcoming work.
 #
 # Fast-follow (final review, part 2): ROLE_SKILLS still names
 # "sim-functional-tests" (VALIDATION), which is not vendored under
 # .pi/skills/ -- only the skills the currently-live roles (CONTEXT_GATHERER,
-# DEV, REVIEW, SESSION_REVIEW) need are vendored there. This was harmless
-# while skill loading was soft (a bare unadvertised name was just inert), but
-# skills.py's load_skill_block() now hard-loads every skill in ROLE_SKILLS[role]
-# and raises FileNotFoundError if skills_dir/<name>/SKILL.md is missing, and
-# prompts.py's compose_prompt() calls it unconditionally for every skill in the
-# role's list. That means this entry is now a LATENT TRAP: if AgentRole.VALIDATION
-# is ever wired up to a real compose_prompt() call in the future (i.e. the day
-# it stops being dead code per the paragraph above), the very first call will
-# crash with FileNotFoundError unless "sim-functional-tests" is vendored under
-# .pi/skills/ first. Per this repo's established practice (see git history), do
-# NOT speculatively author content for that skill now while the role is still
-# dead -- but whoever wires up that role for real MUST vendor its skill(s)
-# under .pi/skills/ as part of that change, or compose_prompt() for that role
-# will fail immediately at runtime.
+# DEV, REVIEW) need are vendored there. This was harmless while skill loading was
+# soft (a bare unadvertised name was just inert), but skills.py's load_skill_block()
+# now hard-loads every skill in ROLE_SKILLS[role] and raises FileNotFoundError if
+# skills_dir/<name>/SKILL.md is missing, and prompts.py's compose_prompt() calls it
+# unconditionally for every skill in the role's list. That means this entry is a
+# LATENT TRAP for VALIDATION: if that role is ever wired up to a real compose_prompt()
+# call in the future, the very first call will crash with FileNotFoundError unless
+# "sim-functional-tests" is vendored under .pi/skills/ first. Per this repo's
+# established practice (see git history), do NOT speculatively author content for
+# that skill now while the role is still dead -- but whoever wires up that role for
+# real MUST vendor its skill(s) under .pi/skills/ as part of that change.
 ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.CONTEXT_GATHERER: ["verification-before-completion", "context-completeness-audit"],
     AgentRole.DEV: [
