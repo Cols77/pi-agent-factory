@@ -171,6 +171,40 @@ describe("runReviewLoop", () => {
     process.env = priorEnv;
   });
 
+  test("edit with tmux spawns split-window and wait-for, then loops back", async () => {
+    const priorEnv = { ...process.env };
+    process.env.VISUAL = "vim";
+    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
+    vi.mocked(spawnSync).mockReturnValue({ status: 0, stdout: "", stderr: "" } as ReturnType<typeof spawnSync>);
+    const custom = vi.fn()
+      .mockResolvedValueOnce({ type: "edit", file: "src/rtb.py" })
+      .mockResolvedValueOnce({ type: "approve" });
+    const ui = fakeUi({ custom });
+
+    const result = await runReviewLoop(ui, "/repo", "T-001", "abc123", FILES);
+
+    // Verify tmux commands were called (filter out any hasCodeOnPath check calls)
+    const calls = vi.mocked(spawnSync).mock.calls;
+    const tmuxCalls = calls.filter(call => call[0] === "tmux");
+    expect(tmuxCalls).toHaveLength(2);
+
+    // First call: split-window -h
+    const firstCall = tmuxCalls[0]!;
+    expect((firstCall[1] as string[])[0]).toBe("split-window");
+    expect((firstCall[1] as string[])[1]).toBe("-h");
+    expect((firstCall[1] as string[])[2]).toMatch(/^vim src\/rtb\.py; tmux wait-for -S review-edit-\d+$/);
+    expect(firstCall[2]).toEqual({ cwd: "/repo" });
+
+    // Second call: wait-for <signal>
+    const secondCall = tmuxCalls[1]!;
+    expect((secondCall[1] as string[])[0]).toBe("wait-for");
+    expect((secondCall[1] as string[])[1]).toMatch(/^review-edit-\d+$/);
+    expect(secondCall[2]).toEqual({ cwd: "/repo" });
+
+    expect(result.decision).toBe("approve");
+    process.env = priorEnv;
+  });
+
   test("edit surfaces a clear error and loops back when no GUI editor can be resolved", async () => {
     const priorEnv = { ...process.env };
     delete process.env.VISUAL;
