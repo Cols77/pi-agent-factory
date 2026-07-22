@@ -47,9 +47,9 @@ def main() -> None:
     if args.command == "list":
         tasks = load_tasks(repo_root / "tasks")
         if args.json:
-            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]), file=sys.stderr)
+            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]))
         else:
-            print(format_task_board(tasks), file=sys.stderr)
+            print(format_task_board(tasks))
         return
 
     ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
