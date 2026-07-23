@@ -40,16 +40,6 @@ test("mission-control-dashboard.ts loads under real `node <file>.ts` execution (
   expect(result.status).toBe(1);
 });
 
-test("mission-control-transcript.ts loads under real `node <file>.ts` execution (no args -> fast usage exit, not a module-load crash)", () => {
-  const result = spawnSync("node", [join(SRC_DIR, "mission-control-transcript.ts")], {
-    encoding: "utf-8",
-    timeout: 10_000,
-  });
-  expect(result.stderr).not.toMatch(/ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX|ERR_MODULE_NOT_FOUND/);
-  expect(result.stderr).toContain("usage:");
-  expect(result.status).toBe(1);
-});
-
 test("mission-control-review.ts loads under real `node <file>.ts` execution (no args -> fast usage exit, not a module-load crash)", () => {
   const result = spawnSync("node", [join(SRC_DIR, "mission-control-review.ts")], {
     encoding: "utf-8",

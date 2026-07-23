@@ -65,9 +65,12 @@ orchestrator writes. It shows all 5 pipeline stages (context-gather, dev,
 validation, review, human-review) with the currently-running one
 highlighted, handoff messages as each stage completes, and a `blocked --
 waiting for you to review the diff` state if the run reaches human-review.
-Selecting a row and pressing Enter opens a third terminal window
-(`mission-control-transcript.ts`) tailing that stage's transcript live. This
-window is purely observational -- closing it does not affect the run.
+Selecting a row and pressing Enter dispatches by stage: agent rows
+(context-gather, dev, review) open the real `pi --session <id>` in a new
+window; validation opens a window tailing that run's `sim-gate.log`; and
+human-review (once a startCommit exists) opens `mission-control-review.ts`
+to browse the actual changed files. These windows are purely observational
+(review browsing aside) -- closing them does not affect the run.
 
 ## No new IPC
 

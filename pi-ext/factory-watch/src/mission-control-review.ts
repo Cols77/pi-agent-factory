@@ -15,8 +15,8 @@ import type { TuiLike } from "./review-overlay.ts";
 // cast rather than tui.addChild()/tui.setFocus()). This adapter supplies the
 // missing invalidate() no-op and delegates render()/handleInput() straight
 // through, so it can be mounted directly with the real pi-tui TUI the same
-// way mission-control-dashboard.ts and mission-control-transcript.ts mount
-// their own top-level components. The onAction callback passed to
+// way mission-control-dashboard.ts mounts its own top-level component. The
+// onAction callback passed to
 // ReviewOverlay is intentionally a no-op: comment/edit/approve/reject all
 // route through onAction, and browse mode ignores all of them rather than
 // wiring any of them to a decision channel.
@@ -49,8 +49,7 @@ export interface ReviewArgs {
 // indexOf returns -1 when a flag is missing; -1 + 1 = 0 would then read
 // process.argv[0] (the node executable's own path -- a real, defined
 // string), silently defeating the undefined check below. Treat -1
-// explicitly as "not found" instead. Mirrors mission-control-dashboard.ts
-// and mission-control-transcript.ts.
+// explicitly as "not found" instead. Mirrors mission-control-dashboard.ts.
 export function buildReviewArgs(argv: string[]): ReviewArgs | undefined {
   const cwdArgIndex = argv.indexOf("--cwd");
   const cwd = cwdArgIndex === -1 ? undefined : argv[cwdArgIndex + 1];

@@ -1,34 +1,36 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Component } from "@earendil-works/pi-tui";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatMissionControlRows, parseStatus } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
+import { resolveSessionPath } from "./session-path.ts";
 import { spawnTerminalWindow } from "./terminal-window.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
 const POLL_INTERVAL_MS = 500;
 
-// Attempt 1 is a reasonable default -- the dashboard doesn't currently track
-// which attempt is "current" for a stage, and the transcript viewer's own
-// poll loop will pick up growth if the file doesn't exist yet. Stages with
-// no agent transcript (e.g. "validation", "human-review") simply resolve to
-// a path that never exists; TranscriptViewer already renders a graceful
-// "(not started yet)" placeholder for that case.
-export function buildTranscriptPath(cwd: string, sessionId: string, node: string): string {
-  return join(cwd, "sessions", ".factory-transcripts", sessionId, `${node}-attempt1.log`);
-}
+// Pipeline nodes whose `sessionId` (Task 7) is a real pi agent session --
+// Enter on one of these opens the live session in a new `pi --session`
+// window rather than tailing a log or opening the review browser.
+// "session-review" isn't in STAGE_ORDER today, but is included per the
+// brief for forward compatibility with a future stage of that name.
+const AGENT_NODES = new Set(["context-gather", "dev", "review", "session-review"]);
+
+const SESSION_NOT_READY_MESSAGE = "session not ready";
 
 export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
   private record: StatusRecord | null;
-  private readonly onSelectTranscript: (node: string, sessionId: string) => void;
+  private readonly cwd: string;
+  // Transient inline feedback surfaced in render() (e.g. "session not
+  // ready") when an Enter dispatch can't spawn anything yet. Cleared the
+  // next time a dispatch succeeds.
+  private statusMessage: string | null = null;
 
-  constructor(
-    record: StatusRecord | null,
-    onSelectTranscript: (node: string, sessionId: string) => void,
-  ) {
+  constructor(record: StatusRecord | null, cwd: string) {
     this.record = record;
-    this.onSelectTranscript = onSelectTranscript;
+    this.cwd = cwd;
   }
 
   updateRecord(record: StatusRecord | null): void {
@@ -40,14 +42,75 @@ export class MissionControlDashboard implements Component {
   // Component interface so this can be passed to tui.addChild().
   invalidate(): void {}
 
+  private openAgentSession(sessionId: string | null): void {
+    const path = sessionId === null ? null : resolveSessionPath(sessionId);
+    if (path === null) {
+      this.statusMessage = SESSION_NOT_READY_MESSAGE;
+      return;
+    }
+    this.statusMessage = null;
+    spawnTerminalWindow("pi", ["--session", path], { cwd: this.cwd });
+  }
+
+  // The gate log lives under the top-level factory run id (record.session_id
+  // -- the same directory write_role_transcript/the orchestrator use for
+  // .factory-transcripts/<id>/), NOT the row's own pi sessionId.
+  private tailGateLog(factoryRunId: string): void {
+    const logPath = join(this.cwd, "sessions", ".factory-transcripts", factoryRunId, "sim-gate.log");
+    this.statusMessage = null;
+    if (process.platform === "win32") {
+      spawnTerminalWindow(
+        "powershell",
+        ["-NoExit", "-Command", `Get-Content '${logPath}' -Wait -Tail 40`],
+        { cwd: this.cwd },
+      );
+    } else {
+      spawnTerminalWindow("tail", ["-f", logPath], { cwd: this.cwd });
+    }
+  }
+
+  private openReviewBrowser(startCommit: string | null): void {
+    if (startCommit === null) {
+      this.statusMessage = SESSION_NOT_READY_MESSAGE;
+      return;
+    }
+    this.statusMessage = null;
+    spawnTerminalWindow(
+      "node",
+      [
+        join(this.cwd, "pi-ext", "factory-watch", "src", "mission-control-review.ts"),
+        "--cwd",
+        this.cwd,
+        "--start-commit",
+        startCommit,
+      ],
+      { cwd: this.cwd },
+    );
+  }
+
+  private handleEnter(): void {
+    if (this.record === null) {
+      return;
+    }
+    const rows = formatMissionControlRows(this.record, STAGE_ORDER);
+    const row = rows[this.selectedIndex]!;
+    if (AGENT_NODES.has(row.node)) {
+      this.openAgentSession(row.sessionId);
+    } else if (row.node === "validation") {
+      this.tailGateLog(this.record.session_id);
+    } else if (row.node === "human-review") {
+      this.openReviewBrowser(row.startCommit);
+    }
+  }
+
   handleInput(data: string): void {
     const rows = formatMissionControlRows(this.record, STAGE_ORDER);
     if (data === "\x1b[B" || data === "j") {
       this.selectedIndex = Math.min(this.selectedIndex + 1, rows.length - 1);
     } else if (data === "\x1b[A" || data === "k") {
       this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-    } else if ((data === "\r" || data === "\n") && this.record !== null) {
-      this.onSelectTranscript(rows[this.selectedIndex]!.node, this.record.session_id);
+    } else if (data === "\r" || data === "\n") {
+      this.handleEnter();
     }
   }
 
@@ -61,8 +124,16 @@ export class MissionControlDashboard implements Component {
       if (row.handoff) {
         lines.push(`    ${row.handoff}`);
       }
+      if (row.summary) {
+        for (const wrapped of wrapTextWithAnsi(row.summary, Math.max(1, width - 4))) {
+          lines.push(`    ${wrapped}`);
+        }
+      }
     });
-    lines.push("", "up/down select  Enter open transcript  q close");
+    if (this.statusMessage !== null) {
+      lines.push("", this.statusMessage);
+    }
+    lines.push("", "up/down select  Enter open  q close");
     return lines;
   }
 }
@@ -120,14 +191,7 @@ async function main(): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
-  const dashboard = new MissionControlDashboard(readRecord(), (node, sessionId) => {
-    const transcriptPath = buildTranscriptPath(cwd, sessionId, node);
-    spawnTerminalWindow(
-      "node",
-      [join(cwd, "pi-ext", "factory-watch", "src", "mission-control-transcript.ts"), "--transcript", transcriptPath],
-      { cwd },
-    );
-  });
+  const dashboard = new MissionControlDashboard(readRecord(), cwd);
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
   tui.start();
