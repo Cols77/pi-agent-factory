@@ -22,16 +22,18 @@ sub-agent sessions, which load `scope-guard` instead).
     unchanged -- detached spawn, no stdin/stdout piping, no review gate,
     polls `sessions/.factory-status.json` (written by the orchestrator, see
     Plan A) once a second and renders it via a widget.
-- `/factory-run [--auto] [task-id]` — targets one specific task (`status:
-  todo` only): with no task id, lists todo tasks via
-  `factory.orchestrator list --json` and shows an interactive picker. Unlike
-  `/factory`, this does not spawn the orchestrator at all -- it seeds a
-  **new interactive Pi session** with the task's full text, DoD, plan
-  reference, and dev skills, so the current model does the work live in this
-  session (already a human-driven, foreground mode). `--auto` is accepted
-  and stripped from the task-id text for forward-compatible argument
-  parsing, but has no effect on behavior here -- there is no detached child
-  process for it to switch away from.
+  - Either way, once the run is launched this also opens a **mission
+    control** terminal window (see below).
+- `/factory-run [--auto] [task-id]` — runs the exact same pipeline `/factory`
+  does, targeting one specific task (`status: todo` only) instead of
+  whichever the orchestrator would pick next: with no task id, lists todo
+  tasks via `factory.orchestrator list --json` and shows an interactive
+  picker; with a task id, skips straight to
+  `uv run python -m factory.orchestrator run --provider <provider> --model
+  <id> --task <task-id>`. Like `/factory`, `--auto` picks the detached
+  `launchAndWatch` path and its absence picks the foreground
+  `launchInteractiveReview` human-review path, and either way a mission
+  control window opens alongside the run.
 - `/factory-stop` — reads the lock file's PID and terminates it: a forceful
   process-tree kill on Windows (`taskkill /PID <pid> /T /F` — a non-forceful
   `/T` alone is unreliable for plain console processes on Windows, so this
@@ -53,6 +55,19 @@ sub-agent sessions, which load `scope-guard` instead).
   `uv run python -m factory.orchestrator.plan_to_tasks <plan-file>`
   deterministically turning the saved plan into `tasks/T-*.md` files, ready
   for `/factory-run`.
+
+## Mission control
+
+Both `/factory` and `/factory-run` open a second terminal window (via
+`spawnTerminalWindow`) running the standalone `mission-control-dashboard.ts`
+entry point, pointed at the same `sessions/.factory-status.json` the running
+orchestrator writes. It shows all 5 pipeline stages (context-gather, dev,
+validation, review, human-review) with the currently-running one
+highlighted, handoff messages as each stage completes, and a `blocked --
+waiting for you to review the diff` state if the run reaches human-review.
+Selecting a row and pressing Enter opens a third terminal window
+(`mission-control-transcript.ts`) tailing that stage's transcript live. This
+window is purely observational -- closing it does not affect the run.
 
 ## No new IPC
 

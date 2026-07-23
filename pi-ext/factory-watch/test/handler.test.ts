@@ -28,6 +28,9 @@ vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return { ...actual, openSync: vi.fn(() => 0) };
 });
+vi.mock("../src/terminal-window.js", () => ({
+  spawnTerminalWindow: vi.fn(),
+}));
 
 function capture(): { commands: Map<string, CommandDef>; pi: PiApi } {
   const commands = new Map<string, CommandDef>();
@@ -354,44 +357,37 @@ describe("factory-watch commands", () => {
     expect(ui.select).toHaveBeenCalledWith("Run which task?", ["T-001  First", "T-002  Second"]);
   });
 
-  test("/factory-run with inline task id opens a new session when task file exists", async () => {
-    const { commands } = capture();
+  test("/factory-run with no id lists todo tasks, picks one, and routes through launchAndWatch/launchInteractiveReview like /factory", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([{ id: "T-001", title: "First", status: "todo" }]),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
     const ui: UiApi = {
-      notify: vi.fn(),
-      setStatus: vi.fn(),
-      setWidget: vi.fn(),
-      select: vi.fn(),
-      confirm: vi.fn(async () => true),
-      editor: vi.fn(async () => undefined),
-      custom: vi.fn(),
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue("T-001  First"),
+      confirm: vi.fn(async () => true), editor: vi.fn(), custom: vi.fn(),
     };
-    const newSession = vi.fn(async () => ({ cancelled: false }));
-    const ctx = fakeCtx({ cwd: REPO_ROOT, ui, newSession });
-    // T-029 exists in this repo's tasks/ directory
-    await commands.get("factory-run")!.handler("T-029", ctx);
-    expect(ui.select).not.toHaveBeenCalled();
-    // Either opens a new session (task file found) or notifies an error (not found)
-    const calledSession = newSession.mock.calls.length > 0;
-    const calledNotify = (ui.notify as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('T-029')
-    );
-    expect(calledSession || calledNotify).toBe(true);
+    const { commands } = capture();
+    const ctx = fakeCtx({ ui });
+
+    await commands.get("factory-run")!.handler("--auto", ctx);
+
+    // --auto -> launchAndWatch -> detached spawn, matching /factory's own --auto test
+    expect(spawn).toHaveBeenCalled();
   });
 
-  test("/factory-run with inline task id notifies error when task file not found", async () => {
+  test("/factory-run spawns a mission control terminal window alongside the run", async () => {
+    const { spawnTerminalWindow } = await import("../src/terminal-window.js");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+    } as ReturnType<typeof spawnSync>);
     const { commands } = capture();
-    const ui: UiApi = {
-      notify: vi.fn(),
-      setStatus: vi.fn(),
-      setWidget: vi.fn(),
-      select: vi.fn(),
-      confirm: vi.fn(async () => true),
-      editor: vi.fn(async () => undefined),
-      custom: vi.fn(),
-    };
-    const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only", ui });
-    await commands.get("factory-run")!.handler("T-999", ctx);
-    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("task file not found"), "error");
+    const ctx = fakeCtx();
+
+    await commands.get("factory-run")!.handler("--auto T-001", ctx);
+
+    expect(vi.mocked(spawnTerminalWindow)).toHaveBeenCalled();
   });
 
   test("/review-plans notifies when no docs are found, without opening a viewer", async () => {

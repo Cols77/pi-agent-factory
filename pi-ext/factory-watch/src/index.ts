@@ -2,7 +2,7 @@
 // (project-local auto-discovery via .pi/extensions/ also works once installed there)
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
@@ -22,6 +22,7 @@ import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 import { computeReviewFiles } from "./review-diff.js";
 import { parseReviewPendingLine, writeReviewDecision } from "./review-protocol.js";
 import { runReviewLoop } from "./review-overlay.js";
+import { spawnTerminalWindow } from "./terminal-window.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -29,7 +30,6 @@ const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
 const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
-const RUN_SKILL_NAMES = ["test-driven-development", "systematic-debugging", "receiving-code-review", "kb-lookup"];
 
 function parseAutoFlag(args: string): { auto: boolean; rest: string } {
   const auto = /(^|\s)--auto(\s|$)/.test(args);
@@ -43,71 +43,6 @@ function readFileIfExists(path: string): string | null {
   } catch {
     return null;
   }
-}
-
-function findTaskFile(cwd: string, taskId: string): string | null {
-  // Task files are in tasks/ directory, named like T-029-<slug>.md
-  const tasksDir = join(cwd, "tasks");
-  try {
-    const entries = readdirSync(tasksDir);
-    const match = entries.find((e) => e.startsWith(taskId + "-") && e.endsWith(".md"));
-    return match ? join(tasksDir, match) : null;
-  } catch {
-    return null;
-  }
-}
-
-function extractSourcePlan(taskContent: string): string | null {
-  // Extract source_plan field from frontmatter
-  const match = taskContent.match(/^source_plan:\s*(.+)$/m);
-  return match ? match[1]!.trim() : null;
-}
-
-function buildFactoryRunPrompt(
-  task: { id: string; title: string; dod: string[]; body: string },
-  planContent: string | null,
-  skillBlocks: string[],
-): string {
-  const lines: string[] = [];
-
-  lines.push(`Implement factory task **${task.id}: ${task.title}**.`);
-  lines.push("");
-
-  // Task body
-  lines.push("## Task");
-  lines.push(task.body.trim());
-  lines.push("");
-
-  // Definition of Done
-  lines.push("## Definition of Done");
-  for (const crit of task.dod) {
-    lines.push(`- ${crit}`);
-  }
-  lines.push("");
-
-  // Plan steps
-  if (planContent !== null) {
-    lines.push("## Implementation Plan (reference)");
-    lines.push("Follow the steps from the plan below for this specific task.");
-    lines.push(planContent.trim());
-    lines.push("");
-  }
-
-  // Skills
-  if (skillBlocks.length > 0) {
-    lines.push("## Loaded skills");
-    lines.push(...skillBlocks);
-    lines.push("");
-  }
-
-  // Instructions
-  lines.push("## Instructions");
-  lines.push("- Follow TDD: write the failing test first, then implement the minimal code to pass.");
-  lines.push("- Commit after each coherent step.");
-  lines.push("- Run `uv run pytest tests/ -q` to verify tests pass.");
-  lines.push("- When all DoD criteria are met and tests/gates pass, you're done.");
-
-  return lines.join("\n");
 }
 
 export default function factoryWatch(pi: PiApi): void {
@@ -175,6 +110,15 @@ export default function factoryWatch(pi: PiApi): void {
     ctx.ui.notify(`factory started (${label})`, "info");
   }
 
+  function launchMissionControl(ctx: ExtCommandCtx): void {
+    const statusPath = join(ctx.cwd, STATUS_FILE);
+    spawnTerminalWindow(
+      "node",
+      [join(ctx.cwd, "pi-ext", "factory-watch", "src", "mission-control-dashboard.ts"), "--status", statusPath, "--cwd", ctx.cwd],
+      { cwd: ctx.cwd },
+    );
+  }
+
   async function launchInteractiveReview(ctx: ExtCommandCtx, cmd: Command, label: string): Promise<void> {
     const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, stdio: ["pipe", "pipe", "pipe"] });
     ctx.ui.notify(`factory started (${label}, human review on)`, "info");
@@ -228,6 +172,7 @@ export default function factoryWatch(pi: PiApi): void {
       } else {
         await launchInteractiveReview(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
       }
+      launchMissionControl(ctx);
     },
   });
 
@@ -285,16 +230,18 @@ export default function factoryWatch(pi: PiApi): void {
   });
 
   pi.registerCommand("factory-run", {
-    description: "Run a factory task interactively in a new session",
+    description: "Run the factory on one specific task, watching progress live",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      // /factory-run no longer spawns the orchestrator itself (see
-      // buildFactoryRunPrompt/newSession below) -- it seeds an interactive
-      // session for the *current* model to do the work live, which is
-      // already a human-driven foreground mode. There is no detached child
-      // process here for a `--auto` flag to switch away from, so this only
-      // strips a stray `--auto` out of the task-id text rather than
-      // branching into launchAndWatch/launchInteractiveReview.
-      const { rest } = parseAutoFlag(args);
+      const lockPath = join(ctx.cwd, LOCK_FILE);
+      if (isAlreadyRunning(ctx, lockPath)) {
+        return;
+      }
+      if (ctx.model === undefined) {
+        ctx.ui.notify("no model selected in this session -- can't launch factory", "error");
+        return;
+      }
+
+      const { auto, rest } = parseAutoFlag(args);
       let taskId = rest;
       if (taskId === "") {
         const cmd = buildListJsonCommand();
@@ -322,55 +269,14 @@ export default function factoryWatch(pi: PiApi): void {
         taskId = parseTaskIdFromOption(selected);
       }
 
-      // Read the task file to get plan reference
-      const taskPath = findTaskFile(ctx.cwd, taskId);
-      if (taskPath === null) {
-        ctx.ui.notify(`factory-run: task file not found for ${taskId}`, "error");
-        return;
+      const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
+      const label = `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`;
+      if (auto) {
+        launchAndWatch(ctx, cmd, label);
+      } else {
+        await launchInteractiveReview(ctx, cmd, label);
       }
-      const taskContent = readFileSync(taskPath, "utf-8");
-      const parsed = parseTaskFrontmatter(taskContent);
-      if (parsed === null) {
-        ctx.ui.notify(`factory-run: failed to parse task ${taskId}`, "error");
-        return;
-      }
-
-      // Find and read the plan file for full step details
-      let planContent: string | null = null;
-      const sourcePlan = extractSourcePlan(taskContent);
-      if (sourcePlan !== null) {
-        const planPath = join(ctx.cwd, sourcePlan);
-        try {
-          planContent = readFileSync(planPath, "utf-8");
-        } catch {
-          // Plan file not found — proceed without it
-        }
-      }
-
-      // Load dev skills
-      const { skills } = loadSkills({
-        cwd: ctx.cwd,
-        agentDir: join(homedir(), ".pi", "agent"),
-        skillPaths: [],
-        includeDefaults: true,
-      });
-      const skillBlocks: string[] = [];
-      for (const name of RUN_SKILL_NAMES) {
-        const skill = skills.find((s) => s.name === name);
-        if (skill !== undefined) {
-          const content = readFileSync(skill.filePath, "utf-8");
-          const body = stripFrontmatter(content).trim();
-          skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
-        }
-      }
-
-      // Build the interactive prompt
-      const seedText = buildFactoryRunPrompt(parsed, planContent, skillBlocks);
-      await ctx.newSession({
-        withSession: async (session: ReplacedSessionCtx) => {
-          await session.sendUserMessage(seedText, { deliverAs: "followUp" });
-        },
-      });
+      launchMissionControl(ctx);
     },
   });
 
