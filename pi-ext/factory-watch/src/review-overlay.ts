@@ -1,9 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { renderDiff } from "@earendil-works/pi-coding-agent";
-import { computeFileDiffText } from "./review-diff.js";
-import type { FileStat } from "./review-diff.js";
-import { resolveEditorLaunch } from "./review-editor-launch.js";
+// .ts (not .js) relative imports -- this file is now also loaded via a
+// plain `node <file>.ts` import chain (mission-control-review.ts), and only
+// the .ts sources exist on disk (no compiled .js output), so a ".js"
+// specifier fails Node's real module resolution with ERR_MODULE_NOT_FOUND.
+// Other files (e.g. index.ts) still import this same module tree with
+// ".js" specifiers for vitest -- each import statement resolves
+// independently, so this doesn't affect those.
+import { computeFileDiffText } from "./review-diff.ts";
+import type { FileStat } from "./review-diff.ts";
+import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
 
 function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
@@ -33,15 +40,36 @@ export class ReviewOverlay {
   private view: ViewState = { mode: "summary" };
   private selectedIndex = 0;
   private diffLineCache = new Map<string, string[]>();
+  private readonly files: FileStat[];
+  private readonly comments: Map<string, string>;
+  private readonly tui: TuiLike;
+  private readonly cwd: string;
+  private readonly startCommit: string;
+  private readonly onAction: (action: ReviewAction) => void;
 
+  // Explicit field assignment, not TypeScript constructor parameter
+  // properties -- this file is now also loaded via a plain `node <file>.ts`
+  // import chain (mission-control-review.ts), and Node's strip-only TS
+  // execution rejects parameter properties with
+  // ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. vitest's esbuild-based resolution and
+  // the pi host's extension loader both tolerated the old syntax, which is
+  // why this went unnoticed until a real `node <file>.ts` entry point
+  // imported it.
   constructor(
-    private readonly files: FileStat[],
-    private readonly comments: Map<string, string>,
-    private readonly tui: TuiLike,
-    private readonly cwd: string,
-    private readonly startCommit: string,
-    private readonly onAction: (action: ReviewAction) => void,
-  ) {}
+    files: FileStat[],
+    comments: Map<string, string>,
+    tui: TuiLike,
+    cwd: string,
+    startCommit: string,
+    onAction: (action: ReviewAction) => void,
+  ) {
+    this.files = files;
+    this.comments = comments;
+    this.tui = tui;
+    this.cwd = cwd;
+    this.startCommit = startCommit;
+    this.onAction = onAction;
+  }
 
   private currentFile(): FileStat {
     return this.files[this.selectedIndex]!;
