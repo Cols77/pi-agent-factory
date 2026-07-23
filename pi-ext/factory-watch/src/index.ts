@@ -167,12 +167,14 @@ export default function factoryWatch(pi: PiApi): void {
 
       const { auto } = parseAutoFlag(args);
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id);
+      // Fired before launchInteractiveReview, which awaits the run's own
+      // exit -- mission control must open while the run is live, not after.
+      launchMissionControl(ctx);
       if (auto) {
         launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
       } else {
         await launchInteractiveReview(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
       }
-      launchMissionControl(ctx);
     },
   });
 
@@ -271,12 +273,14 @@ export default function factoryWatch(pi: PiApi): void {
 
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
       const label = `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`;
+      // Fired before launchInteractiveReview, which awaits the run's own
+      // exit -- mission control must open while the run is live, not after.
+      launchMissionControl(ctx);
       if (auto) {
         launchAndWatch(ctx, cmd, label);
       } else {
         await launchInteractiveReview(ctx, cmd, label);
       }
-      launchMissionControl(ctx);
     },
   });
 

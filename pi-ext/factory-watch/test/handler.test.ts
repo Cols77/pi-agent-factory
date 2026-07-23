@@ -405,6 +405,37 @@ describe("factory-watch commands", () => {
     expect(vi.mocked(spawnTerminalWindow)).toHaveBeenCalled();
   });
 
+  test("/factory-run opens mission control immediately, not after the run finishes (interactive mode)", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
+    };
+    child.stdout = new EventEmitter();
+    child.unref = () => {};
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    // No --auto: this goes through launchInteractiveReview, which awaits the
+    // child's "exit" event before returning. Don't await the handler yet --
+    // the whole point of this test is to check spawnTerminalWindow was
+    // already called BEFORE the run completes, not merely by the time the
+    // handler promise eventually resolves.
+    const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+
+    // Let the synchronous/microtask work up to the awaited exit-listener run.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vi.mocked(spawnTerminalWindow)).toHaveBeenCalled();
+
+    // Let the handler's awaited promise resolve so the test cleans up.
+    child.emit("exit");
+    await handlerPromise;
+  });
+
   test("/review-plans notifies when no docs are found, without opening a viewer", async () => {
     const { commands } = capture();
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only" });
