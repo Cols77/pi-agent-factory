@@ -49,9 +49,19 @@ class SubprocessGateRunner:
         "full": "scripts/gates/all.py",
     }
 
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, log_dir: Path | None = None) -> None:
         self._repo_root = repo_root
+        self._log_dir = log_dir
 
     def run(self, name: str) -> int:
         script = self._SCRIPTS[name]
-        return subprocess.run([sys.executable, script], cwd=self._repo_root).returncode
+        if self._log_dir is None:
+            return subprocess.run([sys.executable, script], cwd=self._repo_root).returncode
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self._log_dir / f"{name}-gate.log"
+        proc = subprocess.run(
+            [sys.executable, script], cwd=self._repo_root,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        log_path.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
+        return proc.returncode

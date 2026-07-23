@@ -56,14 +56,15 @@ def main() -> None:
     backend = PiAgentBackend(
         repo_root=repo_root, extension_path=ext, provider=args.provider, model=args.model
     )
-    gates = SubprocessGateRunner(repo_root)
+
+    session_id = _now_id()
+    transcript_dir = repo_root / "sessions" / ".factory-transcripts" / session_id
+    gates = SubprocessGateRunner(repo_root, log_dir=transcript_dir)
 
     kwargs = {}
     if args.provider and args.model:
         kwargs["model_backend"] = f"{args.provider}:{args.model}"
 
-    session_id = _now_id()
-    transcript_dir = repo_root / "sessions" / ".factory-transcripts" / session_id
     lock_path = repo_root / "sessions" / ".factory-run.lock"
     status_path = repo_root / "sessions" / ".factory-status.json"
 
