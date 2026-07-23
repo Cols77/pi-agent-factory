@@ -124,6 +124,22 @@ def _has_json_events_without_text_field(stdout: str) -> bool:
     return saw_json_object and not saw_text_field
 
 
+def parse_session_id(stdout: str) -> str | None:
+    """Return the id from Pi's first `session` event, or None."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "session":
+            sid = event.get("id")
+            return sid if isinstance(sid, str) else None
+    return None
+
+
 # Windows cmd.exe has an 8191-char command-line limit. Since pi is a .cmd
 # wrapper, any invocation over this limit fails with ENOENT/"command line too long".
 # Prompts beyond this threshold are written to a temp file and passed via
@@ -239,4 +255,4 @@ class PiAgentBackend:
                 "assumption being wrong for this stream. Raw stdout:\n" + stdout
             )
 
-        return AgentResult(ok=ok, output=output, raw=raw)
+        return AgentResult(ok=ok, output=output, raw=raw, session_id=parse_session_id(stdout))

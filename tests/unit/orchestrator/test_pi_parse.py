@@ -170,3 +170,35 @@ def test_run_spawns_pi_subprocess_with_stdin_devnull(monkeypatch, tmp_path):
     backend.run(AgentRole.DEV, "hello")
 
     assert captured_kwargs.get("stdin") == subprocess.DEVNULL
+
+
+def test_parse_session_id_extracts_id_from_session_event():
+    from factory.orchestrator.pi_backend import parse_session_id
+    stream = "\n".join([
+        '{"type":"session","version":3,"id":"019f8ef3-6103-725c-997a-a9159325ebf1"}',
+        '{"type":"message_end","message":{"role":"assistant","content":[]}}',
+    ])
+    assert parse_session_id(stream) == "019f8ef3-6103-725c-997a-a9159325ebf1"
+
+
+def test_parse_session_id_returns_none_when_absent():
+    from factory.orchestrator.pi_backend import parse_session_id
+    assert parse_session_id('{"type":"message_end","message":{}}') is None
+    assert parse_session_id("") is None
+
+
+def test_run_populates_session_id(monkeypatch, tmp_path):
+    from factory.orchestrator.pi_backend import PiAgentBackend
+    from factory.orchestrator.types import AgentRole
+
+    class _FakeProc:
+        def __init__(self, lines): self.stdout = iter(lines); self.returncode = 0
+        def wait(self): pass
+
+    lines = [
+        '{"type":"session","id":"abc-123"}\n',
+        '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"```json\\n{}\\n```"}]}}\n',
+    ]
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: _FakeProc(lines))
+    result = PiAgentBackend(tmp_path, tmp_path / "ext.ts").run(AgentRole.DEV, "hi")
+    assert result.session_id == "abc-123"

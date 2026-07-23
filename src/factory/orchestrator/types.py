@@ -25,6 +25,7 @@ class AgentResult:
     ok: bool
     output: dict
     raw: str = ""
+    session_id: str | None = None
 
 
 @dataclass
