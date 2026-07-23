@@ -24,6 +24,9 @@ class StatusReporter(Protocol):
         snippet: str = "",
         outcome: str | None = None,
         handoff: str | None = None,
+        session_id: str | None = None,
+        summary: str | None = None,
+        start_commit: str | None = None,
     ) -> None: ...
 
 
@@ -39,6 +42,9 @@ class NullStatusReporter:
         snippet: str = "",
         outcome: str | None = None,
         handoff: str | None = None,
+        session_id: str | None = None,
+        summary: str | None = None,
+        start_commit: str | None = None,
     ) -> None:
         pass
 
@@ -61,6 +67,9 @@ class FileStatusReporter:
         snippet: str = "",
         outcome: str | None = None,
         handoff: str | None = None,
+        session_id: str | None = None,
+        summary: str | None = None,
+        start_commit: str | None = None,
     ) -> None:
         # Update or append the pipeline entry for this node
         entry = {
@@ -71,6 +80,9 @@ class FileStatusReporter:
             "snippet": snippet,
             "outcome": outcome,
             "handoff": handoff,
+            "session_id": session_id,
+            "summary": summary,
+            "start_commit": start_commit,
             "updated_at": _now(),
         }
         # Find existing entry for this node (same node name) and update it,
@@ -114,6 +126,9 @@ class FakeStatusReporter:
         snippet: str = "",
         outcome: str | None = None,
         handoff: str | None = None,
+        session_id: str | None = None,
+        summary: str | None = None,
+        start_commit: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -125,5 +140,8 @@ class FakeStatusReporter:
                 "snippet": snippet,
                 "outcome": outcome,
                 "handoff": handoff,
+                "session_id": session_id,
+                "summary": summary,
+                "start_commit": start_commit,
             }
         )

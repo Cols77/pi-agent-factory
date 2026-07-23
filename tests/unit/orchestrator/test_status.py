@@ -84,3 +84,35 @@ def test_fake_status_reporter_records_calls():
     fake.report(task_id="T-001", node="dev", node_state="pass", attempt=1, max_attempts=3, outcome="completed")
     assert [(c["node"], c["node_state"]) for c in fake.calls] == [("dev", "running"), ("dev", "pass")]
     assert fake.calls[-1]["outcome"] == "completed"
+
+
+def test_report_persists_session_id_summary_and_start_commit(tmp_path):
+    from pathlib import Path
+    path = tmp_path / "status.json"
+    r = FileStatusReporter(path=path, session_id="s1")
+    r.report(
+        task_id="T-1", node="dev", node_state="running", attempt=1, max_attempts=3,
+        session_id="019f-uuid", summary="changed 3 files; unit tests pass",
+    )
+    r.report(
+        task_id="T-1", node="human-review", node_state="blocked", attempt=1, max_attempts=1,
+        start_commit="abc123",
+    )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    dev = next(e for e in record["pipeline"] if e["node"] == "dev")
+    hr = next(e for e in record["pipeline"] if e["node"] == "human-review")
+    assert dev["session_id"] == "019f-uuid"
+    assert dev["summary"] == "changed 3 files; unit tests pass"
+    assert hr["start_commit"] == "abc123"
+
+
+def test_report_defaults_new_fields_to_none(tmp_path):
+    from pathlib import Path
+    path = tmp_path / "status.json"
+    FileStatusReporter(path=path, session_id="s1").report(
+        task_id="T-1", node="validation", node_state="pass", attempt=1, max_attempts=1,
+    )
+    entry = json.loads(path.read_text(encoding="utf-8"))["pipeline"][0]
+    assert entry["session_id"] is None
+    assert entry["summary"] is None
+    assert entry["start_commit"] is None
