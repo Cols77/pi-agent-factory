@@ -68,10 +68,10 @@ Dashboard: `formatMissionControlRows` includes `summary`; `render()` prints it u
 ## Feature D — Tail the log for non-agent / no-session rows
 
 For rows without a `session_id`:
-- **validation** (deterministic gate, no pi session): begin capturing the validation gate's stdout to a per-stage log file under the session's transcript dir; Enter opens a **new, minimal plain-text tail viewer** (a small standalone `.ts` entry point that follows a file and prints its lines verbatim — no JSON parsing, no pretend formatting) on that log.
+- **validation** (deterministic gate, no pi session): begin capturing the validation gate's stdout to a per-stage log file under the session's transcript dir; Enter opens a new window that **simply tails that log file** — a plain OS/tool tail-follow (e.g. `spawnTerminalWindow` running `powershell Get-Content -Wait -Tail` on win32 / `tail -f` on unix), printing lines verbatim. No custom viewer, no JSON parsing, no formatting.
 - **not-yet-started** stages: show "pending" (nothing to tail yet).
 
-Relationship to C: the old viewer (`mission-control-transcript.ts`) tried to be a formatted transcript window and produced the dirty log; it is deleted. D's tail is a deliberately smaller, honest thing — verbatim lines only. Whether it is written fresh or as a stripped-down successor file is a plan-level call, but it is *not* the removed dirty-log viewer.
+Relationship to C: the old `mission-control-transcript.ts` viewer is deleted outright; D adds no replacement viewer — it just tails a file.
 
 ## Feature E1 — Human-review row → browse the diff
 
