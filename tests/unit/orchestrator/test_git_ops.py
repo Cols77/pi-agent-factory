@@ -74,6 +74,23 @@ def test_subprocess_git_ops_changed_files_empty_when_nothing_changed(tmp_path):
     assert SubprocessGitOps().changed_files(repo, start) == []
 
 
+def test_subprocess_git_ops_changed_files_sees_uncommitted_changes(tmp_path):
+    # Regression test: review's changed_files call can run before dev's work
+    # is committed. A single-ref `git diff <start_commit>` (no `..HEAD`)
+    # compares start_commit to the working tree, so uncommitted modifications
+    # to tracked files must show up here -- unlike the old
+    # `{start_commit}..HEAD` form, which only ever saw committed history and
+    # would silently return [].
+    repo = _init_repo(tmp_path)
+    start = SubprocessGitOps().head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    # Deliberately no `git add`/`git commit` here.
+
+    files = SubprocessGitOps().changed_files(repo, start)
+
+    assert files == ["a.txt"]
+
+
 def test_fake_git_ops_returns_scripted_changed_files():
     fake = FakeGitOps(changed_files_result=["src/a.py", "src/b.py"])
     assert fake.changed_files(None, "abc123") == ["src/a.py", "src/b.py"]

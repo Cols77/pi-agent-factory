@@ -27,8 +27,15 @@ class SubprocessGitOps:
         return True
 
     def changed_files(self, repo_root: Path, start_commit: str) -> list[str]:
+        # A single-ref diff (`git diff <ref>`, no `..HEAD`) compares that ref
+        # to the current working tree, not just to HEAD -- so this picks up
+        # both committed changes since start_commit AND uncommitted
+        # working-tree changes. Review's changed_files call happens with no
+        # commit in between (dev's work may still be uncommitted at that
+        # point), so `{start_commit}..HEAD` would silently return an empty
+        # list in that case.
         result = subprocess.run(
-            ["git", "diff", "--name-only", f"{start_commit}..HEAD"],
+            ["git", "diff", "--name-only", start_commit],
             cwd=repo_root, capture_output=True, text=True, check=True,
         )
         return [line for line in result.stdout.splitlines() if line.strip()]
