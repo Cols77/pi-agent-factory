@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
+import { spawnTerminalWindow } from "../src/terminal-window.js";
 import type { CommandDef, ExtCommandCtx, PiApi, ReplacedSessionCtx, UiApi } from "../src/pi-types.js";
 
 // This test file lives at <repo-root>/pi-ext/factory-watch/test/, so three
@@ -64,6 +65,21 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
 describe("factory-watch commands", () => {
   beforeEach(() => {
     vi.mocked(spawnSync).mockReset();
+    // spawnTerminalWindow's mock has no baked-in default implementation (it's
+    // a bare vi.fn() from the vi.mock factory above), so a full mockReset()
+    // between tests is as safe as spawnSync's and matches its convention --
+    // without this, an earlier test's call to launchMissionControl leaks into
+    // later /factory-run assertions and they'd pass even if /factory-run
+    // stopped calling it entirely.
+    vi.mocked(spawnTerminalWindow).mockReset();
+    // spawn, unlike spawnSync/spawnTerminalWindow, has a real default
+    // implementation baked into the vi.mock factory above (it returns a
+    // fresh EventEmitter child per call) that several tests below rely on
+    // without ever setting their own mockReturnValue. mockReset() would wipe
+    // that default implementation entirely (spawn() would then return
+    // undefined), breaking those tests -- so only clear call history here,
+    // not the implementation.
+    vi.mocked(spawn).mockClear();
   });
 
   test("registers factory, factory-stop, factory-tasks, factory-run, and plan", () => {
@@ -378,7 +394,6 @@ describe("factory-watch commands", () => {
   });
 
   test("/factory-run spawns a mission control terminal window alongside the run", async () => {
-    const { spawnTerminalWindow } = await import("../src/terminal-window.js");
     vi.mocked(spawnSync).mockReturnValue({
       status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
     } as ReturnType<typeof spawnSync>);
