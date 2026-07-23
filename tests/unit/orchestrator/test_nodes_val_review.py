@@ -3,7 +3,7 @@ from pathlib import Path
 from factory.orchestrator.types import AgentRole, AgentResult, NodeOutcome
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.nodes import run_validation, run_review
+from factory.orchestrator.nodes import run_validation, run_review, _summarize_review
 from factory.orchestrator.status import FakeStatusReporter
 from ._skill_fixtures import write_skill_stubs
 
@@ -106,3 +106,41 @@ def test_run_review_writes_transcript_when_dir_given(tmp_path):
     transcript_dir = tmp_path / "transcripts"
     run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path, transcript_dir=transcript_dir)
     assert (transcript_dir / "review-attempt1.log").read_text(encoding="utf-8") == "review raw output"
+
+
+def test_summarize_review_empty_findings():
+    assert _summarize_review([]) == "DoD not met"
+
+
+def test_summarize_review_lists_findings():
+    result = _summarize_review(["fix error handling", "extract magic number"])
+    assert "fix error handling" in result
+    assert "extract magic number" in result
+    assert result.startswith("requested: ")
+
+
+def test_review_pass_reports_session_id_and_summary(tmp_path):
+    write_skill_stubs(tmp_path)
+    status = FakeStatusReporter()
+    b = FakeAgentBackend({
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []}, "raw", "sess-rev-1")]
+    })
+    run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path, status=status)
+    pass_call = status.calls[-1]
+    assert pass_call["node_state"] == "pass"
+    assert pass_call["session_id"] == "sess-rev-1"
+    assert pass_call["summary"] == "DoD met; gates pass"
+
+
+def test_review_changes_requested_reports_session_id_and_summary(tmp_path):
+    write_skill_stubs(tmp_path)
+    status = FakeStatusReporter()
+    findings = ["fix error handling", "extract magic number"]
+    b = FakeAgentBackend({
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": findings}, "raw", "sess-rev-2")]
+    })
+    run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path, status=status)
+    changes_call = status.calls[-1]
+    assert changes_call["node_state"] == "changes-requested"
+    assert changes_call["session_id"] == "sess-rev-2"
+    assert changes_call["summary"] == _summarize_review(findings)

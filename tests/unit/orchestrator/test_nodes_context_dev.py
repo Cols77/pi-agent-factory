@@ -3,7 +3,7 @@ from pathlib import Path
 from factory.orchestrator.types import AgentRole, AgentResult, NodeOutcome
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.nodes import run_context_gatherer, run_dev
+from factory.orchestrator.nodes import run_context_gatherer, run_dev, _summarize_manifest
 from factory.orchestrator.status import FakeStatusReporter
 from ._skill_fixtures import write_skill_stubs
 
@@ -138,6 +138,32 @@ def test_run_context_gatherer_no_transcript_when_dir_not_given(tmp_path):
     run_context_gatherer(b, _task(), tmp_path)
     assert not (tmp_path / "transcripts").exists()
     assert not list(tmp_path.rglob("*-attempt*.log"))
+
+
+def test_context_gatherer_pass_reports_session_id_and_summary(tmp_path):
+    write_skill_stubs(tmp_path)
+    status = FakeStatusReporter()
+    manifest = _manifest(tmp_path)
+    b = FakeAgentBackend({
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, manifest, "raw", "sess-ctx-1")]
+    })
+    run_context_gatherer(b, _task(), tmp_path, status=status)
+    pass_call = status.calls[-1]
+    assert pass_call["node_state"] == "pass"
+    assert pass_call["session_id"] == "sess-ctx-1"
+    assert pass_call["summary"] == _summarize_manifest(manifest)
+
+
+def test_dev_pass_reports_session_id_and_summary(tmp_path):
+    write_skill_stubs(tmp_path)
+    status = FakeStatusReporter()
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}, "raw", "sess-dev-1")]})
+    g = FakeGateRunner({"unit": [0]})
+    run_dev(b, g, _task(), {}, [], tmp_path, status=status)
+    pass_call = status.calls[-1]
+    assert pass_call["node_state"] == "pass"
+    assert pass_call["session_id"] == "sess-dev-1"
+    assert "unit tests pass" in pass_call["summary"]
 
 
 def test_run_dev_writes_one_transcript_per_attempt(tmp_path):

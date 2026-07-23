@@ -34,6 +34,13 @@ def _summarize_manifest(manifest: dict | None) -> str:
     return f"{n_files} files, coherence={'yes' if proven else 'no'}"
 
 
+def _summarize_review(findings: list) -> str:
+    """Extract a one-line summary of review findings for the handoff status."""
+    if not findings:
+        return "DoD not met"
+    return "requested: " + "; ".join(str(f)[:60] for f in findings[:3])
+
+
 def run_context_gatherer(
     backend: AgentBackend,
     task: Task,
@@ -80,6 +87,7 @@ def run_context_gatherer(
                 task_id=task.id, node="context-gather", node_state="pass",
                 attempt=attempt, max_attempts=max_attempts,
                 handoff=f"→ dev: {handoff}",
+                session_id=result.session_id, summary=_summarize_manifest(manifest),
             )
             return NodeOutcome.PASS, manifest, NodeEvent("context-gather", "pass", attempt, extra)
         status.report(
@@ -139,6 +147,7 @@ def run_dev(
                 task_id=task.id, node="dev", node_state="pass",
                 attempt=attempt, max_attempts=max_iters,
                 handoff="→ validation: unit tests green",
+                session_id=result.session_id, summary="changed files; unit tests pass",
             )
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
         status.report(
@@ -205,6 +214,7 @@ def run_review(
             task_id=task.id, node="review", node_state="pass",
             attempt=1, max_attempts=1,
             handoff="✓ task complete, DoD met, gates pass", outcome="completed",
+            session_id=result.session_id, summary="DoD met; gates pass",
         )
         return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
     finding_summary = f"{len(findings)} finding(s)" if findings else "DoD not met"
@@ -213,6 +223,7 @@ def run_review(
         task_id=task.id, node="review", node_state="changes-requested",
         attempt=1, max_attempts=1,
         handoff=f"→ dev: {finding_summary}, gate={'pass' if gate == 0 else 'fail'}",
+        session_id=result.session_id, summary=_summarize_review(findings),
     )
     return (
         NodeOutcome.CHANGES,
