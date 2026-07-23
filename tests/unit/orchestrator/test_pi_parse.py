@@ -192,8 +192,12 @@ def test_run_populates_session_id(monkeypatch, tmp_path):
     from factory.orchestrator.types import AgentRole
 
     class _FakeProc:
-        def __init__(self, lines): self.stdout = iter(lines); self.returncode = 0
-        def wait(self): pass
+        def __init__(self, lines):
+            self.stdout = iter(lines)
+            self.returncode = 0
+
+        def wait(self):
+            pass
 
     lines = [
         '{"type":"session","id":"abc-123"}\n',

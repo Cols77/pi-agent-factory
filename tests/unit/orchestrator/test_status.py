@@ -87,7 +87,6 @@ def test_fake_status_reporter_records_calls():
 
 
 def test_report_persists_session_id_summary_and_start_commit(tmp_path):
-    from pathlib import Path
     path = tmp_path / "status.json"
     r = FileStatusReporter(path=path, session_id="s1")
     r.report(
@@ -107,7 +106,6 @@ def test_report_persists_session_id_summary_and_start_commit(tmp_path):
 
 
 def test_report_defaults_new_fields_to_none(tmp_path):
-    from pathlib import Path
     path = tmp_path / "status.json"
     FileStatusReporter(path=path, session_id="s1").report(
         task_id="T-1", node="validation", node_state="pass", attempt=1, max_attempts=1,
