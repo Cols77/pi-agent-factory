@@ -3,9 +3,10 @@ from __future__ import annotations
 import subprocess
 import pytest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.git_ops import FakeGitOps
+from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
 from factory.orchestrator.human_review import FakeHumanReviewGate, HumanReviewDecision
 from factory.orchestrator.runner import run_next
+from factory.orchestrator.status import FakeStatusReporter
 from factory.orchestrator.types import AgentRole, AgentResult
 from ._skill_fixtures import write_skill_stubs
 
@@ -77,6 +78,26 @@ def test_reject_feeds_comments_back_as_dev_feedback_and_retries(tmp_path):
     assert path is not None
     assert len(human_review.requests) == 2
     assert git_ops.commit_messages == []  # no uncommitted changes this time
+
+
+def test_blocked_report_carries_start_commit_for_diff_browser(tmp_path):
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    expected_start_commit = SubprocessGitOps().head_commit(repo)
+
+    path = run_next(
+        repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=human_review, status=status,
+    )
+
+    assert path is not None
+    blocked_calls = [
+        c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"
+    ]
+    assert len(blocked_calls) == 1
+    assert blocked_calls[0]["start_commit"] == expected_start_commit
 
 
 def test_no_gate_configured_behaves_exactly_as_before(tmp_path):

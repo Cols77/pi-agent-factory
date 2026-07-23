@@ -115,6 +115,7 @@ def run_task(
                 status.report(
                     task_id=task.id, node="human-review", node_state="blocked",
                     attempt=1, max_attempts=1, handoff="waiting for you to review the diff",
+                    start_commit=start_commit,
                 )
                 decision = human_review.request_review(task.id, start_commit)
                 if decision.decision == "approve":
