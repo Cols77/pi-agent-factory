@@ -5,25 +5,22 @@ import { spawnTerminalWindow } from "../src/terminal-window.js";
 vi.mock("node:child_process", () => ({ spawn: vi.fn(() => ({ unref: vi.fn() })) }));
 
 describe("spawnTerminalWindow", () => {
-  test("on win32, uses PowerShell Start-Process with the command and args", () => {
+  test("on win32, opens a new console window via cmd `start` with the command and args", () => {
     vi.mocked(spawn).mockClear();
     spawnTerminalWindow("node", ["dashboard.ts", "--cwd", "/repo"], { cwd: "/repo" }, "win32");
     expect(spawn).toHaveBeenCalledWith(
-      "powershell",
-      [
-        "-NoExit", "-Command",
-        "Start-Process node -ArgumentList 'dashboard.ts','--cwd','/repo'",
-      ],
+      "cmd",
+      ["/c", "start", "", "node", "dashboard.ts", "--cwd", "/repo"],
       { cwd: "/repo", detached: true, stdio: "ignore" },
     );
   });
 
-  test("on win32 with empty args, omits -ArgumentList entirely", () => {
+  test("on win32 with empty args, still passes the start title token and command", () => {
     vi.mocked(spawn).mockClear();
     spawnTerminalWindow("node", [], { cwd: "/repo" }, "win32");
     expect(spawn).toHaveBeenCalledWith(
-      "powershell",
-      ["-NoExit", "-Command", "Start-Process node"],
+      "cmd",
+      ["/c", "start", "", "node"],
       { cwd: "/repo", detached: true, stdio: "ignore" },
     );
   });
