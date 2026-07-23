@@ -11,9 +11,11 @@ export class TranscriptViewer implements Component {
   private lines: string[];
   private scrollOffset = 0;
   private followingBottom = false;
+  private readonly tui: TuiLike;
 
-  constructor(initialLines: string[], private readonly tui: TuiLike) {
+  constructor(initialLines: string[], tui: TuiLike) {
     this.lines = initialLines;
+    this.tui = tui;
   }
 
   // No cached render state to drop -- render() always recomputes from
@@ -96,8 +98,12 @@ export class TranscriptViewer implements Component {
 //     poll ticks call `requestRender()`, not `invalidate()`.
 async function main(): Promise<void> {
   const { ProcessTerminal, TUI } = await import("@earendil-works/pi-tui");
+  // indexOf returns -1 when the flag is missing; -1 + 1 = 0 would then read
+  // process.argv[0] (the node executable's own path -- a real, defined
+  // string), silently defeating the undefined check below. Treat -1
+  // explicitly as "not found" instead.
   const pathArgIndex = process.argv.indexOf("--transcript");
-  const rawTranscriptPath = process.argv[pathArgIndex + 1];
+  const rawTranscriptPath = pathArgIndex === -1 ? undefined : process.argv[pathArgIndex + 1];
   if (rawTranscriptPath === undefined) {
     console.error("usage: node mission-control-transcript.js --transcript <path>");
     process.exit(1);

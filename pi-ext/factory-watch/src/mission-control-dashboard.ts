@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Component } from "@earendil-works/pi-tui";
-import { formatMissionControlRows, parseStatus } from "./status-format.js";
-import type { StatusRecord } from "./status-format.js";
-import { spawnTerminalWindow } from "./terminal-window.js";
+import { formatMissionControlRows, parseStatus } from "./status-format.ts";
+import type { StatusRecord } from "./status-format.ts";
+import { spawnTerminalWindow } from "./terminal-window.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
 const POLL_INTERVAL_MS = 500;
@@ -20,11 +20,16 @@ export function buildTranscriptPath(cwd: string, sessionId: string, node: string
 
 export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
+  private record: StatusRecord | null;
+  private readonly onSelectTranscript: (node: string, sessionId: string) => void;
 
   constructor(
-    private record: StatusRecord | null,
-    private readonly onSelectTranscript: (node: string, sessionId: string) => void,
-  ) {}
+    record: StatusRecord | null,
+    onSelectTranscript: (node: string, sessionId: string) => void,
+  ) {
+    this.record = record;
+    this.onSelectTranscript = onSelectTranscript;
+  }
 
   updateRecord(record: StatusRecord | null): void {
     this.record = record;
@@ -86,10 +91,14 @@ export class MissionControlDashboard implements Component {
 //     `requestRender()`, not `invalidate()`.
 async function main(): Promise<void> {
   const { ProcessTerminal, TUI } = await import("@earendil-works/pi-tui");
+  // indexOf returns -1 when the flag is missing; -1 + 1 = 0 would then read
+  // process.argv[0] (the node executable's own path -- a real, defined
+  // string), silently defeating the undefined check below. Treat -1
+  // explicitly as "not found" instead.
   const statusPathArgIndex = process.argv.indexOf("--status");
-  const rawStatusPath = process.argv[statusPathArgIndex + 1];
+  const rawStatusPath = statusPathArgIndex === -1 ? undefined : process.argv[statusPathArgIndex + 1];
   const cwdArgIndex = process.argv.indexOf("--cwd");
-  const rawCwd = process.argv[cwdArgIndex + 1];
+  const rawCwd = cwdArgIndex === -1 ? undefined : process.argv[cwdArgIndex + 1];
   if (rawStatusPath === undefined || rawCwd === undefined) {
     console.error("usage: node mission-control-dashboard.js --status <path> --cwd <repo-root>");
     process.exit(1);
