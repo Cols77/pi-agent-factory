@@ -183,11 +183,11 @@ describe("formatMissionControlRows", () => {
     };
     const rows = formatMissionControlRows(record, STAGE_ORDER);
     expect(rows).toEqual([
-      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files" },
-      { node: "dev", label: "developer", state: "running", handoff: null },
-      { node: "validation", label: "validation", state: "pending", handoff: null },
-      { node: "review", label: "reviewer", state: "pending", handoff: null },
-      { node: "human-review", label: "human-review", state: "pending", handoff: null },
+      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files", sessionId: null, summary: null, startCommit: null },
+      { node: "dev", label: "developer", state: "running", handoff: null, sessionId: null, summary: null, startCommit: null },
+      { node: "validation", label: "validation", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
+      { node: "review", label: "reviewer", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
+      { node: "human-review", label: "human-review", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
     ]);
   });
 
@@ -195,5 +195,62 @@ describe("formatMissionControlRows", () => {
     const rows = formatMissionControlRows(null, STAGE_ORDER);
     expect(rows.every((r) => r.state === "pending")).toBe(true);
     expect(rows).toHaveLength(5);
+  });
+
+  test("copies session_id and summary from the dev entry, start_commit from the human-review entry", () => {
+    const record: StatusRecord = {
+      session_id: "s1",
+      task_id: "T-001",
+      current_node: "human-review",
+      current_state: "blocked",
+      pipeline: [
+        {
+          node: "dev",
+          node_state: "pass",
+          attempt: 1,
+          max_attempts: 3,
+          snippet: "",
+          outcome: null,
+          handoff: "-> validation",
+          updated_at: "2026-07-22T00:00:01Z",
+          session_id: "2026-07-20T10-15-00Z",
+          summary: "implemented goto()",
+        },
+        {
+          node: "human-review",
+          node_state: "blocked",
+          attempt: 1,
+          max_attempts: 1,
+          snippet: "",
+          outcome: null,
+          handoff: "waiting for you to review the diff",
+          updated_at: "2026-07-22T00:00:02Z",
+          start_commit: "abc1234",
+        },
+      ],
+      started_at: "2026-07-22T00:00:00Z",
+      updated_at: "2026-07-22T00:00:02Z",
+    };
+    const rows = formatMissionControlRows(record, STAGE_ORDER);
+    const devRow = rows.find((r) => r.node === "dev");
+    const humanReviewRow = rows.find((r) => r.node === "human-review");
+    const contextRow = rows.find((r) => r.node === "context-gather");
+
+    expect(devRow).toMatchObject({
+      sessionId: "2026-07-20T10-15-00Z",
+      summary: "implemented goto()",
+      startCommit: null,
+    });
+    expect(humanReviewRow).toMatchObject({
+      sessionId: null,
+      summary: null,
+      startCommit: "abc1234",
+    });
+    // Stage untouched by this record should have all three fields null.
+    expect(contextRow).toMatchObject({
+      sessionId: null,
+      summary: null,
+      startCommit: null,
+    });
   });
 });

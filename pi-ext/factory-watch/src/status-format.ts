@@ -7,6 +7,9 @@ export interface PipelineEntry {
   outcome: string | null;
   handoff: string | null;
   updated_at: string;
+  session_id?: string | null;
+  summary?: string | null;
+  start_commit?: string | null;
 }
 
 export interface StatusRecord {
@@ -144,6 +147,9 @@ export interface MissionControlRow {
   label: string;
   state: string;
   handoff: string | null;
+  sessionId: string | null;
+  summary: string | null;
+  startCommit: string | null;
 }
 
 export function formatMissionControlRows(record: StatusRecord | null, stageOrder: string[]): MissionControlRow[] {
@@ -155,6 +161,9 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
       label: labelForNode(node),
       state: entry?.node_state ?? "pending",
       handoff: entry?.handoff ?? null,
+      sessionId: entry?.session_id ?? null,
+      summary: entry?.summary ?? null,
+      startCommit: entry?.start_commit ?? null,
     };
   });
 }
