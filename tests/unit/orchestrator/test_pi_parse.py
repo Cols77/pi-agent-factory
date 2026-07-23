@@ -1,13 +1,16 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 from factory.orchestrator.pi_backend import (
+    PiAgentBackend,
     _build_command,
     _extract_snippet,
     _has_json_events_without_text_field,
     parse_pi_json,
 )
+from factory.orchestrator.types import AgentRole
 
 pytestmark = pytest.mark.unit
 
@@ -133,3 +136,37 @@ def test_extract_snippet_empty_for_malformed_json():
 
 def test_extract_snippet_empty_for_blank_line():
     assert _extract_snippet("   ") == ""
+
+
+# Regression: Pi's own CLI (dist/main.js's readPipedStdin) blocks forever
+# waiting for stdin's "end" event whenever stdin is a non-TTY pipe with no
+# writer -- exactly what happens when the orchestrator itself is spawned by
+# factory-watch's launchInteractiveReview with stdio: ["pipe","pipe","pipe"]
+# (kept open for the human-review decision handshake) and Popen here doesn't
+# override stdin, so every per-role Pi subprocess inherits that same
+# never-closed pipe. Each role subprocess never expects piped input, so it
+# must get stdin=DEVNULL explicitly rather than inheriting the parent's.
+
+
+class _FakeProc:
+    def __init__(self, lines: list[str]) -> None:
+        self.stdout = iter(lines)
+        self.returncode = 0
+
+    def wait(self) -> None:
+        pass
+
+
+def test_run_spawns_pi_subprocess_with_stdin_devnull(monkeypatch, tmp_path):
+    captured_kwargs: dict = {}
+
+    def _fake_popen(cmd, **kwargs):
+        captured_kwargs.update(kwargs)
+        return _FakeProc(["line1\n"])
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    backend = PiAgentBackend(tmp_path, tmp_path / "ext.ts")
+    backend.run(AgentRole.DEV, "hello")
+
+    assert captured_kwargs.get("stdin") == subprocess.DEVNULL

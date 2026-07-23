@@ -186,8 +186,13 @@ class PiAgentBackend:
                 prompt, self._extension_path, self._provider, self._model,
                 prompt_file=prompt_file,
             )
+            # stdin=DEVNULL: without this, Pi's CLI blocks forever in its own
+            # readPipedStdin() waiting for stdin EOF whenever this process
+            # inherits a long-lived open pipe (e.g. launchInteractiveReview's
+            # human-review handshake keeps the orchestrator's own stdin open).
             proc = subprocess.Popen(
                 cmd, cwd=self._repo_root, env=env,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
             )
