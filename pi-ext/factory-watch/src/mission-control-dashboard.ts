@@ -1,10 +1,22 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Component } from "@earendil-works/pi-tui";
 import { formatMissionControlRows, parseStatus } from "./status-format.js";
 import type { StatusRecord } from "./status-format.js";
+import { spawnTerminalWindow } from "./terminal-window.js";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
 const POLL_INTERVAL_MS = 500;
+
+// Attempt 1 is a reasonable default -- the dashboard doesn't currently track
+// which attempt is "current" for a stage, and the transcript viewer's own
+// poll loop will pick up growth if the file doesn't exist yet. Stages with
+// no agent transcript (e.g. "validation", "human-review") simply resolve to
+// a path that never exists; TranscriptViewer already renders a graceful
+// "(not started yet)" placeholder for that case.
+export function buildTranscriptPath(cwd: string, sessionId: string, node: string): string {
+  return join(cwd, "sessions", ".factory-transcripts", sessionId, `${node}-attempt1.log`);
+}
 
 export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
@@ -76,15 +88,18 @@ async function main(): Promise<void> {
   const { ProcessTerminal, TUI } = await import("@earendil-works/pi-tui");
   const statusPathArgIndex = process.argv.indexOf("--status");
   const rawStatusPath = process.argv[statusPathArgIndex + 1];
-  if (rawStatusPath === undefined) {
+  const cwdArgIndex = process.argv.indexOf("--cwd");
+  const rawCwd = process.argv[cwdArgIndex + 1];
+  if (rawStatusPath === undefined || rawCwd === undefined) {
     console.error("usage: node mission-control-dashboard.js --status <path> --cwd <repo-root>");
     process.exit(1);
   }
-  // Re-bind to a variable whose *declared* type is `string` (not `string |
+  // Re-bind to variables whose *declared* type is `string` (not `string |
   // undefined`) -- TypeScript's control-flow narrowing from the guard above
   // doesn't survive being read inside the nested `readRecord`/setInterval
   // closures below, since those run at some later, unrelated time.
   const statusPath: string = rawStatusPath;
+  const cwd: string = rawCwd;
 
   function readRecord(): StatusRecord | null {
     try {
@@ -97,8 +112,12 @@ async function main(): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
   const dashboard = new MissionControlDashboard(readRecord(), (node, sessionId) => {
-    // Wire to terminal-window.ts's spawnTerminalWindow + mission-control-transcript.ts
-    // in Task 13, once index.ts's spawn call sites are established.
+    const transcriptPath = buildTranscriptPath(cwd, sessionId, node);
+    spawnTerminalWindow(
+      "node",
+      [join(cwd, "pi-ext", "factory-watch", "src", "mission-control-transcript.ts"), "--transcript", transcriptPath],
+      { cwd },
+    );
   });
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
