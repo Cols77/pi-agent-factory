@@ -106,6 +106,44 @@ describe("ReviewOverlay (summary screen)", () => {
     overlay.handleInput("r");
     expect(onAction).toHaveBeenCalledWith({ type: "reject" });
   });
+
+  // Regression test (symptom 2 -- "crashes during execution"): when
+  // computeReviewFiles reports zero files (e.g. while the diff-range bug in
+  // review-diff.ts was still in place, this was *every* human review, since
+  // dev's changes are uncommitted at review time), Enter/c/e index into an
+  // empty `files` array via non-null assertions that satisfy the compiler
+  // but not the runtime, throwing "Cannot read properties of undefined
+  // (reading 'path')" out of diffLinesFor/currentFile. Approve/reject must
+  // keep working since they never touch `files`.
+  describe("with zero files", () => {
+    function makeEmptyOverlay(onAction: (action: import("../src/review-overlay.js").ReviewAction) => void) {
+      return new ReviewOverlay([], new Map(), fakeTui(), "/repo", "abc123", onAction);
+    }
+
+    test("Enter does not crash and stays on the summary", () => {
+      const overlay = makeEmptyOverlay(() => {});
+      expect(() => overlay.handleInput("\r")).not.toThrow();
+      expect(() => overlay.render(80)).not.toThrow();
+      expect(overlay.render(80).join("\n")).toContain("0 files changed");
+    });
+
+    test("c/e are no-ops instead of throwing", () => {
+      const onAction = vi.fn();
+      const overlay = makeEmptyOverlay(onAction);
+      expect(() => overlay.handleInput("c")).not.toThrow();
+      expect(() => overlay.handleInput("e")).not.toThrow();
+      expect(onAction).not.toHaveBeenCalled();
+    });
+
+    test("a/r still emit approve/reject", () => {
+      const onAction = vi.fn();
+      const overlay = makeEmptyOverlay(onAction);
+      overlay.handleInput("a");
+      expect(onAction).toHaveBeenCalledWith({ type: "approve" });
+      overlay.handleInput("r");
+      expect(onAction).toHaveBeenCalledWith({ type: "reject" });
+    });
+  });
 });
 
 describe("runReviewLoop", () => {

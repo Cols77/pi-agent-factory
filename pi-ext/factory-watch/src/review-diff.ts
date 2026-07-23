@@ -38,10 +38,18 @@ function parseNameStatus(nameStatusOutput: string): Map<string, "A" | "M" | "D">
 }
 
 export function computeReviewFiles(cwd: string, startCommit: string): FileStat[] {
-  const numstat = spawnSync("git", ["diff", "--numstat", `${startCommit}..HEAD`], {
+  // A single-ref diff (`git diff <ref>`, no `..HEAD`) compares that ref to
+  // the current working tree, not just to HEAD -- so this picks up both
+  // committed changes since start_commit AND uncommitted working-tree
+  // changes. The human-review gate runs before dev's work is committed
+  // (runner.py only calls git_ops.commit_all after the human approves), so
+  // `{startCommit}..HEAD` would silently report zero files here. This
+  // mirrors the working-tree semantics of git_ops.changed_files in
+  // src/factory/orchestrator/git_ops.py.
+  const numstat = spawnSync("git", ["diff", "--numstat", startCommit], {
     cwd, encoding: "utf-8",
   });
-  const nameStatus = spawnSync("git", ["diff", "--name-status", `${startCommit}..HEAD`], {
+  const nameStatus = spawnSync("git", ["diff", "--name-status", startCommit], {
     cwd, encoding: "utf-8",
   });
   const statuses = parseNameStatus(nameStatus.stdout);
@@ -52,7 +60,9 @@ export function computeReviewFiles(cwd: string, startCommit: string): FileStat[]
 }
 
 export function computeFileDiffText(cwd: string, startCommit: string, file: string): string {
-  const result = spawnSync("git", ["diff", `${startCommit}..HEAD`, "--", file], {
+  // See computeReviewFiles above: single-ref diff against the working tree,
+  // not `{startCommit}..HEAD`, so uncommitted dev changes show up.
+  const result = spawnSync("git", ["diff", startCommit, "--", file], {
     cwd, encoding: "utf-8",
   });
   return result.stdout;

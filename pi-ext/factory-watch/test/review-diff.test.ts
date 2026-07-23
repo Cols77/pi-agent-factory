@@ -84,7 +84,7 @@ describe("computeFileDiffText", () => {
 
     expect(text).toBe("diff --git a/x b/x\n...\n");
     expect(spawnSync).toHaveBeenCalledWith(
-      "git", ["diff", "abc123..HEAD", "--", "src/rtb.py"],
+      "git", ["diff", "abc123", "--", "src/rtb.py"],
       { cwd: "/repo", encoding: "utf-8" },
     );
   });

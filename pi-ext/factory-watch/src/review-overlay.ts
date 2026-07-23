@@ -102,15 +102,26 @@ export class ReviewOverlay {
       return; // no-op at the summary -- see Global Constraints
     }
     if (data === "\r" || data === "\n") {
-      this.view = { mode: "file", index: this.selectedIndex, scrollOffset: 0 };
+      // Guard against an empty `files` list: computeReviewFiles can (rarely,
+      // now that the diff-range bug is fixed) legitimately report zero
+      // files, and `this.files[this.selectedIndex]` would be undefined --
+      // entering "file" mode here used to crash render()/diffLinesFor() with
+      // a TypeError reading `.path` off that undefined entry.
+      if (this.files.length > 0) {
+        this.view = { mode: "file", index: this.selectedIndex, scrollOffset: 0 };
+      }
     } else if (matchesKey(data, Key.down) || data === "j") {
       this.selectedIndex = Math.min(this.selectedIndex + 1, this.files.length - 1);
     } else if (matchesKey(data, Key.up) || data === "k") {
       this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
     } else if (data === "c") {
-      this.onAction({ type: "comment", file: this.currentFile().path });
+      if (this.files.length > 0) {
+        this.onAction({ type: "comment", file: this.currentFile().path });
+      }
     } else if (data === "e") {
-      this.onAction({ type: "edit", file: this.currentFile().path });
+      if (this.files.length > 0) {
+        this.onAction({ type: "edit", file: this.currentFile().path });
+      }
     } else if (data === "a") {
       this.onAction({ type: "approve" });
     } else if (data === "r") {
