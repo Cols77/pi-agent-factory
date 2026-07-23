@@ -20,8 +20,9 @@ class Scope:
 # functional change implied by this comment.
 #
 # AgentRole.SESSION_REVIEW: its skill is now vendored under .pi/skills/session-report/SKILL.md,
-# and its scope and prompt are defined below. However, it is not yet invoked
-# anywhere in runner.py or nodes.py -- that wiring is separate, upcoming work.
+# and its scope and prompt are defined below. It IS invoked: runner.py's
+# run_next calls backend.run(AgentRole.SESSION_REVIEW, ...) at the end of
+# every run, after the session record is written.
 #
 # Fast-follow (final review, part 2): ROLE_SKILLS still names
 # "sim-functional-tests" (VALIDATION), which is not vendored under
