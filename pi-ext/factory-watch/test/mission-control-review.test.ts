@@ -26,16 +26,32 @@ describe("buildReviewArgs", () => {
     expect(buildReviewArgs(["node", "mission-control-review.ts", "--start-commit", "abc123"])).toBeUndefined();
   });
 
-  test("both flags present returns parsed args", () => {
+  test("all four flags present returns parsed args", () => {
     expect(
-      buildReviewArgs(["node", "mission-control-review.ts", "--cwd", "/repo", "--start-commit", "abc123"]),
-    ).toEqual({ cwd: "/repo", startCommit: "abc123" });
+      buildReviewArgs([
+        "node", "mission-control-review.ts",
+        "--cwd", "/repo", "--start-commit", "abc123",
+        "--task-id", "T-001", "--session-id", "s1",
+      ]),
+    ).toEqual({ cwd: "/repo", startCommit: "abc123", taskId: "T-001", sessionId: "s1" });
+  });
+
+  test("missing --task-id returns undefined", () => {
+    expect(
+      buildReviewArgs(["node", "mission-control-review.ts", "--cwd", "/repo", "--start-commit", "abc123", "--session-id", "s1"]),
+    ).toBeUndefined();
+  });
+
+  test("missing --session-id returns undefined", () => {
+    expect(
+      buildReviewArgs(["node", "mission-control-review.ts", "--cwd", "/repo", "--start-commit", "abc123", "--task-id", "T-001"]),
+    ).toBeUndefined();
   });
 });
 
 describe("ReviewBrowser (browse mode)", () => {
   test("renders the changed-file list from the given FileStat[]", () => {
-    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123");
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
     const lines = browser.render(80).join("\n");
     expect(lines).toContain("2 files changed");
     expect(lines).toContain("src/a.ts");
@@ -43,23 +59,115 @@ describe("ReviewBrowser (browse mode)", () => {
   });
 
   test("Down moves the selection without sending any decision", () => {
-    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123");
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
     browser.handleInput("\x1b[B"); // down
     const lines = browser.render(80);
     expect(lines.find((l) => l.startsWith("> "))).toContain("src/b.ts");
   });
 
-  test("approve/reject keys are no-ops in browse mode (no decision channel wired)", () => {
-    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123");
-    expect(() => browser.handleInput("a")).not.toThrow();
-    expect(() => browser.handleInput("r")).not.toThrow();
-    // Still showing the summary view -- no crash, no external effect.
-    expect(browser.render(80).join("\n")).toContain("2 files changed");
+  test("invalidate() exists as a no-op (required by pi-tui's Component interface)", () => {
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
+    expect(() => browser.invalidate()).not.toThrow();
+  });
+});
+
+describe("ReviewBrowser decision flow", () => {
+  test("approve shows a ConfirmPrompt, and confirming it calls onDecision with the approve payload", () => {
+    const onDecision = vi.fn();
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", onDecision);
+    browser.handleInput("a");
+    expect(browser.render(80).join("\n")).toContain("Approve task?");
+    browser.handleInput("y");
+    expect(onDecision).toHaveBeenCalledWith({ decision: "approve", comments: {} });
   });
 
-  test("invalidate() exists as a no-op (required by pi-tui's Component interface)", () => {
-    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123");
-    expect(() => browser.invalidate()).not.toThrow();
+  test("reject without any comments shows an inline error instead of a confirm prompt", () => {
+    const onDecision = vi.fn();
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", onDecision);
+    browser.handleInput("r");
+    expect(browser.render(80).join("\n")).toContain("reject requires at least one comment");
+    expect(onDecision).not.toHaveBeenCalled();
+  });
+
+  test("cancelling a confirm prompt (n) returns to browsing without calling onDecision", () => {
+    const onDecision = vi.fn();
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", onDecision);
+    browser.handleInput("a");
+    browser.handleInput("n");
+    expect(onDecision).not.toHaveBeenCalled();
+    expect(browser.render(80).join("\n")).toContain("2 files changed");
+  });
+});
+
+describe("ReviewBrowser comment/edit actions", () => {
+  // Reuses this file's existing spawnSync-mocking convention (see
+  // launchFileEditor/promptComment describes below) rather than mocking
+  // promptComment/launchFileEditor at the module boundary -- ReviewBrowser
+  // calls the real functions, and stubbing spawnSync exercises the whole
+  // path (resolveEditorLaunch -> spawnEditorBlocking -> temp file roundtrip)
+  // the same way those lower-level tests already do.
+  test("a successful comment updates the comments map so a subsequent reject reaches the confirm prompt", () => {
+    const onDecision = vi.fn();
+    const prevVisual = process.env.VISUAL;
+    process.env.VISUAL = "myeditor";
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      if (cmd === "myeditor") {
+        writeFileSync((args as string[])[0]!, "looks good, one nit below", "utf-8");
+      }
+      return { status: 0 } as ReturnType<typeof spawnSync>;
+    });
+    try {
+      const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", onDecision);
+      browser.handleInput("c"); // comment on the selected file (src/a.ts)
+      expect(browser.render(80).join("\n")).toContain("[commented]");
+
+      browser.handleInput("r");
+      expect(browser.render(80).join("\n")).toContain("Reject task?");
+
+      browser.handleInput("y");
+      expect(onDecision).toHaveBeenCalledWith({
+        decision: "reject",
+        comments: { "src/a.ts": "looks good, one nit below" },
+      });
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+    }
+  });
+
+  test("edit launches the resolved editor on the selected file and returns to browsing with no status message on success", () => {
+    const prevVisual = process.env.VISUAL;
+    process.env.VISUAL = "myeditor";
+    vi.mocked(spawnSync).mockReturnValue({ status: 0 } as ReturnType<typeof spawnSync>);
+    try {
+      const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
+      browser.handleInput("e"); // edit the selected file (src/a.ts)
+      expect(spawnSync).toHaveBeenCalledWith("myeditor", ["src/a.ts"], { cwd: "/repo", stdio: "ignore" });
+      expect(browser.render(80).join("\n")).toContain("2 files changed");
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+    }
+  });
+
+  test("edit surfaces a status line when no editor can be resolved", () => {
+    const prevVisual = process.env.VISUAL;
+    const prevEditor = process.env.EDITOR;
+    const prevTmux = process.env.TMUX;
+    delete process.env.VISUAL;
+    delete process.env.EDITOR;
+    delete process.env.TMUX;
+    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as ReturnType<typeof spawnSync>);
+    const priorPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+    try {
+      const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
+      browser.handleInput("e");
+      expect(browser.render(80).join("\n")).toContain("GUI editor");
+    } finally {
+      Object.defineProperty(process, "platform", { value: priorPlatform, configurable: true });
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+      if (prevEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = prevEditor;
+      if (prevTmux === undefined) delete process.env.TMUX; else process.env.TMUX = prevTmux;
+    }
   });
 });
 
