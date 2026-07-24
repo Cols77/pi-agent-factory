@@ -1,36 +1,44 @@
-import { describe, expect, test, vi } from "vitest";
-import { parseReviewPendingLine, writeReviewDecision } from "../src/review-protocol.js";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.ts";
 
-describe("parseReviewPendingLine", () => {
-  test("parses a valid review_pending line", () => {
-    const line = JSON.stringify({ type: "review_pending", task_id: "T-001", start_commit: "abc123" });
-    expect(parseReviewPendingLine(line)).toEqual({
-      type: "review_pending", task_id: "T-001", start_commit: "abc123",
-    });
-  });
-
-  test("returns null for unrelated JSON", () => {
-    expect(parseReviewPendingLine(JSON.stringify({ type: "something_else" }))).toBeNull();
-  });
-
-  test("returns null for non-JSON stdout noise", () => {
-    expect(parseReviewPendingLine("not json at all")).toBeNull();
-  });
-
-  test("returns null for an empty line", () => {
-    expect(parseReviewPendingLine("")).toBeNull();
+describe("reviewDecisionPath", () => {
+  test("joins cwd, sessions, .factory-transcripts, sessionId, review-decision.json", () => {
+    expect(reviewDecisionPath("/repo", "s1")).toBe(
+      join("/repo", "sessions", ".factory-transcripts", "s1", "review-decision.json"),
+    );
   });
 });
 
 describe("writeReviewDecision", () => {
-  test("writes exactly one JSON line to the given stream", () => {
-    const write = vi.fn();
-    const stdin = { write } as unknown as NodeJS.WritableStream;
+  test("writes the decision as JSON at the given path, creating parent dirs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
+    const path = join(dir, "nested", "review-decision.json");
 
-    writeReviewDecision(stdin, { decision: "reject", comments: { "src/x.py": "fix" } });
+    writeReviewDecision(path, { decision: "approve", comments: {} });
 
-    expect(write).toHaveBeenCalledWith(
-      JSON.stringify({ decision: "reject", comments: { "src/x.py": "fix" } }) + "\n",
-    );
+    const written = JSON.parse(readFileSync(path, "utf-8"));
+    expect(written).toEqual({ decision: "approve", comments: {} });
+  });
+
+  test("writes reject decisions with comments", () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
+    const path = join(dir, "review-decision.json");
+
+    writeReviewDecision(path, { decision: "reject", comments: { "src/a.ts": "fix this" } });
+
+    const written = JSON.parse(readFileSync(path, "utf-8"));
+    expect(written).toEqual({ decision: "reject", comments: { "src/a.ts": "fix this" } });
+  });
+
+  test("does not leave a .tmp file behind", () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
+    const path = join(dir, "review-decision.json");
+
+    writeReviewDecision(path, { decision: "approve", comments: {} });
+
+    expect(() => readFileSync(`${path}.tmp`, "utf-8")).toThrow();
   });
 });

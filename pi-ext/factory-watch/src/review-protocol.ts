@@ -1,34 +1,18 @@
-export interface ReviewPendingMessage {
-  type: "review_pending";
-  task_id: string;
-  start_commit: string;
-}
-
-export function parseReviewPendingLine(line: string): ReviewPendingMessage | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    (parsed as { type?: unknown }).type === "review_pending"
-  ) {
-    return parsed as ReviewPendingMessage;
-  }
-  return null;
-}
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface ReviewDecisionPayload {
   decision: "approve" | "reject";
   comments: Record<string, string>;
 }
 
-export function writeReviewDecision(
-  stdin: NodeJS.WritableStream,
-  decision: ReviewDecisionPayload,
-): void {
-  stdin.write(JSON.stringify(decision) + "\n");
+export function reviewDecisionPath(cwd: string, sessionId: string): string {
+  return join(cwd, "sessions", ".factory-transcripts", sessionId, "review-decision.json");
+}
+
+export function writeReviewDecision(path: string, decision: ReviewDecisionPayload): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmpPath = `${path}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(decision), "utf-8");
+  renameSync(tmpPath, path);
 }
