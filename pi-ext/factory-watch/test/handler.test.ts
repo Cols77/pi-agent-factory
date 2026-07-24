@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,10 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
+import { computeReviewFiles } from "../src/review-diff.js";
+import { runReviewLoop } from "../src/review-overlay.js";
+import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.js";
+import type { PipelineEntry, StatusRecord } from "../src/status-format.js";
 import type { CommandDef, ExtCommandCtx, PiApi, ReplacedSessionCtx, UiApi } from "../src/pi-types.js";
 
 // This test file lives at <repo-root>/pi-ext/factory-watch/test/, so three
@@ -32,6 +36,16 @@ vi.mock("node:fs", async (importOriginal) => {
 vi.mock("../src/terminal-window.js", () => ({
   spawnTerminalWindow: vi.fn(),
 }));
+vi.mock("../src/review-diff.js", () => ({
+  computeReviewFiles: vi.fn(),
+}));
+vi.mock("../src/review-overlay.js", () => ({
+  runReviewLoop: vi.fn(),
+}));
+vi.mock("../src/review-protocol.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review-protocol.js")>();
+  return { ...actual, writeReviewDecision: vi.fn() };
+});
 
 function capture(): { commands: Map<string, CommandDef>; pi: PiApi } {
   const commands = new Map<string, CommandDef>();
@@ -80,6 +94,13 @@ describe("factory-watch commands", () => {
     // undefined), breaking those tests -- so only clear call history here,
     // not the implementation.
     vi.mocked(spawn).mockClear();
+    // computeReviewFiles/runReviewLoop/writeReviewDecision are only ever
+    // exercised by the human-review status-polling tests below -- reset
+    // them every test the same way spawnSync is reset, so a mockReturnValue
+    // or resolved mock from one test can't leak into another's assertions.
+    vi.mocked(computeReviewFiles).mockReset();
+    vi.mocked(runReviewLoop).mockReset();
+    vi.mocked(writeReviewDecision).mockReset();
   });
 
   test("registers factory, factory-stop, factory-tasks, factory-run, and plan", () => {
@@ -146,124 +167,160 @@ describe("factory-watch commands", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("factory started"), "info");
   });
 
-  test("/factory without --auto spawns non-detached and opens the review overlay on review_pending", async () => {
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
-    };
-    child.stdout = new EventEmitter();
-    child.stdin = { write: vi.fn() };
+  test("/factory-run (interactive) spawns the orchestrator with fully closed stdio", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const child = new EventEmitter() as EventEmitter & { unref: () => void };
     child.unref = () => {};
     vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
-    // computeReviewFiles shells out to `git diff --numstat`/`--name-status`
-    // via spawnSync -- give it an empty-but-parseable result (this test
-    // only cares that the overlay opens and a decision is written back).
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: "",
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
-
-    const ui: UiApi = {
-      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
-      confirm: vi.fn(async () => true), editor: vi.fn(),
-      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
-    };
     const { commands } = capture();
-    const ctx = fakeCtx({ ui });
+    const ctx = fakeCtx();
 
-    const handlerDone = commands.get("factory")!.handler("", ctx);
-    child.stdout.emit(
-      "data",
-      Buffer.from(JSON.stringify({ type: "review_pending", task_id: "T-001", start_commit: "abc123" }) + "\n"),
-    );
-    child.emit("exit", 0);
-    await handlerDone;
+    const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+    await Promise.resolve();
+    child.emit("exit");
+    await handlerPromise;
 
-    expect(ui.custom).toHaveBeenCalled();
-    expect(child.stdin.write).toHaveBeenCalledWith(
-      JSON.stringify({ decision: "approve", comments: {} }) + "\n",
+    expect(vi.mocked(spawn)).toHaveBeenCalledWith(
+      expect.any(String), expect.any(Array),
+      expect.objectContaining({ stdio: ["ignore", "ignore", "ignore"] }),
     );
   });
 
-  test("/factory without --auto reassembles a review_pending line split across two stdout chunks", async () => {
-    // A single `data` event is not guaranteed to align with line boundaries --
-    // this reproduces a review_pending JSON line arriving in two pieces (no
-    // trailing newline on the first chunk) and confirms the handler still
-    // parses it as one line instead of dropping it or crashing on partial JSON.
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
-    };
-    child.stdout = new EventEmitter();
-    child.stdin = { write: vi.fn() };
-    child.unref = () => {};
-    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: "",
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
+  test("/factory-run (interactive) detects a blocked human-review via the status file and writes the decision to a file, not the child's stdin", async () => {
+    // No child.stdin exists at all in the new stdio-closed world (stdio is
+    // fully "ignore") -- the only way a decision can reach the orchestrator
+    // is via writeReviewDecision(reviewDecisionPath(...), decision), which
+    // this test asserts on directly instead of a child.stdin.write spy.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(spawnSync).mockReturnValue({
+        status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+      } as ReturnType<typeof spawnSync>);
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = () => {};
+      vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
 
-    const ui: UiApi = {
-      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
-      confirm: vi.fn(async () => true), editor: vi.fn(),
-      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
-    };
-    const { commands } = capture();
-    const ctx = fakeCtx({ ui });
+      // Real tmp status file under ctx.cwd, matching this file's existing
+      // "/plan notifies when a required skill isn't vendored" convention of
+      // pointing ctx.cwd at a real mkdtempSync() dir rather than mocking fs.
+      const cwd = mkdtempSync(join(tmpdir(), "factory-watch-review-poll-"));
+      mkdirSync(join(cwd, "sessions"), { recursive: true });
+      const blockedEntry: PipelineEntry = {
+        node: "human-review",
+        node_state: "blocked",
+        attempt: 0,
+        max_attempts: 0,
+        snippet: "",
+        outcome: null,
+        handoff: null,
+        updated_at: new Date().toISOString(),
+        start_commit: "abc123",
+      };
+      const record: StatusRecord = {
+        session_id: "sess-1",
+        task_id: "T-001",
+        current_node: "human-review",
+        current_state: "blocked",
+        pipeline: [blockedEntry],
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
 
-    const fullLine = JSON.stringify({ type: "review_pending", task_id: "T-002", start_commit: "def456" }) + "\n";
-    const splitPoint = Math.floor(fullLine.length / 2);
+      const files = [{ path: "a.ts", status: "M" as const, added: 1, removed: 0 }];
+      vi.mocked(computeReviewFiles).mockReturnValue(files);
+      const decision = { decision: "approve" as const, comments: {} };
+      vi.mocked(runReviewLoop).mockResolvedValue(decision);
 
-    const handlerDone = commands.get("factory")!.handler("", ctx);
-    // First chunk: no newline yet -- must not fire early or throw on partial JSON.
-    child.stdout.emit("data", Buffer.from(fullLine.slice(0, splitPoint)));
-    expect(ui.custom).not.toHaveBeenCalled();
-    // Second chunk completes the line.
-    child.stdout.emit("data", Buffer.from(fullLine.slice(splitPoint)));
-    child.emit("exit", 0);
-    await handlerDone;
+      const { commands } = capture();
+      const ctx = fakeCtx({ cwd });
 
-    expect(ui.custom).toHaveBeenCalledTimes(1);
-    expect(child.stdin.write).toHaveBeenCalledWith(
-      JSON.stringify({ decision: "approve", comments: {} }) + "\n",
-    );
+      const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+      await Promise.resolve();
+
+      // One poll tick (POLL_INTERVAL_MS = 1000 in src/index.ts) is enough to
+      // read the status file and detect the blocked human-review entry.
+      vi.advanceTimersByTime(1000);
+      // runReviewLoop's resolution and the writeReviewDecision it triggers
+      // happen in a .then() microtask, not synchronously inside the poll
+      // tick -- flush the microtask queue before asserting.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledWith(ctx.ui, cwd, "T-001", "abc123", files);
+      expect(vi.mocked(writeReviewDecision)).toHaveBeenCalledWith(
+        reviewDecisionPath(cwd, "sess-1"),
+        decision,
+      );
+
+      child.emit("exit");
+      await handlerPromise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  test("/factory without --auto handles two review_pending lines delivered in a single chunk", async () => {
-    // The converse boundary case: multiple newline-terminated lines arriving
-    // together in one `data` event must each be parsed and handled once,
-    // not merged or dropped.
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter; stdin: { write: ReturnType<typeof vi.fn> }; unref: () => void;
-    };
-    child.stdout = new EventEmitter();
-    child.stdin = { write: vi.fn() };
-    child.unref = () => {};
-    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: "",
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
+  test("/factory-run (interactive) does not launch a second review loop for the same task while one is already in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(spawnSync).mockReturnValue({
+        status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+      } as ReturnType<typeof spawnSync>);
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = () => {};
+      vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
 
-    const ui: UiApi = {
-      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(), select: vi.fn(),
-      confirm: vi.fn(async () => true), editor: vi.fn(),
-      custom: vi.fn(async () => ({ type: "approve" })) as unknown as UiApi["custom"],
-    };
-    const { commands } = capture();
-    const ctx = fakeCtx({ ui });
+      const cwd = mkdtempSync(join(tmpdir(), "factory-watch-review-dedupe-"));
+      mkdirSync(join(cwd, "sessions"), { recursive: true });
+      const blockedEntry: PipelineEntry = {
+        node: "human-review",
+        node_state: "blocked",
+        attempt: 0,
+        max_attempts: 0,
+        snippet: "",
+        outcome: null,
+        handoff: null,
+        updated_at: new Date().toISOString(),
+        start_commit: "abc123",
+      };
+      const record: StatusRecord = {
+        session_id: "sess-1",
+        task_id: "T-001",
+        current_node: "human-review",
+        current_state: "blocked",
+        pipeline: [blockedEntry],
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
 
-    const line1 = JSON.stringify({ type: "review_pending", task_id: "T-003", start_commit: "aaa111" }) + "\n";
-    const line2 = JSON.stringify({ type: "review_pending", task_id: "T-004", start_commit: "bbb222" }) + "\n";
+      vi.mocked(computeReviewFiles).mockReturnValue([]);
+      vi.mocked(runReviewLoop).mockResolvedValue({ decision: "approve", comments: {} });
 
-    const handlerDone = commands.get("factory")!.handler("", ctx);
-    child.stdout.emit("data", Buffer.from(line1 + line2));
-    child.emit("exit", 0);
-    await handlerDone;
+      const { commands } = capture();
+      const ctx = fakeCtx({ cwd });
 
-    expect(ui.custom).toHaveBeenCalledTimes(2);
-    expect(child.stdin.write).toHaveBeenCalledTimes(2);
+      const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+      await Promise.resolve();
+
+      // Two ticks that both see the same still-blocked task_id in the
+      // status file must not start a second review loop for it.
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledTimes(1);
+
+      child.emit("exit");
+      await handlerPromise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("/factory-tasks renders the task board via a widget", async () => {

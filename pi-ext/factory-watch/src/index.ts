@@ -20,7 +20,7 @@ import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 import { computeReviewFiles } from "./review-diff.js";
-import { parseReviewPendingLine, writeReviewDecision } from "./review-protocol.js";
+import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 
@@ -120,35 +120,45 @@ export default function factoryWatch(pi: PiApi): void {
   }
 
   async function launchInteractiveReview(ctx: ExtCommandCtx, cmd: Command, label: string): Promise<void> {
-    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, detached: true, stdio: ["ignore", "ignore", "ignore"] });
     ctx.ui.notify(`factory started (${label}, human review on)`, "info");
 
-    // child.stdout "data" chunks are not guaranteed to align with line
-    // boundaries -- a single review_pending JSON line can arrive split
-    // across two chunks (or several lines can arrive in one chunk).
-    // Buffer across events and only parse complete, newline-terminated
-    // lines; keep any trailing partial line for the next chunk.
-    let buffer = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString("utf-8");
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
+    const statusPath = join(ctx.cwd, STATUS_FILE);
+    let reviewInFlightForTask: string | null = null;
 
-        const message = parseReviewPendingLine(line);
-        if (message === null) {
-          continue;
+    const reviewPoll = setInterval(() => {
+      // Same staleness guard as launchAndWatch's poll loop -- ctx.ui can
+      // throw after a session replacement/reload; stop polling rather than
+      // crashing the whole host process on the next tick.
+      try {
+        const raw = readFileIfExists(statusPath);
+        const record = raw === null ? null : parseStatus(raw);
+        if (record === null) {
+          return;
         }
-        const files = computeReviewFiles(ctx.cwd, message.start_commit);
-        void runReviewLoop(ctx.ui, ctx.cwd, message.task_id, message.start_commit, files).then(
-          (decision) => writeReviewDecision(child.stdin, decision),
-        );
+        const hrEntry = record.pipeline.find((e) => e.node === "human-review");
+        if (
+          hrEntry !== undefined &&
+          hrEntry.node_state === "blocked" &&
+          typeof hrEntry.start_commit === "string" &&
+          reviewInFlightForTask !== record.task_id
+        ) {
+          const startCommit = hrEntry.start_commit;
+          const taskId = record.task_id;
+          const sessionId = record.session_id;
+          reviewInFlightForTask = taskId;
+          const files = computeReviewFiles(ctx.cwd, startCommit);
+          void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files).then((decision) => {
+            writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
+          });
+        }
+      } catch {
+        clearInterval(reviewPoll);
       }
-    });
+    }, POLL_INTERVAL_MS);
 
     await new Promise<void>((resolve) => child.on("exit", () => resolve()));
+    clearInterval(reviewPoll);
     ctx.ui.notify("factory run finished", "info");
   }
 
