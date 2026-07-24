@@ -1,36 +1,39 @@
 from __future__ import annotations
 
-import io
 import json
 import pytest
+import threading
+import time
+from pathlib import Path
+
 from factory.orchestrator.human_review import (
+    FileHumanReviewGate,
     FakeHumanReviewGate,
     HumanReviewDecision,
-    StdioHumanReviewGate,
     format_review_feedback,
 )
 
 pytestmark = pytest.mark.unit
 
 
-def test_stdio_gate_writes_review_pending_line_and_reads_decision():
-    decision_line = json.dumps({"decision": "approve", "comments": {}}) + "\n"
-    stdin = io.StringIO(decision_line)
-    stdout = io.StringIO()
-    gate = StdioHumanReviewGate(stdout=stdout, stdin=stdin)
+def test_file_gate_returns_decision_when_file_already_exists(tmp_path: Path):
+    decision_path = tmp_path / "review-decision.json"
+    decision_path.write_text(
+        json.dumps({"decision": "approve", "comments": {}}), encoding="utf-8"
+    )
+    gate = FileHumanReviewGate(tmp_path, poll_interval=0.01)
 
     result = gate.request_review("T-001", "abc123")
 
-    written = json.loads(stdout.getvalue().strip())
-    assert written == {"type": "review_pending", "task_id": "T-001", "start_commit": "abc123"}
     assert result == HumanReviewDecision(decision="approve", comments={})
 
 
-def test_stdio_gate_parses_reject_with_comments():
-    decision_line = json.dumps(
-        {"decision": "reject", "comments": {"src/x.py": "fix this"}}
-    ) + "\n"
-    gate = StdioHumanReviewGate(stdout=io.StringIO(), stdin=io.StringIO(decision_line))
+def test_file_gate_parses_reject_with_comments(tmp_path: Path):
+    decision_path = tmp_path / "review-decision.json"
+    decision_path.write_text(
+        json.dumps({"decision": "reject", "comments": {"src/x.py": "fix this"}}), encoding="utf-8"
+    )
+    gate = FileHumanReviewGate(tmp_path, poll_interval=0.01)
 
     result = gate.request_review("T-001", "abc123")
 
@@ -38,10 +41,28 @@ def test_stdio_gate_parses_reject_with_comments():
     assert result.comments == {"src/x.py": "fix this"}
 
 
-def test_stdio_gate_raises_eof_error_when_stdin_closes_without_a_decision():
-    gate = StdioHumanReviewGate(stdout=io.StringIO(), stdin=io.StringIO(""))
-    with pytest.raises(EOFError):
-        gate.request_review("T-001", "abc123")
+def test_file_gate_deletes_the_decision_file_after_reading(tmp_path: Path):
+    decision_path = tmp_path / "review-decision.json"
+    decision_path.write_text(json.dumps({"decision": "approve", "comments": {}}), encoding="utf-8")
+    gate = FileHumanReviewGate(tmp_path, poll_interval=0.01)
+
+    gate.request_review("T-001", "abc123")
+
+    assert not decision_path.exists()
+
+
+def test_file_gate_waits_for_the_file_to_appear(tmp_path: Path):
+    decision_path = tmp_path / "review-decision.json"
+    gate = FileHumanReviewGate(tmp_path, poll_interval=0.01)
+
+    def write_after_delay():
+        time.sleep(0.05)
+        decision_path.write_text(json.dumps({"decision": "approve", "comments": {}}), encoding="utf-8")
+
+    threading.Thread(target=write_after_delay).start()
+    result = gate.request_review("T-001", "abc123")
+
+    assert result.decision == "approve"
 
 
 def test_fake_gate_records_requests_and_returns_scripted_decisions():

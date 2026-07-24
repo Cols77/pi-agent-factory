@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-import sys
+import time
 from dataclasses import dataclass, field
-from typing import IO, Protocol
+from pathlib import Path
+from typing import Protocol
 
 
 @dataclass
@@ -16,20 +17,16 @@ class HumanReviewGate(Protocol):
     def request_review(self, task_id: str, start_commit: str) -> HumanReviewDecision: ...
 
 
-class StdioHumanReviewGate:
-    def __init__(self, stdout: IO[str] = sys.stdout, stdin: IO[str] = sys.stdin) -> None:
-        self._stdout = stdout
-        self._stdin = stdin
+class FileHumanReviewGate:
+    def __init__(self, transcript_dir: Path, poll_interval: float = 1.0) -> None:
+        self._decision_path = transcript_dir / "review-decision.json"
+        self._poll_interval = poll_interval
 
     def request_review(self, task_id: str, start_commit: str) -> HumanReviewDecision:
-        self._stdout.write(
-            json.dumps({"type": "review_pending", "task_id": task_id, "start_commit": start_commit}) + "\n"
-        )
-        self._stdout.flush()
-        line = self._stdin.readline()
-        if not line:
-            raise EOFError("human review gate: stdin closed before a decision was received")
-        payload = json.loads(line)
+        while not self._decision_path.exists():
+            time.sleep(self._poll_interval)
+        payload = json.loads(self._decision_path.read_text(encoding="utf-8"))
+        self._decision_path.unlink()
         return HumanReviewDecision(decision=payload["decision"], comments=payload.get("comments", {}))
 
 

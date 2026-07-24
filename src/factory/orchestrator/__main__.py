@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator.backends import SubprocessGateRunner
-from factory.orchestrator.human_review import StdioHumanReviewGate
+from factory.orchestrator.human_review import FileHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
@@ -75,7 +75,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
-    human_review = None if args.auto else StdioHumanReviewGate()
+    human_review = None if args.auto else FileHumanReviewGate(transcript_dir)
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
