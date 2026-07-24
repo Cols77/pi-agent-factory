@@ -198,6 +198,10 @@ describe("Enter dispatch: human-review (open the review browser)", () => {
         "/repo",
         "--start-commit",
         "abc123",
+        "--task-id",
+        "T-029",
+        "--session-id",
+        "s1",
       ],
       { cwd: "/repo" },
     );
@@ -210,5 +214,18 @@ describe("Enter dispatch: human-review (open the review browser)", () => {
     dashboard.handleInput("\r");
 
     expect(spawnTerminalWindow).not.toHaveBeenCalled();
+  });
+
+  test("Enter on human-review passes --task-id and --session-id to mission-control-review.ts", () => {
+    const record = withPipelineEntry({ node: "human-review", node_state: "blocked", start_commit: "abc123" });
+    const dashboard = new MissionControlDashboard(record, "/repo");
+    moveDown(dashboard, 4); // "human-review" row (index 4)
+    dashboard.handleInput("\r");
+
+    expect(spawnTerminalWindow).toHaveBeenCalledWith(
+      "node",
+      expect.arrayContaining(["--task-id", "T-029", "--session-id", "s1"]),
+      { cwd: "/repo" },
+    );
   });
 });

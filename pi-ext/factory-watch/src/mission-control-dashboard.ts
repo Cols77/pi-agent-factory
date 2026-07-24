@@ -75,6 +75,10 @@ export class MissionControlDashboard implements Component {
       return;
     }
     this.statusMessage = null;
+    // Note: this.record is guaranteed to be non-null here because handleEnter()
+    // checks this.record !== null before calling any dispatch method.
+    const taskId = this.record!.task_id;
+    const sessionId = this.record!.session_id;
     spawnTerminalWindow(
       "node",
       [
@@ -83,6 +87,10 @@ export class MissionControlDashboard implements Component {
         this.cwd,
         "--start-commit",
         startCommit,
+        "--task-id",
+        taskId,
+        "--session-id",
+        sessionId,
       ],
       { cwd: this.cwd },
     );
