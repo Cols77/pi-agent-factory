@@ -116,9 +116,12 @@ describe("promptComment", () => {
   test("writes currentText to a temp file, spawns the editor, and returns the edited content", () => {
     const prevVisual = process.env.VISUAL;
     process.env.VISUAL = "myeditor";
-    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
       // Simulate the user editing the temp file: args[0] is the temp path.
-      writeFileSync((args as string[])[0]!, "new comment text\n", "utf-8");
+      // Only write when the actual editor is launched, not for hasCodeOnPath probe.
+      if (cmd === "myeditor") {
+        writeFileSync((args as string[])[0]!, "new comment text\n", "utf-8");
+      }
       return { status: 0 } as ReturnType<typeof spawnSync>;
     });
     try {
@@ -132,8 +135,11 @@ describe("promptComment", () => {
   test("returns text: undefined when the edited content is empty or whitespace-only", () => {
     const prevVisual = process.env.VISUAL;
     process.env.VISUAL = "myeditor";
-    vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
-      writeFileSync((args as string[])[0]!, "   \n", "utf-8");
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      // Only write when the actual editor is launched, not for hasCodeOnPath probe.
+      if (cmd === "myeditor") {
+        writeFileSync((args as string[])[0]!, "   \n", "utf-8");
+      }
       return { status: 0 } as ReturnType<typeof spawnSync>;
     });
     try {
