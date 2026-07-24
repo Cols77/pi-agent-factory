@@ -323,6 +323,103 @@ describe("factory-watch commands", () => {
     }
   });
 
+  test("/factory-run (interactive) re-launches the review loop for a SECOND blocked round on the same task_id, after the first round left the blocked state", async () => {
+    // Regression test for the reviewInFlightForTask guard never resetting:
+    // the orchestrator loops the same task.id back through dev-retry after a
+    // reject and can block on a second human-review round for that same
+    // task later. Without resetting the guard when the entry leaves
+    // "blocked", the second round's still-equal task_id would be silently
+    // suppressed forever and runReviewLoop would only ever be called once.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(spawnSync).mockReturnValue({
+        status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+      } as ReturnType<typeof spawnSync>);
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = () => {};
+      vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+
+      const cwd = mkdtempSync(join(tmpdir(), "factory-watch-review-second-round-"));
+      mkdirSync(join(cwd, "sessions"), { recursive: true });
+      const statusPath = join(cwd, "sessions", ".factory-status.json");
+
+      const blockedEntry: PipelineEntry = {
+        node: "human-review",
+        node_state: "blocked",
+        attempt: 0,
+        max_attempts: 0,
+        snippet: "",
+        outcome: null,
+        handoff: null,
+        updated_at: new Date().toISOString(),
+        start_commit: "abc123",
+      };
+      const firstRoundRecord: StatusRecord = {
+        session_id: "sess-1",
+        task_id: "T-001",
+        current_node: "human-review",
+        current_state: "blocked",
+        pipeline: [blockedEntry],
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      writeFileSync(statusPath, JSON.stringify(firstRoundRecord), "utf-8");
+
+      vi.mocked(computeReviewFiles).mockReturnValue([]);
+      vi.mocked(runReviewLoop).mockResolvedValue({ decision: "reject", comments: {} });
+
+      const { commands } = capture();
+      const ctx = fakeCtx({ cwd });
+
+      const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+      await Promise.resolve();
+
+      // First blocked round is detected -- runReviewLoop launches once.
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledTimes(1);
+
+      // The orchestrator resolves the review (reject) and loops the same
+      // task back through a dev retry -- the status file now shows the
+      // human-review node no longer blocked.
+      const devRetryRecord: StatusRecord = {
+        ...firstRoundRecord,
+        current_node: "dev",
+        current_state: "running",
+        pipeline: [{ ...blockedEntry, node_state: "running" }],
+        updated_at: new Date().toISOString(),
+      };
+      writeFileSync(statusPath, JSON.stringify(devRetryRecord), "utf-8");
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+      // Still only the one call from the first round -- leaving "blocked"
+      // must not itself trigger a new review loop.
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledTimes(1);
+
+      // Dev retry finishes and the SAME task_id blocks on a second
+      // human-review round.
+      const secondRoundRecord: StatusRecord = {
+        ...firstRoundRecord,
+        pipeline: [{ ...blockedEntry, start_commit: "def456", updated_at: new Date().toISOString() }],
+        updated_at: new Date().toISOString(),
+      };
+      writeFileSync(statusPath, JSON.stringify(secondRoundRecord), "utf-8");
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(runReviewLoop)).toHaveBeenNthCalledWith(2, ctx.ui, cwd, "T-001", "def456", []);
+
+      child.emit("exit");
+      await handlerPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("/factory-tasks renders the task board via a widget", async () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,

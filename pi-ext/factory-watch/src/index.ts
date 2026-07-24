@@ -151,6 +151,14 @@ export default function factoryWatch(pi: PiApi): void {
           void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files).then((decision) => {
             writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
           });
+        } else if (hrEntry !== undefined && hrEntry.node_state !== "blocked") {
+          // The orchestrator loops the same task.id back through dev-retry
+          // after a reject and can block on a SECOND (or later) human-review
+          // round for that same task. Clear the guard once this round has
+          // left "blocked" so the NEXT blocked round -- same task or a new
+          // one -- re-launches runReviewLoop instead of being silently
+          // suppressed forever by the same-task-id check above.
+          reviewInFlightForTask = null;
         }
       } catch {
         clearInterval(reviewPoll);
