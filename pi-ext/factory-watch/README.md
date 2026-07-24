@@ -11,12 +11,18 @@ sub-agent sessions, which load `scope-guard` instead).
   `uv run python -m factory.orchestrator run --provider <provider> --model <id>`,
   and watches its progress. Refuses to start a second run while
   `sessions/.factory-run.lock` shows a live PID.
-  - Without `--auto` (the default): spawns the orchestrator **non-detached**
-    with piped stdio. When the orchestrator's automated review passes, it
-    writes a `review_pending` JSON line to stdout and blocks on stdin for a
-    decision; this extension opens a review overlay (file-list summary +
-    full diff drill-down, `c` to comment, `e` to edit, `a`/`r` to
-    approve/reject) and writes the decision back to the child's stdin. This
+  - Without `--auto` (the default): spawns the orchestrator **detached**,
+    with stdio fully closed. When the orchestrator's automated review
+    passes, it blocks on human review by writing a `human-review` pipeline
+    entry with `node_state: "blocked"` and a `start_commit` to
+    `sessions/.factory-status.json`; this extension polls that file and, on
+    seeing it blocked, opens a review overlay (file-list summary + full diff
+    drill-down, `c` to comment, `e` to edit, `a`/`r` to approve/reject). The
+    mission-control dashboard's review browser (`mission-control-review.ts`,
+    see below) can complete the same decision instead. Either way the
+    decision is written atomically to
+    `sessions/.factory-transcripts/<session-id>/review-decision.json`, which
+    the orchestrator's `FileHumanReviewGate` (Python side) polls for. This
     is the human-in-the-loop path.
   - With `--auto`: reproduces the original fully-automated behavior
     unchanged -- detached spawn, no stdin/stdout piping, no review gate,
@@ -74,9 +80,11 @@ to browse the actual changed files. These windows are purely observational
 
 ## No new IPC
 
-Everything here reads files Plan A's orchestrator already writes
-(`sessions/.factory-status.json`, `sessions/.factory-run.lock`) — no sockets,
-no named pipes.
+This reads the status/lock files Plan A's orchestrator already writes
+(`sessions/.factory-status.json`, `sessions/.factory-run.lock`) and writes
+the human-review decision back to
+`sessions/.factory-transcripts/<session-id>/review-decision.json`, which the
+orchestrator polls for — plain files, no sockets, no named pipes.
 
 ## Hard skill loading
 
