@@ -1,8 +1,64 @@
 import type { Component } from "@earendil-works/pi-tui";
+import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { computeReviewFiles } from "./review-diff.ts";
 import type { FileStat } from "./review-diff.ts";
-import { ReviewOverlay } from "./review-overlay.ts";
+import { resolveEditorLaunch } from "./review-editor-launch.ts";
+import { hasCodeOnPath, ReviewOverlay } from "./review-overlay.ts";
 import type { TuiLike } from "./review-overlay.ts";
+
+// Blocks on the same editor-launch mechanism runReviewLoop's "edit" action
+// uses in review-overlay.ts (resolveEditorLaunch + spawnSync, including the
+// tmux-split-and-wait dance) -- mirrored here rather than imported, since
+// runReviewLoop's own "edit" block stays untouched (out of scope for this
+// task) and there's no shared export to call into instead.
+function spawnEditorBlocking(cwd: string, filePath: string): { ok: true } | { ok: false; error: string } {
+  const plan = resolveEditorLaunch(process.env, hasCodeOnPath());
+  if (!plan.ok) {
+    return { ok: false, error: plan.error };
+  }
+  if (plan.useTmux) {
+    const signal = `review-edit-${Date.now()}`;
+    spawnSync(
+      "tmux",
+      ["split-window", "-h", `${plan.command} ${filePath}; tmux wait-for -S ${signal}`],
+      { cwd },
+    );
+    spawnSync("tmux", ["wait-for", signal], { cwd });
+  } else {
+    spawnSync(plan.command, [...plan.args, filePath], { cwd, stdio: "ignore" });
+  }
+  return { ok: true };
+}
+
+export function launchFileEditor(cwd: string, filePath: string): { ok: true } | { ok: false; error: string } {
+  return spawnEditorBlocking(cwd, filePath);
+}
+
+// Writes currentText (or "") to a temp file, blocks on the same
+// editor-spawn mechanism as launchFileEditor, reads the (possibly edited)
+// file back, deletes it, and reports "no comment" (text: undefined) when
+// the result is empty/whitespace-only -- matching runReviewLoop's existing
+// "comment" semantics (ui.editor() returning undefined/empty means no
+// comment was recorded).
+export function promptComment(
+  cwd: string,
+  currentText: string | undefined,
+): { ok: true; text: string | undefined } | { ok: false; error: string } {
+  const tmpPath = join(tmpdir(), `review-comment-${randomUUID()}.md`);
+  writeFileSync(tmpPath, currentText ?? "", "utf-8");
+  const result = spawnEditorBlocking(cwd, tmpPath);
+  if (!result.ok) {
+    unlinkSync(tmpPath);
+    return result;
+  }
+  const text = readFileSync(tmpPath, "utf-8");
+  unlinkSync(tmpPath);
+  return { ok: true, text: text.trim() === "" ? undefined : text.trim() };
+}
 
 // Browse-mode wrapper around ReviewOverlay -- this task (E1) only lets the
 // user navigate the human-review diff from a standalone terminal window; no

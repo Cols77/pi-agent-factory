@@ -13,7 +13,7 @@ import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
 
-function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
+export function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
   const finder = platform === "win32" ? "where" : "which";
   const result = spawnSync(finder, ["code"], { encoding: "utf-8" });
   return result.status === 0;
