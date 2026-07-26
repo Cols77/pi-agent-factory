@@ -18,6 +18,7 @@ class NodeOutcome(str, Enum):
     REJECT = "reject"
     CHANGES = "changes-requested"
     ESCALATE = "escalate"
+    ALREADY_DONE = "already-done"
 
 
 @dataclass

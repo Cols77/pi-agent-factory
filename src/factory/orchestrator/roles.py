@@ -64,7 +64,13 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "You verify that spec, plan, prior session, and this task are coherent and "
         "that context is complete. Emit ONLY a context manifest as a fenced ```json block "
         "matching the context_manifest schema. If you cannot prove coherence, set "
-        "coherence.proven=false and populate reject."
+        "coherence.proven=false and populate reject.\n"
+        "FIRST, before anything else: check whether this task's deliverables (the "
+        "`Create:`/`Modify:`/`Test:` paths in the task body) already exist and satisfy "
+        "the Definition of Done. Read files with the read/view tool -- NOT with bash "
+        "(bash is disabled for your role). If the work already appears complete, add "
+        '"already_done": true and a one-line "already_done_reason" to the manifest '
+        "JSON; coherence need not be proven in that case."
     ),
     AgentRole.DEV: (
         "Implement the task using strict TDD (write the failing test first). "

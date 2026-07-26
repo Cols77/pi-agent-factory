@@ -84,6 +84,19 @@ def run_context_gatherer(
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "context-gather", attempt, result.raw)
         manifest = result.output
+        if manifest.get("already_done"):
+            reason = manifest.get("already_done_reason") or "task deliverables already exist"
+            status.report(
+                task_id=task.id, node="context-gather", node_state="already-done",
+                attempt=attempt, max_attempts=max_attempts,
+                handoff="→ review: task appears already complete",
+                session_id=result.session_id, summary=reason,
+            )
+            return (
+                NodeOutcome.ALREADY_DONE,
+                manifest,
+                NodeEvent("context-gather", "already-done", attempt, {}),
+            )
         if manifest.get("reject"):
             extra = _note_backend_failure({"reason": manifest["reject"]}, result)
             status.report(

@@ -41,6 +41,18 @@ def test_context_gatherer_reject_on_reject_field(tmp_path):
     assert outcome == NodeOutcome.REJECT and manifest is None
 
 
+def test_context_gatherer_already_done(tmp_path):
+    write_skill_stubs(tmp_path)
+    m = _manifest(tmp_path)
+    m["already_done"] = True
+    m["already_done_reason"] = "deliverables exist and match the DoD"
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, m)]})
+    outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
+    assert outcome == NodeOutcome.ALREADY_DONE
+    assert manifest is not None
+    assert ev.result == "already-done"
+
+
 def test_dev_passes_when_unit_green(tmp_path):
     write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
