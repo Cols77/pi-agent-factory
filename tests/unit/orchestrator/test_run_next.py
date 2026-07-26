@@ -118,7 +118,9 @@ def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_p
     captured = {}
 
     class ScriptedBackend:
-        def run(self, role, prompt, on_snippet=None):
+        def run(self, role, prompt, on_snippet=None, on_session_id=None):
+            if on_session_id is not None:
+                on_session_id("scripted-session-id")
             if role == AgentRole.CONTEXT_GATHERER:
                 return AgentResult(True, manifest)
             if role == AgentRole.DEV:

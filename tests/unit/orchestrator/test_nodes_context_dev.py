@@ -106,7 +106,9 @@ def test_dev_reports_running_each_attempt_and_passes_on_snippet(tmp_path):
     status = FakeStatusReporter()
 
     class SnippetCapturingBackend:
-        def run(self, role, prompt, on_snippet=None):
+        def run(self, role, prompt, on_snippet=None, on_session_id=None):
+            if on_session_id is not None:
+                on_session_id("dev-session-id")
             if on_snippet is not None:
                 on_snippet("partial output")
             return AgentResult(True, {})
@@ -118,6 +120,30 @@ def test_dev_reports_running_each_attempt_and_passes_on_snippet(tmp_path):
     assert status.calls[0]["node_state"] == "running"
     snippets = [c["snippet"] for c in status.calls if c["snippet"]]
     assert snippets == ["partial output"]
+
+
+def test_dev_reports_session_id_while_running(tmp_path):
+    # Feature A: the session id must reach status *during* the run (as soon as
+    # the backend streams pi's `session` event), not only on the final report
+    # -- otherwise the dashboard can't open the live session and shows
+    # "session not ready".
+    write_skill_stubs(tmp_path)
+    status = FakeStatusReporter()
+
+    class SessionIdBackend:
+        def run(self, role, prompt, on_snippet=None, on_session_id=None):
+            if on_session_id is not None:
+                on_session_id("abc-123")
+            if on_snippet is not None:
+                on_snippet("partial")
+            return AgentResult(True, {})
+
+    run_dev(SessionIdBackend(), FakeGateRunner({"unit": [0]}), _task(), {}, [], tmp_path, status=status)
+    running_with_session = [
+        c for c in status.calls
+        if c["node"] == "dev" and c["node_state"] == "running" and c.get("session_id") == "abc-123"
+    ]
+    assert running_with_session, "expected a 'running' dev report carrying the streamed session id"
 
 
 def test_run_context_gatherer_writes_transcript_when_dir_given(tmp_path):

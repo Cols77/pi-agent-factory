@@ -11,7 +11,11 @@ from factory.orchestrator.types import AgentResult, AgentRole
 
 class AgentBackend(Protocol):
     def run(
-        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+        self,
+        role: AgentRole,
+        prompt: str,
+        on_snippet: Callable[[str], None] | None = None,
+        on_session_id: Callable[[str], None] | None = None,
     ) -> AgentResult: ...
 
 
@@ -24,7 +28,11 @@ class FakeAgentBackend:
         self._scripts = {k: list(v) for k, v in scripts.items()}
 
     def run(
-        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+        self,
+        role: AgentRole,
+        prompt: str,
+        on_snippet: Callable[[str], None] | None = None,
+        on_session_id: Callable[[str], None] | None = None,
     ) -> AgentResult:
         queue = self._scripts.get(role)
         assert queue, f"FakeAgentBackend: no scripted result for {role}"

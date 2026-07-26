@@ -80,6 +80,25 @@ describe("MissionControlDashboard", () => {
     expect(dashboard.render(80).join("\n")).toContain("-> review: sim tests green");
   });
 
+  test("q invokes the onQuit callback so the standalone window can close", () => {
+    const onQuit = vi.fn();
+    const dashboard = new MissionControlDashboard(RECORD, "/repo", onQuit);
+    dashboard.handleInput("q");
+    expect(onQuit).toHaveBeenCalledTimes(1);
+  });
+
+  test("Ctrl-C also invokes onQuit", () => {
+    const onQuit = vi.fn();
+    const dashboard = new MissionControlDashboard(RECORD, "/repo", onQuit);
+    dashboard.handleInput("\x03");
+    expect(onQuit).toHaveBeenCalledTimes(1);
+  });
+
+  test("q without an onQuit callback is a no-op (doesn't throw)", () => {
+    const dashboard = new MissionControlDashboard(RECORD, "/repo");
+    expect(() => dashboard.handleInput("q")).not.toThrow();
+  });
+
   test("render() prints a row's summary (width-wrapped) under its handoff line", () => {
     const record: StatusRecord = {
       ...RECORD,

@@ -1,5 +1,12 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
+// Synchronous sleep without pulling in a timer dependency. The gate polls
+// review-decision.json, so a transient lock is possible; a short backoff
+// lets the atomic rename succeed.
+function syncSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 export interface ReviewDecisionPayload {
   decision: "approve" | "reject";
@@ -14,5 +21,25 @@ export function writeReviewDecision(path: string, decision: ReviewDecisionPayloa
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(decision), "utf-8");
-  renameSync(tmpPath, path);
+  // Retry the atomic rename. On Windows, renameSync can fail with
+  // ERROR_ACCESS_DENIED (EPERM / WinError 5) when the destination is held open
+  // by another process without delete-share -- the same class of fragility as
+  // FileStatusReporter's os.replace on the status file. The gate polls this
+  // file, so a transient lock is possible; a few retries let it succeed.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      renameSync(tmpPath, path);
+      return;
+    } catch (err) {
+      lastErr = err;
+      syncSleep(50);
+    }
+  }
+  try {
+    unlinkSync(tmpPath);
+  } catch {
+    // best-effort cleanup; ignore
+  }
+  throw lastErr;
 }

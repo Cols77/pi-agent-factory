@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +12,47 @@ from typing import Protocol
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Bounded retry for the atomic rename below. On Windows, os.replace() maps to
+# MoveFileExW(MOVEFILE_REPLACE_EXISTING), which fails with ERROR_ACCESS_DENIED
+# (WinError 5) when another process holds the destination open without
+# FILE_SHARE_DELETE -- e.g. a reader that opened the file with Python's default
+# share mode, an editor, or a file watcher. The lock is normally transient, so a
+# few retries with a short backoff let the write succeed without crashing the
+# orchestrator run. Status is best-effort observer telemetry; it must never abort
+# the pipeline, which is why a persistent lock is tolerated (warn + continue).
+_STATUS_WRITE_ATTEMPTS = 5
+_STATUS_WRITE_BACKOFF_S = 0.05
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    """Write *payload* as JSON to *path* atomically, tolerating transient
+    Windows ERROR_ACCESS_DENIED (WinError 5) renames. On a persistent lock,
+    drop the temp file and warn instead of raising -- the run continues."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(path.name + ".tmp")
+    # Write the payload to the temp file first, outside the rename retry loop.
+    try:
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"factory: warning: could not write status temp file {tmp_path}: {exc}", file=sys.stderr)
+        return
+    last_exc: OSError | None = None
+    for _ in range(_STATUS_WRITE_ATTEMPTS):
+        try:
+            os.replace(tmp_path, path)
+            return
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(_STATUS_WRITE_BACKOFF_S)
+    # Persistent lock: clean up the temp file and move on.
+    try:
+        tmp_path.unlink()
+    except OSError:
+        pass
+    if last_exc is not None:
+        print(f"factory: warning: could not write status file {path}: {last_exc}", file=sys.stderr)
 
 
 class StatusReporter(Protocol):
@@ -90,6 +133,15 @@ class FileStatusReporter:
         replaced = False
         for i, existing in enumerate(self._pipeline):
             if existing["node"] == node:
+                # Sticky identity fields: once captured for a node, a later
+                # report that omits them (e.g. the reject/escalate paths, or a
+                # snippet update) must NOT clobber them back to None. The
+                # dashboard needs session_id to open the live session and
+                # start_commit to open the review browser; both are captured
+                # mid-run and would otherwise be lost on the node's final report.
+                for sticky in ("session_id", "start_commit"):
+                    if entry[sticky] is None and existing.get(sticky) is not None:
+                        entry[sticky] = existing[sticky]
                 self._pipeline[i] = entry
                 replaced = True
                 break
@@ -105,10 +157,7 @@ class FileStatusReporter:
             "started_at": self.started_at,
             "updated_at": _now(),
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.path.with_name(self.path.name + ".tmp")
-        tmp_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        os.replace(tmp_path, self.path)
+        _atomic_write_json(self.path, record)
 
 
 class FakeStatusReporter:

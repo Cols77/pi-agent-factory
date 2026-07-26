@@ -107,3 +107,40 @@ def test_no_gate_configured_behaves_exactly_as_before(tmp_path):
         session_id="s1", git_info={"branch": "main"},
     )
     assert path is not None
+
+
+def test_human_review_entry_resolves_after_each_decision(tmp_path):
+    # Regression: the human-review pipeline entry must leave "blocked" once the
+    # gate returns, otherwise the dashboard shows it stuck waiting forever and
+    # the interactive review poll's guard never resets (suppressing a later
+    # blocked round on the same task after a reject).
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    human_review = FakeHumanReviewGate([
+        HumanReviewDecision("reject", {"src/x.py": "add a docstring"}),
+        HumanReviewDecision("approve", {}),
+    ])
+
+    run_next(
+        repo, FakeAgentBackend(_scripts(n_review_calls=2)), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=human_review, status=status,
+    )
+
+    states = [c["node_state"] for c in status.calls if c["node"] == "human-review"]
+    assert states == ["blocked", "changes-requested", "blocked", "approved"]
+
+
+def test_human_review_entry_resolves_on_approve(tmp_path):
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+
+    run_next(
+        repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=human_review, status=status,
+    )
+
+    states = [c["node_state"] for c in status.calls if c["node"] == "human-review"]
+    assert states == ["blocked", "approved"]

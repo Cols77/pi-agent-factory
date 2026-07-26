@@ -120,8 +120,27 @@ def run_task(
                 decision = human_review.request_review(task.id, start_commit)
                 if decision.decision == "approve":
                     git_ops.commit_all(repo_root, "review: address direct edits during human review")
+                    # Resolve the human-review row out of "blocked" so the
+                    # dashboard stops showing it as waiting and so the
+                    # interactive review poll's guard resets (allowing a later
+                    # blocked round on the same task after a reject).
+                    status.report(
+                        task_id=task.id, node="human-review", node_state="approved",
+                        attempt=1, max_attempts=1, handoff="approved",
+                        start_commit=start_commit,
+                    )
                     _report_node(status, task.id, r_ev, 1, outcome="completed")
                     return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
+                # Reject: resolve the human-review row out of "blocked" before
+                # looping back into dev-retry. Without this it stays "blocked"
+                # forever and the interactive review poll would suppress the
+                # next blocked round for this same task (the exact regression
+                # the reviewInFlightForTask guard was meant to prevent).
+                status.report(
+                    task_id=task.id, node="human-review", node_state="changes-requested",
+                    attempt=1, max_attempts=1, handoff="rejected: dev will retry",
+                    start_commit=start_commit,
+                )
                 _report_node(status, task.id, r_ev, 1)
                 feedback = format_review_feedback(decision.comments)
                 continue
@@ -184,18 +203,30 @@ def run_next(
     record = build_record(sid, model_backend, [result], git_info or {})
     path = write_session(repo_root / "sessions", record)
 
+    captured_session_id: str | None = None
     status.report(task_id=task.id, node="session-review", node_state="running", attempt=1, max_attempts=1)
     session_review_prompt = compose_prompt(
         AgentRole.SESSION_REVIEW, task,
         events=result.events, existing_kb_titles=list_kb_titles(repo_root / "kb"),
         skills_dir=repo_root / ".pi" / "skills",
     )
-    session_review_result = backend.run(AgentRole.SESSION_REVIEW, session_review_prompt)
+
+    def _on_session_id(sid: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = sid
+        status.report(
+            task_id=task.id, node="session-review", node_state="running",
+            attempt=1, max_attempts=1, session_id=sid,
+        )
+
+    session_review_result = backend.run(
+        AgentRole.SESSION_REVIEW, session_review_prompt, on_session_id=_on_session_id
+    )
     if transcript_dir is not None:
         write_role_transcript(transcript_dir, "session-review", 1, session_review_result.raw)
     status.report(
         task_id=task.id, node="session-review", node_state="pass",
-        attempt=1, max_attempts=1, outcome="completed",
+        attempt=1, max_attempts=1, outcome="completed", session_id=session_review_result.session_id,
     )
 
     return path

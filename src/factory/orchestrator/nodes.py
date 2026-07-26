@@ -51,22 +51,35 @@ def run_context_gatherer(
 ) -> tuple[NodeOutcome, dict | None, NodeEvent]:
     errors: list[str] = []
     result: AgentResult | None = None
+    # Captured as soon as the backend streams pi's `session` event, so the
+    # dashboard can open the live session while the agent is still running
+    # (Feature A) instead of only after the process exits.
+    captured_session_id: str | None = None
     for attempt in range(1, max_attempts + 1):
         status.report(
             task_id=task.id, node="context-gather", node_state="running",
             attempt=attempt, max_attempts=max_attempts,
         )
 
+        def _on_session_id(sid: str) -> None:
+            nonlocal captured_session_id
+            captured_session_id = sid
+            status.report(
+                task_id=task.id, node="context-gather", node_state="running",
+                attempt=attempt, max_attempts=max_attempts, session_id=sid,
+            )
+
         def _on_snippet(text: str) -> None:
             status.report(
                 task_id=task.id, node="context-gather", node_state="running",
                 attempt=attempt, max_attempts=max_attempts, snippet=text,
+                session_id=captured_session_id,
             )
 
         result = backend.run(
             AgentRole.CONTEXT_GATHERER,
             compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills"),
-            on_snippet=_on_snippet,
+            on_snippet=_on_snippet, on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "context-gather", attempt, result.raw)
@@ -119,16 +132,26 @@ def run_dev(
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent]:
     result: AgentResult | None = None
+    captured_session_id: str | None = None
     for attempt in range(1, max_iters + 1):
         status.report(
             task_id=task.id, node="dev", node_state="running",
             attempt=attempt, max_attempts=max_iters,
         )
 
+        def _on_session_id(sid: str) -> None:
+            nonlocal captured_session_id
+            captured_session_id = sid
+            status.report(
+                task_id=task.id, node="dev", node_state="running",
+                attempt=attempt, max_attempts=max_iters, session_id=sid,
+            )
+
         def _on_snippet(text: str) -> None:
             status.report(
                 task_id=task.id, node="dev", node_state="running",
                 attempt=attempt, max_attempts=max_iters, snippet=text,
+                session_id=captured_session_id,
             )
 
         result = backend.run(
@@ -137,7 +160,7 @@ def run_dev(
                 AgentRole.DEV, task, manifest, kb_entries, feedback,
                 skills_dir=repo_root / ".pi" / "skills",
             ),
-            on_snippet=_on_snippet,
+            on_snippet=_on_snippet, on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "dev", attempt, result.raw)
@@ -190,17 +213,27 @@ def run_review(
     status: StatusReporter = NullStatusReporter(),
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
     status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
+    captured_session_id: str | None = None
+
+    def _on_session_id(sid: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = sid
+        status.report(
+            task_id=task.id, node="review", node_state="running",
+            attempt=1, max_attempts=1, session_id=sid,
+        )
 
     def _on_snippet(text: str) -> None:
         status.report(
             task_id=task.id, node="review", node_state="running",
             attempt=1, max_attempts=1, snippet=text,
+            session_id=captured_session_id,
         )
 
     result = backend.run(
         AgentRole.REVIEW,
         compose_prompt(AgentRole.REVIEW, task, kb_entries=kb_entries, skills_dir=repo_root / ".pi" / "skills"),
-        on_snippet=_on_snippet,
+        on_snippet=_on_snippet, on_session_id=_on_session_id,
     )
     if transcript_dir is not None:
         write_role_transcript(transcript_dir, "review", 1, result.raw)

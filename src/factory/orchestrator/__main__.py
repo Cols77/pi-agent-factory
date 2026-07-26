@@ -84,10 +84,16 @@ def main() -> None:
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:
-        status.report(
-            task_id="", node="orchestrator", node_state="error",
-            attempt=0, max_attempts=0, snippet=str(exc),
-        )
+        # Report the failure for the dashboard, but never let a failure of
+        # THIS report (e.g. a locked status file on Windows) mask the original
+        # exception -- re-raise the original error regardless.
+        try:
+            status.report(
+                task_id="", node="orchestrator", node_state="error",
+                attempt=0, max_attempts=0, snippet=str(exc),
+            )
+        except Exception:
+            pass
         raise
     finally:
         remove_lock(lock_path)

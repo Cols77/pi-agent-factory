@@ -49,7 +49,7 @@ class CapturingBackend:
         self._scripts = {k: list(v) for k, v in scripts.items()}
         self.prompts: dict = {}
 
-    def run(self, role, prompt, on_snippet=None):
+    def run(self, role, prompt, on_snippet=None, on_session_id=None):
         self.prompts[role] = prompt
         queue = self._scripts.get(role)
         assert queue, f"CapturingBackend: no scripted result for {role}"

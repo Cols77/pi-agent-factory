@@ -167,7 +167,7 @@ describe("factory-watch commands", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("factory started"), "info");
   });
 
-  test("/factory-run (interactive) spawns the orchestrator with fully closed stdio", async () => {
+  test("/factory-run (interactive) spawns the orchestrator with stdin closed and stdout/stderr to the run log", async () => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
     } as ReturnType<typeof spawnSync>);
@@ -182,10 +182,14 @@ describe("factory-watch commands", () => {
     child.emit("exit");
     await handlerPromise;
 
-    expect(vi.mocked(spawn)).toHaveBeenCalledWith(
-      expect.any(String), expect.any(Array),
-      expect.objectContaining({ stdio: ["ignore", "ignore", "ignore"] }),
-    );
+    // stdin MUST stay "ignore": the file-based human-review handshake depends
+    // on the orchestrator having no inherited stdin pipe. stdout/stderr are
+    // redirected to the run log (a file descriptor, i.e. a number) so a run
+    // that dies mid-pipeline leaves a trace instead of vanishing silently.
+    const stdio = vi.mocked(spawn).mock.calls[0]![2]!.stdio as [unknown, unknown, unknown];
+    expect(stdio[0]).toBe("ignore");
+    expect(typeof stdio[1]).toBe("number");
+    expect(typeof stdio[2]).toBe("number");
   });
 
   test("/factory-run (interactive) detects a blocked human-review via the status file and writes the decision to a file, not the child's stdin", async () => {

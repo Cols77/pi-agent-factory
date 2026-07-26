@@ -87,7 +87,7 @@ def test_run_review_prompt_includes_kb_entries_not_manifest(tmp_path):
     captured = {}
 
     class PromptCapturingBackend:
-        def run(self, role, prompt, on_snippet=None):
+        def run(self, role, prompt, on_snippet=None, on_session_id=None):
             captured["prompt"] = prompt
             return AgentResult(True, {"dod_met": True, "findings": []})
 

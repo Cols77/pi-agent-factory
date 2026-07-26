@@ -120,7 +120,13 @@ export default function factoryWatch(pi: PiApi): void {
   }
 
   async function launchInteractiveReview(ctx: ExtCommandCtx, cmd: Command, label: string): Promise<void> {
-    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, detached: true, stdio: ["ignore", "ignore", "ignore"] });
+    // Send the orchestrator's stdout/stderr to the run log (mirroring
+    // launchAndWatch). Previously this path discarded both with "ignore",
+    // so when a run died mid-pipeline it left no trace at all -- the status
+    // file simply froze at the last stage and there was nothing to debug.
+    mkdirSync(join(ctx.cwd, "sessions"), { recursive: true });
+    const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
+    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, detached: true, stdio: ["ignore", logFd, logFd] });
     ctx.ui.notify(`factory started (${label}, human review on)`, "info");
 
     const statusPath = join(ctx.cwd, STATUS_FILE);

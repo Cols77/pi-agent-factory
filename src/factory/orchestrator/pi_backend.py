@@ -124,19 +124,27 @@ def _has_json_events_without_text_field(stdout: str) -> bool:
     return saw_json_object and not saw_text_field
 
 
+def _session_id_in_line(line: str) -> str | None:
+    """If *line* is a Pi `session` event, return its id; else None."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(event, dict) and event.get("type") == "session":
+        sid = event.get("id")
+        return sid if isinstance(sid, str) else None
+    return None
+
+
 def parse_session_id(stdout: str) -> str | None:
     """Return the id from Pi's first `session` event, or None."""
     for line in stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict) and event.get("type") == "session":
-            sid = event.get("id")
-            return sid if isinstance(sid, str) else None
+        sid = _session_id_in_line(line)
+        if sid is not None:
+            return sid
     return None
 
 
@@ -183,7 +191,11 @@ class PiAgentBackend:
         self._model = model
 
     def run(
-        self, role: AgentRole, prompt: str, on_snippet: Callable[[str], None] | None = None
+        self,
+        role: AgentRole,
+        prompt: str,
+        on_snippet: Callable[[str], None] | None = None,
+        on_session_id: Callable[[str], None] | None = None,
     ) -> AgentResult:
         scope = ROLE_SCOPE[role]
         env = {
@@ -214,8 +226,18 @@ class PiAgentBackend:
             )
             lines: list[str] = []
             assert proc.stdout is not None
+            captured_session_id: str | None = None
             for line in proc.stdout:
                 lines.append(line)
+                # Capture the pi session id as soon as it is emitted so
+                # callers can surface it (e.g. to the dashboard) while the
+                # agent is still running, not only after it exits.
+                if captured_session_id is None:
+                    sid = _session_id_in_line(line)
+                    if sid is not None:
+                        captured_session_id = sid
+                        if on_session_id is not None:
+                            on_session_id(sid)
                 if on_snippet is not None:
                     snippet = _extract_snippet(line)
                     if snippet:

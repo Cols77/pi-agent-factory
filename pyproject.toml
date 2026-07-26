@@ -20,7 +20,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["unit: fast deterministic tests"]
+markers = [
+  "unit: fast deterministic tests",
+  "agent: agent decision tests with mocked LLM",
+  "sim: pybullet simulation tests",
+]
 addopts = "-m unit"
 
 [tool.ruff]

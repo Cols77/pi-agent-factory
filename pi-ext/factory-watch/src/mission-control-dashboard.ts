@@ -23,14 +23,19 @@ export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
   private record: StatusRecord | null;
   private readonly cwd: string;
+  // Called when the user asks to close the dashboard (q / Ctrl-C). The
+  // standalone entry point wires this to tui.stop() + process.exit(0); it's
+  // optional so unit tests can construct the component without a live TUI.
+  private readonly onQuit: (() => void) | null;
   // Transient inline feedback surfaced in render() (e.g. "session not
   // ready") when an Enter dispatch can't spawn anything yet. Cleared the
   // next time a dispatch succeeds.
   private statusMessage: string | null = null;
 
-  constructor(record: StatusRecord | null, cwd: string) {
+  constructor(record: StatusRecord | null, cwd: string, onQuit: (() => void) | null = null) {
     this.record = record;
     this.cwd = cwd;
+    this.onQuit = onQuit;
   }
 
   updateRecord(record: StatusRecord | null): void {
@@ -119,6 +124,11 @@ export class MissionControlDashboard implements Component {
       this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
     } else if (data === "\r" || data === "\n") {
       this.handleEnter();
+    } else if (data === "q" || data === "\x03") {
+      // "q" (advertised in the footer) and Ctrl-C both close the dashboard.
+      // In pi-tui's raw input mode neither is handled for us -- without this
+      // branch the window can't be quit from the keyboard at all.
+      this.onQuit?.();
     }
   }
 
@@ -199,7 +209,12 @@ async function main(): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
-  const dashboard = new MissionControlDashboard(readRecord(), cwd);
+  const dashboard = new MissionControlDashboard(readRecord(), cwd, () => {
+    // Restore the terminal (cursor, bracketed-paste/Kitty modes, stdin
+    // handlers) before exiting so the parent shell isn't left in raw mode.
+    tui.stop();
+    process.exit(0);
+  });
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
   tui.start();
