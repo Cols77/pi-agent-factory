@@ -183,3 +183,15 @@ def test_start_commit_is_sticky_across_a_nodes_reports(tmp_path):
     record = json.loads(path.read_text(encoding="utf-8"))
     entry = record["pipeline"][0]
     assert entry["start_commit"] == "deadbeef"
+
+
+def test_report_records_already_done_and_deliverables(tmp_path):
+    path = tmp_path / "status.json"
+    reporter = FileStatusReporter(path=path, session_id="run-1")
+    reporter.report(task_id="T-1", node="human-review", node_state="blocked",
+                    attempt=1, max_attempts=1, start_commit="abc",
+                    already_done=True, deliverables=["src/x.py", "tests/test_x.py"])
+    record = json.loads(path.read_text(encoding="utf-8"))
+    entry = record["pipeline"][0]
+    assert entry["already_done"] is True
+    assert entry["deliverables"] == ["src/x.py", "tests/test_x.py"]

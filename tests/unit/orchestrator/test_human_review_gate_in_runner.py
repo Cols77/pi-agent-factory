@@ -144,3 +144,71 @@ def test_human_review_entry_resolves_on_approve(tmp_path):
 
     states = [c["node_state"] for c in status.calls if c["node"] == "human-review"]
     assert states == ["blocked", "approved"]
+
+
+def _already_done_scripts(with_dev=False):
+    manifest = {
+        "task_id": "T-001", "generated_by": "context-gatherer",
+        "generated_at": "2026-07-16T14:32:10Z",
+        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
+        "reject": None, "already_done": True,
+    }
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, manifest)],
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})],
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
+    }
+    if with_dev:
+        scripts[AgentRole.DEV] = [AgentResult(True, {})]
+    return scripts
+
+
+def test_already_done_skips_dev_runs_validation_and_completes(tmp_path):
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    # No DEV script: if dev were called, FakeAgentBackend would raise -- proving
+    # dev is skipped on the already-done first pass.
+    path = run_next(
+        repo, FakeAgentBackend(_already_done_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"}, status=status,
+    )
+    assert path is not None
+    nodes = [c["node"] for c in status.calls]
+    assert "validation" in nodes          # validation (sim gate) still runs
+    assert "dev" not in nodes             # dev skipped on the already-done pass
+    completed = [c for c in status.calls if c["node"] == "review" and c.get("outcome") == "completed"]
+    assert completed
+
+
+def test_already_done_human_review_block_carries_deliverables(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\n- Create: `src/x.py`\n",
+        encoding="utf-8")
+    status = FakeStatusReporter()
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    run_next(
+        repo, FakeAgentBackend(_already_done_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=human_review, status=status,
+    )
+    blocked = [c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"]
+    assert len(blocked) == 1
+    assert blocked[0]["already_done"] is True
+    assert blocked[0]["deliverables"] == ["src/x.py"]
+
+
+def test_already_done_but_sim_fails_falls_through_to_dev(tmp_path):
+    repo = _repo(tmp_path)
+    status = FakeStatusReporter()
+    # sim fails on the already-done first pass -> loop back; dev runs on pass 2
+    # (unit green), sim green on the second call.
+    gates = FakeGateRunner({"sim": [1, 0], "unit": [0], "full": [0]})
+    path = run_next(
+        repo, FakeAgentBackend(_already_done_scripts(with_dev=True)), gates,
+        session_id="s1", git_info={"branch": "main"}, status=status,
+    )
+    assert path is not None
+    nodes = [c["node"] for c in status.calls]
+    assert "dev" in nodes                 # dev ran on the self-correct pass

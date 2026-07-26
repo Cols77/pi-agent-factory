@@ -70,6 +70,8 @@ class StatusReporter(Protocol):
         session_id: str | None = None,
         summary: str | None = None,
         start_commit: str | None = None,
+        already_done: bool = False,
+        deliverables: list[str] | None = None,
     ) -> None: ...
 
 
@@ -88,6 +90,8 @@ class NullStatusReporter:
         session_id: str | None = None,
         summary: str | None = None,
         start_commit: str | None = None,
+        already_done: bool = False,
+        deliverables: list[str] | None = None,
     ) -> None:
         pass
 
@@ -113,6 +117,8 @@ class FileStatusReporter:
         session_id: str | None = None,
         summary: str | None = None,
         start_commit: str | None = None,
+        already_done: bool = False,
+        deliverables: list[str] | None = None,
     ) -> None:
         # Update or append the pipeline entry for this node
         entry = {
@@ -126,6 +132,8 @@ class FileStatusReporter:
             "session_id": session_id,
             "summary": summary,
             "start_commit": start_commit,
+            "already_done": already_done,
+            "deliverables": deliverables or [],
             "updated_at": _now(),
         }
         # Find existing entry for this node (same node name) and update it,
@@ -178,6 +186,8 @@ class FakeStatusReporter:
         session_id: str | None = None,
         summary: str | None = None,
         start_commit: str | None = None,
+        already_done: bool = False,
+        deliverables: list[str] | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -192,5 +202,7 @@ class FakeStatusReporter:
                 "session_id": session_id,
                 "summary": summary,
                 "start_commit": start_commit,
+                "already_done": already_done,
+                "deliverables": deliverables or [],
             }
         )

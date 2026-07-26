@@ -15,6 +15,7 @@ from factory.orchestrator.ledger import (
     next_todo,
     set_status,
 )
+from factory.orchestrator.deliverables import parse_deliverables
 from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
@@ -75,23 +76,30 @@ def run_task(
         return TaskResult(task.id, task.title, "rejected", 1, events, False, None)
     _report_node(status, task.id, c_ev, c_ev.attempts)
 
+    # ALREADY_DONE: the task's work already exists. Skip the dev node on the
+    # first pass and go straight to validation + review (so the sim/review
+    # gates still confirm it). If those gates fail, i>0 lets dev run normally
+    # on the next iteration -- a wrong "already done" self-corrects.
+    already_done = c_outcome == NodeOutcome.ALREADY_DONE
+
     kb_ids = select_entries(repo_root / "kb", manifest["context"].get("source_files", []), [])
     kb_entries = _load_kb_entries(repo_root / "kb", kb_ids)
 
     feedback: str | None = None
     iterations = 0
-    for _ in range(max_review_cycles):
+    for i in range(max_review_cycles):
         iterations += 1
 
-        d_outcome, d_ev = run_dev(
-            backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
-            transcript_dir=transcript_dir, status=status,
-        )
-        events.append(d_ev)
-        if d_outcome == NodeOutcome.ESCALATE:
-            _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
-            return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
-        _report_node(status, task.id, d_ev, max_dev_iters)
+        if not (already_done and i == 0):
+            d_outcome, d_ev = run_dev(
+                backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
+                transcript_dir=transcript_dir, status=status,
+            )
+            events.append(d_ev)
+            if d_outcome == NodeOutcome.ESCALATE:
+                _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
+                return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
+            _report_node(status, task.id, d_ev, max_dev_iters)
 
         v_outcome, v_ev = run_validation(gates, task.id, status=status)
         events.append(v_ev)
@@ -114,8 +122,12 @@ def run_task(
                 assert start_commit is not None
                 status.report(
                     task_id=task.id, node="human-review", node_state="blocked",
-                    attempt=1, max_attempts=1, handoff="waiting for you to review the diff",
+                    attempt=1, max_attempts=1,
+                    handoff=("task appears already complete -- approve to mark done"
+                             if already_done else "waiting for you to review the diff"),
                     start_commit=start_commit,
+                    already_done=already_done,
+                    deliverables=parse_deliverables(task.body) if already_done else [],
                 )
                 decision = human_review.request_review(task.id, start_commit)
                 if decision.decision == "approve":
