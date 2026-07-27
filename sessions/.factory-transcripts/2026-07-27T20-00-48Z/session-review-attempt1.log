@@ -1,0 +1,9 @@
+The **session-report** skill is designed to analyze a completed factory task's pipeline run, but I don't have any event history or pipeline run details in my current context.
+
+To proceed, I'd need:
+
+1. **The event history / pipeline run logs** for a specific task — stages that ran, attempts, outcomes, etc.
+2. **The existing KB entries** to check for duplicates before writing new ones.
+3. **Any relevant context** about the task that was executed.
+
+Could you provide the pipeline run details you'd like me to review? Or if you have a specific task's logs/output to analyze, please share them.

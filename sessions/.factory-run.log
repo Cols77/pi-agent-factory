@@ -32,3 +32,9 @@ Traceback (most recent call last):
   File "C:\Users\33630\AppData\Roaming\uv\python\cpython-3.12.12-windows-x86_64-none\Lib\subprocess.py", line 571, in run
     raise CalledProcessError(retcode, process.args,
 subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 128.
+warning: in the working copy of 'sessions/.factory-run.log', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'sessions/latest.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'kb/kb-0002-unit-suite-exceeds-short-agent-timeout.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'kb/kb-0003-watch-ext-smoke-test-fails-on-pre-existing-ts-issue.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'sessions/2026-07-27T14-29-58Z.session.json', LF will be replaced by CRLF the next time Git touches it
+session written: C:\coding\pi-agent-factory\sessions\2026-07-27T20-00-48Z.session.json

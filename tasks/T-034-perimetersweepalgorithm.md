@@ -5,7 +5,7 @@ dod:
 id: T-034
 source_plan: docs/superpowers/plans/2026-07-21-mission-agent-navigation.md
 source_task: 6
-status: todo
+status: done
 title: PerimeterSweepAlgorithm
 ---
 
