@@ -88,6 +88,22 @@ def _write_gates(ws: Path) -> None:
         (gdir / name).write_text("import sys\nprint('gate ok')\nsys.exit(0)\n", encoding="utf-8")
 
 
+def _write_plan(ws: Path) -> None:
+    # context-gather must prove the task is coherent with a plan/spec, so give
+    # it a plan the task references. Without one it rejects (can't prove
+    # coherence) and dev never runs.
+    (ws / "docs").mkdir(parents=True, exist_ok=True)
+    (ws / "docs" / "plan.md").write_text(
+        "# Plan: answer module\n\n"
+        "## Task 1: Answer constant\n\n"
+        "Create `src/answer.py` defining the module-level constant `ANSWER = 42`, "
+        "and `tests/test_answer.py` asserting `ANSWER == 42`.\n\n"
+        "Definition of Done: `src/answer.py` defines `ANSWER = 42`; "
+        "`tests/test_answer.py` imports it and passes.\n",
+        encoding="utf-8",
+    )
+
+
 def _write_task(ws: Path) -> None:
     (ws / "tasks").mkdir(parents=True, exist_ok=True)
     (ws / "tasks" / "T-900-answer.md").write_text(
@@ -95,12 +111,15 @@ def _write_task(ws: Path) -> None:
         "id: T-900\n"
         "title: Answer constant\n"
         "status: todo\n"
+        "source_plan: docs/plan.md\n"
+        "source_task: 1\n"
         "dod:\n"
         "  - '`ANSWER` constant equal to 42 in `src/answer.py`; `tests/test_answer.py` passes'\n"
         "---\n"
         "- Create: `src/answer.py`\n"
         "- Test: `tests/test_answer.py`\n\n"
-        "Define `ANSWER = 42` in `src/answer.py` and a test asserting it.\n",
+        "Implements Task 1 of `docs/plan.md`: define `ANSWER = 42` in "
+        "`src/answer.py` and a test asserting it.\n",
         encoding="utf-8",
     )
 
@@ -114,6 +133,7 @@ def _build_workspace(tmp_path: Path, *, deliverables_already_exist: bool = False
     ws.mkdir()
     _write_skills(ws)
     _write_gates(ws)
+    _write_plan(ws)
     _write_task(ws)
     for sub in ("sessions", "kb", "context-manifests", "src", "tests"):
         (ws / sub).mkdir(parents=True, exist_ok=True)
