@@ -11,6 +11,15 @@ from drone.navigation.waypoint_sequencer import WaypointSequencer
 pytestmark = pytest.mark.unit
 
 
+class TestWaypointSequencerNoPlan:
+    def test_step_without_plan_raises(self):
+        """Calling step() without calling set_plan() first must raise RuntimeError."""
+        fc = FakeFlightController()
+        seq = WaypointSequencer(fc)
+        with pytest.raises(RuntimeError, match="no nav plan set"):
+            seq.step(0.05)
+
+
 class TestWaypointSequencerSetPlan:
     def test_set_plan_resets(self):
         fc = FakeFlightController()

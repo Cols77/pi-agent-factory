@@ -27,7 +27,7 @@ class WaypointSequencer:
     def step(self, dt: float) -> bool:
         """Advance toward current waypoint. Returns True if waypoint was reached this step."""
         if self._plan is None:
-            return False
+            raise RuntimeError("no nav plan set — call set_plan() before step()")
 
         if self._current_idx >= len(self._plan.waypoints):
             return False
