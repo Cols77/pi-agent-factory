@@ -8,15 +8,18 @@ They exist to catch integration bugs the fake-backed unit tests cannot -- e.g.
 exercised end to end.
 
 They are marked `e2e` (excluded from the default `-m unit` run) and SKIP unless
-BOTH `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` are set. Run with:
+BOTH `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` are set. Validated config:
 
-    OPENROUTER_API_KEY=... OPENROUTER_MODEL=<openrouter-model-id> \
+    OPENROUTER_API_KEY=... OPENROUTER_MODEL=deepseek/deepseek-v4-flash:low \
         uv run python -m pytest tests/e2e -m e2e -v
 
-NOTE: transitions through the LLM stages (context-gather proving coherence, dev
-producing a valid manifest/output, review's verdict) depend on the model. The
-dumb task + gates below are trivial on purpose; if a cheap model stalls a stage,
-tune the task prompt in `_write_task` or the gate strictness in `_write_gates`.
+NOTE on the model: use the plain slug (`deepseek/deepseek-v4-flash`), NOT an
+`openrouter/`-prefixed one (double-prefix makes pi fall back to plain text with
+no `--mode json` events). Thinking level matters: at a HIGH thinking level the
+model tool-calls/thinks without concluding with the manifest, so context-gather
+rejects -- the `:low` thinking shorthand (as above) or a non-thinking model lets
+it emit the manifest. The happy path was verified green with the config above.
+If a cheaper model stalls a stage, tune `_write_task`/`_write_gates`.
 """
 
 from __future__ import annotations
