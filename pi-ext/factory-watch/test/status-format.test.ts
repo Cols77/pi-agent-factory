@@ -254,3 +254,18 @@ describe("formatMissionControlRows", () => {
     });
   });
 });
+
+test("parseStatus surfaces already_done and deliverables on a pipeline entry", () => {
+  const raw = JSON.stringify({
+    session_id: "s1", task_id: "T-1", current_node: "human-review", current_state: "blocked",
+    started_at: "t", updated_at: "t",
+    pipeline: [{
+      node: "human-review", node_state: "blocked", attempt: 1, max_attempts: 1,
+      snippet: "", outcome: null, handoff: null, updated_at: "t",
+      already_done: true, deliverables: ["src/x.py"],
+    }],
+  });
+  const rec = parseStatus(raw)!;
+  expect(rec.pipeline[0]!.already_done).toBe(true);
+  expect(rec.pipeline[0]!.deliverables).toEqual(["src/x.py"]);
+});

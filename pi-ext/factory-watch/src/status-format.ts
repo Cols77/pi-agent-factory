@@ -10,6 +10,8 @@ export interface PipelineEntry {
   session_id?: string | null;
   summary?: string | null;
   start_commit?: string | null;
+  already_done?: boolean;
+  deliverables?: string[];
 }
 
 export interface StatusRecord {
