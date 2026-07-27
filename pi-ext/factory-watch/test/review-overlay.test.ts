@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import { ReviewOverlay, runReviewLoop } from "../src/review-overlay.js";
 import { computeFileDiffText } from "../src/review-diff.js";
@@ -281,5 +282,28 @@ describe("ReviewOverlay already-done (implementing) mode", () => {
     );
     const summary = overlay.render(80).join("\n");
     expect(summary).toContain("This task appears already complete");
+  });
+});
+
+describe("ReviewOverlay line-width truncation (pi-tui hard-throws on over-width lines)", () => {
+  test("file view truncates every line to the given width", () => {
+    const longLine = "+" + "x".repeat(200);
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(`@@ -1 +1 @@\n${longLine}\n`);
+    const overlay = makeOverlay(new Map(), () => {});
+    overlay.handleInput("\r"); // open the diff view
+    for (const line of overlay.render(80)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+    }
+  });
+
+  test("summary view truncates a long banner to the given width", () => {
+    const files: FileStat[] = [{ path: "a.py", status: "A", added: 1, removed: 0 }];
+    const overlay = new ReviewOverlay(
+      files, new Map(), { terminal: { rows: 20 } }, "/repo", "", () => {},
+      { implementing: true, banner: "This task appears already complete -- approve to mark it done, reject to re-run it." },
+    );
+    for (const line of overlay.render(40)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    }
   });
 });

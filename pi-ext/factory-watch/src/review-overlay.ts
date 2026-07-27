@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { renderDiff } from "@earendil-works/pi-coding-agent";
 // .ts (not .js) relative imports -- this file is now also loaded via a
 // plain `node <file>.ts` import chain (mission-control-review.ts), and only
@@ -179,7 +179,10 @@ export class ReviewOverlay {
         lines.push(prefix + formatStatLine(f, this.comments.has(f.path)));
       });
       lines.push("", "↑↓ select  Enter open  c comment  e edit  a approve  r reject");
-      return lines;
+      // pi-tui hard-throws (TUI.doRender) if any rendered line's visible width
+      // exceeds the terminal width -- long diff lines / a long banner / a long
+      // file path would otherwise crash the whole session. Truncate every line.
+      return lines.map((line) => truncateToWidth(line, width));
     }
 
     const view = this.view;
@@ -193,7 +196,9 @@ export class ReviewOverlay {
     const footer =
       `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
       "(arrows/PgUp/PgDn/Home/End, c comment, e edit, q back) --";
-    return [...visible, footer];
+    // See the summary branch: every line must fit the terminal width or
+    // pi-tui throws. Diff lines especially can be arbitrarily long.
+    return [...visible, footer].map((line) => truncateToWidth(line, width));
   }
 }
 
