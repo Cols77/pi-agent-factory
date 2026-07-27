@@ -61,6 +61,7 @@ const NODE_LABELS: Record<string, string> = {
   validation: "validation",
   review: "reviewer",
   "human-review": "human-review",
+  "session-review": "session-reviewer",
 };
 
 // Icons for node states

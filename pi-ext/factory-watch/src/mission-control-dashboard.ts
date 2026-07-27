@@ -3,7 +3,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import { formatMissionControlRows } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
 
-const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
+const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review", "session-review"];
 const AGENT_NODES = new Set(["context-gather", "dev", "review", "session-review"]);
 
 export type MissionControlAction =

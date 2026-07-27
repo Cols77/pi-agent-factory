@@ -46,6 +46,14 @@ test("Enter on human-review resolves review", () => {
   expect(onAction).toHaveBeenCalledWith({ type: "review" });
 });
 
+test("Enter on the session-review row resolves inspect with its sessionId", () => {
+  const onAction = vi.fn();
+  const d = new MissionControlDashboard(withEntry({ node: "session-review", node_state: "pass", session_id: "sr-xyz" }), onAction);
+  down(d, 5); // session-review is the last stage row (after human-review)
+  d.handleInput("\r");
+  expect(onAction).toHaveBeenCalledWith({ type: "inspect", sessionId: "sr-xyz" });
+});
+
 test("q and Ctrl-C resolve quit", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(RECORD, onAction);
@@ -61,6 +69,7 @@ test("renders one row per stage with the task header", () => {
   expect(lines).toContain("T-029");
   expect(lines).toContain("context-gatherer");
   expect(lines).toContain("human-review");
+  expect(lines).toContain("session-reviewer");
 });
 
 test("shows a HUMAN REVIEW NEEDED alert when human-review is blocked", () => {
