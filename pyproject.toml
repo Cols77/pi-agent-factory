@@ -24,6 +24,7 @@ markers = [
   "unit: fast deterministic tests",
   "agent: agent decision tests with mocked LLM",
   "sim: pybullet simulation tests",
+  "e2e: real-LLM end-to-end pipeline tests (needs OPENROUTER_API_KEY + OPENROUTER_MODEL; run with `pytest -m e2e`)",
 ]
 addopts = "-m unit"
 
