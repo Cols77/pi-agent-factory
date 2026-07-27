@@ -40,9 +40,19 @@ def test_read_validation_reads_existing_gate_logs(tmp_path):
     ]
 
 
+def test_parse_gate_summary_skipped_only_is_shown_not_dropped(tmp_path):
+    # An all-skipped run has a real tally -- it must surface (ok False, since
+    # nothing actually passed), never silently vanish from the guide.
+    assert parse_gate_summary("sssss\n5 skipped in 0.1s\n") == {"ok": False, "summary": "5 skipped"}
+
+
 def test_write_review_guide_atomic_and_best_effort(tmp_path):
     p = tmp_path / "d" / "review-guide.json"
     write_review_guide(p, {"confidence": "high", "verify": []})
     assert json.loads(p.read_text(encoding="utf-8"))["confidence"] == "high"
-    # a bad path must NOT raise
-    write_review_guide(tmp_path / "does" / "not" / "exist" / "x.json", {})  # dirs created; no raise
+    # A genuinely-failing write (a parent path that is a FILE, not a dir) must be
+    # swallowed -- best-effort, never raises. This actually exercises the
+    # except-OSError branch (mkdir under a file raises).
+    (tmp_path / "afile").write_text("x", encoding="utf-8")
+    write_review_guide(tmp_path / "afile" / "sub" / "x.json", {})  # must not raise
+    assert not (tmp_path / "afile" / "sub" / "x.json").exists()

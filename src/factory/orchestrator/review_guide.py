@@ -20,7 +20,7 @@ def parse_gate_summary(log_text: str) -> dict | None:
         m = list(pat.finditer(log_text))
         if m:
             counts[kind.rstrip("s") if kind == "errors" else kind] = int(m[-1].group(1))
-    if any(k in counts for k in ("passed", "failed", "error")):
+    if any(k in counts for k in ("passed", "failed", "error", "skipped", "xfailed")):
         parts = []
         for kind in ("failed", "error", "passed", "skipped", "xfailed"):
             if counts.get(kind):
