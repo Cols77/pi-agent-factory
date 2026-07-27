@@ -1,0 +1,47 @@
+{
+  "session_id": "2026-07-24T14-57-50Z",
+  "started_at": "2026-07-24T14:58:17Z",
+  "ended_at": "2026-07-24T14:58:17Z",
+  "model_backend": "openrouter:auto",
+  "git": {
+    "branch": "main",
+    "head": "e6cf03532832ac31ce5a3fb9cdd0ccb4afdb6814"
+  },
+  "tasks": [
+    {
+      "task_id": "T-029",
+      "title": "Core Data Types & FakeFlightController",
+      "outcome": "rejected",
+      "iterations": 1,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "reject",
+          "attempts": 1,
+          "extra": {
+            "reason": {
+              "reason": "Cannot verify consistency between task and plan document due to file access limitations.",
+              "conflicts": [
+                "Task T-029 references plan document docs/superpowers/plans/2026-07-21-mission-agent-navigation.md#Task 1 which cannot be read to confirm consistency."
+              ]
+            }
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": false
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}

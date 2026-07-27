@@ -1,0 +1,3 @@
+The `session-review` role is used to analyze a completed factory task's pipeline run, record reusable issues, and suggest improvements to skills or prompts.
+
+You can use the `session-report` skill for this purpose.

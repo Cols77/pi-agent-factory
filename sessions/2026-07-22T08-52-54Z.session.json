@@ -1,0 +1,50 @@
+{
+  "session_id": "2026-07-22T08-52-54Z",
+  "started_at": "2026-07-22T08:52:54Z",
+  "ended_at": "2026-07-22T08:52:54Z",
+  "model_backend": "openrouter:anthropic/claude-opus-4",
+  "git": {
+    "branch": "main",
+    "head": "95e844365413ab86c679ba40ebcf34c2646db59e"
+  },
+  "tasks": [
+    {
+      "task_id": "T-029",
+      "title": "Core Data Types & FakeFlightController",
+      "outcome": "rejected",
+      "iterations": 1,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "reject",
+          "attempts": 2,
+          "extra": {
+            "errors": [
+              "<root>: 'task_id' is a required property",
+              "<root>: 'generated_by' is a required property",
+              "<root>: 'generated_at' is a required property",
+              "<root>: 'coherence' is a required property",
+              "<root>: 'context' is a required property"
+            ],
+            "backend_ok": false,
+            "backend_raw": "La ligne de commande est trop longue.\n"
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": false
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}

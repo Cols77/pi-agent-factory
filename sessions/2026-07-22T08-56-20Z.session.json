@@ -1,0 +1,50 @@
+{
+  "session_id": "2026-07-22T08-56-20Z",
+  "started_at": "2026-07-22T08:56:20Z",
+  "ended_at": "2026-07-22T08:56:20Z",
+  "model_backend": "openrouter:z-ai/glm-5.1",
+  "git": {
+    "branch": "main",
+    "head": "1866a6205bebc122ca1fe38cdc4865a0a2f43015"
+  },
+  "tasks": [
+    {
+      "task_id": "T-029",
+      "title": "Core Data Types & FakeFlightController",
+      "outcome": "rejected",
+      "iterations": 1,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "reject",
+          "attempts": 2,
+          "extra": {
+            "errors": [
+              "<root>: 'task_id' is a required property",
+              "<root>: 'generated_by' is a required property",
+              "<root>: 'generated_at' is a required property",
+              "<root>: 'coherence' is a required property",
+              "<root>: 'context' is a required property"
+            ],
+            "backend_ok": false,
+            "backend_raw": "La ligne de commande est trop longue.\n"
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": false
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}

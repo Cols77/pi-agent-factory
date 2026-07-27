@@ -1,0 +1,4 @@
+The `session-report` skill analyzes a completed task's pipeline run and can record reusable issues in the knowledge base or suggest improvements for skills and prompts.
+
+To use this skill, please provide the event history for the task you want to review. This will allow me to analyze the pipeline run, identify any issues, and generate a report.
+
