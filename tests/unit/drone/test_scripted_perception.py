@@ -13,6 +13,17 @@ def _det(label: str) -> Detection:
     return Detection(label=label, confidence=0.9, bearing=0, range=0, position=Pose())
 
 
+class TestScriptedPerceptionProtocol:
+    def test_satisfies_perception_protocol(self):
+        from drone.interfaces import Perception
+        sp = ScriptedPerception.constant([])
+        assert isinstance(sp, Perception)
+        sp2 = ScriptedPerception.sequential([[]])
+        assert isinstance(sp2, Perception)
+        sp3 = ScriptedPerception(script=[])
+        assert isinstance(sp3, Perception)
+
+
 class TestScriptedPerceptionSequential:
     def test_sequential_returns_steps(self):
         sp = ScriptedPerception.sequential([
