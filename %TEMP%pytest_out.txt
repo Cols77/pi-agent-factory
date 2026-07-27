@@ -1,0 +1,8 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0 -- C:\coding\pi-agent-factory\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\coding\pi-agent-factory
+configfile: pyproject.toml
+collecting ... collected 5 items / 5 deselected / 0 selected
+
+============================ 5 deselected in 0.08s ============================

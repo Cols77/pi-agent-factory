@@ -2,3 +2,33 @@ session written: C:\coding\pi-agent-factory\sessions\2026-07-22T09-13-17Z.sessio
 session written: C:\coding\pi-agent-factory\sessions\2026-07-22T09-26-51Z.session.json
 session written: C:\coding\pi-agent-factory\sessions\2026-07-24T14-57-50Z.session.json
 session written: C:\coding\pi-agent-factory\sessions\2026-07-27T09-39-37Z.session.json
+warning: in the working copy of 'scripts/gates/sim_smoke.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'test_output.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/sim/drone/test_fake_fc_sim.py', LF will be replaced by CRLF the next time Git touches it
+session written: C:\coding\pi-agent-factory\sessions\2026-07-27T10-17-10Z.session.json
+session written: C:\coding\pi-agent-factory\sessions\2026-07-27T14-29-58Z.session.json
+warning: in the working copy of 'sessions/.factory-run.log', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'sessions/latest.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'kb/kb-0002-unit-suite-exceeds-short-agent-timeout.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'kb/kb-0003-watch-ext-smoke-test-fails-on-pre-existing-ts-issue.md', LF will be replaced by CRLF the next time Git touches it
+error: invalid path 'nul'
+error: unable to add 'nul' to index
+fatal: adding files failed
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\coding\pi-agent-factory\src\factory\orchestrator\__main__.py", line 103, in <module>
+    main()
+  File "C:\coding\pi-agent-factory\src\factory\orchestrator\__main__.py", line 80, in main
+    path = run_next(
+           ^^^^^^^^^
+  File "C:\coding\pi-agent-factory\src\factory\orchestrator\runner.py", line 235, in run_next
+    result = run_task(
+             ^^^^^^^^^
+  File "C:\coding\pi-agent-factory\src\factory\orchestrator\runner.py", line 171, in run_task
+    git_ops.commit_all(repo_root, "review: address direct edits during human review")
+  File "C:\coding\pi-agent-factory\src\factory\orchestrator\git_ops.py", line 22, in commit_all
+    subprocess.run(["git", "add", "-A"], cwd=repo_root, check=True)
+  File "C:\Users\33630\AppData\Roaming\uv\python\cpython-3.12.12-windows-x86_64-none\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 128.

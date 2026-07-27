@@ -1,0 +1,62 @@
+{
+  "session_id": "2026-07-27T10-17-10Z",
+  "started_at": "2026-07-27T10:43:00Z",
+  "ended_at": "2026-07-27T10:43:00Z",
+  "model_backend": "openrouter:auto",
+  "git": {
+    "branch": "main",
+    "head": "021e09daa7ba9426376e736360a5ac6f1fbb45e4"
+  },
+  "tasks": [
+    {
+      "task_id": "T-030",
+      "title": "MissionState",
+      "outcome": "completed",
+      "iterations": 1,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "dev",
+          "result": "pass",
+          "attempts": 2,
+          "extra": {
+            "tests": "green"
+          }
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "review",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {}
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": true
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [
+      "kb-0002"
+    ],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}

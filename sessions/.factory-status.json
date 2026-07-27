@@ -1,38 +1,38 @@
 {
-  "session_id": "2026-07-27T10-17-10Z",
-  "task_id": "T-030",
+  "session_id": "2026-07-27T20-00-48Z",
+  "task_id": "T-034",
   "current_node": "human-review",
   "current_state": "blocked",
   "pipeline": [
     {
       "node": "context-gather",
       "node_state": "pass",
-      "attempt": 1,
-      "max_attempts": 1,
+      "attempt": 2,
+      "max_attempts": 2,
       "snippet": "",
       "outcome": null,
       "handoff": null,
-      "session_id": "019fa314-3f76-7d37-b567-122ad70b9818",
+      "session_id": "019fa52b-b809-760d-9cec-246144a95cf3",
       "summary": null,
       "start_commit": null,
       "already_done": false,
       "deliverables": [],
-      "updated_at": "2026-07-27T10:17:56Z"
+      "updated_at": "2026-07-27T20:03:21Z"
     },
     {
       "node": "dev",
       "node_state": "pass",
-      "attempt": 2,
+      "attempt": 1,
       "max_attempts": 3,
       "snippet": "",
       "outcome": null,
       "handoff": null,
-      "session_id": "019fa31a-f1b5-7aa2-8382-dd291cd6d0b5",
+      "session_id": "019fa52c-d459-73b8-a6ad-43f4ed1f7c96",
       "summary": null,
       "start_commit": null,
       "already_done": false,
       "deliverables": [],
-      "updated_at": "2026-07-27T10:31:45Z"
+      "updated_at": "2026-07-27T20:08:58Z"
     },
     {
       "node": "validation",
@@ -47,7 +47,7 @@
       "start_commit": null,
       "already_done": false,
       "deliverables": [],
-      "updated_at": "2026-07-27T10:31:47Z"
+      "updated_at": "2026-07-27T20:09:00Z"
     },
     {
       "node": "review",
@@ -57,12 +57,12 @@
       "snippet": "",
       "outcome": "completed",
       "handoff": "\u2713 task complete, DoD met, gates pass",
-      "session_id": "019fa321-94aa-72c8-a687-88e31d345061",
+      "session_id": "019fa532-0100-7df6-8fb2-4ab34800af06",
       "summary": "DoD met; gates pass",
       "start_commit": null,
       "already_done": false,
       "deliverables": [],
-      "updated_at": "2026-07-27T10:34:46Z"
+      "updated_at": "2026-07-27T20:11:39Z"
     },
     {
       "node": "human-review",
@@ -74,12 +74,12 @@
       "handoff": "waiting for you to review the diff",
       "session_id": null,
       "summary": null,
-      "start_commit": "021e09daa7ba9426376e736360a5ac6f1fbb45e4",
+      "start_commit": "55094102639a160e9fd6455675db6e6ace405af3",
       "already_done": false,
       "deliverables": [],
-      "updated_at": "2026-07-27T10:34:46Z"
+      "updated_at": "2026-07-27T20:11:39Z"
     }
   ],
-  "started_at": "2026-07-27T10:17:11Z",
-  "updated_at": "2026-07-27T10:34:46Z"
+  "started_at": "2026-07-27T20:00:48Z",
+  "updated_at": "2026-07-27T20:11:39Z"
 }

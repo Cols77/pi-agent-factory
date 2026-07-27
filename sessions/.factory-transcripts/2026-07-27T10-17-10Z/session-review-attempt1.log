@@ -1,0 +1,8 @@
+Session review completed.
+
+- Updated `sessions/latest.md` with stage attempts, outcome, and suggestions.
+- Added reusable issue: `kb/kb-0002-unit-suite-exceeds-short-agent-timeout.md`.
+- Recorded `kb-0002` in `sessions/2026-07-27T10-17-10Z.session.json`.
+- KB and session validators pass.
+
+Key finding: the only Dev retry resulted from a 120-second timeout on a healthy unit suite that normally takes about 130 seconds.
