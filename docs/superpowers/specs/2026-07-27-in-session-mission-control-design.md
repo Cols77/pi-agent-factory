@@ -37,11 +37,16 @@ machinery and the bugs that come with it.
   <file>` for an actual takeover. The pop-out is the *only* surviving use of a
   separate window.
 - **Validation row** → the gate log in a scrollable in-session view.
-- **Human-review** → the existing in-session `runReviewLoop`, **auto-opened**
-  when the poll detects the human-review row entering `blocked` (preserving
-  today's "it needs me → here's the diff" behavior).
-- **`q`** closes the overlay back to chat; the non-blocking status **widget**
-  (`ctx.ui.setWidget("factory", …)`) stays for at-a-glance progress.
+- **Human-review** → the existing in-session `runReviewLoop`, opened by an
+  **explicit Enter** on the human-review row. When human-review is `blocked` the
+  dashboard shows a prominent "HUMAN REVIEW NEEDED — press Enter" alert. (Not
+  auto-opened: an overlay can only be opened from the handler's async flow, so
+  auto-open would silently stall if you'd closed mission control first. Explicit
+  Enter has no timing/guard complexity and no stall.)
+- **`q`** closes the overlay back to chat; the run keeps going detached, a
+  background **widget** poll (`ctx.ui.setWidget("factory", …)`) keeps status live
+  and flags "human review needed", and **`/factory-watch`** reopens the overlay
+  anytime.
 - **`/factory-run --auto`** keeps today's widget-only, no-modal background
   behavior (true fire-and-forget). The overlay is for interactive `/factory-run`.
 
@@ -112,13 +117,11 @@ type MissionControlAction =
   `review`/`session-review`). If `sessionId` is null the handler shows the
   existing "session not ready" inline message and reopens (no overlay).
 - **`gate-log`** — Enter on the `validation` row.
-- **`review`** — NOT user-triggered; the overlay's poll emits it automatically
-  when it first sees `human-review` in `node_state === "blocked"` with a
-  `start_commit`, carrying `already_done`/`deliverables` (from Task work already
-  shipped) so the review shows the implementing diff. A per-round guard (moved
-  out of the deleted `launchInteractiveReview` poll into the loop's state)
-  prevents re-emitting for the same blocked round.
-- **`quit`** — `q`.
+- **`review`** — Enter on the `human-review` row. The handler reads the current
+  record's human-review entry for `start_commit`/`already_done`/`deliverables`
+  (already shipped) to choose the implementing-diff vs normal-diff path. No poll
+  auto-emit and no per-round guard — Enter is inherently once-per-intent.
+- **`quit`** — `q`. Returns to chat; the background widget poll keeps running.
 
 ## 6. Drill-down overlays
 
@@ -142,20 +145,33 @@ type MissionControlAction =
   snapshot is enough for watching — reopening re-reads the file.)
 
 ### 6.3 Human-review
-- The `review` action runs the existing `runReviewLoop` (already in-session),
-  using `computeImplementingFiles`/the banner for already-done tasks and
-  `computeReviewFiles` otherwise (both already implemented), then
-  `writeReviewDecision(reviewDecisionPath(cwd, sessionId), decision)`. Control
-  returns to the dashboard loop.
+- Enter on a `blocked` human-review row runs the existing `runReviewLoop`
+  (already in-session), using `computeImplementingFiles`/the banner for
+  already-done tasks and `computeReviewFiles` otherwise (both already
+  implemented), then `writeReviewDecision(reviewDecisionPath(cwd, sessionId),
+  decision)`. Control returns to the dashboard loop.
+- The dashboard's `render` shows a prominent "HUMAN REVIEW NEEDED — press Enter"
+  alert whenever a human-review row is `blocked`, so it's obvious when it needs
+  you.
 
 ## 7. Run lifecycle & exit
 
-- The loop keeps reopening the dashboard until `quit`, OR until the run finishes.
-- **Run-finished detection:** the run lock (`sessions/.factory-run.lock`)
-  disappears when the orchestrator exits (`remove_lock` in `__main__.py`). The
-  dashboard's poll surfaces a "run finished" state; the handler stops re-arming
-  the auto-review and the user `q`s out. The `/factory-run` handler still awaits
-  the orchestrator child's `exit` (as today) so the command completes cleanly.
+- `/factory-run` spawns the orchestrator detached (logging to file), starts an
+  **extension-scoped background widget poll** (the existing `pollHandle` /
+  `stopPolling` pattern: update `ctx.ui.setWidget("factory", …)` each tick, flag
+  "human review needed" when human-review is blocked, and `stopPolling` +
+  "factory run finished" notify when the lock disappears), then runs the
+  mission-control loop.
+- The mission-control loop reopens the dashboard until the user `quit`s. `quit`
+  returns from the loop; `/factory-run` then **returns** (the run continues
+  detached; the background widget poll owns completion detection). The command
+  does NOT block on child exit, so you're back at the chat immediately.
+- **`/factory-watch`** is a new command that runs the mission-control loop
+  against the current status file (no orchestrator spawn); if there's no active
+  run it notifies "no factory run to watch". This is how you re-enter mission
+  control after `q`, e.g. when the widget flags "human review needed".
+- **Run-finished:** detected by the run lock (`sessions/.factory-run.lock`)
+  disappearing (`remove_lock` in `__main__.py`), surfaced by the background poll.
 
 ## 8. `--auto` mode
 
@@ -168,8 +184,10 @@ the modal overlay. This preserves a true fire-and-forget option.
 - `mission-control-dashboard.ts`'s standalone `main()` and its
   `if (process.argv[1]?.endsWith("mission-control-dashboard.ts")) …` bootstrap.
 - `launchMissionControl(ctx)` (the dashboard window spawn).
-- `launchInteractiveReview`'s separate review-poll `setInterval` (folded into the
-  loop's `review` action + guard).
+- `launchInteractiveReview`'s **review-launching** poll (the part that opened the
+  review overlay) — review is now Enter-driven inside the loop. Its **widget
+  update** half is kept as the extension-scoped background poll (§7).
+- **Added:** a `/factory-watch` command that re-enters the mission-control loop.
 - The dashboard's direct window spawns (`openAgentSession`, `tailGateLog`,
   `openReviewBrowser`) — replaced by action resolutions.
 - `spawnTerminalWindow` is retained ONLY for the `pi --session` pop-out (§6.1).
