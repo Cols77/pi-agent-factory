@@ -188,9 +188,11 @@ def test_already_done_human_review_block_carries_deliverables(tmp_path):
         encoding="utf-8")
     status = FakeStatusReporter()
     human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    # Explicit task_id: an already-on-disk task is skipped by next_todo (the
+    # picker-hide feature), so run it explicitly to exercise the already-done route.
     run_next(
         repo, FakeAgentBackend(_already_done_scripts()), FakeGateRunner(),
-        session_id="s1", git_info={"branch": "main"},
+        session_id="s1", git_info={"branch": "main"}, task_id="T-001",
         human_review=human_review, status=status,
     )
     blocked = [c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"]

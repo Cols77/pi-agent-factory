@@ -98,4 +98,4 @@ def test_main_list_json_outputs_structured_tasks(tmp_path, monkeypatch, capsys):
     main()
 
     out = json.loads(capsys.readouterr().out)
-    assert out == [{"id": "T-001", "title": "Example task", "status": "todo"}]
+    assert out == [{"id": "T-001", "title": "Example task", "status": "todo", "already_done": False}]

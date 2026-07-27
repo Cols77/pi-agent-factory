@@ -15,7 +15,7 @@ from factory.orchestrator.ledger import (
     next_todo,
     set_status,
 )
-from factory.orchestrator.deliverables import parse_deliverables
+from factory.orchestrator.deliverables import deliverables_exist, parse_deliverables
 from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
@@ -228,7 +228,9 @@ def run_next(
         if task.status != "todo":
             raise TaskNotTodoError(task_id, task.status)
     else:
-        task = next_todo(tasks)
+        # Skip tasks whose Create:/Test: deliverables already exist on disk --
+        # their work is already done, so they shouldn't be auto-picked as "next".
+        task = next_todo([t for t in tasks if not deliverables_exist(t.body, repo_root)])
         if task is None:
             return None
 

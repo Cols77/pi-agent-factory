@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator.backends import SubprocessGateRunner
+from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
@@ -47,7 +48,13 @@ def main() -> None:
     if args.command == "list":
         tasks = load_tasks(repo_root / "tasks")
         if args.json:
-            print(json.dumps([{"id": t.id, "title": t.title, "status": t.status} for t in tasks]))
+            print(json.dumps([
+                {
+                    "id": t.id, "title": t.title, "status": t.status,
+                    "already_done": deliverables_exist(t.body, repo_root),
+                }
+                for t in tasks
+            ]))
         else:
             print(format_task_board(tasks))
         return

@@ -469,8 +469,29 @@ describe("factory-watch commands", () => {
     const ctx = fakeCtx();
     await commands.get("factory-run")!.handler("", ctx);
 
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no todo tasks"), "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no runnable todo tasks"), "info");
     expect(ctx.ui.select).not.toHaveBeenCalled();
+  });
+
+  test("/factory-run hides already-done todo tasks from the picker", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify([
+        { id: "T-001", title: "First", status: "todo", already_done: true },
+        { id: "T-002", title: "Second", status: "todo", already_done: false },
+      ]),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue(undefined),
+      confirm: vi.fn(async () => true), editor: vi.fn(async () => undefined), custom: vi.fn(),
+    };
+    const { commands } = capture();
+    await commands.get("factory-run")!.handler("", fakeCtx({ ui }));
+
+    // T-001 (already_done) is hidden; only T-002 is offered.
+    expect(ui.select).toHaveBeenCalledWith("Run which task?", ["T-002  Second"]);
   });
 
   test("/factory-run shows a picker over todo tasks and does nothing if cancelled", async () => {

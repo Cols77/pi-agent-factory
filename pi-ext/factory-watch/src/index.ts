@@ -338,9 +338,11 @@ export default function factoryWatch(pi: PiApi): void {
           ctx.ui.notify("factory-run failed to parse task list", "error");
           return;
         }
-        const todoTasks = tasks.filter((t) => t.status === "todo");
+        // Hide tasks whose Create:/Test: deliverables already exist -- their
+        // work is already done, so don't suggest them for execution.
+        const todoTasks = tasks.filter((t) => t.status === "todo" && !t.already_done);
         if (todoTasks.length === 0) {
-          ctx.ui.notify("no todo tasks", "info");
+          ctx.ui.notify("no runnable todo tasks (already-done tasks are hidden)", "info");
           return;
         }
         const selected = await ctx.ui.select("Run which task?", todoTasks.map(formatTaskOption));
