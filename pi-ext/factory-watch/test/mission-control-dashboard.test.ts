@@ -72,3 +72,45 @@ test("no alert when human-review is not blocked", () => {
   const d = new MissionControlDashboard(RECORD, () => {});
   expect(d.render(80).join("\n")).not.toContain("HUMAN REVIEW NEEDED");
 });
+
+test("Down/Up move the selected row", () => {
+  const d = new MissionControlDashboard(RECORD, () => {});
+  d.handleInput("\x1b[B");
+  expect(d.render(80).find((l) => l.startsWith("> "))).toContain("developer");
+  d.handleInput("\x1b[A");
+  expect(d.render(80).find((l) => l.startsWith("> "))).toContain("context-gather");
+});
+
+test("updateRecord replaces the displayed data without losing selection", () => {
+  const d = new MissionControlDashboard(RECORD, () => {});
+  d.handleInput("\x1b[B"); // select "dev"
+  const updated: StatusRecord = {
+    ...RECORD,
+    pipeline: [...RECORD.pipeline, {
+      node: "validation", node_state: "pass", attempt: 1, max_attempts: 1,
+      snippet: "", outcome: null, handoff: "-> review: sim tests green", updated_at: "t",
+    }],
+  };
+  d.updateRecord(updated);
+  expect(d.render(80).join("\n")).toContain("-> review: sim tests green");
+});
+
+test("render() prints a row's summary (width-wrapped)", () => {
+  const record: StatusRecord = {
+    ...RECORD,
+    pipeline: [
+      {
+        ...RECORD.pipeline[0]!,
+        summary: "Reviewed three files and found no blocking issues in the change.",
+      },
+      RECORD.pipeline[1]!,
+    ],
+  };
+  const d = new MissionControlDashboard(record, () => {});
+  const lines = d.render(40);
+  expect(lines.join("\n")).toContain("Reviewed three files");
+  // width-wrapped: no rendered line should blow past the given width.
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(40);
+  }
+});
