@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { parseSessionTranscript } from "../src/session-transcript.js";
 
 const JSONL = [
@@ -10,7 +10,9 @@ const JSONL = [
 
 test("renders user/assistant text with a role prefix", () => {
   const out = parseSessionTranscript(JSONL);
+  expect(out).toContain("## user");
   expect(out).toContain("implement T-030");
+  expect(out).toContain("## assistant");
   expect(out).toContain("writing the test first");
 });
 
