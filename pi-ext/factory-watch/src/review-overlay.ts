@@ -8,7 +8,7 @@ import { renderDiff } from "@earendil-works/pi-coding-agent";
 // Other files (e.g. index.ts) still import this same module tree with
 // ".js" specifiers for vitest -- each import statement resolves
 // independently, so this doesn't affect those.
-import { computeFileDiffText } from "./review-diff.ts";
+import { computeFileDiffText, computeImplementingFileDiffText } from "./review-diff.ts";
 import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
@@ -46,6 +46,11 @@ export class ReviewOverlay {
   private readonly cwd: string;
   private readonly startCommit: string;
   private readonly onAction: (action: ReviewAction) => void;
+  // Already-done mode: per-file diffs come from the deliverables' implementing
+  // commits (computeImplementingFileDiffText) rather than start_commit..working
+  // tree, and `banner` is shown atop the summary.
+  private readonly implementing: boolean;
+  private readonly banner: string;
 
   // Explicit field assignment, not TypeScript constructor parameter
   // properties -- this file is now also loaded via a plain `node <file>.ts`
@@ -62,6 +67,7 @@ export class ReviewOverlay {
     cwd: string,
     startCommit: string,
     onAction: (action: ReviewAction) => void,
+    opts: { implementing?: boolean; banner?: string } = {},
   ) {
     this.files = files;
     this.comments = comments;
@@ -69,6 +75,8 @@ export class ReviewOverlay {
     this.cwd = cwd;
     this.startCommit = startCommit;
     this.onAction = onAction;
+    this.implementing = opts.implementing ?? false;
+    this.banner = opts.banner ?? "";
   }
 
   private currentFile(): FileStat {
@@ -82,7 +90,9 @@ export class ReviewOverlay {
   private diffLinesFor(file: FileStat): string[] {
     let cached = this.diffLineCache.get(file.path);
     if (cached === undefined) {
-      const diffText = computeFileDiffText(this.cwd, this.startCommit, file.path);
+      const diffText = this.implementing
+        ? computeImplementingFileDiffText(this.cwd, file.path)
+        : computeFileDiffText(this.cwd, this.startCommit, file.path);
       // renderDiff colorizes via pi-coding-agent's global theme singleton, which
       // is only initialized by the interactive host (initTheme()) -- never by
       // this extension. Fall back to the raw diff text if that global isn't
@@ -159,7 +169,11 @@ export class ReviewOverlay {
 
   render(width: number): string[] {
     if (this.view.mode === "summary") {
-      const lines = [`Task: ${this.files.length} files changed`, ""];
+      const lines: string[] = [];
+      if (this.banner) {
+        lines.push(this.banner, "");
+      }
+      lines.push(`Task: ${this.files.length} files changed`, "");
       this.files.forEach((f, i) => {
         const prefix = i === this.selectedIndex ? "> " : "  ";
         lines.push(prefix + formatStatLine(f, this.comments.has(f.path)));
@@ -194,12 +208,13 @@ export async function runReviewLoop(
   taskId: string,
   startCommit: string,
   files: FileStat[],
+  opts: { implementing?: boolean; banner?: string } = {},
 ): Promise<ReviewDecisionResult> {
   const comments = new Map<string, string>();
 
   for (;;) {
     const action = await ui.custom<ReviewAction>((tui, _theme, _keybindings, done) => {
-      return new ReviewOverlay(files, comments, tui, cwd, startCommit, done) as unknown as ReturnType<
+      return new ReviewOverlay(files, comments, tui, cwd, startCommit, done, opts) as unknown as ReturnType<
         Parameters<UiApi["custom"]>[0]
       >;
     });

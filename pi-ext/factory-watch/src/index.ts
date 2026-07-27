@@ -19,7 +19,7 @@ import { listDocs } from "./doc-lister.js";
 import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
-import { computeReviewFiles } from "./review-diff.js";
+import { computeImplementingFiles, computeReviewFiles } from "./review-diff.js";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
@@ -153,10 +153,23 @@ export default function factoryWatch(pi: PiApi): void {
           const taskId = record.task_id;
           const sessionId = record.session_id;
           reviewInFlightForTask = taskId;
-          const files = computeReviewFiles(ctx.cwd, startCommit);
-          void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files).then((decision) => {
-            writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
-          });
+          if (hrEntry.already_done === true) {
+            // Already-done route: the deliverables were committed before this
+            // run, so start_commit..working-tree is empty. Show the deliverables'
+            // implementing commits under an "already complete" banner instead.
+            const files = computeImplementingFiles(ctx.cwd, hrEntry.deliverables ?? []);
+            void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files, {
+              implementing: true,
+              banner: "This task appears already complete -- approve to mark it done, reject to re-run it.",
+            }).then((decision) => {
+              writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
+            });
+          } else {
+            const files = computeReviewFiles(ctx.cwd, startCommit);
+            void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files).then((decision) => {
+              writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
+            });
+          }
         } else if (hrEntry !== undefined && hrEntry.node_state !== "blocked") {
           // The orchestrator loops the same task.id back through dev-retry
           // after a reject and can block on a SECOND (or later) human-review

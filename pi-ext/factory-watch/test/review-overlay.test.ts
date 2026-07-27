@@ -271,3 +271,15 @@ describe("runReviewLoop", () => {
     }
   });
 });
+
+describe("ReviewOverlay already-done (implementing) mode", () => {
+  test("renders the banner in the summary view", () => {
+    const files: FileStat[] = [{ path: "a.py", status: "A", added: 3, removed: 0 }];
+    const overlay = new ReviewOverlay(
+      files, new Map(), { terminal: { rows: 20 } }, "/repo", "", () => {},
+      { implementing: true, banner: "This task appears already complete" },
+    );
+    const summary = overlay.render(80).join("\n");
+    expect(summary).toContain("This task appears already complete");
+  });
+});

@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
-import { computeReviewFiles } from "../src/review-diff.js";
+import { computeImplementingFiles, computeReviewFiles } from "../src/review-diff.js";
 import { runReviewLoop } from "../src/review-overlay.js";
 import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.js";
 import type { PipelineEntry, StatusRecord } from "../src/status-format.js";
@@ -38,6 +38,7 @@ vi.mock("../src/terminal-window.js", () => ({
 }));
 vi.mock("../src/review-diff.js", () => ({
   computeReviewFiles: vi.fn(),
+  computeImplementingFiles: vi.fn(),
 }));
 vi.mock("../src/review-overlay.js", () => ({
   runReviewLoop: vi.fn(),
@@ -257,6 +258,56 @@ describe("factory-watch commands", () => {
       expect(vi.mocked(writeReviewDecision)).toHaveBeenCalledWith(
         reviewDecisionPath(cwd, "sess-1"),
         decision,
+      );
+
+      child.emit("exit");
+      await handlerPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("/factory-run already-done human-review uses the implementing diff + banner", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(spawnSync).mockReturnValue({
+        status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+      } as ReturnType<typeof spawnSync>);
+      const child = new EventEmitter() as EventEmitter & { unref: () => void };
+      child.unref = () => {};
+      vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+
+      const cwd = mkdtempSync(join(tmpdir(), "factory-watch-already-done-"));
+      mkdirSync(join(cwd, "sessions"), { recursive: true });
+      const blockedEntry: PipelineEntry = {
+        node: "human-review", node_state: "blocked", attempt: 0, max_attempts: 0,
+        snippet: "", outcome: null, handoff: null, updated_at: new Date().toISOString(),
+        start_commit: "abc123", already_done: true, deliverables: ["src/x.py"],
+      };
+      const record: StatusRecord = {
+        session_id: "sess-1", task_id: "T-001", current_node: "human-review", current_state: "blocked",
+        pipeline: [blockedEntry], started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      };
+      writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
+
+      const implFiles = [{ path: "src/x.py", status: "A" as const, added: 5, removed: 0 }];
+      vi.mocked(computeImplementingFiles).mockReturnValue(implFiles);
+      vi.mocked(runReviewLoop).mockResolvedValue({ decision: "approve", comments: {} });
+
+      const { commands } = capture();
+      const ctx = fakeCtx({ cwd });
+
+      const handlerPromise = commands.get("factory-run")!.handler("T-001", ctx);
+      await Promise.resolve();
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(vi.mocked(computeImplementingFiles)).toHaveBeenCalledWith(cwd, ["src/x.py"]);
+      expect(vi.mocked(computeReviewFiles)).not.toHaveBeenCalled();
+      expect(vi.mocked(runReviewLoop)).toHaveBeenCalledWith(
+        ctx.ui, cwd, "T-001", "abc123", implFiles,
+        expect.objectContaining({ implementing: true }),
       );
 
       child.emit("exit");
