@@ -212,3 +212,77 @@ def test_already_done_but_sim_fails_falls_through_to_dev(tmp_path):
     assert path is not None
     nodes = [c["node"] for c in status.calls]
     assert "dev" in nodes                 # dev ran on the self-correct pass
+
+
+def _base_manifest():
+    return {
+        "task_id": "T-001", "generated_by": "context-gatherer", "generated_at": "2026-07-16T14:32:10Z",
+        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
+        "reject": None,
+    }
+
+
+def test_reject_then_llm_keeps_requesting_changes_still_returns_to_human(tmp_path):
+    # The T-032 regression: after a human reject, if the LLM reviewer keeps
+    # returning changes-requested, control must STILL come back to the human
+    # (never silently escalate).
+    repo = _repo(tmp_path)
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _base_manifest())],
+        AgentRole.DEV: [AgentResult(True, {}) for _ in range(5)],
+        AgentRole.REVIEW: [
+            AgentResult(True, {"dod_met": True, "findings": []}),                  # round 0: pass -> human
+            AgentResult(True, {"dod_met": False, "findings": ["needs docstring"]}),  # round 1 inner cycles: all changes
+            AgentResult(True, {"dod_met": False, "findings": ["needs docstring"]}),
+            AgentResult(True, {"dod_met": False, "findings": ["needs docstring"]}),
+        ],
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
+    }
+    human_review = FakeHumanReviewGate([
+        HumanReviewDecision("reject", {"src/x.py": "add a docstring"}),
+        HumanReviewDecision("approve", {}),
+    ])
+    status = FakeStatusReporter()
+    path = run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
+                    session_id="s1", git_info={"branch": "main"},
+                    human_review=human_review, status=status)
+    assert path is not None
+    hr = [c for c in status.calls if c["node"] == "human-review"]
+    assert [c["node_state"] for c in hr] == ["blocked", "changes-requested", "blocked", "approved"]
+    second_blocked = [c for c in hr if c["node_state"] == "blocked"][1]
+    assert "reviewer couldn't confirm" in second_blocked["handoff"]
+    assert len(human_review.requests) == 2
+
+
+def test_escalates_only_after_max_human_rounds_of_rejects(tmp_path):
+    repo = _repo(tmp_path)
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _base_manifest())],
+        AgentRole.DEV: [AgentResult(True, {}) for _ in range(6)],
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []}) for _ in range(6)],
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
+    }
+    human_review = FakeHumanReviewGate([HumanReviewDecision("reject", {"src/x.py": "c"}) for _ in range(3)])
+    status = FakeStatusReporter()
+    run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
+             session_id="s1", git_info={"branch": "main"},
+             human_review=human_review, status=status)
+    blocked = [c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"]
+    assert len(blocked) == 3  # max_human_rounds
+    assert [c for c in status.calls if c.get("outcome") == "escalated"]
+
+
+def test_auto_still_escalates_when_llm_never_passes(tmp_path):
+    repo = _repo(tmp_path)
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _base_manifest())],
+        AgentRole.DEV: [AgentResult(True, {}) for _ in range(4)],
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": False, "findings": ["x"]}) for _ in range(4)],
+        AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
+    }
+    status = FakeStatusReporter()
+    run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
+             session_id="s1", git_info={"branch": "main"}, status=status)  # no human_review -> auto
+    assert not [c for c in status.calls if c["node"] == "human-review"]
+    assert [c for c in status.calls if c.get("outcome") == "escalated"]

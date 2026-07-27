@@ -59,6 +59,7 @@ def run_task(
     *,
     max_dev_iters: int = 3,
     max_review_cycles: int = 3,
+    max_human_rounds: int = 3,
     status: StatusReporter = NullStatusReporter(),
     human_review: HumanReviewGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
@@ -87,84 +88,112 @@ def run_task(
 
     feedback: str | None = None
     iterations = 0
-    for i in range(max_review_cycles):
-        iterations += 1
+    first_dev = True  # already_done skips ONLY the very first dev attempt
 
-        if not (already_done and i == 0):
-            d_outcome, d_ev = run_dev(
-                backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
+    # Outer loop = human rounds; each human reject grants a FRESH inner (LLM)
+    # review budget. --auto (no human) runs the inner loop once, then completes
+    # or escalates -- there is no human to fall back to.
+    outer_rounds = max_human_rounds if human_review is not None else 1
+    for _human_round in range(outer_rounds):
+        # Inner loop = dev -> validation -> LLM review, until the reviewer passes
+        # or the budget is exhausted.
+        llm_passed = False
+        r_ev: NodeEvent | None = None
+        review_findings: list[str] = []
+        for _cycle in range(max_review_cycles):
+            iterations += 1
+
+            if not (already_done and first_dev):
+                d_outcome, d_ev = run_dev(
+                    backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
+                    transcript_dir=transcript_dir, status=status,
+                )
+                events.append(d_ev)
+                if d_outcome == NodeOutcome.ESCALATE:
+                    _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
+                    return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
+                _report_node(status, task.id, d_ev, max_dev_iters)
+            first_dev = False
+
+            v_outcome, v_ev = run_validation(gates, task.id, status=status)
+            events.append(v_ev)
+            _report_node(status, task.id, v_ev, 1)
+            if v_outcome == NodeOutcome.FAIL:
+                feedback = "functional/sim tests failed"
+                continue
+
+            review_changed_files = git_ops.changed_files(repo_root, start_commit)
+            review_kb_ids = select_entries(repo_root / "kb", review_changed_files, [])
+            review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
+
+            r_outcome, r_ev, review_findings = run_review(
+                backend, gates, task, review_kb_entries, repo_root,
                 transcript_dir=transcript_dir, status=status,
             )
-            events.append(d_ev)
-            if d_outcome == NodeOutcome.ESCALATE:
-                _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
-                return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
-            _report_node(status, task.id, d_ev, max_dev_iters)
+            events.append(r_ev)
+            if r_outcome == NodeOutcome.PASS:
+                llm_passed = True
+                break
+            _report_node(status, task.id, r_ev, 1)
+            feedback = "\n".join(review_findings) if review_findings else "review requested changes"
 
-        v_outcome, v_ev = run_validation(gates, task.id, status=status)
-        events.append(v_ev)
-        _report_node(status, task.id, v_ev, 1)
-        if v_outcome == NodeOutcome.FAIL:
-            feedback = "functional/sim tests failed"
-            continue
+        # --auto: no human to fall back to -- complete on an LLM pass, else escalate.
+        if human_review is None:
+            if llm_passed:
+                assert r_ev is not None
+                _report_node(status, task.id, r_ev, 1, outcome="completed")
+                return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
+            break  # escalate below
 
-        review_changed_files = git_ops.changed_files(repo_root, start_commit)
-        review_kb_ids = select_entries(repo_root / "kb", review_changed_files, [])
-        review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
-
-        r_outcome, r_ev, findings = run_review(
-            backend, gates, task, review_kb_entries, repo_root,
-            transcript_dir=transcript_dir, status=status,
+        # Human is in the loop: surface to them whether or NOT the LLM confirmed,
+        # so the reviewer can never silently escalate them out.
+        assert start_commit is not None
+        if llm_passed:
+            handoff = (
+                "task appears already complete -- approve to mark done"
+                if already_done else "waiting for you to review the diff"
+            )
+        else:
+            outstanding = "; ".join(review_findings[:3]) if review_findings else "DoD not met"
+            handoff = (
+                f"reviewer couldn't confirm -- outstanding: {outstanding} "
+                "(approve to accept, reject to send back)"
+            )
+        status.report(
+            task_id=task.id, node="human-review", node_state="blocked",
+            attempt=1, max_attempts=1, handoff=handoff,
+            start_commit=start_commit,
+            already_done=already_done,
+            deliverables=parse_deliverables(task.body) if already_done else [],
         )
-        events.append(r_ev)
-        if r_outcome == NodeOutcome.PASS:
-            if human_review is not None:
-                assert start_commit is not None
-                status.report(
-                    task_id=task.id, node="human-review", node_state="blocked",
-                    attempt=1, max_attempts=1,
-                    handoff=("task appears already complete -- approve to mark done"
-                             if already_done else "waiting for you to review the diff"),
-                    start_commit=start_commit,
-                    already_done=already_done,
-                    deliverables=parse_deliverables(task.body) if already_done else [],
-                )
-                decision = human_review.request_review(task.id, start_commit)
-                if decision.decision == "approve":
-                    git_ops.commit_all(repo_root, "review: address direct edits during human review")
-                    # Resolve the human-review row out of "blocked" so the
-                    # dashboard stops showing it as waiting and so the
-                    # interactive review poll's guard resets (allowing a later
-                    # blocked round on the same task after a reject).
-                    status.report(
-                        task_id=task.id, node="human-review", node_state="approved",
-                        attempt=1, max_attempts=1, handoff="approved",
-                        start_commit=start_commit,
-                    )
-                    _report_node(status, task.id, r_ev, 1, outcome="completed")
-                    return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
-                # Reject: resolve the human-review row out of "blocked" before
-                # looping back into dev-retry. Without this it stays "blocked"
-                # forever and the interactive review poll would suppress the
-                # next blocked round for this same task (the exact regression
-                # the reviewInFlightForTask guard was meant to prevent).
-                status.report(
-                    task_id=task.id, node="human-review", node_state="changes-requested",
-                    attempt=1, max_attempts=1, handoff="rejected: dev will retry",
-                    start_commit=start_commit,
-                )
-                _report_node(status, task.id, r_ev, 1)
-                feedback = format_review_feedback(decision.comments)
-                continue
-            _report_node(status, task.id, r_ev, 1, outcome="completed")
+        decision = human_review.request_review(task.id, start_commit)
+        if decision.decision == "approve":
+            git_ops.commit_all(repo_root, "review: address direct edits during human review")
+            status.report(
+                task_id=task.id, node="human-review", node_state="approved",
+                attempt=1, max_attempts=1, handoff="approved", start_commit=start_commit,
+            )
+            if r_ev is not None:
+                _report_node(status, task.id, r_ev, 1, outcome="completed")
             return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
-        _report_node(status, task.id, r_ev, 1)
-        feedback = "\n".join(findings) if findings else "review requested changes"
 
+        # Reject: send the human's comments back to dev; the next outer round
+        # gets a fresh inner budget. After a human round, dev always runs (an
+        # already-done task is no longer treated as pre-complete).
+        status.report(
+            task_id=task.id, node="human-review", node_state="changes-requested",
+            attempt=1, max_attempts=1, handoff="rejected: dev will retry", start_commit=start_commit,
+        )
+        if r_ev is not None:
+            _report_node(status, task.id, r_ev, 1)
+        feedback = format_review_feedback(decision.comments)
+        already_done = False
+
+    # Escalate: --auto reviewer never passed, or the human rejected every round.
     last_event = events[-1]
     status.report(
         task_id=task.id, node=last_event.node, node_state=last_event.result,
-        attempt=iterations, max_attempts=max_review_cycles, outcome="escalated"
+        attempt=iterations, max_attempts=max_review_cycles, outcome="escalated",
     )
     return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
 
