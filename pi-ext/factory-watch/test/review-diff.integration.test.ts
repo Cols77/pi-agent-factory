@@ -11,7 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { computeFileDiffText, computeReviewFiles } from "../src/review-diff.js";
+import {
+  computeFileDiffText,
+  computeImplementingFileDiffText,
+  computeImplementingFiles,
+  computeReviewFiles,
+} from "../src/review-diff.js";
 
 function git(cwd: string, args: string[]): void {
   const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
@@ -62,5 +67,40 @@ describe("computeReviewFiles / computeFileDiffText against a real repo", () => {
 
     expect(text).toContain("-one");
     expect(text).toContain("+two");
+  });
+});
+
+describe("computeImplementingFiles / computeImplementingFileDiffText against a real repo", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "impl-diff-test-"));
+    git(repo, ["init", "-q"]);
+    git(repo, ["config", "user.email", "t@example.com"]);
+    git(repo, ["config", "user.name", "t"]);
+    writeFileSync(join(repo, "a.py"), "a = 1\n", "utf-8");
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-q", "-m", "add a"]);
+    writeFileSync(join(repo, "b.py"), "b = 2\n", "utf-8");
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-q", "-m", "add b"]);
+  });
+
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  test("computeImplementingFiles reports the last commit's stats for each deliverable", () => {
+    const files = computeImplementingFiles(repo, ["a.py", "b.py"]);
+    const paths = files.map((f) => f.path).sort();
+    expect(paths).toEqual(["a.py", "b.py"]);
+    expect(files.every((f) => f.added > 0)).toBe(true);
+    expect(files.every((f) => f.status === "A")).toBe(true);
+  });
+
+  test("computeImplementingFileDiffText returns the adding commit's patch for a file", () => {
+    const text = computeImplementingFileDiffText(repo, "a.py");
+    expect(text).toContain("a.py");
+    expect(text).toMatch(/^\+a = 1/m);
   });
 });

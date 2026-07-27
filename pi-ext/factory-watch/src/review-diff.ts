@@ -59,6 +59,38 @@ export function computeReviewFiles(cwd: string, startCommit: string): FileStat[]
   }));
 }
 
+// The "implementing diff" for an already-done task: for each deliverable, the
+// last commit that touched it (that file only). Used instead of the
+// start_commit..working-tree range, which is empty when the work was committed
+// before the run started.
+export function computeImplementingFiles(cwd: string, deliverables: string[]): FileStat[] {
+  const out: FileStat[] = [];
+  for (const file of deliverables) {
+    // -1: last commit touching the path; --format= : suppress the commit header.
+    const numstat = spawnSync(
+      "git", ["log", "-1", "--numstat", "--format=", "--", file],
+      { cwd, encoding: "utf-8" },
+    );
+    const nameStatus = spawnSync(
+      "git", ["log", "-1", "--name-status", "--format=", "--", file],
+      { cwd, encoding: "utf-8" },
+    );
+    const statuses = parseNameStatus(nameStatus.stdout);
+    for (const entry of parseDiffStat(numstat.stdout)) {
+      out.push({ ...entry, status: statuses.get(entry.path) ?? entry.status });
+    }
+  }
+  return out;
+}
+
+export function computeImplementingFileDiffText(cwd: string, file: string): string {
+  const result = spawnSync(
+    "git", ["log", "-1", "-p", "--format=", "--", file],
+    { cwd, encoding: "utf-8" },
+  );
+  return result.stdout;
+}
+
 export function computeFileDiffText(cwd: string, startCommit: string, file: string): string {
   // See computeReviewFiles above: single-ref diff against the working tree,
   // not `{startCommit}..HEAD`, so uncommitted dev changes show up.
