@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -19,12 +20,23 @@ class SubprocessGitOps:
         return result.stdout.strip()
 
     def commit_all(self, repo_root: Path, message: str) -> bool:
-        subprocess.run(["git", "add", "-A"], cwd=repo_root, check=True)
-        staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
-        if staged.returncode == 0:
+        # Best-effort: stage and commit any working-tree changes. A git failure
+        # (e.g. a path git refuses, such as the Windows reserved name `nul` that
+        # its readdir can pick up) must NOT crash the orchestrator and strand a
+        # human's approve mid-pipeline -- warn and continue without a commit.
+        try:
+            subprocess.run(["git", "add", "-A"], cwd=repo_root, check=True)
+            staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
+            if staged.returncode == 0:
+                return False
+            subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo_root, check=True)
+            return True
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"factory: warning: commit_all failed, completing without a commit: {exc}",
+                file=sys.stderr,
+            )
             return False
-        subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo_root, check=True)
-        return True
 
     def changed_files(self, repo_root: Path, start_commit: str) -> list[str]:
         # A single-ref diff (`git diff <ref>`, no `..HEAD`) compares that ref

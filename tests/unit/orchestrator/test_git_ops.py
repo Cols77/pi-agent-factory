@@ -98,3 +98,24 @@ def test_fake_git_ops_returns_scripted_changed_files():
 
 def test_fake_git_ops_changed_files_defaults_to_empty():
     assert FakeGitOps().changed_files(None, "abc123") == []
+
+
+def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):
+    # A git failure (e.g. a Windows reserved-name path git refuses with exit
+    # 128) must NOT crash the caller -- commit_all returns False and warns,
+    # never raises. Regression: an already-done human-review approve crashed the
+    # whole orchestrator on `git add -A` and stranded the approve.
+    import subprocess as _sp
+    from unittest.mock import patch
+    from factory.orchestrator.git_ops import SubprocessGitOps
+
+    ops = SubprocessGitOps()
+
+    def fake_run(args, **kwargs):
+        if args[:2] == ["git", "add"]:
+            raise _sp.CalledProcessError(128, args)
+        return _sp.CompletedProcess(args, 0)
+
+    with patch("factory.orchestrator.git_ops.subprocess.run", side_effect=fake_run):
+        result = ops.commit_all(tmp_path, "msg")  # must not raise
+    assert result is False

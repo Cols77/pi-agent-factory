@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# Windows reserved device name that git readdir can pick up; breaks `git add -A`
+nul
