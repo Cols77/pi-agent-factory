@@ -12,34 +12,38 @@ sub-agent sessions, which load `scope-guard` instead).
   and watches its progress. Refuses to start a second run while
   `sessions/.factory-run.lock` shows a live PID.
   - Without `--auto` (the default): spawns the orchestrator **detached**,
-    with stdio fully closed. When the orchestrator's automated review
-    passes, it blocks on human review by writing a `human-review` pipeline
-    entry with `node_state: "blocked"` and a `start_commit` to
-    `sessions/.factory-status.json`; this extension polls that file and, on
-    seeing it blocked, opens a review overlay (file-list summary + full diff
-    drill-down, `c` to comment, `e` to edit, `a`/`r` to approve/reject). The
-    mission-control dashboard's review browser (`mission-control-review.ts`,
-    see below) can complete the same decision instead. Either way the
-    decision is written atomically to
-    `sessions/.factory-transcripts/<session-id>/review-decision.json`, which
-    the orchestrator's `FileHumanReviewGate` (Python side) polls for. This
-    is the human-in-the-loop path.
+    with stdio fully closed, starts the background status-widget poll, and
+    opens the in-session **mission control** dashboard (see below) --
+    `q` closes the dashboard back to the chat while the run and the
+    background poll keep going; `/factory-watch` reopens it later. When the
+    orchestrator's automated review passes, it blocks on human review by
+    writing a `human-review` pipeline entry with `node_state: "blocked"` and
+    a `start_commit` to `sessions/.factory-status.json`; the dashboard shows
+    "HUMAN REVIEW NEEDED" and pressing Enter on that row opens the review
+    overlay (file-list summary + full diff drill-down, `c` to comment, `e`
+    to edit, `a`/`r` to approve/reject). The decision is written atomically
+    to `sessions/.factory-transcripts/<session-id>/review-decision.json`,
+    which the orchestrator's `FileHumanReviewGate` (Python side) polls for.
+    This is the human-in-the-loop path.
   - With `--auto`: reproduces the original fully-automated behavior
-    unchanged -- detached spawn, no stdin/stdout piping, no review gate,
-    polls `sessions/.factory-status.json` (written by the orchestrator, see
-    Plan A) once a second and renders it via a widget.
-  - Either way, once the run is launched this also opens a **mission
-    control** terminal window (see below).
+    unchanged -- detached spawn, no stdin/stdout piping, no review gate, no
+    mission control dashboard, polls `sessions/.factory-status.json`
+    (written by the orchestrator, see Plan A) once a second and renders it
+    via a widget.
 - `/factory-run [--auto] [task-id]` — runs the exact same pipeline `/factory`
   does, targeting one specific task (`status: todo` only) instead of
   whichever the orchestrator would pick next: with no task id, lists todo
   tasks via `factory.orchestrator list --json` and shows an interactive
   picker; with a task id, skips straight to
   `uv run python -m factory.orchestrator run --provider <provider> --model
-  <id> --task <task-id>`. Like `/factory`, `--auto` picks the detached
-  `launchAndWatch` path and its absence picks the foreground
-  `launchInteractiveReview` human-review path, and either way a mission
-  control window opens alongside the run.
+  <id> --task <task-id>`. Like `/factory`, `--auto` picks the detached,
+  dashboard-less `launchAndWatch` path and its absence spawns the
+  orchestrator and opens the in-session mission control dashboard.
+- `/factory-watch` — reopens the in-session mission control dashboard against
+  whatever `sessions/.factory-status.json` currently holds, without spawning
+  a new orchestrator run. Notifies "no factory run to watch" if that file
+  doesn't exist yet. This is how you get back into mission control (and
+  service a pending human review) after closing it with `q`.
 - `/factory-stop` — reads the lock file's PID and terminates it: a forceful
   process-tree kill on Windows (`taskkill /PID <pid> /T /F` — a non-forceful
   `/T` alone is unreliable for plain console processes on Windows, so this
@@ -64,19 +68,29 @@ sub-agent sessions, which load `scope-guard` instead).
 
 ## Mission control
 
-Both `/factory` and `/factory-run` open a second terminal window (via
-`spawnTerminalWindow`) running the standalone `mission-control-dashboard.ts`
-entry point, pointed at the same `sessions/.factory-status.json` the running
-orchestrator writes. It shows all 5 pipeline stages (context-gather, dev,
-validation, review, human-review) with the currently-running one
-highlighted, handoff messages as each stage completes, and a `blocked --
-waiting for you to review the diff` state if the run reaches human-review.
-Selecting a row and pressing Enter dispatches by stage: agent rows
-(context-gather, dev, review) open the real `pi --session <id>` in a new
-window; validation opens a window tailing that run's `sim-gate.log`; and
-human-review (once a startCommit exists) opens `mission-control-review.ts`
-to browse the actual changed files. These windows are purely observational
-(review browsing aside) -- closing them does not affect the run.
+`/factory` and `/factory-run` (without `--auto`), and `/factory-watch`, open
+mission control **in-session** via `ctx.ui.custom` -- a modal overlay driven
+by `MissionControlDashboard`, not a second terminal window. It polls the same
+`sessions/.factory-status.json` the running orchestrator writes and re-renders
+live while open. It shows all 5 pipeline stages (context-gather, dev,
+validation, review, human-review) with the currently-running one highlighted,
+handoff messages as each stage completes, and a `blocked -- waiting for you
+to review the diff` state if the run reaches human-review.
+
+Selecting a row and pressing Enter dispatches an action, handled by an
+action-dispatch loop (`runMissionControl` in `index.ts`) around the overlay:
+- agent rows (context-gather, dev, review) open a read-only, scrollable
+  transcript view of that session (`SessionTranscriptView`); `o` pops the
+  same session out into a real `pi --session <id>` window, `q` closes back to
+  the dashboard.
+- validation opens that run's `sim-gate.log` in a scrollable markdown view.
+- human-review (once a `start_commit` exists and the node is blocked) runs
+  the review overlay in place (`runReviewLoop`) -- review is Enter-driven
+  only, never auto-opened.
+- `q` on the dashboard itself closes mission control back to the chat; the
+  status widget keeps updating in the background (via
+  `startBackgroundWidgetPoll`) and flags "human review needed" until you
+  run `/factory-watch` to reopen it.
 
 ## No new IPC
 

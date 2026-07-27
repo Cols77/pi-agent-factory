@@ -23,6 +23,11 @@ import { computeImplementingFiles, computeReviewFiles } from "./review-diff.js";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
+import { MissionControlDashboard } from "./mission-control-dashboard.js";
+import type { MissionControlAction } from "./mission-control-dashboard.js";
+import { parseSessionTranscript } from "./session-transcript.js";
+import { SessionTranscriptView } from "./session-transcript-view.js";
+import { resolveSessionPath } from "./session-path.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -42,6 +47,85 @@ function readFileIfExists(path: string): string | null {
     return readFileSync(path, "utf-8");
   } catch {
     return null;
+  }
+}
+
+// The in-session mission control action loop. Opens the dashboard overlay,
+// dispatches on whatever action it resolves with, and reopens until "quit".
+// Review is Enter-driven only -- this loop's own poll (inside the dashboard
+// overlay factory below) only refreshes the displayed record; it never
+// auto-launches the review overlay itself.
+async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
+  const statusPath = join(ctx.cwd, STATUS_FILE);
+  const readRecord = () => {
+    const raw = readFileIfExists(statusPath);
+    return raw === null ? null : parseStatus(raw);
+  };
+
+  loop: for (;;) {
+    const action = await ctx.ui.custom<MissionControlAction>((tui, _theme, _keybindings, done) => {
+      const dash = new MissionControlDashboard(readRecord(), (a) => {
+        clearInterval(poll);
+        done(a);
+      });
+      // Live update only -- review is Enter-driven, never auto-opened.
+      const poll = setInterval(() => {
+        dash.updateRecord(readRecord());
+        tui.requestRender();
+      }, POLL_INTERVAL_MS);
+      return dash;
+    });
+
+    switch (action.type) {
+      case "quit":
+        break loop;
+      case "inspect": {
+        const path = action.sessionId === null ? null : resolveSessionPath(action.sessionId);
+        if (path === null) {
+          ctx.ui.notify("session not ready", "info");
+          break;
+        }
+        const text = parseSessionTranscript(readFileIfExists(path) ?? "");
+        const lines = text.split("\n");
+        await ctx.ui.custom<void>(
+          (tui, _theme, _keybindings, done) =>
+            new SessionTranscriptView(lines, tui, () => done(undefined), () => {
+              spawnTerminalWindow("pi", ["--session", path], { cwd: ctx.cwd });
+            }),
+          { overlay: true, overlayOptions: { width: "90%", maxHeight: "90%", anchor: "center" } },
+        );
+        break;
+      }
+      case "gate-log": {
+        const rec = readRecord();
+        const logPath = join(ctx.cwd, "sessions", ".factory-transcripts", rec?.session_id ?? "", "sim-gate.log");
+        const text = readFileIfExists(logPath) ?? "(no gate log yet)";
+        await ctx.ui.custom<void>(
+          (tui, _theme, _keybindings, done) => new ScrollableMarkdown(text, getMarkdownTheme(), tui, () => done(undefined)),
+          { overlay: true, overlayOptions: { width: "90%", maxHeight: "90%", anchor: "center" } },
+        );
+        break;
+      }
+      case "review": {
+        const rec = readRecord();
+        const hr = rec?.pipeline.find((e) => e.node === "human-review");
+        if (rec && hr && hr.node_state === "blocked" && typeof hr.start_commit === "string") {
+          const alreadyDone = hr.already_done === true;
+          const files = alreadyDone
+            ? computeImplementingFiles(ctx.cwd, hr.deliverables ?? [])
+            : computeReviewFiles(ctx.cwd, hr.start_commit);
+          const opts = alreadyDone
+            ? {
+                implementing: true,
+                banner: "This task appears already complete -- approve to mark it done, reject to re-run it.",
+              }
+            : {};
+          const decision = await runReviewLoop(ctx.ui, ctx.cwd, rec.task_id, hr.start_commit, files, opts);
+          writeReviewDecision(reviewDecisionPath(ctx.cwd, rec.session_id), decision);
+        }
+        break;
+      }
+    }
   }
 }
 
@@ -110,83 +194,42 @@ export default function factoryWatch(pi: PiApi): void {
     ctx.ui.notify(`factory started (${label})`, "info");
   }
 
-  function launchMissionControl(ctx: ExtCommandCtx): void {
+  function startBackgroundWidgetPoll(ctx: ExtCommandCtx): void {
     const statusPath = join(ctx.cwd, STATUS_FILE);
-    spawnTerminalWindow(
-      "node",
-      [join(ctx.cwd, "pi-ext", "factory-watch", "src", "mission-control-dashboard.ts"), "--status", statusPath, "--cwd", ctx.cwd],
-      { cwd: ctx.cwd },
-    );
-  }
-
-  async function launchInteractiveReview(ctx: ExtCommandCtx, cmd: Command, label: string): Promise<void> {
-    // Send the orchestrator's stdout/stderr to the run log (mirroring
-    // launchAndWatch). Previously this path discarded both with "ignore",
-    // so when a run died mid-pipeline it left no trace at all -- the status
-    // file simply froze at the last stage and there was nothing to debug.
-    mkdirSync(join(ctx.cwd, "sessions"), { recursive: true });
-    const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
-    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, detached: true, stdio: ["ignore", logFd, logFd] });
-    ctx.ui.notify(`factory started (${label}, human review on)`, "info");
-
-    const statusPath = join(ctx.cwd, STATUS_FILE);
-    let reviewInFlightForTask: string | null = null;
-
-    const reviewPoll = setInterval(() => {
+    const lockPath = join(ctx.cwd, LOCK_FILE);
+    stopPolling();
+    pollHandle = setInterval(() => {
       // Same staleness guard as launchAndWatch's poll loop -- ctx.ui can
       // throw after a session replacement/reload; stop polling rather than
       // crashing the whole host process on the next tick.
       try {
         const raw = readFileIfExists(statusPath);
         const record = raw === null ? null : parseStatus(raw);
-        if (record === null) {
-          return;
-        }
-        const hrEntry = record.pipeline.find((e) => e.node === "human-review");
-        if (
-          hrEntry !== undefined &&
-          hrEntry.node_state === "blocked" &&
-          typeof hrEntry.start_commit === "string" &&
-          reviewInFlightForTask !== record.task_id
-        ) {
-          const startCommit = hrEntry.start_commit;
-          const taskId = record.task_id;
-          const sessionId = record.session_id;
-          reviewInFlightForTask = taskId;
-          if (hrEntry.already_done === true) {
-            // Already-done route: the deliverables were committed before this
-            // run, so start_commit..working-tree is empty. Show the deliverables'
-            // implementing commits under an "already complete" banner instead.
-            const files = computeImplementingFiles(ctx.cwd, hrEntry.deliverables ?? []);
-            void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files, {
-              implementing: true,
-              banner: "This task appears already complete -- approve to mark it done, reject to re-run it.",
-            }).then((decision) => {
-              writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
-            });
-          } else {
-            const files = computeReviewFiles(ctx.cwd, startCommit);
-            void runReviewLoop(ctx.ui, ctx.cwd, taskId, startCommit, files).then((decision) => {
-              writeReviewDecision(reviewDecisionPath(ctx.cwd, sessionId), decision);
-            });
-          }
-        } else if (hrEntry !== undefined && hrEntry.node_state !== "blocked") {
-          // The orchestrator loops the same task.id back through dev-retry
-          // after a reject and can block on a SECOND (or later) human-review
-          // round for that same task. Clear the guard once this round has
-          // left "blocked" so the NEXT blocked round -- same task or a new
-          // one -- re-launches runReviewLoop instead of being silently
-          // suppressed forever by the same-task-id check above.
-          reviewInFlightForTask = null;
+        const lines = formatStatusLines(record);
+        const hrBlocked = (record?.pipeline ?? []).some((e) => e.node === "human-review" && e.node_state === "blocked");
+        if (hrBlocked) lines.push("⚠ human review needed — /factory-watch");
+        ctx.ui.setWidget("factory", lines);
+        if (readFileIfExists(lockPath) === null) {
+          stopPolling();
+          ctx.ui.notify("factory run finished", "info");
         }
       } catch {
-        clearInterval(reviewPoll);
+        stopPolling();
       }
     }, POLL_INTERVAL_MS);
+  }
 
-    await new Promise<void>((resolve) => child.on("exit", () => resolve()));
-    clearInterval(reviewPoll);
-    ctx.ui.notify("factory run finished", "info");
+  // Spawns the orchestrator detached with stdout/stderr sent to the run log
+  // (so a run that dies mid-pipeline leaves a trace instead of vanishing
+  // silently), starts the background widget poll, and returns immediately --
+  // the caller is expected to follow up with `await runMissionControl(ctx)`.
+  function spawnInteractive(ctx: ExtCommandCtx, cmd: Command, label: string): void {
+    mkdirSync(join(ctx.cwd, "sessions"), { recursive: true });
+    const logFd = openSync(join(ctx.cwd, LOG_FILE), "a");
+    const child = spawn(cmd.bin, cmd.args, { cwd: ctx.cwd, detached: true, stdio: ["ignore", logFd, logFd] });
+    child.unref();
+    ctx.ui.notify(`factory started (${label}, human review on)`, "info");
+    startBackgroundWidgetPoll(ctx);
   }
 
   pi.registerCommand("factory", {
@@ -204,13 +247,12 @@ export default function factoryWatch(pi: PiApi): void {
 
       const { auto } = parseAutoFlag(args);
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id);
-      // Fired before launchInteractiveReview, which awaits the run's own
-      // exit -- mission control must open while the run is live, not after.
-      launchMissionControl(ctx);
+      const label = `${ctx.model.provider}/${ctx.model.id}`;
       if (auto) {
-        launchAndWatch(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
+        launchAndWatch(ctx, cmd, label);
       } else {
-        await launchInteractiveReview(ctx, cmd, `${ctx.model.provider}/${ctx.model.id}`);
+        spawnInteractive(ctx, cmd, label);
+        await runMissionControl(ctx);
       }
     },
   });
@@ -310,14 +352,24 @@ export default function factoryWatch(pi: PiApi): void {
 
       const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
       const label = `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`;
-      // Fired before launchInteractiveReview, which awaits the run's own
-      // exit -- mission control must open while the run is live, not after.
-      launchMissionControl(ctx);
       if (auto) {
         launchAndWatch(ctx, cmd, label);
       } else {
-        await launchInteractiveReview(ctx, cmd, label);
+        spawnInteractive(ctx, cmd, label);
+        await runMissionControl(ctx);
       }
+    },
+  });
+
+  pi.registerCommand("factory-watch", {
+    description: "Open mission control for the current factory run",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const statusPath = join(ctx.cwd, STATUS_FILE);
+      if (readFileIfExists(statusPath) === null) {
+        ctx.ui.notify("no factory run to watch", "info");
+        return;
+      }
+      await runMissionControl(ctx);
     },
   });
 
