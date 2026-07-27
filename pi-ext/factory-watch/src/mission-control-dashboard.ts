@@ -1,118 +1,43 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Component } from "@earendil-works/pi-tui";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import { formatMissionControlRows, parseStatus } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
-import { resolveSessionPath } from "./session-path.ts";
-import { spawnTerminalWindow } from "./terminal-window.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review"];
-const POLL_INTERVAL_MS = 500;
-
-// Pipeline nodes whose `sessionId` (Task 7) is a real pi agent session --
-// Enter on one of these opens the live session in a new `pi --session`
-// window rather than tailing a log or opening the review browser.
-// "session-review" isn't in STAGE_ORDER today, but is included per the
-// brief for forward compatibility with a future stage of that name.
 const AGENT_NODES = new Set(["context-gather", "dev", "review", "session-review"]);
 
-const SESSION_NOT_READY_MESSAGE = "session not ready";
+export type MissionControlAction =
+  | { type: "inspect"; sessionId: string | null }
+  | { type: "gate-log" }
+  | { type: "review" }
+  | { type: "quit" };
 
 export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
   private record: StatusRecord | null;
-  private readonly cwd: string;
-  // Called when the user asks to close the dashboard (q / Ctrl-C). The
-  // standalone entry point wires this to tui.stop() + process.exit(0); it's
-  // optional so unit tests can construct the component without a live TUI.
-  private readonly onQuit: (() => void) | null;
-  // Transient inline feedback surfaced in render() (e.g. "session not
-  // ready") when an Enter dispatch can't spawn anything yet. Cleared the
-  // next time a dispatch succeeds.
-  private statusMessage: string | null = null;
+  private readonly onAction: (action: MissionControlAction) => void;
 
-  constructor(record: StatusRecord | null, cwd: string, onQuit: (() => void) | null = null) {
+  constructor(record: StatusRecord | null, onAction: (action: MissionControlAction) => void) {
     this.record = record;
-    this.cwd = cwd;
-    this.onQuit = onQuit;
+    this.onAction = onAction;
   }
 
   updateRecord(record: StatusRecord | null): void {
     this.record = record;
   }
 
-  // No cached render state to drop -- render() always recomputes from
-  // `this.record`, so there is nothing to invalidate. Required by pi-tui's
-  // Component interface so this can be passed to tui.addChild().
   invalidate(): void {}
 
-  private openAgentSession(sessionId: string | null): void {
-    const path = sessionId === null ? null : resolveSessionPath(sessionId);
-    if (path === null) {
-      this.statusMessage = SESSION_NOT_READY_MESSAGE;
-      return;
-    }
-    this.statusMessage = null;
-    spawnTerminalWindow("pi", ["--session", path], { cwd: this.cwd });
-  }
-
-  // The gate log lives under the top-level factory run id (record.session_id
-  // -- the same directory write_role_transcript/the orchestrator use for
-  // .factory-transcripts/<id>/), NOT the row's own pi sessionId.
-  private tailGateLog(factoryRunId: string): void {
-    const logPath = join(this.cwd, "sessions", ".factory-transcripts", factoryRunId, "sim-gate.log");
-    this.statusMessage = null;
-    if (process.platform === "win32") {
-      spawnTerminalWindow(
-        "powershell",
-        ["-NoExit", "-Command", `Get-Content '${logPath}' -Wait -Tail 40`],
-        { cwd: this.cwd },
-      );
-    } else {
-      spawnTerminalWindow("tail", ["-f", logPath], { cwd: this.cwd });
-    }
-  }
-
-  private openReviewBrowser(startCommit: string | null): void {
-    if (startCommit === null) {
-      this.statusMessage = SESSION_NOT_READY_MESSAGE;
-      return;
-    }
-    this.statusMessage = null;
-    // Note: this.record is guaranteed to be non-null here because handleEnter()
-    // checks this.record !== null before calling any dispatch method.
-    const taskId = this.record!.task_id;
-    const sessionId = this.record!.session_id;
-    spawnTerminalWindow(
-      "node",
-      [
-        join(this.cwd, "pi-ext", "factory-watch", "src", "mission-control-review.ts"),
-        "--cwd",
-        this.cwd,
-        "--start-commit",
-        startCommit,
-        "--task-id",
-        taskId,
-        "--session-id",
-        sessionId,
-      ],
-      { cwd: this.cwd },
-    );
-  }
-
   private handleEnter(): void {
-    if (this.record === null) {
-      return;
-    }
-    const rows = formatMissionControlRows(this.record, STAGE_ORDER);
-    const row = rows[this.selectedIndex]!;
+    if (this.record === null) return;
+    const row = formatMissionControlRows(this.record, STAGE_ORDER)[this.selectedIndex]!;
     if (AGENT_NODES.has(row.node)) {
-      this.openAgentSession(row.sessionId);
+      this.onAction({ type: "inspect", sessionId: row.sessionId });
     } else if (row.node === "validation") {
-      this.tailGateLog(this.record.session_id);
+      this.onAction({ type: "gate-log" });
     } else if (row.node === "human-review") {
-      this.openReviewBrowser(row.startCommit);
+      this.onAction({ type: "review" });
     }
   }
 
@@ -125,32 +50,25 @@ export class MissionControlDashboard implements Component {
     } else if (data === "\r" || data === "\n") {
       this.handleEnter();
     } else if (data === "q" || data === "\x03") {
-      // "q" (advertised in the footer) and Ctrl-C both close the dashboard.
-      // In pi-tui's raw input mode neither is handled for us -- without this
-      // branch the window can't be quit from the keyboard at all.
-      this.onQuit?.();
+      this.onAction({ type: "quit" });
     }
   }
 
   render(width: number): string[] {
     const taskId = this.record?.task_id ?? "(no task)";
     const lines = [`Factory Mission Control — ${taskId}`, ""];
-    const rows = formatMissionControlRows(this.record, STAGE_ORDER);
-    rows.forEach((row, i) => {
+    const hrBlocked = (this.record?.pipeline ?? []).some(
+      (e) => e.node === "human-review" && e.node_state === "blocked",
+    );
+    if (hrBlocked) lines.push("⚠ HUMAN REVIEW NEEDED — select human-review and press Enter", "");
+    formatMissionControlRows(this.record, STAGE_ORDER).forEach((row, i) => {
       const prefix = i === this.selectedIndex ? "> " : "  ";
       lines.push(`${prefix}${row.label.padEnd(16)} ${row.state}`);
-      if (row.handoff) {
-        lines.push(`    ${row.handoff}`);
-      }
+      if (row.handoff) lines.push(`    ${row.handoff}`);
       if (row.summary) {
-        for (const wrapped of wrapTextWithAnsi(row.summary, Math.max(1, width - 4))) {
-          lines.push(`    ${wrapped}`);
-        }
+        for (const wrapped of wrapTextWithAnsi(row.summary, Math.max(1, width - 4))) lines.push(`    ${wrapped}`);
       }
     });
-    if (this.statusMessage !== null) {
-      lines.push("", this.statusMessage);
-    }
     lines.push("", "up/down select  Enter open  q close");
     return lines;
   }
@@ -209,7 +127,7 @@ async function main(): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
-  const dashboard = new MissionControlDashboard(readRecord(), cwd, () => {
+  const dashboard = new MissionControlDashboard(readRecord(), () => {
     // Restore the terminal (cursor, bracketed-paste/Kitty modes, stdin
     // handlers) before exiting so the parent shell isn't left in raw mode.
     tui.stop();
@@ -218,6 +136,7 @@ async function main(): Promise<void> {
   tui.addChild(dashboard);
   tui.setFocus(dashboard);
   tui.start();
+  const POLL_INTERVAL_MS = 500;
   setInterval(() => {
     dashboard.updateRecord(readRecord());
     tui.requestRender();
