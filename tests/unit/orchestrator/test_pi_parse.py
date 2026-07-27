@@ -206,3 +206,30 @@ def test_run_populates_session_id(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: _FakeProc(lines))
     result = PiAgentBackend(tmp_path, tmp_path / "ext.ts").run(AgentRole.DEV, "hi")
     assert result.session_id == "abc-123"
+
+
+# deepseek via OpenRouter (openai-completions API, thinkingLevel high) emits the
+# fenced ```json manifest inside a "thinking" block and produces NO "text"
+# block -- parse_pi_json must still find it.
+THINKING_STREAM = json.dumps({
+    "type": "message_end",
+    "message": {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": 'Building it.\n```json\n{"task_id": "T-9", "ok": true}\n```'},
+            {"type": "toolCall", "id": "1", "name": "read", "arguments": "{}"},
+        ],
+    },
+})
+
+
+def test_parse_extracts_json_from_thinking_blocks():
+    out = parse_pi_json(THINKING_STREAM)
+    assert out["task_id"] == "T-9"
+    assert out["ok"] is True
+
+
+def test_thinking_only_message_is_not_flagged_as_missing_text():
+    # A thinking block IS content; the field-mismatch diagnostic must not treat
+    # a thinking-only assistant message as an empty response.
+    assert _has_json_events_without_text_field(THINKING_STREAM) is False

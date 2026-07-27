@@ -16,21 +16,30 @@ _JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 
 def _assistant_text_blocks(message: object) -> list[str]:
-    """Extract text block contents from a message dict with role "assistant".
-    Returns [] if message isn't an assistant message dict with a text-bearing
-    content list. Shared by parse_pi_json and _has_json_events_without_text_field
-    so both agree on exactly what "the text field" means for Pi's real v3
-    event stream (see module docstring note below for the format itself)."""
+    """Extract text from an assistant message's content blocks.
+
+    Includes both "text" blocks (`{"type":"text","text":...}`) and "thinking"
+    blocks (`{"type":"thinking","thinking":...}`). Some providers -- notably
+    deepseek via OpenRouter's openai-completions API at a high thinking level --
+    put the model's answer, INCLUDING the fenced ```json manifest the factory
+    roles are required to emit, inside "thinking" blocks and never produce a
+    plain "text" block. Reading only "text" blocks then extracts nothing and the
+    stage rejects a perfectly good manifest. Shared by parse_pi_json and
+    _has_json_events_without_text_field so both agree on what counts as content."""
     if not isinstance(message, dict) or message.get("role") != "assistant":
         return []
     content = message.get("content")
     if not isinstance(content, list):
         return []
-    return [
-        block["text"]
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
-    ]
+    out: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text" and isinstance(block.get("text"), str):
+            out.append(block["text"])
+        elif block.get("type") == "thinking" and isinstance(block.get("thinking"), str):
+            out.append(block["thinking"])
+    return out
 
 
 def parse_pi_json(stdout: str) -> dict:
