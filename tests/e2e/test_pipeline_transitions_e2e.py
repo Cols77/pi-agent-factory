@@ -22,6 +22,7 @@ tune the task prompt in `_write_task` or the gate strictness in `_write_gates`.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -69,7 +70,16 @@ class ScriptedGate:
 
 
 def _write_skills(ws: Path) -> None:
-    for name in _SKILL_NAMES:
+    # Copy the REAL vendored skills (not stubs). The full content is what the
+    # role prompts actually load, and it pushes the prompt past pi_backend's
+    # inline-arg limit so the prompt is delivered via `@file` -- matching the
+    # real factory, whose runs produce the `--mode json` event stream a minimal
+    # stub workspace (short, inline `-p` prompt) did not.
+    src = REAL_REPO / ".pi" / "skills"
+    if src.exists():
+        shutil.copytree(src, ws / ".pi" / "skills")
+        return
+    for name in _SKILL_NAMES:  # fallback: stubs (won't match the real prompt)
         d = ws / ".pi" / "skills" / name
         d.mkdir(parents=True, exist_ok=True)
         (d / "SKILL.md").write_text(
