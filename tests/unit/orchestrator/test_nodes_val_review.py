@@ -144,3 +144,16 @@ def test_review_changes_requested_reports_session_id_and_summary(tmp_path):
     assert changes_call["node_state"] == "changes-requested"
     assert changes_call["session_id"] == "sess-rev-2"
     assert changes_call["summary"] == _summarize_review(findings)
+
+
+def test_run_review_carries_confidence_and_verify_in_event(tmp_path):
+    write_skill_stubs(tmp_path)
+    review_out = {
+        "dod_met": True, "findings": [],
+        "confidence": "medium -- edges thin",
+        "verify": [{"item": "advance past last waypoint", "file": "src/x.py", "line": 44}],
+    }
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, review_out)]})
+    _outcome, ev, _findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path)
+    assert ev.extra["confidence"] == "medium -- edges thin"
+    assert ev.extra["verify"] == [{"item": "advance past last waypoint", "file": "src/x.py", "line": 44}]

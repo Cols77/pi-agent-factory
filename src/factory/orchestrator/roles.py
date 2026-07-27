@@ -79,7 +79,14 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
     AgentRole.VALIDATION: "Run the functional/sim suite. Do not modify source.",
     AgentRole.REVIEW: (
         "Review the change for YAGNI/DRY and against the Definition of Done. Emit ONLY a "
-        "fenced ```json block: {\"dod_met\": bool, \"principles\": [..], \"findings\": [..]}."
+        "fenced ```json block: {\"dod_met\": bool, \"principles\": [..], \"findings\": [..], "
+        "\"confidence\": \"<one line: how sure you are and why>\", "
+        "\"verify\": [{\"item\": \"<a concrete behavior/edge case a human should check "
+        "before approving>\", \"file\": \"<path, optional>\", \"line\": <n, optional>, "
+        "\"why\": \"<one line, optional>\"}]}. "
+        "ALWAYS include confidence and 3-6 verify items -- even when dod_met is true; that is "
+        "exactly when the human needs to know where you are least sure. verify items are "
+        "concrete behaviors to check, NOT file summaries."
     ),
     AgentRole.SESSION_REVIEW: (
         "Analyze this task's full pipeline run (see the events below): what happened at "

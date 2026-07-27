@@ -253,9 +253,11 @@ def run_review(
     out = result.output
     findings = list(out.get("findings", []))
     dod_met = bool(out.get("dod_met"))
+    confidence = out.get("confidence") if isinstance(out.get("confidence"), str) else None
+    verify = out.get("verify") if isinstance(out.get("verify"), list) else []
     gate = gates.run("full")
     if gate == 0 and dod_met and not findings:
-        extra = _note_backend_failure({}, result)
+        extra = _note_backend_failure({"confidence": confidence, "verify": verify}, result)
         status.report(
             task_id=task.id, node="review", node_state="pass",
             attempt=1, max_attempts=1,
@@ -264,7 +266,7 @@ def run_review(
         )
         return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
     finding_summary = f"{len(findings)} finding(s)" if findings else "DoD not met"
-    extra = _note_backend_failure({"findings": len(findings), "gate": gate}, result)
+    extra = _note_backend_failure({"findings": len(findings), "gate": gate, "confidence": confidence, "verify": verify}, result)
     status.report(
         task_id=task.id, node="review", node_state="changes-requested",
         attempt=1, max_attempts=1,
