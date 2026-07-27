@@ -275,6 +275,30 @@ def test_escalates_only_after_max_human_rounds_of_rejects(tmp_path):
     assert [c for c in status.calls if c.get("outcome") == "escalated"]
 
 
+def test_human_review_writes_a_focus_guide(tmp_path):
+    repo = _repo(tmp_path)
+    td = repo / "sessions" / ".factory-transcripts" / "s1"
+    td.mkdir(parents=True)
+    (td / "sim-gate.log").write_text("12 passed in 1s\n", encoding="utf-8")
+    # review agent returns a guide
+    scripts = _already_done_scripts()  # context-gather already_done -> review -> human-review
+    scripts[AgentRole.REVIEW] = [AgentResult(True, {
+        "dod_met": True, "findings": [],
+        "confidence": "medium", "verify": [{"item": "check X"}],
+    })]
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    run_next(
+        repo, FakeAgentBackend(scripts), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"}, task_id="T-001",
+        human_review=human_review, status=FakeStatusReporter(), transcript_dir=td,
+    )
+    import json
+    guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
+    assert guide["confidence"] == "medium"
+    assert guide["verify"] == [{"item": "check X"}]
+    assert {"gate": "sim", "ok": True, "summary": "12 passed"} in guide["validation"]
+
+
 def test_auto_still_escalates_when_llm_never_passes(tmp_path):
     repo = _repo(tmp_path)
     scripts = {

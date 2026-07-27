@@ -23,6 +23,7 @@ from factory.orchestrator.nodes import (
     run_validation,
 )
 from factory.orchestrator.prompts import compose_prompt
+from factory.orchestrator.review_guide import read_validation, write_review_guide
 from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
@@ -89,6 +90,7 @@ def run_task(
     feedback: str | None = None
     iterations = 0
     first_dev = True  # already_done skips ONLY the very first dev attempt
+    addressed: list[str] = []
 
     # Outer loop = human rounds; each human reject grants a FRESH inner (LLM)
     # review budget. --auto (no human) runs the inner loop once, then completes
@@ -136,6 +138,7 @@ def run_task(
                 break
             _report_node(status, task.id, r_ev, 1)
             feedback = "\n".join(review_findings) if review_findings else "review requested changes"
+            addressed.extend(f"review (round {_cycle + 1}): {f}" for f in review_findings)
 
         # --auto: no human to fall back to -- complete on an LLM pass, else escalate.
         if human_review is None:
@@ -159,6 +162,14 @@ def run_task(
                 f"reviewer couldn't confirm -- outstanding: {outstanding} "
                 "(approve to accept, reject to send back)"
             )
+        if transcript_dir is not None:
+            guide = {
+                "confidence": r_ev.extra.get("confidence") if r_ev is not None else None,
+                "verify": r_ev.extra.get("verify", []) if r_ev is not None else [],
+                "validation": read_validation(transcript_dir),
+                "addressed": list(dict.fromkeys(addressed)),  # dedup, keep order
+            }
+            write_review_guide(transcript_dir / "review-guide.json", guide)
         status.report(
             task_id=task.id, node="human-review", node_state="blocked",
             attempt=1, max_attempts=1, handoff=handoff,
@@ -187,6 +198,10 @@ def run_task(
         if r_ev is not None:
             _report_node(status, task.id, r_ev, 1)
         feedback = format_review_feedback(decision.comments)
+        addressed.extend(
+            f"your comment (round {_human_round + 1}) on {file}: {text}"
+            for file, text in decision.comments.items()
+        )
         already_done = False
 
     # Escalate: --auto reviewer never passed, or the human rejected every round.
