@@ -65,6 +65,9 @@ sub-agent sessions, which load `scope-guard` instead).
   `uv run python -m factory.orchestrator.plan_to_tasks <plan-file>`
   deterministically turning the saved plan into `tasks/T-*.md` files, ready
   for `/factory-run`.
+- `/clear` — wipes the conversation and drops into a fresh, empty context,
+  matching Claude Code's `/clear` (no confirmation). Implemented via Pi's
+  `ctx.newSession()`; the previous session file stays saved on disk.
 
 ## Mission control
 

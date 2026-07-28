@@ -393,6 +393,17 @@ export default function factoryWatch(pi: PiApi): void {
     },
   });
 
+  pi.registerCommand("clear", {
+    description: "Clear the conversation and start fresh (like Claude Code's /clear)",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      // Replace the live session with a fresh, empty one -- the
+      // wipe-context-and-keep-working UX of Claude Code's /clear. Call it and
+      // return immediately: per Pi's contract, `ctx` (and `pi`) go stale after
+      // newSession() and throw if touched again, so no post-call ctx.ui use.
+      await ctx.newSession();
+    },
+  });
+
   pi.registerCommand("plan", {
     description: "Start an interactive planning session (brainstorming -> writing-plans)",
     handler: async (args: string, ctx: ExtCommandCtx) => {

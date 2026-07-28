@@ -632,4 +632,16 @@ describe("factory-watch commands", () => {
     expect(select).toHaveBeenCalledTimes(1);
     expect(custom).not.toHaveBeenCalled();
   });
+
+  test("/clear starts a fresh empty session (like Claude Code's /clear)", async () => {
+    const { commands } = capture();
+    expect(commands.has("clear")).toBe(true);
+    const ctx = fakeCtx();
+    await commands.get("clear")!.handler("", ctx);
+    // Wipes context by replacing the live session with a fresh one, no seed
+    // message (no withSession callback) -- the empty-conversation UX matching
+    // Claude Code's /clear.
+    expect(ctx.newSession).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.newSession).mock.calls[0]![0]).toBeUndefined();
+  });
 });
