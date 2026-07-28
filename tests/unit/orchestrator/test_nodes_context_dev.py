@@ -217,3 +217,23 @@ def test_run_dev_writes_one_transcript_per_attempt(tmp_path):
     assert ev.attempts == 2
     assert (transcript_dir / "dev-attempt1.log").read_text(encoding="utf-8") == "dev attempt 1 raw"
     assert (transcript_dir / "dev-attempt2.log").read_text(encoding="utf-8") == "dev attempt 2 raw"
+
+
+def test_summarize_manifest_lists_basenames_and_coherence():
+    m = {"context": {"source_files": ["src/a/rtb.py", "src/waypoint.py", "nav.py"]},
+         "coherence": {"proven": True}}
+    assert _summarize_manifest(m) == "provided: rtb.py, waypoint.py, nav.py · coherence proven"
+
+
+def test_summarize_manifest_truncates_over_three_files():
+    m = {"context": {"source_files": ["a.py", "b.py", "c.py", "d.py", "e.py"]},
+         "coherence": {"proven": True}}
+    assert _summarize_manifest(m) == "provided: a.py, b.py, c.py (+2) · coherence proven"
+
+
+def test_summarize_manifest_no_files_and_unproven():
+    assert _summarize_manifest({"context": {}, "coherence": {}}) == "no source files · coherence unproven"
+
+
+def test_summarize_manifest_none():
+    assert _summarize_manifest(None) == "no manifest"

@@ -23,15 +23,21 @@ def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
 
 
 def _summarize_manifest(manifest: dict | None) -> str:
-    """Extract a one-line summary of the manifest for the handoff status."""
+    """One-line manifest summary for the handoff/summary status: the actual file
+    basenames the context gatherer provided, plus coherence."""
     if manifest is None:
         return "no manifest"
     ctx = manifest.get("context", {})
-    files = ctx.get("source_files", [])
-    n_files = len(files) if isinstance(files, list) else 0
-    coherence = manifest.get("coherence", {})
-    proven = coherence.get("proven", False)
-    return f"{n_files} files, coherence={'yes' if proven else 'no'}"
+    raw = ctx.get("source_files", [])
+    files = raw if isinstance(raw, list) else []
+    coherence = "coherence proven" if manifest.get("coherence", {}).get("proven") else "coherence unproven"
+    if not files:
+        return f"no source files · {coherence}"
+    names = [Path(str(p)).name for p in files]
+    shown = ", ".join(names[:3])
+    if len(names) > 3:
+        shown += f" (+{len(names) - 3})"
+    return f"provided: {shown} · {coherence}"
 
 
 def _summarize_review(findings: list) -> str:
