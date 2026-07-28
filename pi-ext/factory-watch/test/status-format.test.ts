@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows, devEscalated } from "../src/status-format.js";
+import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows, devEscalated, nodeActivity } from "../src/status-format.js";
 import type { StatusRecord, PipelineEntry } from "../src/status-format.js";
 
 const NOW = new Date("2026-07-20T10:16:52Z");
@@ -325,5 +325,33 @@ describe("devEscalated", () => {
 
   test("returns null for a null record", () => {
     expect(devEscalated(null)).toBeNull();
+  });
+});
+
+describe("nodeActivity", () => {
+  function row(overrides: Partial<import("../src/status-format.js").MissionControlRow>) {
+    return {
+      node: "dev", label: "developer", state: "pending",
+      handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null,
+      ...overrides,
+    };
+  }
+
+  test("prefers the orchestrator's handoff text when present", () => {
+    expect(nodeActivity(row({ state: "pass", handoff: "→ validation: unit tests green" })))
+      .toBe("→ validation: unit tests green");
+  });
+
+  test("falls back to 'waiting to start' for a stage that hasn't run", () => {
+    expect(nodeActivity(row({ state: "pending", handoff: null }))).toBe("waiting to start");
+  });
+
+  test("falls back to 'working…' for a running stage with no handoff yet", () => {
+    expect(nodeActivity(row({ state: "running", handoff: null }))).toBe("working…");
+  });
+
+  test("falls back to 'escalated' / 'waiting for you' by state", () => {
+    expect(nodeActivity(row({ state: "escalate", handoff: null }))).toBe("escalated");
+    expect(nodeActivity(row({ state: "blocked", handoff: null }))).toBe("waiting for you");
   });
 });

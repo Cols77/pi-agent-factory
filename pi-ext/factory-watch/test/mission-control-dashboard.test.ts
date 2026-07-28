@@ -176,3 +176,31 @@ test("no DEV STUCK alert when dev is not escalated", () => {
   const d = new MissionControlDashboard(RECORD, () => {});
   expect(d.render(80).join("\n")).not.toContain("DEV STUCK");
 });
+
+test("shows each stage's dynamic activity, not a static description", () => {
+  const lines = new MissionControlDashboard(escalatedDevRecord(), () => {}).render(80).join("\n");
+  // developer escalated -> its real handoff text is surfaced
+  expect(lines).toContain("escalated: unit tests still red");
+  // a stage that hasn't run shows a dynamic waiting hint, not a job description
+  expect(lines).toContain("waiting to start");
+});
+
+test("applies theme colors to state/title when a theme is provided", () => {
+  const theme = {
+    fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+    bold: (text: string) => `*${text}*`,
+  };
+  const lines = new MissionControlDashboard(escalatedDevRecord(), () => {}, theme)
+    .render(80)
+    .join("\n");
+  expect(lines).toContain("*Factory Mission Control*"); // title is bold
+  expect(lines).toContain("<warning>"); // escalated dev state colored warning
+  expect(lines).toContain("<muted>"); // activity lines are muted
+});
+
+test("every rendered line respects the given width", () => {
+  const lines = new MissionControlDashboard(escalatedDevRecord(), () => {}).render(48);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(48);
+  }
+});

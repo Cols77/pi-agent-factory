@@ -75,7 +75,7 @@ const STATE_ICONS: Record<string, string> = {
   blocked: "⊘",
 };
 
-function iconForState(state: string): string {
+export function iconForState(state: string): string {
   return STATE_ICONS[state] || "·";
 }
 
@@ -171,6 +171,30 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
       snippet: entry?.snippet ?? null,
     };
   });
+}
+
+// A short, dynamic line describing what a stage is doing right now or what it
+// finished and handed off -- NOT a static job description. Prefers the
+// orchestrator's own handoff text (e.g. "→ validation: unit tests green",
+// "unit tests failed, retry 2/3", "escalated: unit tests still red"), falling
+// back to a state-based phrase when no handoff was emitted yet (e.g. a stage
+// that hasn't run, or is mid-run before its first handoff).
+export function nodeActivity(row: MissionControlRow): string {
+  if (row.handoff) return row.handoff;
+  switch (row.state) {
+    case "pending":
+      return "waiting to start";
+    case "running":
+      return "working…";
+    case "pass":
+      return "done";
+    case "escalate":
+      return "escalated";
+    case "blocked":
+      return "waiting for you";
+    default:
+      return row.state;
+  }
 }
 
 // Detects the dev-escalation handoff state: the dev node exhausted its

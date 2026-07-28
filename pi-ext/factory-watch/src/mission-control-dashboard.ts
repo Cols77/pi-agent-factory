@@ -1,10 +1,44 @@
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { wrapTextWithAnsi, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { formatMissionControlRows, devEscalated } from "./status-format.ts";
+import { formatMissionControlRows, devEscalated, nodeActivity, iconForState } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review", "session-review"];
 const AGENT_NODES = new Set(["context-gather", "dev", "review", "session-review"]);
+
+// Minimal structural subset of pi's real Theme (fg/bold) this dashboard uses.
+// Pi passes the real Theme into the ctx.ui.custom() factory; it is structurally
+// assignable here (method params are checked bivariantly). Tests construct the
+// dashboard without a theme and get PLAIN_THEME, so rendered output stays
+// un-ANSI'd and their plain-substring assertions keep working.
+export interface DashboardTheme {
+  fg(color: string, text: string): string;
+  bold(text: string): string;
+}
+
+const PLAIN_THEME: DashboardTheme = { fg: (_color, text) => text, bold: (text) => text };
+
+// Map a node_state to a semantic theme color name.
+function colorForState(state: string): string {
+  switch (state) {
+    case "pass":
+      return "success";
+    case "fail":
+    case "reject":
+    case "error":
+      return "error";
+    case "escalate":
+    case "blocked":
+    case "changes-requested":
+      return "warning";
+    case "running":
+      return "accent";
+    case "pending":
+      return "dim";
+    default:
+      return "text";
+  }
+}
 
 export type MissionControlAction =
   | { type: "inspect"; sessionId: string | null }
@@ -17,10 +51,16 @@ export class MissionControlDashboard implements Component {
   private selectedIndex = 0;
   private record: StatusRecord | null;
   private readonly onAction: (action: MissionControlAction) => void;
+  private readonly theme: DashboardTheme;
 
-  constructor(record: StatusRecord | null, onAction: (action: MissionControlAction) => void) {
+  constructor(
+    record: StatusRecord | null,
+    onAction: (action: MissionControlAction) => void,
+    theme: DashboardTheme = PLAIN_THEME,
+  ) {
     this.record = record;
     this.onAction = onAction;
+    this.theme = theme;
   }
 
   updateRecord(record: StatusRecord | null): void {
@@ -58,32 +98,65 @@ export class MissionControlDashboard implements Component {
   }
 
   render(width: number): string[] {
+    const t = this.theme;
     const taskId = this.record?.task_id ?? "(no task)";
-    const lines = [`Factory Mission Control — ${taskId}`, ""];
+    const lines: string[] = [];
+    lines.push(t.bold("Factory Mission Control") + t.fg("dim", ` · ${taskId}`), "");
+
     const hrBlocked = (this.record?.pipeline ?? []).some(
       (e) => e.node === "human-review" && e.node_state === "blocked",
     );
-    if (hrBlocked) lines.push("⚠ HUMAN REVIEW NEEDED — select human-review and press Enter", "");
-    if (devEscalated(this.record)) {
-      lines.push("⚠ DEV STUCK — select developer and press Enter to pair, then re-run the task", "");
-    }
-    formatMissionControlRows(this.record, STAGE_ORDER).forEach((row, i) => {
-      const prefix = i === this.selectedIndex ? "> " : "  ";
-      lines.push(`${prefix}${row.label.padEnd(16)} ${row.state}`);
-      if (row.handoff) lines.push(`    ${row.handoff}`);
-      if (row.state === "running" && row.snippet) {
-        const last = row.snippet.split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? "";
-        if (last) {
-          const max = Math.max(1, width - 6);
-          const shown = last.length > max ? last.slice(0, max - 1) + "…" : last;
-          lines.push(`    … ${shown}`);
-        }
+    if (hrBlocked) {
+      for (const w of wrapTextWithAnsi("⚠ HUMAN REVIEW NEEDED — select human-review and press Enter", width)) {
+        lines.push(t.fg("warning", w));
       }
-      if (row.summary) {
-        for (const wrapped of wrapTextWithAnsi(row.summary, Math.max(1, width - 4))) lines.push(`    ${wrapped}`);
+      lines.push("");
+    }
+    if (devEscalated(this.record)) {
+      for (const w of wrapTextWithAnsi(
+        "⚠ DEV STUCK — select developer and press Enter to pair, then re-run the task",
+        width,
+      )) {
+        lines.push(t.fg("warning", w));
+      }
+      lines.push("");
+    }
+
+    const INDENT = "    ";
+    const bodyWidth = Math.max(1, width - INDENT.length);
+    formatMissionControlRows(this.record, STAGE_ORDER).forEach((row, i) => {
+      const selected = i === this.selectedIndex;
+      const marker = selected ? "> " : "  ";
+      const stateColor = colorForState(row.state);
+      const icon = t.fg(stateColor, iconForState(row.state));
+      const labelCell = row.label.padEnd(16);
+      const label = selected ? t.bold(labelCell) : t.fg("text", labelCell);
+      // Header: marker · status icon · agent name · state (icon+state colored
+      // by state; the selected row's name is bold).
+      lines.push(truncateToWidth(`${marker}${icon} ${label} ${t.fg(stateColor, row.state)}`, width));
+
+      // Dynamic activity: what the stage is doing now / finished and handed
+      // off. Skip the generic running fallback when a live snippet already
+      // shows the activity below.
+      const activity = nodeActivity(row);
+      const hasSnippet = row.state === "running" && !!row.snippet;
+      const genericRunning = row.state === "running" && !row.handoff;
+      if (activity && !(genericRunning && hasSnippet)) {
+        for (const w of wrapTextWithAnsi(`↳ ${activity}`, bodyWidth)) lines.push(INDENT + t.fg("muted", w));
+      }
+      // Live output preview for a running node.
+      if (hasSnippet) {
+        const last = row.snippet!.split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? "";
+        if (last) lines.push(truncateToWidth(INDENT + t.fg("dim", `… ${last}`), width));
+      }
+      // The concrete output a finished stage produced, when it adds detail
+      // beyond the activity line above.
+      if (row.summary && !activity.includes(row.summary)) {
+        for (const w of wrapTextWithAnsi(row.summary, bodyWidth)) lines.push(INDENT + t.fg("dim", w));
       }
     });
-    lines.push("", "up/down select  Enter open  q close");
+
+    lines.push("", t.fg("dim", "↑/↓ move · Enter open · q close"));
     return lines;
   }
 }

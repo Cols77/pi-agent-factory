@@ -64,11 +64,11 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
   };
 
   loop: for (;;) {
-    const action = await ctx.ui.custom<MissionControlAction>((tui, _theme, _keybindings, done) => {
+    const action = await ctx.ui.custom<MissionControlAction>((tui, theme, _keybindings, done) => {
       const dash = new MissionControlDashboard(readRecord(), (a) => {
         clearInterval(poll);
         done(a);
-      });
+      }, theme);
       // Live update only -- review is Enter-driven, never auto-opened.
       const poll = setInterval(() => {
         dash.updateRecord(readRecord());
