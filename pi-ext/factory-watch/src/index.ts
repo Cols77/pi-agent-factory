@@ -341,14 +341,15 @@ export default function factoryWatch(pi: PiApi): void {
           ctx.ui.notify("factory-run failed to parse task list", "error");
           return;
         }
-        // Hide tasks whose Create:/Test: deliverables already exist -- their
-        // work is already done, so don't suggest them for execution.
-        const todoTasks = tasks.filter((t) => t.status === "todo" && !t.already_done);
+        // Show every todo task. A task is hidden only when its ledger status is
+        // "done" -- never because its files exist on disk (that would swallow a
+        // started-but-unfinished task). Run-state is surfaced via formatTaskOption.
+        const todoTasks = tasks.filter((t) => t.status === "todo");
         if (todoTasks.length === 0) {
-          ctx.ui.notify("no runnable todo tasks (already-done tasks are hidden)", "info");
+          ctx.ui.notify("no todo tasks", "info");
           return;
         }
-        const selected = await ctx.ui.select("Run which task?", todoTasks.map(formatTaskOption));
+        const selected = await ctx.ui.select("Run which task?", todoTasks.map((t) => formatTaskOption(t)));
         if (selected === undefined) {
           return;
         }
