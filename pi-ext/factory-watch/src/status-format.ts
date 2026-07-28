@@ -200,10 +200,18 @@ export function nodeActivity(row: MissionControlRow): string {
       return row.attempt > 0 ? `working… (attempt ${row.attempt}/${row.maxAttempts})` : "working…";
     case "pass":
       return "done";
+    case "fail":
+      return "tests failed";
+    case "reject":
+      return "rejected";
     case "escalate":
-      return "escalated";
+      return "escalated — needs a human";
     case "blocked":
       return "waiting for you";
+    case "changes-requested":
+      return "changes requested — back to the developer";
+    case "already-done":
+      return "already complete";
     default:
       return row.state;
   }

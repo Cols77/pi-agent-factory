@@ -355,9 +355,13 @@ describe("nodeActivity", () => {
     expect(nodeActivity(row({ state: "running", handoff: null }))).toBe("working…");
   });
 
-  test("falls back to 'escalated' / 'waiting for you' by state", () => {
-    expect(nodeActivity(row({ state: "escalate", handoff: null }))).toBe("escalated");
+  test("humanizes state-only fallbacks when no handoff exists", () => {
+    expect(nodeActivity(row({ state: "escalate", handoff: null }))).toBe("escalated — needs a human");
     expect(nodeActivity(row({ state: "blocked", handoff: null }))).toBe("waiting for you");
+    expect(nodeActivity(row({ state: "changes-requested", handoff: null }))).toBe(
+      "changes requested — back to the developer",
+    );
+    expect(nodeActivity(row({ state: "already-done", handoff: null }))).toBe("already complete");
   });
 });
 
