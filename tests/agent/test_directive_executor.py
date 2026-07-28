@@ -1,11 +1,15 @@
 """Tests for DirectiveExecutor."""
 from __future__ import annotations
 
-from drone.interfaces import Directive, NavPlan, Detection, Pose
+import pytest
+
 from drone.fake_flight_controller import FakeFlightController
+from drone.interfaces import Directive, NavPlan, Detection, Pose
+from drone.mission.directive_executor import DirectiveExecutor
 from drone.mission.state import MissionState
 from drone.navigation.waypoint_sequencer import WaypointSequencer
-from drone.mission.directive_executor import DirectiveExecutor
+
+pytestmark = pytest.mark.agent
 
 
 def _make_executor():
