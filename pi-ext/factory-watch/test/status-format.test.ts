@@ -183,11 +183,11 @@ describe("formatMissionControlRows", () => {
     };
     const rows = formatMissionControlRows(record, STAGE_ORDER);
     expect(rows).toEqual([
-      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files", sessionId: null, summary: null, startCommit: null },
-      { node: "dev", label: "developer", state: "running", handoff: null, sessionId: null, summary: null, startCommit: null },
-      { node: "validation", label: "validation", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
-      { node: "review", label: "reviewer", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
-      { node: "human-review", label: "human-review", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null },
+      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files", sessionId: null, summary: null, startCommit: null, snippet: "" },
+      { node: "dev", label: "developer", state: "running", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: "" },
+      { node: "validation", label: "validation", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
+      { node: "review", label: "reviewer", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
+      { node: "human-review", label: "human-review", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
     ]);
   });
 
@@ -252,6 +252,18 @@ describe("formatMissionControlRows", () => {
       summary: null,
       startCommit: null,
     });
+  });
+
+  test("carries the snippet from a running entry", () => {
+    const record: StatusRecord = {
+      session_id: "s1", task_id: "T-1", current_node: "dev", current_state: "running",
+      pipeline: [
+        { node: "dev", node_state: "running", attempt: 1, max_attempts: 3, snippet: "grepping for advance_waypoint", outcome: null, handoff: null, updated_at: "t" },
+      ],
+      started_at: "t", updated_at: "t",
+    };
+    const rows = formatMissionControlRows(record, ["dev"]);
+    expect(rows[0]!.snippet).toBe("grepping for advance_waypoint");
   });
 });
 

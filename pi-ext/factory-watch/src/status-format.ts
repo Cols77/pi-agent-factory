@@ -153,6 +153,7 @@ export interface MissionControlRow {
   sessionId: string | null;
   summary: string | null;
   startCommit: string | null;
+  snippet: string | null;
 }
 
 export function formatMissionControlRows(record: StatusRecord | null, stageOrder: string[]): MissionControlRow[] {
@@ -167,6 +168,7 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
       sessionId: entry?.session_id ?? null,
       summary: entry?.summary ?? null,
       startCommit: entry?.start_commit ?? null,
+      snippet: entry?.snippet ?? null,
     };
   });
 }
