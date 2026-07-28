@@ -139,3 +139,40 @@ test("render() prints a row's summary (width-wrapped)", () => {
     expect(line.length).toBeLessThanOrEqual(40);
   }
 });
+
+function escalatedDevRecord(): StatusRecord {
+  return {
+    session_id: "s1", task_id: "T-029", current_node: "dev", current_state: "escalate",
+    pipeline: [
+      { node: "context-gather", node_state: "pass", attempt: 1, max_attempts: 1, snippet: "", outcome: null, handoff: "-> dev", updated_at: "t" },
+      { node: "dev", node_state: "escalate", attempt: 3, max_attempts: 3, snippet: "", outcome: "escalated", handoff: "escalated: unit tests still red", updated_at: "t", session_id: "dev-abc" },
+    ],
+    started_at: "t", updated_at: "t",
+  };
+}
+
+test("Enter on an escalated dev row resolves pair-dev with its sessionId", () => {
+  const onAction = vi.fn();
+  const d = new MissionControlDashboard(escalatedDevRecord(), onAction);
+  down(d, 1); // dev row
+  d.handleInput("\r");
+  expect(onAction).toHaveBeenCalledWith({ type: "pair-dev", sessionId: "dev-abc" });
+});
+
+test("Enter on a running dev row still resolves inspect (not pair-dev)", () => {
+  const onAction = vi.fn();
+  const d = new MissionControlDashboard(RECORD, onAction);
+  down(d, 1); // dev row (RECORD has dev running)
+  d.handleInput("\r");
+  expect(onAction).toHaveBeenCalledWith({ type: "inspect", sessionId: "dev-abc" });
+});
+
+test("shows a DEV STUCK alert when dev is escalated", () => {
+  const d = new MissionControlDashboard(escalatedDevRecord(), () => {});
+  expect(d.render(80).join("\n")).toContain("DEV STUCK");
+});
+
+test("no DEV STUCK alert when dev is not escalated", () => {
+  const d = new MissionControlDashboard(RECORD, () => {});
+  expect(d.render(80).join("\n")).not.toContain("DEV STUCK");
+});

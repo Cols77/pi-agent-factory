@@ -1,6 +1,6 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { formatMissionControlRows } from "./status-format.ts";
+import { formatMissionControlRows, devEscalated } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review", "session-review"];
@@ -10,6 +10,7 @@ export type MissionControlAction =
   | { type: "inspect"; sessionId: string | null }
   | { type: "gate-log" }
   | { type: "review" }
+  | { type: "pair-dev"; sessionId: string }
   | { type: "quit" };
 
 export class MissionControlDashboard implements Component {
@@ -31,7 +32,10 @@ export class MissionControlDashboard implements Component {
   private handleEnter(): void {
     if (this.record === null) return;
     const row = formatMissionControlRows(this.record, STAGE_ORDER)[this.selectedIndex]!;
-    if (AGENT_NODES.has(row.node)) {
+    const escalated = devEscalated(this.record);
+    if (row.node === "dev" && escalated !== null) {
+      this.onAction({ type: "pair-dev", sessionId: escalated.sessionId });
+    } else if (AGENT_NODES.has(row.node)) {
       this.onAction({ type: "inspect", sessionId: row.sessionId });
     } else if (row.node === "validation") {
       this.onAction({ type: "gate-log" });
@@ -60,6 +64,9 @@ export class MissionControlDashboard implements Component {
       (e) => e.node === "human-review" && e.node_state === "blocked",
     );
     if (hrBlocked) lines.push("⚠ HUMAN REVIEW NEEDED — select human-review and press Enter", "");
+    if (devEscalated(this.record)) {
+      lines.push("⚠ DEV STUCK — select developer and press Enter to pair, then re-run the task", "");
+    }
     formatMissionControlRows(this.record, STAGE_ORDER).forEach((row, i) => {
       const prefix = i === this.selectedIndex ? "> " : "  ";
       lines.push(`${prefix}${row.label.padEnd(16)} ${row.state}`);
