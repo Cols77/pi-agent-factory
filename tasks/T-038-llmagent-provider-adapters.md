@@ -6,7 +6,7 @@ dod:
 id: T-038
 source_plan: docs/superpowers/plans/2026-07-21-mission-agent-navigation.md
 source_task: 10
-status: todo
+status: done
 title: LlmAgent & Provider Adapters
 ---
 

@@ -8,12 +8,12 @@ import pytest
 
 from drone.interfaces import (
     ModelConfig,
-    Directive,
     NavPlan,
     Pose,
     WaterArea,
     NavContext,
     MissionPlanner,
+    ProviderAdapter,
     Detection,
 )
 from drone.mission.state import MissionState
@@ -138,6 +138,30 @@ class TestLlmAgentDirectiveParsing:
         raw = {"kind": "fly_to_mars"}
         result = agent._parse_directive(json.dumps(raw))
         assert result.kind == "continue"
+
+
+class TestProviderAdapterProtocol:
+    def test_provider_adapter_is_runtime_checkable_protocol(self):
+        """ProviderAdapter should be a @runtime_checkable Protocol."""
+        assert hasattr(ProviderAdapter, "__protocol_attrs__") or hasattr(
+            ProviderAdapter, "__abstractmethods__"
+        )
+        assert hasattr(ProviderAdapter, "__subclasshook__")
+
+    def test_class_implementing_provider_adapter_isinstance(self):
+        """A class with 'call' method should pass isinstance check."""
+        class FakeProvider:
+            def call(self, config: ModelConfig, prompt: str) -> str:
+                return '{"kind": "continue"}'
+
+        assert isinstance(FakeProvider(), ProviderAdapter)
+
+    def test_class_without_call_not_instance(self):
+        """A class without 'call' method should NOT pass isinstance check."""
+        class NotProvider:
+            pass
+
+        assert not isinstance(NotProvider(), ProviderAdapter)
 
 
 class TestLlmAgentSatisfiesProtocol:

@@ -10,21 +10,10 @@ def plan_navigation(
     water_area: WaterArea,
     algorithm: str,
     context: NavContext,
-    max_distance_from_shore: float | None = None,
 ) -> NavPlan:
     """Generate waypoints for a named algorithm."""
     algo = registry.lookup(algorithm)
     return algo.plan(water_area, context)
-
-
-def update_navigation(nav_plan: NavPlan) -> NavPlan:
-    """Replace current nav plan mid-flight."""
-    return nav_plan
-
-
-def abort_navigation() -> None:
-    """Cancel current nav, hover in place."""
-    return None
 
 
 def investigate_target(detection: Detection) -> NavPlan:

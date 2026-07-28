@@ -4,9 +4,8 @@ from __future__ import annotations
 import json
 import logging
 
-from drone.interfaces import ModelConfig, Directive, MissionPlanner
+from drone.interfaces import ModelConfig, Directive
 from drone.mission.state import MissionState
-from drone.mission.tools import plan_navigation, investigate_target, mark_objective
 from drone.navigation.registry import NavRegistry
 
 logger = logging.getLogger(__name__)
@@ -38,10 +37,6 @@ TOOL_DEFINITIONS = [
                 "algorithm": {
                     "type": "string",
                     "description": "Algorithm name (e.g. perimeter_sweep)",
-                },
-                "max_distance_from_shore": {
-                    "type": "number",
-                    "description": "Optional max distance from shore in meters",
                 },
             },
             "required": ["algorithm"],

@@ -5,6 +5,13 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable, TYPE_CHECKING
 
 
+@runtime_checkable
+class ProviderAdapter(Protocol):
+    """Adapter interface for LLM provider API calls."""
+
+    def call(self, config: ModelConfig, prompt: str) -> str: ...
+
+
 @dataclass(frozen=True)
 class Pose:
     """3D position + heading."""
