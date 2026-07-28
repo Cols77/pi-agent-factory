@@ -233,3 +233,87 @@ def test_thinking_only_message_is_not_flagged_as_missing_text():
     # A thinking block IS content; the field-mismatch diagnostic must not treat
     # a thinking-only assistant message as an empty response.
     assert _has_json_events_without_text_field(THINKING_STREAM) is False
+
+
+# --- RC1: agent-subprocess timeouts (a stalled or runaway agent must not hang
+# the orchestrator forever) -----------------------------------------------------
+
+def test_drain_lines_yields_all_then_stops_without_timeout():
+    from factory.orchestrator.pi_backend import _drain_lines
+
+    fired: list[str] = []
+    out = list(_drain_lines(iter(["a\n", "b\n"]), 5, 5, lambda r: fired.append(r)))
+    assert out == ["a\n", "b\n"]
+    assert fired == []  # ended normally, no timeout
+
+
+def test_drain_lines_idle_timeout_kills_a_stalled_stream():
+    import threading
+
+    from factory.orchestrator.pi_backend import _drain_lines
+
+    block = threading.Event()
+
+    def stalled():
+        yield "first\n"
+        block.wait(5)  # stall: no further lines arrive
+
+    fired: list[str] = []
+    out = list(_drain_lines(stalled(), idle_timeout=0.15, total_timeout=5, on_timeout=fired.append))
+    block.set()
+    assert out == ["first\n"]
+    assert fired == ["idle"]
+
+
+def test_drain_lines_total_timeout_kills_a_runaway_stream():
+    import threading
+    import time as _t
+
+    from factory.orchestrator.pi_backend import _drain_lines
+
+    stop = threading.Event()
+
+    def runaway():
+        # Keeps streaming (never idle) -- only a total wall-clock bound can stop it.
+        while not stop.is_set():
+            yield "loop\n"
+            _t.sleep(0.02)
+
+    fired: list[str] = []
+    out = list(_drain_lines(runaway(), idle_timeout=5, total_timeout=0.2, on_timeout=fired.append))
+    stop.set()
+    assert fired == ["total"]
+    assert len(out) >= 1  # streamed some output before being cut off
+
+
+def test_run_kills_and_fails_the_attempt_on_timeout(monkeypatch, tmp_path):
+    import threading
+
+    killed: list[bool] = []
+    block = threading.Event()
+
+    class _StallProc:
+        def __init__(self) -> None:
+            self.returncode = 0
+
+            def gen():
+                yield '{"type":"session","id":"sess-x"}\n'
+                block.wait(5)  # then stall forever
+
+            self.stdout = gen()
+
+        def kill(self) -> None:
+            killed.append(True)
+            block.set()  # let the reader thread finish
+
+        def wait(self) -> None:
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: _StallProc())
+    backend = PiAgentBackend(tmp_path, tmp_path / "ext.ts", idle_timeout_s=0.15, total_timeout_s=0.5)
+    result = backend.run(AgentRole.DEV, "hi")
+
+    assert result.ok is False
+    assert "timeout" in result.raw
+    assert killed == [True]
+    assert result.session_id == "sess-x"  # captured before the stall

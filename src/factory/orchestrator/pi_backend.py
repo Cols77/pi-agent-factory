@@ -2,17 +2,83 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable
+import threading
+import time
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from factory.orchestrator.roles import ROLE_SCOPE
 from factory.orchestrator.types import AgentResult, AgentRole
 
 _JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
+
+# Bounds on how long an agent subprocess may run before the orchestrator kills
+# it, so a stalled or runaway agent can't hang the pipeline forever (the
+# observed failure: a dev agent streamed 38MB over 35 turns and never
+# returned, with no timeout, blocking the whole run and never releasing the
+# lock). Overridable via env for ops tuning; a non-positive value disables a
+# bound.
+_DEFAULT_IDLE_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_IDLE_TIMEOUT_S", "300"))
+_DEFAULT_TOTAL_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_TOTAL_TIMEOUT_S", "1200"))
+
+
+def _drain_lines(
+    stream: Iterable[str],
+    idle_timeout: float,
+    total_timeout: float,
+    on_timeout: Callable[[str], None],
+    *,
+    now: Callable[[], float] = time.monotonic,
+) -> Iterator[str]:
+    """Yield lines from *stream*, enforcing two bounds so a stalled or runaway
+    agent can't hang the orchestrator forever:
+
+      - idle_timeout: max seconds allowed between consecutive lines (a true
+        stall -- the process is alive but producing nothing).
+      - total_timeout: max total wall-clock seconds regardless of output (a
+        runaway loop that keeps streaming, the observed failure mode).
+
+    On the first breach, ``on_timeout(reason)`` is called once with "idle" or
+    "total" and iteration stops. A daemon reader thread decouples the blocking
+    pipe read from the timeout wait (Windows cannot ``select()`` on pipes). A
+    non-positive timeout disables that particular bound.
+    """
+    q: queue.Queue = queue.Queue()
+    sentinel = object()
+
+    def _reader() -> None:
+        try:
+            for line in stream:
+                q.put(line)
+        finally:
+            q.put(sentinel)
+
+    threading.Thread(target=_reader, daemon=True).start()
+    start = now()
+    idle = idle_timeout if idle_timeout and idle_timeout > 0 else None
+    total = total_timeout if total_timeout and total_timeout > 0 else None
+    while True:
+        if total is not None and (now() - start) >= total:
+            on_timeout("total")
+            return
+        wait = idle
+        if total is not None:
+            remaining = total - (now() - start)
+            wait = remaining if wait is None else min(wait, remaining)
+        try:
+            item = q.get(timeout=wait)
+        except queue.Empty:
+            # Woke without a line: attribute the breach to whichever bound tripped.
+            on_timeout("total" if total is not None and (now() - start) >= total else "idle")
+            return
+        if item is sentinel:
+            return
+        yield item
 
 
 def _assistant_text_blocks(message: object) -> list[str]:
@@ -193,11 +259,15 @@ class PiAgentBackend:
         extension_path: Path,
         provider: str | None = None,
         model: str | None = None,
+        idle_timeout_s: float = _DEFAULT_IDLE_TIMEOUT_S,
+        total_timeout_s: float = _DEFAULT_TOTAL_TIMEOUT_S,
     ) -> None:
         self._repo_root = repo_root
         self._extension_path = extension_path
         self._provider = provider
         self._model = model
+        self._idle_timeout_s = idle_timeout_s
+        self._total_timeout_s = total_timeout_s
 
     def run(
         self,
@@ -236,7 +306,21 @@ class PiAgentBackend:
             lines: list[str] = []
             assert proc.stdout is not None
             captured_session_id: str | None = None
-            for line in proc.stdout:
+            timed_out_reason: str | None = None
+
+            def _on_timeout(reason: str) -> None:
+                nonlocal timed_out_reason
+                timed_out_reason = reason
+                # Kill the runaway/stalled agent so proc.wait() returns and the
+                # run can end (and release its lock) instead of hanging forever.
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+
+            for line in _drain_lines(
+                proc.stdout, self._idle_timeout_s, self._total_timeout_s, _on_timeout
+            ):
                 lines.append(line)
                 # Capture the pi session id as soon as it is emitted so
                 # callers can surface it (e.g. to the dashboard) while the
@@ -261,8 +345,20 @@ class PiAgentBackend:
                     pass
 
         output = parse_pi_json(stdout)
-        ok = proc.returncode == 0
+        ok = proc.returncode == 0 and timed_out_reason is None
         raw = stdout
+
+        # The agent was killed for exceeding a timeout: report the attempt as a
+        # backend failure with a diagnosable reason, so the node treats it as a
+        # failed attempt (retry, then escalate) instead of a silent empty result.
+        if timed_out_reason is not None:
+            raw = (
+                f"pi_backend: agent killed after {timed_out_reason} timeout "
+                f"(idle={self._idle_timeout_s}s, total={self._total_timeout_s}s) -- it "
+                "stalled or ran away without finishing. Treating this attempt as failed.\n"
+                "Partial stdout follows:\n" + stdout
+            )
+            return AgentResult(ok=False, output=output, raw=raw, session_id=parse_session_id(stdout))
 
         # Finding 1+2 (final review): a zero exit code with non-empty stdout that
         # yields an empty parsed output is normally read as "the agent said

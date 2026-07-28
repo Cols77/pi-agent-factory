@@ -90,6 +90,19 @@ def test_run_next_raises_for_non_todo_task_id(tmp_path):
         run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-001")
 
 
+def test_run_next_force_reruns_a_non_todo_task(tmp_path):
+    # After manual intervention a task can be left `done`/`in-progress`; force
+    # lets the pipeline be re-triggered on it instead of dead-ending with
+    # TaskNotTodoError (RC3).
+    repo = _repo(tmp_path)
+    (repo / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: t\nstatus: done\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
+    path = run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+                    session_id="s1", git_info={"branch": "main"}, task_id="T-001", force=True)
+    assert path and path.exists()
+    assert load_tasks(repo / "tasks")[0].status == "done"
+
+
 def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_path):
     repo = _repo(tmp_path)
 

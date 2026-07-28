@@ -60,7 +60,10 @@ class TaskNotFoundError(RuntimeError):
 
 class TaskNotTodoError(RuntimeError):
     def __init__(self, task_id: str, status: str) -> None:
-        super().__init__(f"task {task_id} is not todo (status: {status})")
+        super().__init__(
+            f"task {task_id} is not todo (status: {status}); "
+            "pass --force to re-run it anyway (e.g. to resume the pipeline after manual work)"
+        )
         self.task_id = task_id
         self.status = status
 

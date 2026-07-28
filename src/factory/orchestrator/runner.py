@@ -234,13 +234,17 @@ def run_next(
     human_review: HumanReviewGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
+    force: bool = False,
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
     if task_id is not None:
         task = get_task(tasks, task_id)
         if task is None:
             raise TaskNotFoundError(task_id)
-        if task.status != "todo":
+        # `force` re-runs a task that isn't `todo` (e.g. one left `done` or
+        # `in-progress` after a manual intervention), so the pipeline can be
+        # resumed instead of dead-ending with TaskNotTodoError (RC3).
+        if task.status != "todo" and not force:
             raise TaskNotTodoError(task_id, task.status)
     else:
         # Pick the next todo task by STATUS only. A task whose Create:/Test:

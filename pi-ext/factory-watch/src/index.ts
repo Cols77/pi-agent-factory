@@ -2,7 +2,7 @@
 // (project-local auto-discovery via .pi/extensions/ also works once installed there)
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, openSync, readFileSync } from "node:fs";
+import { mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
@@ -307,6 +307,16 @@ export default function factoryWatch(pi: PiApi): void {
         }
       }
 
+      // Remove the lock so a hung/killed run can't leave a stale lock that
+      // blocks every future run with "already running" (RC2). acquire_lock
+      // also self-heals a dead-pid lock, but deleting it here makes recovery
+      // immediate and unambiguous.
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // already gone
+      }
+
       stopPolling();
       ctx.ui.setWidget("factory", undefined);
       ctx.ui.notify("factory stopped", "info");
@@ -340,7 +350,10 @@ export default function factoryWatch(pi: PiApi): void {
       }
 
       const { auto, rest } = parseAutoFlag(args);
-      let taskId = rest;
+      // --force resumes a task that isn't `todo` (e.g. after manual work), so
+      // the orchestrator doesn't dead-end with TaskNotTodoError (RC3).
+      const force = /(^|\s)--force(\s|$)/.test(rest);
+      let taskId = rest.replace("--force", "").trim();
       if (taskId === "") {
         const cmd = buildListJsonCommand();
         const result = spawnSync(cmd.bin, cmd.args, { cwd: ctx.cwd, encoding: "utf-8" });
@@ -370,8 +383,8 @@ export default function factoryWatch(pi: PiApi): void {
         taskId = parseTaskIdFromOption(selected);
       }
 
-      const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId);
-      const label = `${ctx.model.provider}/${ctx.model.id}, task ${taskId}`;
+      const cmd = buildRunCommand(ctx.model.provider, ctx.model.id, taskId, force);
+      const label = `${ctx.model.provider}/${ctx.model.id}, task ${taskId}${force ? " (force)" : ""}`;
       if (auto) {
         launchAndWatch(ctx, cmd, label);
       } else {

@@ -38,6 +38,17 @@ describe("buildRunCommand with a task id", () => {
       "--task", "T-003",
     ]);
   });
+
+  test("appends --force when force is set (resume a non-todo task)", () => {
+    const cmd = buildRunCommand("openrouter", "anthropic/claude-opus-4", "T-003", true);
+    expect(cmd.args).toEqual([
+      "run", "python", "-m", "factory.orchestrator", "run",
+      "--provider", "openrouter",
+      "--model", "anthropic/claude-opus-4",
+      "--task", "T-003",
+      "--force",
+    ]);
+  });
 });
 
 describe("buildListJsonCommand", () => {

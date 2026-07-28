@@ -42,6 +42,10 @@ def main() -> None:
         "--auto", action="store_true",
         help="skip the human review gate; fully automated (today's behavior)",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="re-run --task even if it is not 'todo' (e.g. resume the pipeline after manual work)",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo).resolve()
@@ -89,7 +93,8 @@ def main() -> None:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
             session_id=session_id, status=status, task_id=args.task,
-            human_review=human_review, transcript_dir=transcript_dir, **kwargs,
+            human_review=human_review, transcript_dir=transcript_dir, force=args.force,
+            **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:

@@ -3,7 +3,12 @@ export interface Command {
   args: string[];
 }
 
-export function buildRunCommand(provider: string, modelId: string, taskId?: string): Command {
+export function buildRunCommand(
+  provider: string,
+  modelId: string,
+  taskId?: string,
+  force = false,
+): Command {
   const args = [
     "run", "python", "-m", "factory.orchestrator", "run",
     "--provider", provider,
@@ -11,6 +16,9 @@ export function buildRunCommand(provider: string, modelId: string, taskId?: stri
   ];
   if (taskId !== undefined) {
     args.push("--task", taskId);
+  }
+  if (force) {
+    args.push("--force");
   }
   return { bin: "uv", args };
 }

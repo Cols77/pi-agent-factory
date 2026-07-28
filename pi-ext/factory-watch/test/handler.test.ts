@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,6 +137,22 @@ describe("factory-watch commands", () => {
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only" });
     await commands.get("factory-stop")!.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("not running"), "info");
+  });
+
+  test("/factory-stop removes the lock file after killing (RC2)", async () => {
+    // A live lock (this test process's own pid, which isPidAlive sees as alive)
+    // must be deleted so a hung/killed run can't strand a stale lock.
+    const cwd = mkdtempSync(join(tmpdir(), "factory-stop-lock-"));
+    mkdirSync(join(cwd, "sessions"), { recursive: true });
+    const lockPath = join(cwd, "sessions", ".factory-run.lock");
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: "t" }), "utf-8");
+
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+    await commands.get("factory-stop")!.handler("", ctx);
+
+    expect(existsSync(lockPath)).toBe(false);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("factory stopped", "info");
   });
 
   test("/factory's poll loop stops instead of crashing once ctx goes stale", async () => {
