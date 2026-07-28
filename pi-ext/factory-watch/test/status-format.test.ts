@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows } from "../src/status-format.js";
+import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows, devEscalated } from "../src/status-format.js";
 import type { StatusRecord, PipelineEntry } from "../src/status-format.js";
 
 const NOW = new Date("2026-07-20T10:16:52Z");
@@ -280,4 +280,50 @@ test("parseStatus surfaces already_done and deliverables on a pipeline entry", (
   const rec = parseStatus(raw)!;
   expect(rec.pipeline[0]!.already_done).toBe(true);
   expect(rec.pipeline[0]!.deliverables).toEqual(["src/x.py"]);
+});
+
+function recordWithDev(dev: Record<string, unknown>): StatusRecord {
+  return {
+    session_id: "s1", task_id: "T-1", current_node: "dev", current_state: "escalate",
+    pipeline: [
+      { node: "context-gather", node_state: "pass", attempt: 1, max_attempts: 1, snippet: "", outcome: null, handoff: null, updated_at: "t" },
+      { node: "dev", node_state: "pending", attempt: 0, max_attempts: 3, snippet: "", outcome: null, handoff: null, updated_at: "t", ...dev },
+    ],
+    started_at: "t", updated_at: "t",
+  } as StatusRecord;
+}
+
+describe("devEscalated", () => {
+  test("returns the session id when dev node_state is escalate", () => {
+    const rec = recordWithDev({ node_state: "escalate", outcome: "escalated", session_id: "dev-abc" });
+    expect(devEscalated(rec)).toEqual({ sessionId: "dev-abc" });
+  });
+
+  test("returns the session id when only outcome is escalated", () => {
+    const rec = recordWithDev({ node_state: "escalate", outcome: "escalated", session_id: "dev-xyz" });
+    expect(devEscalated(rec)).toEqual({ sessionId: "dev-xyz" });
+  });
+
+  test("returns null when dev is escalated but has no session id", () => {
+    const rec = recordWithDev({ node_state: "escalate", outcome: "escalated", session_id: null });
+    expect(devEscalated(rec)).toBeNull();
+  });
+
+  test("returns null when dev is still running", () => {
+    const rec = recordWithDev({ node_state: "running", session_id: "dev-abc" });
+    expect(devEscalated(rec)).toBeNull();
+  });
+
+  test("returns null when there is no dev entry", () => {
+    const rec: StatusRecord = {
+      session_id: "s1", task_id: "T-1", current_node: "context-gather", current_state: "pass",
+      pipeline: [{ node: "context-gather", node_state: "pass", attempt: 1, max_attempts: 1, snippet: "", outcome: null, handoff: null, updated_at: "t" }],
+      started_at: "t", updated_at: "t",
+    };
+    expect(devEscalated(rec)).toBeNull();
+  });
+
+  test("returns null for a null record", () => {
+    expect(devEscalated(null)).toBeNull();
+  });
 });

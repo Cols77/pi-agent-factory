@@ -172,3 +172,19 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
     };
   });
 }
+
+// Detects the dev-escalation handoff state: the dev node exhausted its
+// retries with unit tests still red. Returns the last dev attempt's pi
+// session id (preserved on the entry by FileStatusReporter's sticky-field
+// logic) so the dashboard can open `pi --session <id>` for the human to pair
+// with the agent. Returns null unless the dev node is escalated AND a session
+// id was captured.
+export function devEscalated(record: StatusRecord | null): { sessionId: string } | null {
+  const entry = (record?.pipeline ?? []).find(
+    (e) => e.node === "dev" && (e.node_state === "escalate" || e.outcome === "escalated"),
+  );
+  if (entry && typeof entry.session_id === "string") {
+    return { sessionId: entry.session_id };
+  }
+  return null;
+}
