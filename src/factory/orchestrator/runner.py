@@ -15,7 +15,7 @@ from factory.orchestrator.ledger import (
     next_todo,
     set_status,
 )
-from factory.orchestrator.deliverables import deliverables_exist, parse_deliverables
+from factory.orchestrator.deliverables import parse_deliverables
 from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
@@ -243,9 +243,12 @@ def run_next(
         if task.status != "todo":
             raise TaskNotTodoError(task_id, task.status)
     else:
-        # Skip tasks whose Create:/Test: deliverables already exist on disk --
-        # their work is already done, so they shouldn't be auto-picked as "next".
-        task = next_todo([t for t in tasks if not deliverables_exist(t.body, repo_root)])
+        # Pick the next todo task by STATUS only. A task whose Create:/Test:
+        # deliverables happen to exist on disk is NOT necessarily complete (it may
+        # have stopped at dev-fail with files committed); hiding it here silently
+        # swallows unfinished work. Genuinely-done work is handled at run time by
+        # the context-gatherer's already-done routing, which verifies via the gates.
+        task = next_todo(tasks)
         if task is None:
             return None
 

@@ -145,14 +145,18 @@ def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_p
     assert "New thing needs a longer timeout" in captured["prompt"]
 
 
-def test_run_next_skips_tasks_whose_deliverables_already_exist(tmp_path):
-    # A todo task whose Create: deliverable already exists is "done on disk" and
-    # must not be auto-picked by next_todo -- with only that task, there's
-    # nothing runnable, so run_next returns None.
-    (tmp_path / "tasks").mkdir(exist_ok=True)
-    (tmp_path / "tasks" / "T-1.md").write_text(
-        "---\nid: T-1\ntitle: t\nstatus: todo\ndod:\n  - c\n---\n- Create: `src/x.py`\n",
+def test_auto_pick_selects_todo_task_even_if_deliverables_exist(tmp_path):
+    # A todo task whose Create: deliverable already exists on disk must still be
+    # auto-picked and run -- file presence alone doesn't prove the task is done
+    # (e.g. it may have stopped at dev-fail with files already committed).
+    # Genuinely-done work is instead handled at run time by the context-
+    # gatherer's already-done routing.
+    repo = _repo(tmp_path)
+    # T-001's body declares Create: src/x.py, which _repo already created on disk.
+    (repo / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\n- Create: `src/x.py`\n",
         encoding="utf-8")
-    (tmp_path / "src").mkdir(exist_ok=True)
-    (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
-    assert run_next(tmp_path, FakeAgentBackend({}), FakeGateRunner(), session_id="s1") is None
+    backend = FakeAgentBackend(_scripts())
+    result = run_next(repo, backend, FakeGateRunner(), session_id="s1")
+    # It must run the task (not return None / "no todo tasks") despite src/x.py existing.
+    assert result is not None
