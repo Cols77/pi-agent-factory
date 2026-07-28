@@ -17,3 +17,4 @@ sessions/.factory-status.json
 sessions/.factory-run.log
 sessions/.factory-run.lock
 sessions/latest.md
+sessions/.factory-runs/

@@ -138,7 +138,7 @@ def test_file_status_reporter_retries_transient_rename_failure(tmp_path):
 
     record = json.loads(path.read_text(encoding="utf-8"))
     assert record["pipeline"][0]["node"] == "dev"
-    assert calls["n"] == 3  # failed twice, succeeded on the third attempt
+    assert calls["n"] == 4  # primary: failed twice, succeeded on third; mirror: succeeded on first
 
 
 def test_file_status_reporter_does_not_raise_on_persistent_lock(tmp_path):
@@ -195,3 +195,29 @@ def test_report_records_already_done_and_deliverables(tmp_path):
     entry = record["pipeline"][0]
     assert entry["already_done"] is True
     assert entry["deliverables"] == ["src/x.py", "tests/test_x.py"]
+
+
+def test_report_mirrors_record_to_per_task_file(tmp_path):
+    path = tmp_path / "sessions" / ".factory-status.json"
+    reporter = FileStatusReporter(path=path, session_id="s1")
+    reporter.report(task_id="T-037", node="dev", node_state="fail", attempt=3, max_attempts=3,
+                    handoff="unit tests still red", outcome="escalated")
+    mirror = tmp_path / "sessions" / ".factory-runs" / "T-037.json"
+    assert mirror.exists()
+    rec = json.loads(mirror.read_text(encoding="utf-8"))
+    assert rec["task_id"] == "T-037"
+    assert rec["current_node"] == "dev"
+    assert rec["current_state"] == "fail"
+    assert rec["pipeline"][0]["handoff"] == "unit tests still red"
+
+
+def test_report_mirror_write_failure_does_not_raise(tmp_path):
+    # Best-effort: a failing mirror write must not abort the run, and the primary
+    # status file must still be written.
+    path = tmp_path / "sessions" / ".factory-status.json"
+    reporter = FileStatusReporter(path=path, session_id="s1")
+    # Make the mirror dir path a FILE so mkdir(parents=True) under it raises.
+    (tmp_path / "sessions").mkdir()
+    (tmp_path / "sessions" / ".factory-runs").write_text("x", encoding="utf-8")
+    reporter.report(task_id="T-1", node="dev", node_state="running", attempt=1, max_attempts=3)  # must not raise
+    assert path.exists()  # primary write still happened

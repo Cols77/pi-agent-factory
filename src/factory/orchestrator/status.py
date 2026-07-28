@@ -30,7 +30,11 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
     """Write *payload* as JSON to *path* atomically, tolerating transient
     Windows ERROR_ACCESS_DENIED (WinError 5) renames. On a persistent lock,
     drop the temp file and warn instead of raising -- the run continues."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"factory: warning: could not create status directory {path.parent}: {exc}", file=sys.stderr)
+        return
     tmp_path = path.with_name(path.name + ".tmp")
     # Write the payload to the temp file first, outside the rename retry loop.
     try:
@@ -166,6 +170,12 @@ class FileStatusReporter:
             "updated_at": _now(),
         }
         _atomic_write_json(self.path, record)
+        # Mirror the record to a per-task file so a stopped/killed run's state
+        # survives the next run overwriting the single global status slot. The
+        # picker reads these to show where each task last stopped. Best-effort:
+        # _atomic_write_json already swallows OSError and warns, never raising.
+        mirror_path = self.path.parent / ".factory-runs" / f"{task_id}.json"
+        _atomic_write_json(mirror_path, record)
 
 
 class FakeStatusReporter:
