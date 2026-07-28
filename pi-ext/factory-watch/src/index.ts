@@ -21,6 +21,7 @@ import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 import { computeImplementingFiles, computeReviewFiles } from "./review-diff.js";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
+import { readReviewGuide, reviewGuidePath } from "./review-guide.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
@@ -111,6 +112,7 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
         const hr = rec?.pipeline.find((e) => e.node === "human-review");
         if (rec && hr && hr.node_state === "blocked" && typeof hr.start_commit === "string") {
           const alreadyDone = hr.already_done === true;
+          const guide = readReviewGuide(reviewGuidePath(ctx.cwd, rec.session_id)) ?? undefined;
           const files = alreadyDone
             ? computeImplementingFiles(ctx.cwd, hr.deliverables ?? [])
             : computeReviewFiles(ctx.cwd, hr.start_commit);
@@ -118,8 +120,9 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
             ? {
                 implementing: true,
                 banner: "This task appears already complete -- approve to mark it done, reject to re-run it.",
+                guide,
               }
-            : {};
+            : { guide };
           const decision = await runReviewLoop(ctx.ui, ctx.cwd, rec.task_id, hr.start_commit, files, opts);
           writeReviewDecision(reviewDecisionPath(ctx.cwd, rec.session_id), decision);
         }

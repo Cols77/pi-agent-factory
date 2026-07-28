@@ -9,6 +9,7 @@ import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
 import { computeImplementingFiles, computeReviewFiles } from "../src/review-diff.js";
 import { runReviewLoop } from "../src/review-overlay.js";
+import { readReviewGuide } from "../src/review-guide.js";
 import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.js";
 import { resolveSessionPath } from "../src/session-path.js";
 import type { PipelineEntry, StatusRecord } from "../src/status-format.js";
@@ -44,6 +45,10 @@ vi.mock("../src/review-diff.js", () => ({
 vi.mock("../src/review-overlay.js", () => ({
   runReviewLoop: vi.fn(),
 }));
+vi.mock("../src/review-guide.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review-guide.js")>();
+  return { ...actual, readReviewGuide: vi.fn() };
+});
 vi.mock("../src/review-protocol.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/review-protocol.js")>();
   return { ...actual, writeReviewDecision: vi.fn() };
@@ -105,6 +110,7 @@ describe("factory-watch commands", () => {
     vi.mocked(computeReviewFiles).mockReset();
     vi.mocked(computeImplementingFiles).mockReset();
     vi.mocked(runReviewLoop).mockReset();
+    vi.mocked(readReviewGuide).mockReset();
     vi.mocked(writeReviewDecision).mockReset();
     vi.mocked(resolveSessionPath).mockReset();
   });
@@ -321,6 +327,59 @@ describe("factory-watch commands", () => {
     expect(vi.mocked(writeReviewDecision)).toHaveBeenCalledWith(
       reviewDecisionPath(cwd, "sess-1"),
       decision,
+    );
+  });
+
+  test("/factory-run interactive: the review action passes the review guide into the review loop", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify([{ id: "T-001", title: "t", status: "todo" }]), stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const child = new EventEmitter() as EventEmitter & { unref: () => void };
+    child.unref = () => {};
+    vi.mocked(spawn).mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+
+    const cwd = mkdtempSync(join(tmpdir(), "factory-watch-review-guide-"));
+    mkdirSync(join(cwd, "sessions"), { recursive: true });
+    const blockedEntry: PipelineEntry = {
+      node: "human-review",
+      node_state: "blocked",
+      attempt: 0,
+      max_attempts: 0,
+      snippet: "",
+      outcome: null,
+      handoff: null,
+      updated_at: new Date().toISOString(),
+      start_commit: "abc123",
+    };
+    const record: StatusRecord = {
+      session_id: "sess-1",
+      task_id: "T-001",
+      current_node: "human-review",
+      current_state: "blocked",
+      pipeline: [blockedEntry],
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
+
+    const files = [{ path: "a.ts", status: "M" as const, added: 1, removed: 0 }];
+    vi.mocked(computeReviewFiles).mockReturnValue(files);
+    const guide = { confidence: "high", verify: [{ item: "x" }] };
+    vi.mocked(readReviewGuide).mockReturnValue(guide);
+    const decision = { decision: "approve" as const, comments: {} };
+    vi.mocked(runReviewLoop).mockResolvedValue(decision);
+
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+    vi.mocked(ctx.ui.custom)
+      .mockResolvedValueOnce({ type: "review" }) // dashboard: Enter on human-review
+      .mockResolvedValueOnce({ type: "quit" }); // dashboard again after review
+
+    await commands.get("factory-run")!.handler("T-001", ctx);
+
+    expect(vi.mocked(runReviewLoop)).toHaveBeenCalledWith(
+      ctx.ui, cwd, "T-001", "abc123", files,
+      expect.objectContaining({ guide }),
     );
   });
 
