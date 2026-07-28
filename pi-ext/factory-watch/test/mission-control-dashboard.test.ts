@@ -104,6 +104,22 @@ test("updateRecord replaces the displayed data without losing selection", () => 
   expect(d.render(80).join("\n")).toContain("-> review: sim tests green");
 });
 
+test("renders the live snippet under a running row", () => {
+  const record = { ...RECORD, pipeline: [
+    { node: "dev", node_state: "running", attempt: 1, max_attempts: 3, snippet: "grepping for advance_waypoint", outcome: null, handoff: null, updated_at: "t" },
+  ] } as typeof RECORD;
+  const lines = new MissionControlDashboard(record, () => {}).render(80).join("\n");
+  expect(lines).toContain("grepping for advance_waypoint");
+});
+
+test("does not render a snippet for a non-running row", () => {
+  const record = { ...RECORD, pipeline: [
+    { node: "dev", node_state: "pass", attempt: 1, max_attempts: 3, snippet: "should not show", outcome: null, handoff: "→ validation", updated_at: "t" },
+  ] } as typeof RECORD;
+  const lines = new MissionControlDashboard(record, () => {}).render(80).join("\n");
+  expect(lines).not.toContain("should not show");
+});
+
 test("render() prints a row's summary (width-wrapped)", () => {
   const record: StatusRecord = {
     ...RECORD,

@@ -64,6 +64,14 @@ export class MissionControlDashboard implements Component {
       const prefix = i === this.selectedIndex ? "> " : "  ";
       lines.push(`${prefix}${row.label.padEnd(16)} ${row.state}`);
       if (row.handoff) lines.push(`    ${row.handoff}`);
+      if (row.state === "running" && row.snippet) {
+        const last = row.snippet.split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? "";
+        if (last) {
+          const max = Math.max(1, width - 6);
+          const shown = last.length > max ? last.slice(0, max - 1) + "…" : last;
+          lines.push(`    … ${shown}`);
+        }
+      }
       if (row.summary) {
         for (const wrapped of wrapTextWithAnsi(row.summary, Math.max(1, width - 4))) lines.push(`    ${wrapped}`);
       }
