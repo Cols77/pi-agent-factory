@@ -6,7 +6,7 @@ dod:
 id: T-035
 source_plan: docs/superpowers/plans/2026-07-21-mission-agent-navigation.md
 source_task: 7
-status: todo
+status: done
 title: ScriptedPerception
 ---
 
