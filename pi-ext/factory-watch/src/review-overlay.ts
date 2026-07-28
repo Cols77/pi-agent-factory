@@ -12,6 +12,7 @@ import { computeFileDiffText, computeImplementingFileDiffText } from "./review-d
 import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
+import type { ReviewGuide } from "./review-guide.ts";
 
 export function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
   const finder = platform === "win32" ? "where" : "which";
@@ -51,6 +52,7 @@ export class ReviewOverlay {
   // tree, and `banner` is shown atop the summary.
   private readonly implementing: boolean;
   private readonly banner: string;
+  private readonly guide: ReviewGuide | null;
 
   // Explicit field assignment, not TypeScript constructor parameter
   // properties -- this file is now also loaded via a plain `node <file>.ts`
@@ -67,7 +69,7 @@ export class ReviewOverlay {
     cwd: string,
     startCommit: string,
     onAction: (action: ReviewAction) => void,
-    opts: { implementing?: boolean; banner?: string } = {},
+    opts: { implementing?: boolean; banner?: string; guide?: ReviewGuide } = {},
   ) {
     this.files = files;
     this.comments = comments;
@@ -77,6 +79,7 @@ export class ReviewOverlay {
     this.onAction = onAction;
     this.implementing = opts.implementing ?? false;
     this.banner = opts.banner ?? "";
+    this.guide = opts.guide ?? null;
   }
 
   private currentFile(): FileStat {
@@ -110,6 +113,33 @@ export class ReviewOverlay {
     return cached;
   }
 
+  private guideLines(width: number): string[] {
+    const g = this.guide;
+    if (g === null) return [];
+    const lines: string[] = [];
+    if (g.confidence) lines.push(`Confidence: ${g.confidence}`);
+    if (g.validation && g.validation.length > 0) {
+      lines.push(
+        "Validation: " +
+          g.validation
+            .map((v) => `${v.gate} ${v.summary ?? ""}${v.ok === false ? " ✗" : v.ok ? " ✓" : ""}`.trim())
+            .join("   "),
+      );
+    }
+    if (g.addressed && g.addressed.length > 0) {
+      lines.push(`Already addressed this run (${g.addressed.length}): ${g.addressed.join("; ")}`);
+    }
+    if (g.verify && g.verify.length > 0) {
+      lines.push("", "Verify before approving:");
+      g.verify.slice(0, 9).forEach((v, i) => {
+        const loc = v.file ? `  ${v.file}${v.line ? `:${v.line}` : ""}` : "";
+        lines.push(`  [${i + 1}] ${v.item}${loc}`);
+      });
+    }
+    if (lines.length > 0) lines.push("");
+    return lines.map((l) => truncateToWidth(l, width));
+  }
+
   handleInput(data: string): void {
     if (this.view.mode === "file") {
       const view = this.view;
@@ -138,6 +168,14 @@ export class ReviewOverlay {
 
     if (matchesKey(data, Key.escape) || data === "q") {
       return; // no-op at the summary -- see Global Constraints
+    }
+    if (/^[1-9]$/.test(data)) {
+      const v = this.guide?.verify?.[Number(data) - 1];
+      const idx = v?.file ? this.files.findIndex((f) => f.path === v.file) : -1;
+      if (idx >= 0) {
+        this.view = { mode: "file", index: idx, scrollOffset: 0 };
+      }
+      return;
     }
     if (data === "\r" || data === "\n") {
       // Guard against an empty `files` list: computeReviewFiles can (rarely,
@@ -169,7 +207,7 @@ export class ReviewOverlay {
 
   render(width: number): string[] {
     if (this.view.mode === "summary") {
-      const lines: string[] = [];
+      const lines: string[] = [...this.guideLines(width)];
       if (this.banner) {
         lines.push(this.banner, "");
       }
@@ -213,7 +251,7 @@ export async function runReviewLoop(
   taskId: string,
   startCommit: string,
   files: FileStat[],
-  opts: { implementing?: boolean; banner?: string } = {},
+  opts: { implementing?: boolean; banner?: string; guide?: ReviewGuide } = {},
 ): Promise<ReviewDecisionResult> {
   const comments = new Map<string, string>();
 

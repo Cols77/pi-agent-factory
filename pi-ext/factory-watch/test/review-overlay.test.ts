@@ -5,6 +5,7 @@ import { ReviewOverlay, runReviewLoop } from "../src/review-overlay.js";
 import { computeFileDiffText } from "../src/review-diff.js";
 import type { FileStat } from "../src/review-diff.js";
 import type { UiApi } from "../src/pi-types.js";
+import type { ReviewGuide } from "../src/review-guide.js";
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) }));
 vi.mock("../src/review-diff.js", async (importOriginal) => ({
@@ -270,6 +271,38 @@ describe("runReviewLoop", () => {
       Object.defineProperty(process, "platform", { value: priorPlatform, configurable: true });
       process.env = priorEnv;
     }
+  });
+});
+
+describe("ReviewOverlay focus guide", () => {
+  const guide: ReviewGuide = {
+    confidence: "medium -- edges thin",
+    validation: [{ gate: "sim", ok: true, summary: "12 passed" }],
+    addressed: ["review (round 1): docstring"],
+    verify: [{ item: "advance past last waypoint", file: "src/rtb.py", line: 44 }],
+  };
+
+  test("renders the guide header in the summary", () => {
+    const overlay = new ReviewOverlay(FILES, new Map(), fakeTui(), "/repo", "abc", () => {}, { guide });
+    const out = overlay.render(120).join("\n");
+    expect(out).toContain("medium -- edges thin");
+    expect(out).toContain("12 passed");
+    expect(out).toContain("advance past last waypoint");
+    expect(out).toContain("[1]");
+  });
+
+  test("digit jumps to the referenced file's diff", () => {
+    const overlay = new ReviewOverlay(FILES, new Map(), fakeTui(), "/repo", "abc", () => {}, { guide });
+    overlay.handleInput("1"); // verify item 1 -> src/rtb.py (index 0 in FILES)
+    // now in file view for src/rtb.py -> its diff (mocked computeFileDiffText) shows
+    expect(overlay.render(80).join("\n")).toContain("@@");
+  });
+
+  test("digit for an item without a matching file is a no-op", () => {
+    const g2: ReviewGuide = { verify: [{ item: "no file here" }] };
+    const overlay = new ReviewOverlay(FILES, new Map(), fakeTui(), "/repo", "abc", () => {}, { guide: g2 });
+    expect(() => overlay.handleInput("1")).not.toThrow();
+    expect(overlay.render(80).join("\n")).toContain("files changed"); // still on summary
   });
 });
 
