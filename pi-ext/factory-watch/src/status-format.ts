@@ -149,6 +149,8 @@ export interface MissionControlRow {
   node: string;
   label: string;
   state: string;
+  attempt: number;
+  maxAttempts: number;
   handoff: string | null;
   sessionId: string | null;
   summary: string | null;
@@ -164,6 +166,8 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
       node,
       label: labelForNode(node),
       state: entry?.node_state ?? "pending",
+      attempt: entry?.attempt ?? 0,
+      maxAttempts: entry?.max_attempts ?? 0,
       handoff: entry?.handoff ?? null,
       sessionId: entry?.session_id ?? null,
       summary: entry?.summary ?? null,
@@ -171,6 +175,14 @@ export function formatMissionControlRows(record: StatusRecord | null, stageOrder
       snippet: entry?.snippet ?? null,
     };
   });
+}
+
+// A streamed snippet is worth showing only if it carries real content. Pi's
+// text-delta capture often yields a lone punctuation fragment (e.g. ":") while
+// the agent is busy in tool calls -- that is noise, not activity, and must not
+// crowd out the activity line.
+export function isSubstantiveSnippet(snippet: string | null): boolean {
+  return snippet != null && /[A-Za-z0-9]/.test(snippet) && snippet.trim().length >= 2;
 }
 
 // A short, dynamic line describing what a stage is doing right now or what it
@@ -185,7 +197,7 @@ export function nodeActivity(row: MissionControlRow): string {
     case "pending":
       return "waiting to start";
     case "running":
-      return "working…";
+      return row.attempt > 0 ? `working… (attempt ${row.attempt}/${row.maxAttempts})` : "working…";
     case "pass":
       return "done";
     case "escalate":

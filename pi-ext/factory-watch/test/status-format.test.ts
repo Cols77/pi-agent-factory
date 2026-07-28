@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows, devEscalated, nodeActivity } from "../src/status-format.js";
+import { formatStatusLines, parseStatus, secondsAgo, formatMissionControlRows, devEscalated, nodeActivity, isSubstantiveSnippet } from "../src/status-format.js";
 import type { StatusRecord, PipelineEntry } from "../src/status-format.js";
 
 const NOW = new Date("2026-07-20T10:16:52Z");
@@ -183,11 +183,11 @@ describe("formatMissionControlRows", () => {
     };
     const rows = formatMissionControlRows(record, STAGE_ORDER);
     expect(rows).toEqual([
-      { node: "context-gather", label: "context-gatherer", state: "pass", handoff: "-> dev: 3 files", sessionId: null, summary: null, startCommit: null, snippet: "" },
-      { node: "dev", label: "developer", state: "running", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: "" },
-      { node: "validation", label: "validation", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
-      { node: "review", label: "reviewer", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
-      { node: "human-review", label: "human-review", state: "pending", handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
+      { node: "context-gather", label: "context-gatherer", state: "pass", attempt: 1, maxAttempts: 1, handoff: "-> dev: 3 files", sessionId: null, summary: null, startCommit: null, snippet: "" },
+      { node: "dev", label: "developer", state: "running", attempt: 1, maxAttempts: 3, handoff: null, sessionId: null, summary: null, startCommit: null, snippet: "" },
+      { node: "validation", label: "validation", state: "pending", attempt: 0, maxAttempts: 0, handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
+      { node: "review", label: "reviewer", state: "pending", attempt: 0, maxAttempts: 0, handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
+      { node: "human-review", label: "human-review", state: "pending", attempt: 0, maxAttempts: 0, handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null },
     ]);
   });
 
@@ -331,7 +331,7 @@ describe("devEscalated", () => {
 describe("nodeActivity", () => {
   function row(overrides: Partial<import("../src/status-format.js").MissionControlRow>) {
     return {
-      node: "dev", label: "developer", state: "pending",
+      node: "dev", label: "developer", state: "pending", attempt: 0, maxAttempts: 0,
       handoff: null, sessionId: null, summary: null, startCommit: null, snippet: null,
       ...overrides,
     };
@@ -346,12 +346,31 @@ describe("nodeActivity", () => {
     expect(nodeActivity(row({ state: "pending", handoff: null }))).toBe("waiting to start");
   });
 
-  test("falls back to 'working…' for a running stage with no handoff yet", () => {
+  test("shows the attempt count for a running stage with no handoff yet", () => {
+    expect(nodeActivity(row({ state: "running", handoff: null, attempt: 1, maxAttempts: 3 })))
+      .toBe("working… (attempt 1/3)");
+  });
+
+  test("falls back to a bare 'working…' when no attempt count is known", () => {
     expect(nodeActivity(row({ state: "running", handoff: null }))).toBe("working…");
   });
 
   test("falls back to 'escalated' / 'waiting for you' by state", () => {
     expect(nodeActivity(row({ state: "escalate", handoff: null }))).toBe("escalated");
     expect(nodeActivity(row({ state: "blocked", handoff: null }))).toBe("waiting for you");
+  });
+});
+
+describe("isSubstantiveSnippet", () => {
+  test("rejects null, empty, whitespace, and lone-punctuation fragments", () => {
+    for (const s of [null, "", "   ", ":", " : ", "-", "."]) {
+      expect(isSubstantiveSnippet(s)).toBe(false);
+    }
+  });
+
+  test("accepts snippets with real word content", () => {
+    for (const s of ["2 failed", "grepping for advance_waypoint", "ok"]) {
+      expect(isSubstantiveSnippet(s)).toBe(true);
+    }
   });
 });

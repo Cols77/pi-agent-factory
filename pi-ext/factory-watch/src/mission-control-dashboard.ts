@@ -1,6 +1,6 @@
 import { wrapTextWithAnsi, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { formatMissionControlRows, devEscalated, nodeActivity, iconForState } from "./status-format.ts";
+import { formatMissionControlRows, devEscalated, nodeActivity, isSubstantiveSnippet, iconForState } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
 
 const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review", "session-review"];
@@ -136,16 +136,15 @@ export class MissionControlDashboard implements Component {
       lines.push(truncateToWidth(`${marker}${icon} ${label} ${t.fg(stateColor, row.state)}`, width));
 
       // Dynamic activity: what the stage is doing now / finished and handed
-      // off. Skip the generic running fallback when a live snippet already
-      // shows the activity below.
+      // off. Always shown -- it is the primary "what's happening" line.
       const activity = nodeActivity(row);
-      const hasSnippet = row.state === "running" && !!row.snippet;
-      const genericRunning = row.state === "running" && !row.handoff;
-      if (activity && !(genericRunning && hasSnippet)) {
+      if (activity) {
         for (const w of wrapTextWithAnsi(`↳ ${activity}`, bodyWidth)) lines.push(INDENT + t.fg("muted", w));
       }
-      // Live output preview for a running node.
-      if (hasSnippet) {
+      // Live output preview for a running node -- only when the streamed
+      // snippet is substantive (Pi often streams a lone ":" during tool calls,
+      // which is noise; isSubstantiveSnippet filters it out).
+      if (row.state === "running" && isSubstantiveSnippet(row.snippet)) {
         const last = row.snippet!.split("\n").map((s) => s.trim()).filter(Boolean).pop() ?? "";
         if (last) lines.push(truncateToWidth(INDENT + t.fg("dim", `… ${last}`), width));
       }

@@ -198,6 +198,19 @@ test("applies theme colors to state/title when a theme is provided", () => {
   expect(lines).toContain("<muted>"); // activity lines are muted
 });
 
+test("a running dev with a junk ':' snippet shows the activity, not the noise", () => {
+  const record: StatusRecord = {
+    session_id: "s1", task_id: "T-042", current_node: "dev", current_state: "running",
+    pipeline: [
+      { node: "dev", node_state: "running", attempt: 1, max_attempts: 3, snippet: ":", outcome: null, handoff: null, updated_at: "t", session_id: "dev-abc" },
+    ],
+    started_at: "t", updated_at: "t",
+  };
+  const lines = new MissionControlDashboard(record, () => {}).render(80).join("\n");
+  expect(lines).toContain("working… (attempt 1/3)"); // real activity shown
+  expect(lines).not.toContain("… :"); // the lone-colon fragment is filtered out
+});
+
 test("every rendered line respects the given width", () => {
   const lines = new MissionControlDashboard(escalatedDevRecord(), () => {}).render(48);
   for (const line of lines) {
