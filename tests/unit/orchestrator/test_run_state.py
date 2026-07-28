@@ -11,6 +11,12 @@ def _write_mirror(repo_root, task_id, record):
     (d / f"{task_id}.json").write_text(json.dumps(record), encoding="utf-8")
 
 
+def _write_global(repo_root, record):
+    d = repo_root / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / ".factory-status.json").write_text(json.dumps(record), encoding="utf-8")
+
+
 def test_read_last_run_returns_stop_point_with_reason(tmp_path):
     _write_mirror(tmp_path, "T-037", {
         "task_id": "T-037", "current_node": "dev", "current_state": "fail",
@@ -78,3 +84,48 @@ def test_read_last_run_tolerates_non_list_pipeline(tmp_path):
     assert read_last_run(tmp_path, "T-5") == {
         "node": "dev", "state": "running", "outcome": None, "handoff": None, "updated_at": "t",
     }
+
+
+def test_read_last_run_falls_back_to_global_status_when_no_mirror(tmp_path):
+    # No per-task mirror (e.g. a run that predates per-task mirroring, or a
+    # mirror write that failed while the global write succeeded). The global
+    # status slot holds the most-recent run -- if it's THIS task, use it.
+    _write_global(tmp_path, {
+        "task_id": "T-037", "current_node": "dev", "current_state": "fail",
+        "updated_at": "2026-07-28T11:08:16Z",
+        "pipeline": [
+            {"node": "dev", "node_state": "fail", "handoff": "unit tests still red", "outcome": "escalated"},
+        ],
+    })
+    assert read_last_run(tmp_path, "T-037") == {
+        "node": "dev", "state": "fail", "outcome": "escalated",
+        "handoff": "unit tests still red", "updated_at": "2026-07-28T11:08:16Z",
+    }
+
+
+def test_read_last_run_ignores_global_status_for_a_different_task(tmp_path):
+    # The global slot holds a DIFFERENT task than the one asked about -> no
+    # fallback (we must not misattribute another task's run to this one).
+    _write_global(tmp_path, {
+        "task_id": "T-999", "current_node": "dev", "current_state": "fail",
+        "updated_at": "t", "pipeline": [],
+    })
+    assert read_last_run(tmp_path, "T-037") is None
+
+
+def test_read_last_run_prefers_mirror_over_global_status(tmp_path):
+    # Both exist: the per-task mirror is authoritative for this task; the global
+    # slot (which may hold a newer, different task's run) must not override it.
+    _write_mirror(tmp_path, "T-037", {
+        "task_id": "T-037", "current_node": "review", "current_state": "changes-requested",
+        "updated_at": "mirror-time",
+        "pipeline": [{"node": "review", "node_state": "changes-requested", "handoff": "from mirror", "outcome": None}],
+    })
+    _write_global(tmp_path, {
+        "task_id": "T-037", "current_node": "dev", "current_state": "fail",
+        "updated_at": "global-time",
+        "pipeline": [{"node": "dev", "node_state": "fail", "handoff": "from global", "outcome": "escalated"}],
+    })
+    got = read_last_run(tmp_path, "T-037")
+    assert got["handoff"] == "from mirror"
+    assert got["updated_at"] == "mirror-time"
