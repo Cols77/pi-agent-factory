@@ -44,3 +44,37 @@ def test_read_last_run_handoff_none_when_no_matching_entry(tmp_path):
     })
     got = read_last_run(tmp_path, "T-2")
     assert got == {"node": "dev", "state": "running", "outcome": None, "handoff": None, "updated_at": "t"}
+
+
+def test_read_last_run_outcome_is_last_non_null_across_pipeline(tmp_path):
+    # Two non-null outcomes: the LAST wins. And a trailing null must NOT erase it.
+    _write_mirror(tmp_path, "T-3", {
+        "task_id": "T-3", "current_node": "review", "current_state": "changes-requested",
+        "updated_at": "t",
+        "pipeline": [
+            {"node": "dev", "node_state": "pass", "handoff": None, "outcome": "escalated"},
+            {"node": "validation", "node_state": "pass", "handoff": None, "outcome": "completed"},
+            {"node": "review", "node_state": "changes-requested", "handoff": "2 findings", "outcome": None},
+        ],
+    })
+    got = read_last_run(tmp_path, "T-3")
+    assert got["outcome"] == "completed"  # last non-null, not the trailing None
+    assert got["handoff"] == "2 findings"  # from the current_node (review) entry
+
+
+def test_read_last_run_none_when_top_level_not_a_dict(tmp_path):
+    d = tmp_path / "sessions" / ".factory-runs"
+    d.mkdir(parents=True)
+    (d / "T-4.json").write_text("[1, 2, 3]", encoding="utf-8")
+    assert read_last_run(tmp_path, "T-4") is None
+
+
+def test_read_last_run_tolerates_non_list_pipeline(tmp_path):
+    _write_mirror(tmp_path, "T-5", {
+        "task_id": "T-5", "current_node": "dev", "current_state": "running",
+        "updated_at": "t", "pipeline": "oops-not-a-list",
+    })
+    # Must not raise; pipeline treated as empty -> outcome/handoff None.
+    assert read_last_run(tmp_path, "T-5") == {
+        "node": "dev", "state": "running", "outcome": None, "handoff": None, "updated_at": "t",
+    }
