@@ -98,4 +98,30 @@ def test_main_list_json_outputs_structured_tasks(tmp_path, monkeypatch, capsys):
     main()
 
     out = json.loads(capsys.readouterr().out)
-    assert out == [{"id": "T-001", "title": "Example task", "status": "todo", "already_done": False}]
+    assert out == [{
+        "id": "T-001", "title": "Example task", "status": "todo",
+        "already_done": False, "last_run": None,
+    }]
+
+
+def test_main_list_json_includes_last_run(tmp_path, monkeypatch, capsys):
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "T-1-a.md").write_text(
+        "---\nid: T-1\ntitle: t\nstatus: todo\ndod:\n  - c\n---\nbody\n",
+        encoding="utf-8",
+    )
+    runs_dir = tmp_path / "sessions" / ".factory-runs"
+    runs_dir.mkdir(parents=True)
+    (runs_dir / "T-1.json").write_text(json.dumps({
+        "task_id": "T-1", "current_node": "dev", "current_state": "fail", "updated_at": "t",
+        "pipeline": [{"node": "dev", "node_state": "fail", "handoff": "red", "outcome": "escalated"}],
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["factory.orchestrator", "list", "--repo", str(tmp_path), "--json"])
+    main()
+
+    out = json.loads(capsys.readouterr().out)
+    t1 = next(t for t in out if t["id"] == "T-1")
+    assert t1["last_run"]["state"] == "fail"
+    assert t1["last_run"]["handoff"] == "red"

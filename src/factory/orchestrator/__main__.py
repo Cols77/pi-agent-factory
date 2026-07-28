@@ -14,6 +14,7 @@ from factory.orchestrator.human_review import FileHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
+from factory.orchestrator.run_state import read_last_run
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FileStatusReporter
 
@@ -52,6 +53,7 @@ def main() -> None:
                 {
                     "id": t.id, "title": t.title, "status": t.status,
                     "already_done": deliverables_exist(t.body, repo_root),
+                    "last_run": read_last_run(repo_root, t.id),
                 }
                 for t in tasks
             ]))
