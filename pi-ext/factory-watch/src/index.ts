@@ -8,7 +8,7 @@ import { isPidAlive, parseLock } from "./lock-status.js";
 import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
-import { formatStatusLines, parseStatus } from "./status-format.js";
+import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
@@ -128,6 +128,19 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
         }
         break;
       }
+      case "pair-dev": {
+        const path = resolveSessionPath(action.sessionId);
+        if (path === null) {
+          ctx.ui.notify("dev session not ready", "info");
+          break;
+        }
+        spawnTerminalWindow("pi", ["--session", path], { cwd: ctx.cwd });
+        ctx.ui.notify(
+          "paired dev session opened — get unit tests green, then re-run the task to continue",
+          "info",
+        );
+        break;
+      }
     }
   }
 }
@@ -211,6 +224,7 @@ export default function factoryWatch(pi: PiApi): void {
         const lines = formatStatusLines(record);
         const hrBlocked = (record?.pipeline ?? []).some((e) => e.node === "human-review" && e.node_state === "blocked");
         if (hrBlocked) lines.push("⚠ human review needed — /factory-watch");
+        if (devEscalated(record)) lines.push("⚠ dev stuck — /factory-watch to pair");
         ctx.ui.setWidget("factory", lines);
         if (readFileIfExists(lockPath) === null) {
           stopPolling();

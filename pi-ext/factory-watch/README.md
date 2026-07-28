@@ -92,6 +92,24 @@ action-dispatch loop (`runMissionControl` in `index.ts`) around the overlay:
   `startBackgroundWidgetPoll`) and flags "human review needed" until you
   run `/factory-watch` to reopen it.
 
+### Unblocking a stuck developer
+
+When the developer node exhausts its retries with unit tests still red, mission
+control shows `⚠ DEV STUCK` and the widget shows `⚠ dev stuck — /factory-watch
+to pair`. To unblock:
+
+1. Open `/factory-watch`, select the **developer** row, and press **Enter**.
+   A new terminal window opens in the exact dev `pi` session that got stuck.
+2. Pair with the agent until unit tests pass; let it finish (committing its
+   work is natural but not required).
+3. Close the window and re-run the task (`/factory-run <task>`). The factory
+   detects the work is done (`already_done` routing), skips the dev node, and
+   runs validation → review → done.
+
+If the work isn't actually finished on re-run, the context-gatherer won't mark
+it done, the dev node runs again, and it may escalate again — pair and re-run
+as needed. The factory run is never held open waiting on you.
+
 ## No new IPC
 
 This reads the status/lock files Plan A's orchestrator already writes
