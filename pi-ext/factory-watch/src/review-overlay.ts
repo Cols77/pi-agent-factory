@@ -118,7 +118,7 @@ export class ReviewOverlay {
     if (g === null) return [];
     const lines: string[] = [];
     if (g.confidence) lines.push(`Confidence: ${g.confidence}`);
-    if (g.validation && g.validation.length > 0) {
+    if (Array.isArray(g.validation) && g.validation.length > 0) {
       lines.push(
         "Validation: " +
           g.validation
@@ -126,10 +126,10 @@ export class ReviewOverlay {
             .join("   "),
       );
     }
-    if (g.addressed && g.addressed.length > 0) {
+    if (Array.isArray(g.addressed) && g.addressed.length > 0) {
       lines.push(`Already addressed this run (${g.addressed.length}): ${g.addressed.join("; ")}`);
     }
-    if (g.verify && g.verify.length > 0) {
+    if (Array.isArray(g.verify) && g.verify.length > 0) {
       lines.push("", "Verify before approving:");
       g.verify.slice(0, 9).forEach((v, i) => {
         const loc = v.file ? `  ${v.file}${v.line ? `:${v.line}` : ""}` : "";
@@ -170,7 +170,7 @@ export class ReviewOverlay {
       return; // no-op at the summary -- see Global Constraints
     }
     if (/^[1-9]$/.test(data)) {
-      const v = this.guide?.verify?.[Number(data) - 1];
+      const v = Array.isArray(this.guide?.verify) ? this.guide?.verify?.[Number(data) - 1] : undefined;
       const idx = v?.file ? this.files.findIndex((f) => f.path === v.file) : -1;
       if (idx >= 0) {
         this.view = { mode: "file", index: idx, scrollOffset: 0 };

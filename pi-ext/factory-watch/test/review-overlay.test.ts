@@ -289,6 +289,8 @@ describe("ReviewOverlay focus guide", () => {
     expect(out).toContain("12 passed");
     expect(out).toContain("advance past last waypoint");
     expect(out).toContain("[1]");
+    expect(out).toContain("Already addressed this run (1)");
+    expect(out).toContain("docstring");
   });
 
   test("digit jumps to the referenced file's diff", () => {
@@ -303,6 +305,13 @@ describe("ReviewOverlay focus guide", () => {
     const overlay = new ReviewOverlay(FILES, new Map(), fakeTui(), "/repo", "abc", () => {}, { guide: g2 });
     expect(() => overlay.handleInput("1")).not.toThrow();
     expect(overlay.render(80).join("\n")).toContain("files changed"); // still on summary
+  });
+
+  test("a corrupt guide (string-shaped fields) does not break render", () => {
+    const bad = { verify: "none", validation: "x", addressed: "y", confidence: "c" } as unknown as ReviewGuide;
+    const overlay = new ReviewOverlay(FILES, new Map(), fakeTui(), "/repo", "abc", () => {}, { guide: bad });
+    expect(() => overlay.render(80)).not.toThrow();
+    expect(overlay.render(80).join("\n")).toContain("files changed"); // still usable
   });
 });
 

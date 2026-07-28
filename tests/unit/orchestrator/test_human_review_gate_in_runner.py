@@ -299,6 +299,28 @@ def test_human_review_writes_a_focus_guide(tmp_path):
     assert {"gate": "sim", "ok": True, "summary": "12 passed"} in guide["validation"]
 
 
+def test_addressed_accumulator_survives_human_reject_round_and_reblocks(tmp_path):
+    # Regression: `addressed` must accumulate the human's own comment text
+    # across the OUTER human-round loop (not just LLM review findings), and
+    # the on-disk guide must be re-written with it when the task re-blocks
+    # for the human's next round.
+    repo = _repo(tmp_path)
+    td = repo / "sessions" / ".factory-transcripts" / "s1"
+    td.mkdir(parents=True)
+    human_review = FakeHumanReviewGate([
+        HumanReviewDecision("reject", {"src/x.py": "please fix the docstring"}),
+        HumanReviewDecision("approve", {}),
+    ])
+    run_next(
+        repo, FakeAgentBackend(_scripts(n_review_calls=2)), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=human_review, status=FakeStatusReporter(), transcript_dir=td,
+    )
+    import json
+    guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
+    assert "your comment (round 1) on src/x.py: please fix the docstring" in guide["addressed"]
+
+
 def test_auto_still_escalates_when_llm_never_passes(tmp_path):
     repo = _repo(tmp_path)
     scripts = {
