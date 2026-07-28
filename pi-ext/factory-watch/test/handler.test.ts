@@ -528,7 +528,7 @@ describe("factory-watch commands", () => {
     const ctx = fakeCtx();
     await commands.get("factory-run")!.handler("", ctx);
 
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no runnable todo tasks"), "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("no todo tasks", "info");
     expect(ctx.ui.select).not.toHaveBeenCalled();
   });
 
@@ -549,8 +549,11 @@ describe("factory-watch commands", () => {
     const { commands } = capture();
     await commands.get("factory-run")!.handler("", fakeCtx({ ui }));
 
-    // T-001 (already_done) is hidden; only T-002 is offered.
-    expect(ui.select).toHaveBeenCalledWith("Run which task?", ["T-002  Second"]);
+    // T-001 (already_done) shown with annotation; both tasks offered.
+    expect(ui.select).toHaveBeenCalledWith("Run which task?", [
+      "T-001  First  — deliverables present (will route to review)",
+      "T-002  Second",
+    ]);
   });
 
   test("/factory-run shows a picker over todo tasks and does nothing if cancelled", async () => {

@@ -34,5 +34,7 @@ src = ["src", "tests", "scripts"]
 
 [tool.pyright]
 include = ["src", "scripts"]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
