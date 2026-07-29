@@ -4,10 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from drone.interfaces import (
-    FlightController,
-    Perception,
-    MissionPlanner,
+    DetectionEvent,
     Directive,
+    FlightController,
+    MissionPlanner,
+    Perception,
     Pose,
 )
 from drone.mission.state import MissionState
@@ -120,7 +121,7 @@ class MissionLoop:
         self._last_heartbeat = self._state.mission_clock
         return directive
 
-    def on_event(self, event) -> Directive | None:
+    def on_event(self, event: DetectionEvent) -> Directive | None:
         """Immediate — agent preempts on high-priority detection.
 
         Returns the directive so the caller can check for termination.
@@ -146,44 +147,18 @@ class MissionLoop:
         """Run the full mission until duration, battery critical, or agent lands."""
         self.start(mission_objectives)
 
-        while self._state is not None and self._state.mission_clock < max_duration:
-            self.tick(self._dt)
+        while (
+            self._state is not None
+            and self._state.mission_clock < max_duration
+        ):
+            self._tick_advance()
 
-            # Advance time
-            self._fc.step(self._dt)
-            self._state.update(
-                pose=self._fc.get_pose(),
-                detections=[],
-                last_directive_result=None,
-                dt=self._dt,
-                battery=self._fc.get_battery(),
-            )
-
-            # Check for priority events from new detections
-            for det in self._perception.get_detections():
-                event = self._priority_filter.check(det)
-                if event:
-                    directive = self.on_event(event)
-                    if directive is not None and directive.kind == "land":
-                        break
-            else:
-                # Heartbeat check (only if no priority event triggered land)
-                if (
-                    self._state.mission_clock - self._last_heartbeat
-                    >= self._heartbeat_interval
-                ):
-                    directive = self.heartbeat()
-                    if directive is not None and directive.kind == "land":
-                        break
-
-                # Battery critical — auto-land, bypass agent
-                if self._fc.get_battery() < 0.1:
-                    self._execute_directive(Directive(kind="land"))
-                    break
-                continue
-
-            # inner for loop broke on 'land' directive
-            break
+            if self._handle_priority_events():
+                break
+            if self._handle_heartbeat():
+                break
+            if self._handle_battery_critical():
+                break
 
         nav_complete = (
             self._sequencer.is_complete() if self._sequencer else False
@@ -198,6 +173,51 @@ class MissionLoop:
             duration=self._state.mission_clock if self._state else 0,
             action_count=len(self._state.action_log) if self._state else 0,
         )
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    def _tick_advance(self) -> None:
+        """Run the fast-loop tick then advance simulation time."""
+        self.tick(self._dt)
+        self._fc.step(self._dt)
+        if self._state is not None:
+            self._state.update(
+                pose=self._fc.get_pose(),
+                detections=[],
+                last_directive_result=None,
+                dt=self._dt,
+                battery=self._fc.get_battery(),
+            )
+
+    def _handle_priority_events(self) -> bool:
+        """Check detections for priority events. Returns True if mission should end."""
+        if self._state is None:
+            return False
+        for det in self._perception.get_detections():
+            event = self._priority_filter.check(det)
+            if event:
+                directive = self.on_event(event)
+                if directive is not None and directive.kind == "land":
+                    return True
+        return False
+
+    def _handle_heartbeat(self) -> bool:
+        """Run heartbeat if interval elapsed. Returns True if mission should end."""
+        if self._state is None:
+            return False
+        elapsed = self._state.mission_clock - self._last_heartbeat
+        if elapsed >= self._heartbeat_interval:
+            directive = self.heartbeat()
+            if directive is not None and directive.kind == "land":
+                return True
+        return False
+
+    def _handle_battery_critical(self) -> bool:
+        """Auto-land when battery is critical. Returns True if mission should end."""
+        if self._fc.get_battery() < 0.1:
+            self._execute_directive(Directive(kind="land"))
+            return True
+        return False
 
     def _execute_directive(self, directive: Directive) -> str:
         """Dispatch directive to DirectiveExecutor."""
