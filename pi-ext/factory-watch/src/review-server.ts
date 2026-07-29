@@ -59,6 +59,7 @@ function readBody(req: IncomingMessage): Promise<string> {
     let raw = "";
     req.on("data", (c) => (raw += c));
     req.on("end", () => resolve(raw));
+    req.on("error", () => resolve(raw));
   });
 }
 
@@ -81,7 +82,14 @@ export function startReviewServer(data: ReviewPageData): Promise<RunningReviewSe
         return;
       }
       if (req.method === "POST" && url === "/api/decision") {
-        const payload = JSON.parse(await readBody(req)) as ReviewDecisionPayload;
+        let payload: ReviewDecisionPayload;
+        try {
+          payload = JSON.parse(await readBody(req)) as ReviewDecisionPayload;
+        } catch {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "invalid json" }));
+          return;
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
         if (!settled) { settled = true; resolveDecision(payload); }

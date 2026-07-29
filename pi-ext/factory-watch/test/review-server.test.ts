@@ -55,4 +55,32 @@ describe("startReviewServer", () => {
     srv.close();
     expect(await srv.decision).toBeNull();
   });
+
+  test("malformed JSON body returns 400 without hanging or settling the decision", async () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-bad" });
+    const srv = await startReviewServer(data);
+    try {
+      const badRes = await fetch(`${srv.url}/api/decision`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not json{{{",
+      });
+      expect(badRes.status).toBe(400);
+      const badBody = await badRes.json();
+      expect(badBody.error).toBeTruthy();
+
+      // Prove the server is still alive and the decision promise is still unsettled:
+      // a subsequent valid POST must still be able to resolve it.
+      const payload = { decision: "approve", annotations: [], reviewedFiles: ["a.py"] };
+      const goodRes = await post(`${srv.url}/api/decision`, payload);
+      expect(goodRes.status).toBe(200);
+      expect((await goodRes.json()).ok).toBe(true);
+
+      const decided = await srv.decision;
+      expect(decided).not.toBeNull();
+      expect(decided!.decision).toBe("approve");
+    } finally {
+      srv.close();
+    }
+  }, 5000);
 });
