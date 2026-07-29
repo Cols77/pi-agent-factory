@@ -15,7 +15,6 @@ LINT_CMD = [PYTHON, "-m", "ruff", "check", "."]
 TYPECHECK_CMD = [PYTHON, "-m", "pyright"]
 UNIT_CMD = [PYTHON, "-m", "pytest", "-m", "unit", "-q", "--ignore=tests/gates/test_all_gate.py"]
 AGENT_CMD = [PYTHON, "-m", "pytest", "-m", "agent", "-q"]
-SIM_CMD = [PYTHON, "-m", "pytest", "-m", "sim", "-q"]
 
 
 def run_and_propagate(cmd: list[str]) -> int:

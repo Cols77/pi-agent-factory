@@ -5,7 +5,7 @@ dod:
 id: T-039
 source_plan: docs/superpowers/plans/2026-07-21-mission-agent-navigation.md
 source_task: 11
-status: todo
+status: done
 title: MissionLoop
 ---
 
