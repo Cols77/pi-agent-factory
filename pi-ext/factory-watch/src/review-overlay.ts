@@ -13,6 +13,8 @@ import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
 import type { ReviewGuide } from "./review-guide.ts";
+import { annotationsForFile, anchorForRow, mapDiffRows } from "./review-model.ts";
+import type { Annotation, DiffRowMeta } from "./review-model.ts";
 
 export function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
   const finder = platform === "win32" ? "where" : "which";
@@ -25,24 +27,32 @@ export interface TuiLike {
 }
 
 export type ReviewAction =
-  | { type: "comment"; file: string }
+  | { type: "comment"; file: string; line?: number; side?: "old" | "new" }
+  | { type: "fileComment"; file: string }
   | { type: "edit"; file: string }
+  | { type: "toggleReviewed"; file: string }
+  | { type: "viewComments" }
   | { type: "approve" }
   | { type: "reject" };
 
-type ViewState = { mode: "summary" } | { mode: "file"; index: number; scrollOffset: number };
+type ViewState =
+  | { mode: "summary" }
+  | { mode: "file"; index: number; scrollOffset: number; cursor: number };
 
-function formatStatLine(file: FileStat, commented: boolean): string {
-  const tag = commented ? "   [commented]" : "";
-  return `${file.status}  ${file.path.padEnd(28)} +${file.added}/-${file.removed}${tag}`;
+function formatStatLine(file: FileStat, count: number, reviewed: boolean): string {
+  const check = reviewed ? "✓ " : "  ";
+  const badge = count > 0 ? `  (${count})` : "";
+  return `${check}${file.status}  ${file.path.padEnd(28)} +${file.added}/-${file.removed}${badge}`;
 }
 
 export class ReviewOverlay {
   private view: ViewState = { mode: "summary" };
   private selectedIndex = 0;
   private diffLineCache = new Map<string, string[]>();
+  private rowMetaCache = new Map<string, DiffRowMeta[]>();
   private readonly files: FileStat[];
-  private readonly comments: Map<string, string>;
+  private readonly annotations: Annotation[];
+  private readonly reviewed: Set<string>;
   private readonly tui: TuiLike;
   private readonly cwd: string;
   private readonly startCommit: string;
@@ -64,7 +74,8 @@ export class ReviewOverlay {
   // imported it.
   constructor(
     files: FileStat[],
-    comments: Map<string, string>,
+    annotations: Annotation[],
+    reviewed: Set<string>,
     tui: TuiLike,
     cwd: string,
     startCommit: string,
@@ -72,7 +83,8 @@ export class ReviewOverlay {
     opts: { implementing?: boolean; banner?: string; guide?: ReviewGuide } = {},
   ) {
     this.files = files;
-    this.comments = comments;
+    this.annotations = annotations;
+    this.reviewed = reviewed;
     this.tui = tui;
     this.cwd = cwd;
     this.startCommit = startCommit;
@@ -96,18 +108,29 @@ export class ReviewOverlay {
       const diffText = this.implementing
         ? computeImplementingFileDiffText(this.cwd, file.path)
         : computeFileDiffText(this.cwd, this.startCommit, file.path);
+      const rawLines = diffText.split("\n");
       // renderDiff colorizes via pi-coding-agent's global theme singleton, which
       // is only initialized by the interactive host (initTheme()) -- never by
       // this extension. Fall back to the raw diff text if that global isn't
       // ready (e.g. under test, or if the host hasn't initialized a theme yet)
       // rather than letting the whole overlay crash on an uncaught throw.
-      let rendered: string;
+      let rendered: string[];
       try {
-        rendered = renderDiff(diffText);
+        rendered = renderDiff(diffText).split("\n");
       } catch {
-        rendered = diffText;
+        rendered = rawLines;
       }
-      cached = rendered.split("\n");
+      // Anchoring requires 1:1 alignment between rendered rows and the raw
+      // diff lines mapDiffRows() walks. If renderDiff changed the line count
+      // (e.g. it collapsed/expanded something), fall back to file-level-only
+      // anchoring (all-meta) rather than mis-anchoring a comment onto the
+      // wrong line.
+      const meta =
+        rendered.length === rawLines.length
+          ? mapDiffRows(rawLines)
+          : rawLines.map(() => ({ kind: "meta" as const }));
+      this.rowMetaCache.set(file.path, meta);
+      cached = rendered;
       this.diffLineCache.set(file.path, cached);
     }
     return cached;
@@ -140,6 +163,14 @@ export class ReviewOverlay {
     return lines.map((l) => truncateToWidth(l, width));
   }
 
+  private followCursor(view: Extract<ViewState, { mode: "file" }>, viewportHeight: number): void {
+    if (view.cursor < view.scrollOffset) {
+      view.scrollOffset = view.cursor;
+    } else if (view.cursor >= view.scrollOffset + viewportHeight) {
+      view.scrollOffset = view.cursor - viewportHeight + 1;
+    }
+  }
+
   handleInput(data: string): void {
     if (this.view.mode === "file") {
       const view = this.view;
@@ -158,8 +189,24 @@ export class ReviewOverlay {
         view.scrollOffset = Number.MAX_SAFE_INTEGER;
       } else if (matchesKey(data, Key.escape) || data === "q") {
         this.view = { mode: "summary" };
+      } else if (data === "j") {
+        const total = this.diffLinesFor(this.files[view.index]!).length;
+        view.cursor = Math.min(view.cursor + 1, Math.max(0, total - 1));
+        this.followCursor(view, viewportHeight);
+      } else if (data === "k") {
+        view.cursor = Math.max(view.cursor - 1, 0);
+        this.followCursor(view, viewportHeight);
       } else if (data === "c") {
-        this.onAction({ type: "comment", file: this.files[view.index]!.path });
+        // Ensure rowMetaCache is populated even if this file hasn't been
+        // rendered yet (e.g. 'c' pressed immediately after opening).
+        this.diffLinesFor(this.files[view.index]!);
+        const meta = this.rowMetaCache.get(this.files[view.index]!.path) ?? [];
+        const { line, side } = anchorForRow(meta, view.cursor);
+        this.onAction({ type: "comment", file: this.files[view.index]!.path, line, side });
+      } else if (data === "C") {
+        this.onAction({ type: "fileComment", file: this.files[view.index]!.path });
+      } else if (data === "v") {
+        this.onAction({ type: "toggleReviewed", file: this.files[view.index]!.path });
       } else if (data === "e") {
         this.onAction({ type: "edit", file: this.files[view.index]!.path });
       }
@@ -173,7 +220,7 @@ export class ReviewOverlay {
       const v = Array.isArray(this.guide?.verify) ? this.guide?.verify?.[Number(data) - 1] : undefined;
       const idx = v?.file ? this.files.findIndex((f) => f.path === v.file) : -1;
       if (idx >= 0) {
-        this.view = { mode: "file", index: idx, scrollOffset: 0 };
+        this.view = { mode: "file", index: idx, scrollOffset: 0, cursor: 0 };
       }
       return;
     }
@@ -184,7 +231,7 @@ export class ReviewOverlay {
       // entering "file" mode here used to crash render()/diffLinesFor() with
       // a TypeError reading `.path` off that undefined entry.
       if (this.files.length > 0) {
-        this.view = { mode: "file", index: this.selectedIndex, scrollOffset: 0 };
+        this.view = { mode: "file", index: this.selectedIndex, scrollOffset: 0, cursor: 0 };
       }
     } else if (matchesKey(data, Key.down) || data === "j") {
       this.selectedIndex = Math.min(this.selectedIndex + 1, this.files.length - 1);
@@ -193,6 +240,10 @@ export class ReviewOverlay {
     } else if (data === "c") {
       if (this.files.length > 0) {
         this.onAction({ type: "comment", file: this.currentFile().path });
+      }
+    } else if (data === "v") {
+      if (this.files.length > 0) {
+        this.onAction({ type: "toggleReviewed", file: this.currentFile().path });
       }
     } else if (data === "e") {
       if (this.files.length > 0) {
@@ -214,9 +265,10 @@ export class ReviewOverlay {
       lines.push(`Task: ${this.files.length} files changed`, "");
       this.files.forEach((f, i) => {
         const prefix = i === this.selectedIndex ? "> " : "  ";
-        lines.push(prefix + formatStatLine(f, this.comments.has(f.path)));
+        const count = annotationsForFile(this.annotations, f.path).length;
+        lines.push(prefix + formatStatLine(f, count, this.reviewed.has(f.path)));
       });
-      lines.push("", "↑↓ select  Enter open  c comment  e edit  a approve  r reject");
+      lines.push("", "↑↓ select  Enter open  c comment  C file comment  v reviewed  a approve  r reject");
       // pi-tui hard-throws (TUI.doRender) if any rendered line's visible width
       // exceeds the terminal width -- long diff lines / a long banner / a long
       // file path would otherwise crash the whole session. Truncate every line.
@@ -229,11 +281,18 @@ export class ReviewOverlay {
     const viewportHeight = this.getViewportHeight();
     const maxOffset = Math.max(0, allLines.length - viewportHeight);
     view.scrollOffset = Math.min(Math.max(0, view.scrollOffset), maxOffset);
-    const visible = allLines.slice(view.scrollOffset, view.scrollOffset + viewportHeight);
+    view.cursor = Math.min(Math.max(0, view.cursor), Math.max(0, allLines.length - 1));
+    const visible = allLines
+      .slice(view.scrollOffset, view.scrollOffset + viewportHeight)
+      .map((line, i) => {
+        const rowIndex = view.scrollOffset + i;
+        const marker = rowIndex === view.cursor ? "> " : "  ";
+        return marker + line;
+      });
     const lastShown = Math.min(view.scrollOffset + viewportHeight, allLines.length);
     const footer =
       `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
-      "(arrows/PgUp/PgDn/Home/End, c comment, e edit, q back) --";
+      "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, c comment, C file comment, v reviewed, e edit, q back) --";
     // See the summary branch: every line must fit the terminal width or
     // pi-tui throws. Diff lines especially can be arbitrarily long.
     return [...visible, footer].map((line) => truncateToWidth(line, width));
@@ -242,7 +301,8 @@ export class ReviewOverlay {
 
 export interface ReviewDecisionResult {
   decision: "approve" | "reject";
-  comments: Record<string, string>;
+  annotations: Annotation[];
+  reviewedFiles: string[];
 }
 
 export async function runReviewLoop(
@@ -253,20 +313,48 @@ export async function runReviewLoop(
   files: FileStat[],
   opts: { implementing?: boolean; banner?: string; guide?: ReviewGuide } = {},
 ): Promise<ReviewDecisionResult> {
-  const comments = new Map<string, string>();
+  const annotations: Annotation[] = [];
+  const reviewed = new Set<string>();
 
   for (;;) {
     const action = await ui.custom<ReviewAction>((tui, _theme, _keybindings, done) => {
-      return new ReviewOverlay(files, comments, tui, cwd, startCommit, done, opts) as unknown as ReturnType<
+      return new ReviewOverlay(files, annotations, reviewed, tui, cwd, startCommit, done, opts) as unknown as ReturnType<
         Parameters<UiApi["custom"]>[0]
       >;
     });
 
-    if (action.type === "comment") {
-      const text = await ui.editor(`Comment on ${action.file}`, comments.get(action.file));
+    if (action.type === "comment" || action.type === "fileComment") {
+      const anchor: { file: string; line?: number; side?: "old" | "new" } =
+        action.type === "comment" ? action : { file: action.file };
+      const existing = annotations.find(
+        (a) => a.file === anchor.file && a.line === anchor.line && a.side === anchor.side,
+      );
+      const text = await ui.editor(
+        `Comment on ${anchor.file}${anchor.line ? ":" + anchor.line : ""}`,
+        existing?.body,
+      );
       if (text !== undefined) {
-        comments.set(action.file, text);
+        if (existing) {
+          existing.body = text;
+        } else {
+          annotations.push({ file: anchor.file, line: anchor.line, side: anchor.side, body: text });
+        }
       }
+      continue;
+    }
+
+    if (action.type === "toggleReviewed") {
+      if (reviewed.has(action.file)) {
+        reviewed.delete(action.file);
+      } else {
+        reviewed.add(action.file);
+      }
+      continue;
+    }
+
+    if (action.type === "viewComments") {
+      // Task 5 wires up a dedicated comment-review screen; for now this is a
+      // no-op that just loops back to the overlay.
       continue;
     }
 
@@ -295,7 +383,7 @@ export async function runReviewLoop(
     }
 
     if (action.type === "reject") {
-      if (comments.size === 0) {
+      if (annotations.length === 0) {
         ui.notify("reject requires at least one comment", "error");
         continue;
       }
@@ -303,7 +391,7 @@ export async function runReviewLoop(
       if (!confirmed) {
         continue;
       }
-      return { decision: "reject", comments: Object.fromEntries(comments) };
+      return { decision: "reject", annotations, reviewedFiles: [...reviewed] };
     }
 
     // approve
@@ -311,6 +399,6 @@ export async function runReviewLoop(
     if (!confirmed) {
       continue;
     }
-    return { decision: "approve", comments: Object.fromEntries(comments) };
+    return { decision: "approve", annotations, reviewedFiles: [...reviewed] };
   }
 }

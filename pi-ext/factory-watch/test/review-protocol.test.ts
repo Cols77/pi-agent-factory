@@ -17,27 +17,35 @@ describe("writeReviewDecision", () => {
     const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
     const path = join(dir, "nested", "review-decision.json");
 
-    writeReviewDecision(path, { decision: "approve", comments: {} });
+    writeReviewDecision(path, { decision: "approve", annotations: [], reviewedFiles: [] });
 
     const written = JSON.parse(readFileSync(path, "utf-8"));
-    expect(written).toEqual({ decision: "approve", comments: {} });
+    expect(written).toEqual({ decision: "approve", annotations: [], reviewedFiles: [] });
   });
 
-  test("writes reject decisions with comments", () => {
+  test("writes reject decisions with annotations", () => {
     const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
     const path = join(dir, "review-decision.json");
 
-    writeReviewDecision(path, { decision: "reject", comments: { "src/a.ts": "fix this" } });
+    writeReviewDecision(path, {
+      decision: "reject",
+      annotations: [{ file: "src/a.ts", line: 3, side: "new", body: "fix this" }],
+      reviewedFiles: ["src/a.ts"],
+    });
 
     const written = JSON.parse(readFileSync(path, "utf-8"));
-    expect(written).toEqual({ decision: "reject", comments: { "src/a.ts": "fix this" } });
+    expect(written).toEqual({
+      decision: "reject",
+      annotations: [{ file: "src/a.ts", line: 3, side: "new", body: "fix this" }],
+      reviewedFiles: ["src/a.ts"],
+    });
   });
 
   test("does not leave a .tmp file behind", () => {
     const dir = mkdtempSync(join(tmpdir(), "review-decision-"));
     const path = join(dir, "review-decision.json");
 
-    writeReviewDecision(path, { decision: "approve", comments: {} });
+    writeReviewDecision(path, { decision: "approve", annotations: [], reviewedFiles: [] });
 
     expect(() => readFileSync(`${path}.tmp`, "utf-8")).toThrow();
   });

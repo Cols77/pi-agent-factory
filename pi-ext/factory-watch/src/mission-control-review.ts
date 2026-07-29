@@ -13,6 +13,7 @@ import { ConfirmPrompt } from "./confirm-prompt.ts";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.ts";
 import type { ReviewDecisionPayload } from "./review-protocol.ts";
 import type { ReviewAction } from "./review-overlay.ts";
+import type { Annotation } from "./review-model.ts";
 
 // Blocks on the same editor-launch mechanism runReviewLoop's "edit" action
 // uses in review-overlay.ts (resolveEditorLaunch + spawnSync, including the
@@ -87,7 +88,8 @@ export function promptComment(
 // host bridge runReviewLoop uses.
 export class ReviewBrowser implements Component {
   private readonly overlay: ReviewOverlay;
-  private readonly comments = new Map<string, string>();
+  private readonly annotations: Annotation[] = [];
+  private readonly reviewed = new Set<string>();
   private readonly cwd: string;
   private readonly taskId: string;
   private readonly onDecision: (decision: ReviewDecisionPayload) => void;
@@ -105,7 +107,7 @@ export class ReviewBrowser implements Component {
     this.cwd = cwd;
     this.taskId = taskId;
     this.onDecision = onDecision;
-    this.overlay = new ReviewOverlay(files, this.comments, tui, cwd, startCommit, (action) =>
+    this.overlay = new ReviewOverlay(files, this.annotations, this.reviewed, tui, cwd, startCommit, (action) =>
       this.handleAction(action),
     );
   }
@@ -115,20 +117,46 @@ export class ReviewBrowser implements Component {
   // Component interface so this can be passed to tui.addChild()/tui.setFocus().
   invalidate(): void {}
 
+  private findAnnotation(file: string, line: number | undefined, side: "old" | "new" | undefined): Annotation | undefined {
+    return this.annotations.find((a) => a.file === file && a.line === line && a.side === side);
+  }
+
   private handleAction(action: ReviewAction): void {
     this.statusMessage = null;
 
-    if (action.type === "comment") {
-      const result = promptComment(this.cwd, this.comments.get(action.file));
+    if (action.type === "comment" || action.type === "fileComment") {
+      const file = action.file;
+      const line = action.type === "comment" ? action.line : undefined;
+      const side = action.type === "comment" ? action.side : undefined;
+      const existing = this.findAnnotation(file, line, side);
+      const result = promptComment(this.cwd, existing?.body);
       if (!result.ok) {
         this.statusMessage = result.error;
         return;
       }
       if (result.text === undefined) {
-        this.comments.delete(action.file);
+        if (existing) {
+          this.annotations.splice(this.annotations.indexOf(existing), 1);
+        }
+      } else if (existing) {
+        existing.body = result.text;
       } else {
-        this.comments.set(action.file, result.text);
+        this.annotations.push({ file, line, side, body: result.text });
       }
+      return;
+    }
+
+    if (action.type === "toggleReviewed") {
+      if (this.reviewed.has(action.file)) {
+        this.reviewed.delete(action.file);
+      } else {
+        this.reviewed.add(action.file);
+      }
+      return;
+    }
+
+    if (action.type === "viewComments") {
+      // Task 5 wires up a dedicated comment-review screen.
       return;
     }
 
@@ -140,7 +168,7 @@ export class ReviewBrowser implements Component {
       return;
     }
 
-    if (action.type === "reject" && this.comments.size === 0) {
+    if (action.type === "reject" && this.annotations.length === 0) {
       this.statusMessage = "reject requires at least one comment";
       return;
     }
@@ -155,7 +183,7 @@ export class ReviewBrowser implements Component {
       if (!confirmed) {
         return;
       }
-      this.onDecision({ decision: action.type, comments: Object.fromEntries(this.comments) });
+      this.onDecision({ decision: action.type, annotations: this.annotations, reviewedFiles: [...this.reviewed] });
     });
   }
 
