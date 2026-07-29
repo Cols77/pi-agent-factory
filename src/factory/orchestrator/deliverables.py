@@ -10,6 +10,10 @@ _LINE = re.compile(r"^\s*[-*]?\s*(?:create|modify|test)\s*:\s*`([^`]+)`", re.IGN
 # presence signals the work is already done. Modify: is excluded (its file
 # exists regardless of whether the task ran).
 _CREATED_LINE = re.compile(r"^\s*[-*]?\s*(?:create|test)\s*:\s*`([^`]+)`", re.IGNORECASE)
+# Only the MODIFY lines -- pre-existing files the task will change. These are
+# the paths that MUST already exist and be gathered into context (unlike
+# Create:/Test:, which the task brings into existence).
+_MODIFIED_LINE = re.compile(r"^\s*[-*]?\s*modify\s*:\s*`([^`]+)`", re.IGNORECASE)
 
 
 def _parse(task_body: str, pattern: re.Pattern[str]) -> list[str]:
@@ -36,6 +40,13 @@ def created_deliverables(task_body: str) -> list[str]:
     ones whose existence signals the work is already done. Modify: is excluded
     (its file exists regardless)."""
     return _parse(task_body, _CREATED_LINE)
+
+
+def modified_deliverables(task_body: str) -> list[str]:
+    """Paths the task declares it will MODIFY (Modify: lines only) -- pre-existing
+    files that must be gathered into context. Create:/Test: are excluded (the task
+    brings those into existence)."""
+    return _parse(task_body, _MODIFIED_LINE)
 
 
 def deliverables_exist(task_body: str, repo_root: Path) -> bool:

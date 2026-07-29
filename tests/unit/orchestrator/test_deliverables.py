@@ -57,3 +57,15 @@ def test_deliverables_exist_false_when_no_created_deliverables(tmp_path):
     # Modify-only task: nothing to signal doneness by existence.
     assert deliverables_exist("- Modify: `src/x.py`", tmp_path) is False
     assert deliverables_exist("just prose", tmp_path) is False
+
+
+def test_modified_deliverables_only_modify_lines():
+    from factory.orchestrator.deliverables import modified_deliverables
+    body = "- Create: `src/a.py`\n- Modify: `src/b.py`\n- Test: `tests/test_a.py`\n- Modify: `src/b.py`"
+    # Create:/Test: excluded; Modify: kept and de-duplicated.
+    assert modified_deliverables(body) == ["src/b.py"]
+
+
+def test_modified_deliverables_empty_when_none():
+    from factory.orchestrator.deliverables import modified_deliverables
+    assert modified_deliverables("- Create: `src/a.py`\njust prose") == []
