@@ -11,7 +11,7 @@ from drone.mission.fake_agent import FakeAgent
 from drone.mission.scripted_perception import ScriptedPerception
 
 
-pytestmark = pytest.mark.unit
+pytestmark = pytest.mark.integration
 
 
 def _make_loop(agent, perception, heartbeat_interval: float = 5.0):

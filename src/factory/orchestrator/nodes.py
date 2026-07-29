@@ -212,14 +212,18 @@ def run_validation(
     gates: GateRunner, task_id: str = "", status: StatusReporter = NullStatusReporter()
 ) -> tuple[NodeOutcome, NodeEvent]:
     status.report(task_id=task_id, node="validation", node_state="running", attempt=1, max_attempts=1,
-                 handoff="running sim gate")
-    if gates.run("sim") == 0:
-        status.report(task_id=task_id, node="validation", node_state="pass", attempt=1, max_attempts=1,
-                     handoff="→ review: sim tests green")
-        return NodeOutcome.PASS, NodeEvent("validation", "pass")
-    status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
-                 handoff="sim tests failed")
-    return NodeOutcome.FAIL, NodeEvent("validation", "fail")
+                 handoff="running sim + integration gates")
+    if gates.run("sim") != 0:
+        status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
+                     handoff="sim tests failed")
+        return NodeOutcome.FAIL, NodeEvent("validation", "fail")
+    if gates.run("integration") != 0:
+        status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
+                     handoff="integration tests failed")
+        return NodeOutcome.FAIL, NodeEvent("validation", "fail")
+    status.report(task_id=task_id, node="validation", node_state="pass", attempt=1, max_attempts=1,
+                 handoff="→ review: sim + integration tests green")
+    return NodeOutcome.PASS, NodeEvent("validation", "pass")
 
 
 def run_review(

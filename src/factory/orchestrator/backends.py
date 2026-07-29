@@ -55,6 +55,7 @@ class SubprocessGateRunner:
         "unit": "scripts/gates/unit.py",
         "sim": "scripts/gates/sim_smoke.py",
         "full": "scripts/gates/all.py",
+        "integration": None,  # handled inline in run()
     }
 
     def __init__(self, repo_root: Path, log_dir: Path | None = None) -> None:
@@ -63,12 +64,16 @@ class SubprocessGateRunner:
 
     def run(self, name: str) -> int:
         script = self._SCRIPTS[name]
+        if name == "integration":
+            cmd = [sys.executable, "-m", "pytest", "tests/integration/", "-q", "-m", "integration"]
+        else:
+            cmd = [sys.executable, script]
         if self._log_dir is None:
-            return subprocess.run([sys.executable, script], cwd=self._repo_root).returncode
+            return subprocess.run(cmd, cwd=self._repo_root).returncode
         self._log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._log_dir / f"{name}-gate.log"
         proc = subprocess.run(
-            [sys.executable, script], cwd=self._repo_root,
+            cmd, cwd=self._repo_root,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         log_path.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
