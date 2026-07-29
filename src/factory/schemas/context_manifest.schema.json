@@ -8,18 +8,19 @@
     "generated_at": {"type": "string", "format": "date-time"},
     "coherence": {
       "type": "object",
-      "required": ["proven", "checks"],
+      "required": ["checks"],
+      "additionalProperties": false,
       "properties": {
-        "proven": {"type": "boolean"},
         "checks": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "pass"],
+            "required": ["name", "kind", "args"],
+            "additionalProperties": false,
             "properties": {
               "name": {"type": "string"},
-              "pass": {"type": "boolean"},
-              "evidence": {"type": "string"}
+              "kind": {"type": "string"},
+              "args": {"type": "object"}
             }
           }
         }

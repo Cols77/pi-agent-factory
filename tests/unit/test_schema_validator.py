@@ -11,7 +11,7 @@ def test_valid_manifest_passes():
         "task_id": "T-001",
         "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "coherence": {"checks": [{"name": "x", "kind": "files_exist", "args": {"paths": ["a"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": [], "skills": []},
         "reject": None,
     }
@@ -29,7 +29,7 @@ def test_bad_datetime_format_reports_error():
         "task_id": "T-001",
         "generated_by": "context-gatherer",
         "generated_at": "not-a-date",
-        "coherence": {"proven": True, "checks": []},
+        "coherence": {"checks": []},
         "context": {"task": "t", "source_files": [], "skills": []},
     }
     assert any("generated_at" in e for e in validate(obj, MANIFEST))
@@ -40,7 +40,7 @@ def test_bad_task_id_pattern_reports_error():
         "task_id": "001",
         "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": []},
+        "coherence": {"checks": []},
         "context": {"task": "t", "source_files": [], "skills": []},
     }
     assert any("task_id" in e for e in validate(obj, MANIFEST))
