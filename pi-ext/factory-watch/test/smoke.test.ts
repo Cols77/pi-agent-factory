@@ -38,7 +38,11 @@ const SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 test("mission-control-review.ts loads under real `node <file>.ts` execution (no args -> fast usage exit, not a module-load crash)", () => {
   const result = spawnSync("node", [join(SRC_DIR, "mission-control-review.ts")], {
     encoding: "utf-8",
-    timeout: 10_000,
+    // 30s (was 10s): under full-suite parallel load, cold `node <file>.ts`
+    // type-stripping + import-chain resolution can exceed 10s and SIGTERM the
+    // child before it prints, producing a spurious empty-stderr failure. The
+    // work itself is near-instant unloaded; this is headroom, not new behavior.
+    timeout: 30_000,
   });
   expect(result.stderr).not.toMatch(/ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX|ERR_MODULE_NOT_FOUND/);
   expect(result.stderr).toContain("usage:");
