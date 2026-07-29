@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
-import { ReviewOverlay, runReviewLoop } from "../src/review-overlay.js";
+import { CommentListOverlay, ReviewOverlay, runReviewLoop } from "../src/review-overlay.js";
 import { computeFileDiffText } from "../src/review-diff.js";
 import type { FileStat } from "../src/review-diff.js";
 import type { UiApi } from "../src/pi-types.js";
@@ -125,11 +125,31 @@ describe("ReviewOverlay (summary screen)", () => {
     expect(onAction).toHaveBeenCalledWith({ type: "reject" });
   });
 
-  test("v toggles reviewed for the selected file", () => {
-    const onAction = vi.fn();
-    const overlay = makeOverlay([], onAction);
+  test("space toggles reviewed and renders a check", () => {
+    const actions: import("../src/review-overlay.js").ReviewAction[] = [];
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", (a) => actions.push(a));
+    overlay.handleInput(" ");
+    expect(actions.at(-1)).toEqual({ type: "toggleReviewed", file: "src/rtb.py" });
+  });
+
+  test("reviewed set renders a check in the summary", () => {
+    const overlay = new ReviewOverlay(FILES, [], new Set(["src/rtb.py"]), fakeTui(), "/repo", "abc123", () => {});
+    expect(overlay.render(80).join("\n")).toMatch(/✓.*src\/rtb\.py/);
+  });
+
+  test("v requests the comment overview", () => {
+    const actions: import("../src/review-overlay.js").ReviewAction[] = [];
+    const overlay = new ReviewOverlay(
+      FILES,
+      [{ file: "src/rtb.py", line: 1, side: "new", body: "x" }],
+      new Set(),
+      fakeTui(),
+      "/repo",
+      "abc123",
+      (a) => actions.push(a),
+    );
     overlay.handleInput("v");
-    expect(onAction).toHaveBeenCalledWith({ type: "toggleReviewed", file: "src/rtb.py" });
+    expect(actions.at(-1)).toEqual({ type: "viewComments" });
   });
 
   // Regression test (symptom 2 -- "crashes during execution"): when
@@ -229,12 +249,13 @@ describe("ReviewOverlay (file view) per-line comments", () => {
     expect(actions.at(-1)).toEqual({ type: "fileComment", file: "src/rtb.py" });
   });
 
-  test("v inside file view toggles reviewed for the open file", () => {
+  test("v inside file view requests the comment overview, not a reviewed toggle", () => {
     const onAction = vi.fn();
     const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", onAction);
     overlay.handleInput("\r");
     overlay.handleInput("v");
-    expect(onAction).toHaveBeenCalledWith({ type: "toggleReviewed", file: "src/rtb.py" });
+    expect(onAction).toHaveBeenCalledWith({ type: "viewComments" });
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggleReviewed" }));
   });
 
   test("the cursor marker moves with j/k without breaking width truncation", () => {
@@ -342,6 +363,38 @@ describe("runReviewLoop", () => {
     expect(result.decision).toBe("approve");
   });
 
+  test("viewComments with no annotations notifies instead of opening an overlay", async () => {
+    const custom = vi.fn()
+      .mockResolvedValueOnce({ type: "viewComments" })
+      .mockResolvedValueOnce({ type: "approve" });
+    const ui = fakeUi({ custom });
+    await runReviewLoop(ui, "/repo", "T-001", "abc123", FILES);
+    expect(ui.notify).toHaveBeenCalledWith("no comments yet", "info");
+    // Only the two outer ui.custom() calls for the action loop itself --
+    // no third call to open the (empty) comment overview.
+    expect(custom).toHaveBeenCalledTimes(2);
+  });
+
+  test("viewComments with annotations opens the comment overview overlay, then loops back", async () => {
+    const custom = vi.fn()
+      .mockResolvedValueOnce({ type: "comment", file: "src/rtb.py" })
+      .mockResolvedValueOnce({ type: "viewComments" })
+      .mockResolvedValueOnce(undefined) // the comment-overview overlay's own ui.custom() call, closed by the user
+      .mockResolvedValueOnce({ type: "approve" });
+    const ui = fakeUi({ custom, editor: vi.fn(async () => "needs work") });
+    const result = await runReviewLoop(ui, "/repo", "T-001", "abc123", FILES);
+    // 3 outer-loop calls (comment, viewComments, approve) + 1 for the
+    // comment-overview overlay itself = 4 total ui.custom() invocations.
+    expect(custom).toHaveBeenCalledTimes(4);
+    expect(ui.notify).not.toHaveBeenCalledWith("no comments yet", "info");
+    const overviewCall = custom.mock.calls[2]!;
+    expect(overviewCall[1]).toEqual({
+      overlay: true,
+      overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" },
+    });
+    expect(result.decision).toBe("approve");
+  });
+
   test("declining the confirm dialog re-opens the overlay instead of finishing", async () => {
     const custom = vi.fn()
       .mockResolvedValueOnce({ type: "approve" })
@@ -427,6 +480,74 @@ describe("runReviewLoop", () => {
     } finally {
       Object.defineProperty(process, "platform", { value: priorPlatform, configurable: true });
       process.env = priorEnv;
+    }
+  });
+});
+
+describe("CommentListOverlay", () => {
+  const ANNS: Annotation[] = [
+    { file: "src/rtb.py", line: 12, side: "new", body: "tighten this loop\nsecond line", severity: "must-fix" },
+    { file: "tests/test_rtb.py", body: "overall solid" },
+  ];
+
+  test("renders one row per annotation with file, line, severity and first body line", () => {
+    const overlay = new CommentListOverlay(ANNS, fakeTui(), () => {});
+    const out = overlay.render(80).join("\n");
+    expect(out).toContain("src/rtb.py:12");
+    expect(out).toContain("must-fix");
+    expect(out).toContain("tighten this loop");
+    expect(out).not.toContain("second line"); // only the first line of a multi-line body
+    expect(out).toContain("tests/test_rtb.py");
+    expect(out).toContain("overall solid");
+  });
+
+  test("down/up move the selection marker between rows", () => {
+    const overlay = new CommentListOverlay(ANNS, fakeTui(), () => {});
+    let lines = overlay.render(80);
+    expect(lines.find((l) => l.includes("src/rtb.py:12"))!.startsWith(">")).toBe(true);
+    overlay.handleInput("\x1b[B"); // Down
+    lines = overlay.render(80);
+    expect(lines.find((l) => l.includes("src/rtb.py:12"))!.startsWith(">")).toBe(false);
+    expect(lines.find((l) => l.includes("tests/test_rtb.py"))!.startsWith(">")).toBe(true);
+    overlay.handleInput("\x1b[A"); // Up
+    lines = overlay.render(80);
+    expect(lines.find((l) => l.includes("src/rtb.py:12"))!.startsWith(">")).toBe(true);
+  });
+
+  test("selection does not move past the last or before the first row", () => {
+    const overlay = new CommentListOverlay(ANNS, fakeTui(), () => {});
+    overlay.handleInput("\x1b[A"); // Up at the top -- no-op
+    expect(overlay.render(80).find((l) => l.includes("src/rtb.py:12"))!.startsWith(">")).toBe(true);
+    overlay.handleInput("\x1b[B");
+    overlay.handleInput("\x1b[B"); // Down past the last row -- clamps
+    expect(overlay.render(80).find((l) => l.includes("tests/test_rtb.py"))!.startsWith(">")).toBe(true);
+  });
+
+  test("Enter, Escape, and q all close the overlay", () => {
+    for (const key of ["\r", "\x1b", "q"]) {
+      const onDone = vi.fn();
+      const overlay = new CommentListOverlay(ANNS, fakeTui(), onDone);
+      overlay.handleInput(key);
+      expect(onDone).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("an empty annotation list renders without throwing and closes cleanly", () => {
+    const onDone = vi.fn();
+    const overlay = new CommentListOverlay([], fakeTui(), onDone);
+    expect(() => overlay.render(80)).not.toThrow();
+    expect(() => overlay.handleInput("\x1b[B")).not.toThrow();
+    overlay.handleInput("q");
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  test("every rendered row is truncated to the given width", () => {
+    const longAnns: Annotation[] = [
+      { file: "src/" + "x".repeat(200) + ".py", body: "y".repeat(200) },
+    ];
+    const overlay = new CommentListOverlay(longAnns, fakeTui(), () => {});
+    for (const line of overlay.render(80)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(80);
     }
   });
 });

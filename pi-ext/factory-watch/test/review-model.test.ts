@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { annotationsForFile, buildDecision, anchorForRow, mapDiffRows } from "../src/review-model.js";
+import { annotationsForFile, buildDecision, anchorForRow, findAnnotation, mapDiffRows } from "../src/review-model.js";
 import type { Annotation } from "../src/review-model.js";
 
 const ANNS: Annotation[] = [
@@ -20,6 +20,18 @@ describe("review-model", () => {
     expect(annotationsForFile(ANNS, "a.py")).toHaveLength(2);
     expect(annotationsForFile(ANNS, "b.py")).toHaveLength(1);
     expect(annotationsForFile(ANNS, "z.py")).toHaveLength(0);
+  });
+
+  test("findAnnotation matches on the exact file/line/side anchor", () => {
+    expect(findAnnotation(ANNS, "a.py", 10, "new")).toBe(ANNS[0]);
+    expect(findAnnotation(ANNS, "a.py", undefined, undefined)).toBe(ANNS[1]); // file-level note
+    expect(findAnnotation(ANNS, "b.py", 3, "old")).toBe(ANNS[2]);
+  });
+
+  test("findAnnotation returns undefined when no anchor matches", () => {
+    expect(findAnnotation(ANNS, "a.py", 10, "old")).toBeUndefined(); // right file/line, wrong side
+    expect(findAnnotation(ANNS, "a.py", 99, "new")).toBeUndefined(); // wrong line
+    expect(findAnnotation(ANNS, "z.py")).toBeUndefined(); // unknown file
   });
 });
 

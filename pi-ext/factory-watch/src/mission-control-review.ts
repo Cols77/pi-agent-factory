@@ -13,6 +13,7 @@ import { ConfirmPrompt } from "./confirm-prompt.ts";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.ts";
 import type { ReviewDecisionPayload } from "./review-protocol.ts";
 import type { ReviewAction } from "./review-overlay.ts";
+import { findAnnotation } from "./review-model.ts";
 import type { Annotation } from "./review-model.ts";
 
 // Blocks on the same editor-launch mechanism runReviewLoop's "edit" action
@@ -117,10 +118,6 @@ export class ReviewBrowser implements Component {
   // Component interface so this can be passed to tui.addChild()/tui.setFocus().
   invalidate(): void {}
 
-  private findAnnotation(file: string, line: number | undefined, side: "old" | "new" | undefined): Annotation | undefined {
-    return this.annotations.find((a) => a.file === file && a.line === line && a.side === side);
-  }
-
   private handleAction(action: ReviewAction): void {
     this.statusMessage = null;
 
@@ -128,7 +125,7 @@ export class ReviewBrowser implements Component {
       const file = action.file;
       const line = action.type === "comment" ? action.line : undefined;
       const side = action.type === "comment" ? action.side : undefined;
-      const existing = this.findAnnotation(file, line, side);
+      const existing = findAnnotation(this.annotations, file, line, side);
       const result = promptComment(this.cwd, existing?.body);
       if (!result.ok) {
         this.statusMessage = result.error;

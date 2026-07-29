@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import type { Component } from "@earendil-works/pi-tui";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { renderDiff } from "@earendil-works/pi-coding-agent";
 // .ts (not .js) relative imports -- this file is now also loaded via a
@@ -13,7 +14,7 @@ import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
 import type { ReviewGuide } from "./review-guide.ts";
-import { annotationsForFile, anchorForRow, mapDiffRows } from "./review-model.ts";
+import { annotationsForFile, anchorForRow, findAnnotation, mapDiffRows } from "./review-model.ts";
 import type { Annotation, DiffRowMeta } from "./review-model.ts";
 
 export function hasCodeOnPath(platform: NodeJS.Platform = process.platform): boolean {
@@ -206,7 +207,10 @@ export class ReviewOverlay {
       } else if (data === "C") {
         this.onAction({ type: "fileComment", file: this.files[view.index]!.path });
       } else if (data === "v") {
-        this.onAction({ type: "toggleReviewed", file: this.files[view.index]!.path });
+        // Reviewed is a summary-level concept (see the summary branch below);
+        // file-mode `v` instead opens the comment overview, matching the
+        // summary binding for consistency.
+        this.onAction({ type: "viewComments" });
       } else if (data === "e") {
         this.onAction({ type: "edit", file: this.files[view.index]!.path });
       }
@@ -241,10 +245,12 @@ export class ReviewOverlay {
       if (this.files.length > 0) {
         this.onAction({ type: "comment", file: this.currentFile().path });
       }
-    } else if (data === "v") {
+    } else if (data === " ") {
       if (this.files.length > 0) {
         this.onAction({ type: "toggleReviewed", file: this.currentFile().path });
       }
+    } else if (data === "v") {
+      this.onAction({ type: "viewComments" });
     } else if (data === "e") {
       if (this.files.length > 0) {
         this.onAction({ type: "edit", file: this.currentFile().path });
@@ -268,7 +274,10 @@ export class ReviewOverlay {
         const count = annotationsForFile(this.annotations, f.path).length;
         lines.push(prefix + formatStatLine(f, count, this.reviewed.has(f.path)));
       });
-      lines.push("", "↑↓ select  Enter open  c comment  C file comment  v reviewed  a approve  r reject");
+      lines.push(
+        "",
+        "↑↓ select  Enter open  c comment  C file comment  space reviewed  v comments  a approve  r reject",
+      );
       // pi-tui hard-throws (TUI.doRender) if any rendered line's visible width
       // exceeds the terminal width -- long diff lines / a long banner / a long
       // file path would otherwise crash the whole session. Truncate every line.
@@ -292,10 +301,81 @@ export class ReviewOverlay {
     const lastShown = Math.min(view.scrollOffset + viewportHeight, allLines.length);
     const footer =
       `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
-      "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, c comment, C file comment, v reviewed, e edit, q back) --";
+      "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, c comment, C file comment, v comments, e edit, q back) --";
     // See the summary branch: every line must fit the terminal width or
     // pi-tui throws. Diff lines especially can be arbitrarily long.
     return [...visible, footer].map((line) => truncateToWidth(line, width));
+  }
+}
+
+// Read-only browsable list of every annotation across all files, opened from
+// the summary screen's `v` key. Deliberately minimal (per the task brief,
+// jump-to-file on Enter is optional polish) -- Enter/Escape/q all just close
+// the overlay and hand control back to runReviewLoop's ui.custom() loop.
+export class CommentListOverlay implements Component {
+  private selectedIndex = 0;
+  private scrollOffset = 0;
+  private readonly annotations: Annotation[];
+  private readonly tui: TuiLike;
+  private readonly onDone: () => void;
+
+  // Explicit field assignment, not TypeScript constructor parameter
+  // properties -- see ReviewOverlay's constructor comment above for why
+  // (this module is also loaded via a plain `node <file>.ts` import chain).
+  constructor(annotations: Annotation[], tui: TuiLike, onDone: () => void) {
+    this.annotations = annotations;
+    this.tui = tui;
+    this.onDone = onDone;
+  }
+
+  // No cached render state beyond the selection/scroll above -- required
+  // (non-optional) by pi-tui's Component interface.
+  invalidate(): void {}
+
+  private getViewportHeight(): number {
+    // Reserve two rows for the title and the footer line.
+    return Math.max(1, this.tui.terminal.rows - 4);
+  }
+
+  private followSelection(viewportHeight: number): void {
+    if (this.selectedIndex < this.scrollOffset) {
+      this.scrollOffset = this.selectedIndex;
+    } else if (this.selectedIndex >= this.scrollOffset + viewportHeight) {
+      this.scrollOffset = this.selectedIndex - viewportHeight + 1;
+    }
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || data === "q" || data === "\r" || data === "\n") {
+      this.onDone();
+      return;
+    }
+    if (this.annotations.length === 0) return;
+    const viewportHeight = this.getViewportHeight();
+    if (matchesKey(data, Key.down) || data === "j") {
+      this.selectedIndex = Math.min(this.selectedIndex + 1, this.annotations.length - 1);
+      this.followSelection(viewportHeight);
+    } else if (matchesKey(data, Key.up) || data === "k") {
+      this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+      this.followSelection(viewportHeight);
+    }
+  }
+
+  render(width: number): string[] {
+    const viewportHeight = this.getViewportHeight();
+    const lines: string[] = [`Comments (${this.annotations.length})`, ""];
+    const visible = this.annotations.slice(this.scrollOffset, this.scrollOffset + viewportHeight);
+    visible.forEach((a, i) => {
+      const rowIndex = this.scrollOffset + i;
+      const prefix = rowIndex === this.selectedIndex ? "> " : "  ";
+      const loc = `${a.file}${a.line ? ":" + a.line : ""}`;
+      const firstLine = a.body.split("\n")[0] ?? "";
+      lines.push(`${prefix}${loc}  ${a.severity ?? ""}  ${firstLine}`);
+    });
+    lines.push("", "↑↓ select  Enter/Esc/q close");
+    // See ReviewOverlay.render's comment -- pi-tui hard-throws on any
+    // over-width line.
+    return lines.map((line) => truncateToWidth(line, width));
   }
 }
 
@@ -326,9 +406,7 @@ export async function runReviewLoop(
     if (action.type === "comment" || action.type === "fileComment") {
       const anchor: { file: string; line?: number; side?: "old" | "new" } =
         action.type === "comment" ? action : { file: action.file };
-      const existing = annotations.find(
-        (a) => a.file === anchor.file && a.line === anchor.line && a.side === anchor.side,
-      );
+      const existing = findAnnotation(annotations, anchor.file, anchor.line, anchor.side);
       const text = await ui.editor(
         `Comment on ${anchor.file}${anchor.line ? ":" + anchor.line : ""}`,
         existing?.body,
@@ -353,8 +431,17 @@ export async function runReviewLoop(
     }
 
     if (action.type === "viewComments") {
-      // Task 5 wires up a dedicated comment-review screen; for now this is a
-      // no-op that just loops back to the overlay.
+      if (annotations.length === 0) {
+        ui.notify("no comments yet", "info");
+        continue;
+      }
+      await ui.custom<void>(
+        (tui, _theme, _keybindings, done) =>
+          new CommentListOverlay(annotations, tui, () => done(undefined)) as unknown as ReturnType<
+            Parameters<UiApi["custom"]>[0]
+          >,
+        { overlay: true, overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" } },
+      );
       continue;
     }
 

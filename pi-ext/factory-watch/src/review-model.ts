@@ -24,6 +24,19 @@ export function annotationsForFile(annotations: Annotation[], file: string): Ann
   return annotations.filter((a) => a.file === file);
 }
 
+// Exact-anchor lookup shared by runReviewLoop (review-overlay.ts) and
+// ReviewBrowser (mission-control-review.ts) -- both need to find the
+// existing annotation (if any) at a given file/line/side before opening the
+// comment editor, and previously duplicated this same predicate.
+export function findAnnotation(
+  annotations: Annotation[],
+  file: string,
+  line?: number,
+  side?: "old" | "new",
+): Annotation | undefined {
+  return annotations.find((a) => a.file === file && a.line === line && a.side === side);
+}
+
 export interface DiffRowMeta {
   kind: "add" | "del" | "context" | "hunk" | "meta";
   line?: number;
