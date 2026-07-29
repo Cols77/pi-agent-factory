@@ -82,13 +82,16 @@ arbitrary-code-execution hole that `bash="deny"` deliberately closes.
 
 `required_coverage(task) -> list[RequiredRef]`, derived purely from the task:
 
-- `parse_deliverables(task.body)` (already exists) yields `Create:` / `Modify:` /
-  `Test:` targets.
-- **`Modify:` and `Test:` targets** must appear as a resolved reference in
+- **`Modify:` targets only** must appear as a resolved reference in
   `manifest.context` (`source_files` / `spec` / `plan`) and resolve on disk.
-- **`Create:` targets** must **not** already exist — that is the already-done
-  signal, handled by the existing already-done routing; this layer does not
-  double-check it.
+  These are the *pre-existing* files the task will change — the ones that
+  genuinely must be gathered.
+- **`Create:` and `Test:` targets are excluded.** Per `deliverables.py`, both are
+  paths the task *brings into existence*; they are not required to pre-exist, so
+  they cannot be required in context. Their (non-)existence is the already-done
+  signal, handled by the existing already-done routing — not double-checked here.
+- Derivation uses a new `modified_deliverables(task_body)` helper in
+  `deliverables.py` (mirrors the existing `created_deliverables`).
 - v1 stops at deliverables. Extracting file paths from free-text DoD is
   heuristic and **out of scope for v1** (keep the floor reliable, not clever).
 
@@ -131,10 +134,18 @@ Dynamic (`side_effect_free: false`, executed via the trusted `GateRunner`):
 5. `proven` is **derived** = layers 1+2 all pass. There is no agent `proven` to
    reconcile — it is gone.
 
-> Note: `validate_manifest(manifest, repo_root)` currently takes only
-> `repo_root`. It now also needs the `task` (for coverage) and an
-> `EvidenceContext` (for connectors). Threading these from `run_context_gatherer`
-> is part of the implementation plan.
+> Integration notes (for the plan):
+> - `validate_manifest(manifest, repo_root)` gains `task` and `ctx`
+>   (`EvidenceContext`) as **keyword-optional** params. The context-gather node
+>   passes both; the standalone CLI linter (`scripts/gates/validate_manifest.py`,
+>   which has neither a task nor a gate runner) keeps calling it with just
+>   `repo_root`, so coverage/connectors that need those degrade gracefully.
+> - `run_context_gatherer` (nodes.py) currently PASSes on
+>   `not errors and manifest["coherence"]["proven"]`. Since `proven` is being
+>   removed from the agent contract, that second clause is dropped — PASS becomes
+>   `not errors` (a clean gate == `validate_manifest` returned no errors).
+> - `run_context_gatherer` gains a `gates` param so it can build the
+>   `EvidenceContext`; `run_task` (runner.py) passes its existing `gates` through.
 
 ### Prompt (`roles.py` `CONTEXT_GATHERER`)
 
@@ -142,7 +153,7 @@ Instruct the agent to:
 
 - express coherence as typed checks drawn from the connector vocabulary;
 - understand the factory **re-runs** every check, so hollow checks buy nothing;
-- ensure every declared `Modify:` / `Test:` deliverable is gathered into context.
+- ensure every declared `Modify:` deliverable is gathered into context.
 
 ## Error handling / failure modes
 
