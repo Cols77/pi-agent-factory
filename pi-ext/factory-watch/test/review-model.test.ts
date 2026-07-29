@@ -40,7 +40,7 @@ describe("mapDiffRows", () => {
   test("assigns line numbers per side across a hunk", () => {
     const meta = mapDiffRows(RAW);
     expect(meta).toHaveLength(RAW.length);
-    expect(meta[4].kind).toBe("hunk");
+    expect(meta[4]!.kind).toBe("hunk");
     expect(anchorForRow(meta, 5)).toEqual({ line: 10, side: "new" });   // context1
     expect(anchorForRow(meta, 6)).toEqual({ line: 11, side: "old" });   // removed
     expect(anchorForRow(meta, 7)).toEqual({ line: 11, side: "new" });   // added1
@@ -69,7 +69,7 @@ describe("mapDiffRows", () => {
       " context4",                         // 9 old51/new52 -> new52
     ];
     const meta = mapDiffRows(TWO_HUNK);
-    expect(meta[7].kind).toBe("hunk");
+    expect(meta[7]!.kind).toBe("hunk");
     expect(anchorForRow(meta, 8)).toEqual({ line: 51, side: "new" });
     expect(anchorForRow(meta, 9)).toEqual({ line: 52, side: "new" });
   });
@@ -90,8 +90,8 @@ describe("mapDiffRows", () => {
       " secondline",                 // 11 old5/new5 -> new5
     ];
     const meta = mapDiffRows(TWO_FILE);
-    expect(meta[6].kind).toBe("meta"); // "diff --git" for second file, not context
-    expect(meta[8].kind).toBe("meta"); // "--- a/y.py" header, not del
+    expect(meta[6]!.kind).toBe("meta"); // "diff --git" for second file, not context
+    expect(meta[8]!.kind).toBe("meta"); // "--- a/y.py" header, not del
     expect(anchorForRow(meta, 6)).toEqual({});
     expect(anchorForRow(meta, 8)).toEqual({});
     expect(anchorForRow(meta, 11)).toEqual({ line: 5, side: "new" });
@@ -110,9 +110,9 @@ describe("mapDiffRows", () => {
       "\\ No newline at end of file", // 8 marker, not a real source line
     ];
     const meta = mapDiffRows(NO_NEWLINE);
-    expect(meta[8].kind).toBe("meta");
-    expect(meta[8].line).toBeUndefined();
-    expect(meta[8].side).toBeUndefined();
+    expect(meta[8]!.kind).toBe("meta");
+    expect(meta[8]!.line).toBeUndefined();
+    expect(meta[8]!.side).toBeUndefined();
     expect(anchorForRow(meta, 8)).toEqual({});
   });
 });
