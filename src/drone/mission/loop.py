@@ -15,7 +15,6 @@ from drone.mission.state import MissionState
 from drone.mission.priority_filter import PriorityFilter
 from drone.mission.directive_executor import DirectiveExecutor
 from drone.navigation.waypoint_sequencer import WaypointSequencer
-from drone.navigation.registry import NavRegistry
 
 
 @dataclass(frozen=True)
@@ -38,7 +37,6 @@ class MissionLoop:
         fc: FlightController,
         perception: Perception,
         agent: MissionPlanner,
-        algorithms: NavRegistry,
         priority_rules: list | None = None,
         heartbeat_interval: float = 5.0,
         dt: float = 0.05,
@@ -46,7 +44,6 @@ class MissionLoop:
         self._fc = fc
         self._perception = perception
         self._agent = agent
-        self._algorithms = algorithms
         self._priority_filter = (
             PriorityFilter(rules=priority_rules)
             if priority_rules
@@ -177,9 +174,26 @@ class MissionLoop:
     # ── helpers ──────────────────────────────────────────────────────────
 
     def _tick_advance(self) -> None:
-        """Run the fast-loop tick then advance simulation time."""
+        """Run the fast-loop tick then advance simulation time.
+
+        When a nav plan is active, ``tick()`` already steps the FC through
+        the sequencer (``sequencer.step()`` -> ``fc.step()``).  We must NOT
+        step the FC again here, otherwise the drone moves at 2× speed.
+        """
         self.tick(self._dt)
-        self._fc.step(self._dt)
+
+        # Only step the FC directly when no sequencer plan is active.
+        # When a plan IS active, tick() already stepped the FC via
+        # sequencer.step().
+        has_active_plan = (
+            self._sequencer is not None
+            and self._sequencer.status()["plan_name"]
+            and self._sequencer.status()["current_idx"]
+            < self._sequencer.status()["total"]
+        )
+        if not has_active_plan:
+            self._fc.step(self._dt)
+
         if self._state is not None:
             self._state.update(
                 pose=self._fc.get_pose(),

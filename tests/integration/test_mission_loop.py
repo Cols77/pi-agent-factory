@@ -1,25 +1,25 @@
 """Integration tests for MissionLoop."""
 from __future__ import annotations
 
-from drone.interfaces import Directive, Detection, Pose
+import pytest
+
+from drone.interfaces import Directive, Detection, Pose, NavPlan
 from drone.fake_flight_controller import FakeFlightController
 from drone.mission.state import MissionState
 from drone.mission.loop import MissionLoop, MissionResult
 from drone.mission.fake_agent import FakeAgent
 from drone.mission.scripted_perception import ScriptedPerception
-from drone.navigation.registry import NavRegistry
-from drone.navigation.perimeter_sweep import PerimeterSweepAlgorithm
+
+
+pytestmark = pytest.mark.unit
 
 
 def _make_loop(agent, perception, heartbeat_interval: float = 5.0):
     fc = FakeFlightController()
-    reg = NavRegistry()
-    reg.register("perimeter_sweep", PerimeterSweepAlgorithm())
     return MissionLoop(
         fc=fc,
         perception=perception,
         agent=agent,
-        algorithms=reg,
         heartbeat_interval=heartbeat_interval,
         dt=0.05,
     )
@@ -93,13 +93,10 @@ class TestMissionLoopBatteryCritical:
         fc.BATTERY_DRAIN = 0.01
         agent = FakeAgent()  # always continues
         perception = ScriptedPerception.constant([])
-        reg = NavRegistry()
-        reg.register("perimeter_sweep", PerimeterSweepAlgorithm())
         loop = MissionLoop(
             fc=fc,
             perception=perception,
             agent=agent,
-            algorithms=reg,
             heartbeat_interval=0.1,
             dt=0.05,
         )
@@ -118,3 +115,51 @@ class TestMissionResult:
         assert isinstance(result.battery_remaining, float)
         assert isinstance(result.duration, float)
         assert isinstance(result.action_count, int)
+
+
+class TestMissionLoopPlanFollowing:
+    """Tests that exercise the plan-following path (nav plan set via directive)."""
+
+    def test_no_double_stepping_with_nav_plan(self):
+        """Drone should not move at 2x speed when a nav plan is active.
+
+        tick() calls sequencer.step() which internally calls fc.step().
+        _tick_advance() must NOT also call fc.step() when a plan is active,
+        otherwise the drone moves at 2x speed (SPEED=5 → effective 10 m/s).
+
+        We set a nav plan and let the drone run for 1.0s via heartbeat-driven
+        continues. At 5 m/s the drone should travel ~5m; at 10 m/s it would
+        travel ~10m. The test checks that x is closer to 5m than to 10m.
+        """
+        fc = FakeFlightController()
+        plan = NavPlan(
+            waypoints=[Pose(50, 0, 5, 0)],  # far enough to not be reached
+            algorithm_name="test",
+            created_at=0.0,
+        )
+        # Return continue for 20 heartbeats (at 0.05s/tick, heartbeat_interval=0.05,
+        # that's about 1.0s of simulation time), then land
+        agent = FakeAgent(responses=[
+            Directive(kind="update_nav", args={"nav_plan": plan}),
+        ] + [
+            Directive(kind="continue") for _ in range(20)
+        ] + [
+            Directive(kind="land"),
+        ])
+        perception = ScriptedPerception.constant([])
+        loop = MissionLoop(
+            fc=fc,
+            perception=perception,
+            agent=agent,
+            heartbeat_interval=0.05,  # heartbeat every tick
+            dt=0.05,
+        )
+        result = loop.run(max_duration=5.0, mission_objectives="test")
+
+        # After ~1.0s of horizontal movement at 5 m/s, expect x ~ 5m.
+        # At 10 m/s (double-stepping), expect x ~ 10m.
+        # Allow ±1m tolerance for the takeoff phase.
+        assert 3.0 <= result.final_pose.x <= 7.0, (
+            f"Expected x~5 (single-step), got {result.final_pose.x:.2f} "
+            f"(duration={result.duration:.2f}s) — possible double-stepping"
+        )
