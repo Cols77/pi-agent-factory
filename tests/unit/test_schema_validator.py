@@ -44,3 +44,11 @@ def test_bad_task_id_pattern_reports_error():
         "context": {"task": "t", "source_files": [], "skills": []},
     }
     assert any("task_id" in e for e in validate(obj, MANIFEST))
+
+
+def test_validate_against_accepts_dict_schema():
+    from factory.validation.schema_validator import validate_against
+    schema = {"type": "object", "required": ["x"], "properties": {"x": {"type": "string"}}}
+    assert validate_against({"x": "ok"}, schema) == []
+    errs = validate_against({}, schema)
+    assert errs and any("x" in e for e in errs)
