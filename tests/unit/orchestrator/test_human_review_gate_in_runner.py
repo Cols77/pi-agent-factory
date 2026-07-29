@@ -4,7 +4,7 @@ import subprocess
 import pytest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
-from factory.orchestrator.human_review import FakeHumanReviewGate, HumanReviewDecision
+from factory.orchestrator.human_review import Annotation, FakeHumanReviewGate, HumanReviewDecision
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
 from factory.orchestrator.types import AgentRole, AgentResult
@@ -48,7 +48,7 @@ def _scripts(review_findings=None, n_review_calls=1):
 def test_approve_marks_task_done_and_commits_uncommitted_edits(tmp_path):
     repo = _repo(tmp_path)
     git_ops = FakeGitOps(head="abc123", has_uncommitted=True)
-    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
 
     path = run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
@@ -65,8 +65,8 @@ def test_reject_feeds_comments_back_as_dev_feedback_and_retries(tmp_path):
     repo = _repo(tmp_path)
     git_ops = FakeGitOps(head="abc123", has_uncommitted=False)
     human_review = FakeHumanReviewGate([
-        HumanReviewDecision("reject", {"src/x.py": "add a docstring"}),
-        HumanReviewDecision("approve", {}),
+        HumanReviewDecision("reject", [Annotation(file="src/x.py", body="add a docstring")]),
+        HumanReviewDecision("approve", []),
     ])
 
     path = run_next(
@@ -83,7 +83,7 @@ def test_reject_feeds_comments_back_as_dev_feedback_and_retries(tmp_path):
 def test_blocked_report_carries_start_commit_for_diff_browser(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
-    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
     expected_start_commit = SubprocessGitOps().head_commit(repo)
 
     path = run_next(
@@ -117,8 +117,8 @@ def test_human_review_entry_resolves_after_each_decision(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
     human_review = FakeHumanReviewGate([
-        HumanReviewDecision("reject", {"src/x.py": "add a docstring"}),
-        HumanReviewDecision("approve", {}),
+        HumanReviewDecision("reject", [Annotation(file="src/x.py", body="add a docstring")]),
+        HumanReviewDecision("approve", []),
     ])
 
     run_next(
@@ -134,7 +134,7 @@ def test_human_review_entry_resolves_after_each_decision(tmp_path):
 def test_human_review_entry_resolves_on_approve(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
-    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
 
     run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
@@ -187,7 +187,7 @@ def test_already_done_human_review_block_carries_deliverables(tmp_path):
         "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\n- Create: `src/x.py`\n",
         encoding="utf-8")
     status = FakeStatusReporter()
-    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
     # Explicit task_id: an already-on-disk task is skipped by next_todo (the
     # picker-hide feature), so run it explicitly to exercise the already-done route.
     run_next(
@@ -242,8 +242,8 @@ def test_reject_then_llm_keeps_requesting_changes_still_returns_to_human(tmp_pat
         AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
     }
     human_review = FakeHumanReviewGate([
-        HumanReviewDecision("reject", {"src/x.py": "add a docstring"}),
-        HumanReviewDecision("approve", {}),
+        HumanReviewDecision("reject", [Annotation(file="src/x.py", body="add a docstring")]),
+        HumanReviewDecision("approve", []),
     ])
     status = FakeStatusReporter()
     path = run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
@@ -265,7 +265,9 @@ def test_escalates_only_after_max_human_rounds_of_rejects(tmp_path):
         AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []}) for _ in range(6)],
         AgentRole.SESSION_REVIEW: [AgentResult(True, {})],
     }
-    human_review = FakeHumanReviewGate([HumanReviewDecision("reject", {"src/x.py": "c"}) for _ in range(3)])
+    human_review = FakeHumanReviewGate(
+        [HumanReviewDecision("reject", [Annotation(file="src/x.py", body="c")]) for _ in range(3)]
+    )
     status = FakeStatusReporter()
     run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
              session_id="s1", git_info={"branch": "main"},
@@ -286,7 +288,7 @@ def test_human_review_writes_a_focus_guide(tmp_path):
         "dod_met": True, "findings": [],
         "confidence": "medium", "verify": [{"item": "check X"}],
     })]
-    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", {})])
+    human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
     run_next(
         repo, FakeAgentBackend(scripts), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"}, task_id="T-001",
@@ -308,8 +310,8 @@ def test_addressed_accumulator_survives_human_reject_round_and_reblocks(tmp_path
     td = repo / "sessions" / ".factory-transcripts" / "s1"
     td.mkdir(parents=True)
     human_review = FakeHumanReviewGate([
-        HumanReviewDecision("reject", {"src/x.py": "please fix the docstring"}),
-        HumanReviewDecision("approve", {}),
+        HumanReviewDecision("reject", [Annotation(file="src/x.py", body="please fix the docstring")]),
+        HumanReviewDecision("approve", []),
     ])
     run_next(
         repo, FakeAgentBackend(_scripts(n_review_calls=2)), FakeGateRunner(),

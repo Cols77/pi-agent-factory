@@ -8,9 +8,37 @@ from typing import Protocol
 
 
 @dataclass
+class Annotation:
+    file: str
+    body: str
+    line: int | None = None
+    side: str | None = None
+    severity: str | None = None
+
+
+@dataclass
 class HumanReviewDecision:
     decision: str  # "approve" or "reject"
-    comments: dict[str, str] = field(default_factory=dict)
+    annotations: list[Annotation] = field(default_factory=list)
+
+
+def _parse_annotations(payload: dict) -> list[Annotation]:
+    raw = payload.get("annotations")
+    if isinstance(raw, list):
+        return [
+            Annotation(
+                file=a.get("file", ""),
+                body=a.get("body", ""),
+                line=a.get("line"),
+                side=a.get("side"),
+                severity=a.get("severity"),
+            )
+            for a in raw
+            if isinstance(a, dict)
+        ]
+    # legacy shape: {"comments": {file: text}}
+    legacy = payload.get("comments", {})
+    return [Annotation(file=f, body=t) for f, t in legacy.items()]
 
 
 class HumanReviewGate(Protocol):
@@ -27,7 +55,10 @@ class FileHumanReviewGate:
             time.sleep(self._poll_interval)
         payload = json.loads(self._decision_path.read_text(encoding="utf-8"))
         self._decision_path.unlink()
-        return HumanReviewDecision(decision=payload["decision"], comments=payload.get("comments", {}))
+        return HumanReviewDecision(
+            decision=payload["decision"],
+            annotations=_parse_annotations(payload),
+        )
 
 
 class FakeHumanReviewGate:
@@ -41,7 +72,10 @@ class FakeHumanReviewGate:
         return self._decisions.pop(0)
 
 
-def format_review_feedback(comments: dict[str, str]) -> str:
+def format_review_feedback(annotations: list[Annotation]) -> str:
     lines = ["human review requested changes:"]
-    lines.extend(f"- {file}: {text}" for file, text in comments.items())
+    for a in annotations:
+        loc = f"{a.file}:{a.line}" if a.line is not None else f"{a.file} (file)"
+        sev = f" [{a.severity}]" if a.severity else ""
+        lines.append(f"- {loc}{sev}: {a.body}")
     return "\n".join(lines)
