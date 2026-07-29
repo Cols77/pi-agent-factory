@@ -1,0 +1,69 @@
+{
+  "session_id": "2026-07-28T18-41-40Z",
+  "started_at": "2026-07-28T19:11:25Z",
+  "ended_at": "2026-07-28T19:11:25Z",
+  "model_backend": "openrouter:deepseek/deepseek-v4-flash",
+  "git": {
+    "branch": "main",
+    "head": "89ad9067679e9db8197fd789dbc632653722523a"
+  },
+  "tasks": [
+    {
+      "task_id": "T-037",
+      "title": "DirectiveExecutor",
+      "outcome": "escalated",
+      "iterations": 2,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "already-done",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "review",
+          "result": "changes-requested",
+          "attempts": 1,
+          "extra": {
+            "findings": 0,
+            "gate": 1,
+            "confidence": null,
+            "verify": []
+          }
+        },
+        {
+          "node": "dev",
+          "result": "escalate",
+          "attempts": 3,
+          "extra": {
+            "reason": "unit tests red"
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": false
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [
+      "kb-0004-windows-nul-breaks-git-add"
+    ],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [
+    "T-037"
+  ],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}

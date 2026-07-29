@@ -1,0 +1,92 @@
+{
+  "session_id": "2026-07-28T20-34-06Z",
+  "started_at": "2026-07-28T20:38:02Z",
+  "ended_at": "2026-07-28T20:38:02Z",
+  "model_backend": "pi:unspecified",
+  "git": {
+    "branch": "dev-escalation-pairing-handoff",
+    "head": "efe5eb29c3c4e90f8982e58c85ea203136011a85"
+  },
+  "tasks": [
+    {
+      "task_id": "T-037",
+      "title": "DirectiveExecutor",
+      "outcome": "completed",
+      "iterations": 1,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "already-done",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {}
+        },
+        {
+          "node": "review",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "confidence": "High \u2014 implementation matches the plan's step 3 code verbatim, tests match the plan's step 1 code verbatim, and all 5 directive kinds are handled with appropriate assertions",
+            "verify": [
+              {
+                "item": "test_continue_is_noop: verify result string contains 'continue' or 'no-op' \u2014 the actual result is 'continue: following current plan' so this passes, but the or-assertion pattern is fragile if the string changes",
+                "file": "tests/agent/test_directive_executor.py",
+                "line": 18,
+                "why": "assert A or B with in checks \u2014 if the result becomes 'noop: continuing' (no hyphen), the assertion would still pass via the second clause, but 'no-op' relies on exact hyphenation"
+              },
+              {
+                "item": "test_land_calls_fc_land: verify fc.land() is actually called, not just the return string checked \u2014 the test only asserts the result string contains 'land', not that the FC state changed",
+                "file": "tests/agent/test_directive_executor.py",
+                "line": 30,
+                "why": "The test arms, takes off, steps, then calls execute(land). It checks the result string but never checks fc.is_armed() or fc.get_pose().z after landing."
+              },
+              {
+                "item": "override handler: verify that directive.args['detection'] is always present when kind=override \u2014 the runtime assert isinstance guards against wrong types but a missing key raises KeyError (no fallback)",
+                "file": "src/drone/mission/directive_executor.py",
+                "line": 33,
+                "why": "If the agent produces Directive(kind='override') without args['detection'], this crashes rather than returning a safe fallback"
+              },
+              {
+                "item": "update_nav handler: same KeyError concern for directive.args['nav_plan'] when kind=update_nav",
+                "file": "src/drone/mission/directive_executor.py",
+                "line": 27,
+                "why": "Same missing-key risk as override; the plan's test always provides valid args so this isn't tested negatively"
+              },
+              {
+                "item": "return_base: verify z-coordinate is preserved from current_pose \u2014 the home plan uses self._state.current_pose.z, which defaults to 0.0, so the test passes without actually taking off",
+                "file": "src/drone/mission/directive_executor.py",
+                "line": 48,
+                "why": "The test calls return_base immediately without simulating takeoff, so z=0.0; a human should confirm this is the intended behavior (keep current altitude)"
+              },
+              {
+                "item": "test_override_builds_investigation_plan: verify the detection position matches the waypoint in the investigation plan \u2014 the test exists but doesn't assert the waypoint position equals the detection position",
+                "file": "tests/agent/test_directive_executor.py",
+                "line": 58,
+                "why": "The test checks len >= 1 and string contains 'override'/'investigate', but doesn't verify the actual waypoint coordinates match the detection position"
+              }
+            ]
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": true
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}
