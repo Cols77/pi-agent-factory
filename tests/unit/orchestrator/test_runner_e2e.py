@@ -28,7 +28,7 @@ def _manifest():
     return {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "coherence": {"checks": []},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }
@@ -68,7 +68,7 @@ def test_context_reject_short_circuits(tmp_path):
     repo = _repo(tmp_path)
     task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
     scripts = {AgentRole.CONTEXT_GATHERER: [AgentResult(True, {**_manifest(), "reject": {"reason": "x"},
-                                                              "coherence": {"proven": False, "checks": []}})]}
+                                                              "coherence": {"checks": []}})]}
     r = run_task(task, FakeAgentBackend(scripts), FakeGateRunner(), repo)
     assert r.outcome == "rejected"
 

@@ -30,7 +30,7 @@ def _scripts():
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "coherence": {"checks": []},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }
@@ -124,7 +124,7 @@ def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_p
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "coherence": {"checks": []},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }

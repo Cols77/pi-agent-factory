@@ -70,7 +70,7 @@ def run_task(
     start_commit = git_ops.head_commit(repo_root)
 
     c_outcome, manifest, c_ev = run_context_gatherer(
-        backend, task, repo_root, transcript_dir=transcript_dir, status=status
+        backend, task, repo_root, transcript_dir=transcript_dir, status=status, gates=gates
     )
     events.append(c_ev)
     if c_outcome == NodeOutcome.REJECT or manifest is None:
