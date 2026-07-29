@@ -117,6 +117,33 @@ class AnchorResolves:
         return CheckResult(False, f"anchor '{anchor}' not found in {path_part}")
 
 
+class TestResult:
+    """Baseline test/regression check, executed via the trusted GateRunner (the
+    agent never runs anything). `expected: pass` = a regression safety net exists;
+    `expected: fail` = the bug reproduces at baseline."""
+    kind = "test_result"
+    side_effect_free = False
+    args_schema = {
+        "type": "object", "required": ["gate", "expected"], "additionalProperties": False,
+        "properties": {
+            "gate": {"enum": ["unit", "sim", "full"]},
+            "expected": {"enum": ["pass", "fail"]},
+        },
+    }
+
+    def evaluate(self, args: dict, ctx: EvidenceContext) -> CheckResult:
+        if ctx.gates is None:
+            return CheckResult(False, "test_result requires a gate runner but none is available")
+        rc = ctx.gates.run(args["gate"])
+        actual_pass = rc == 0
+        want_pass = args["expected"] == "pass"
+        passed = actual_pass == want_pass
+        return CheckResult(
+            passed,
+            f"gate {args['gate']} exit={rc} (expected {args['expected']})",
+        )
+
+
 DEFAULT_REGISTRY = Registry()
-for _connector in (FilesExist(), FileContains(), SymbolDefined(), AnchorResolves()):
+for _connector in (FilesExist(), FileContains(), SymbolDefined(), AnchorResolves(), TestResult()):
     DEFAULT_REGISTRY.register(_connector)
