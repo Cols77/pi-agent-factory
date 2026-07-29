@@ -6,6 +6,9 @@ dependencies = [
   "jsonschema[format]>=4.21",
   "pyyaml>=6.0",
   "python-frontmatter>=1.1",
+  "anthropic>=0.40",
+  "google-genai>=1.0",
+  "openai>=1.50",
 ]
 
 [dependency-groups]

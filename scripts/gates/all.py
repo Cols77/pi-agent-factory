@@ -1,7 +1,7 @@
 import sys
-from _proc import LINT_CMD, TYPECHECK_CMD, UNIT_CMD, run_and_propagate
+from _proc import LINT_CMD, TYPECHECK_CMD, UNIT_CMD, AGENT_CMD, run_and_propagate
 
-GATES = [LINT_CMD, TYPECHECK_CMD, UNIT_CMD]
+GATES = [LINT_CMD, TYPECHECK_CMD, UNIT_CMD, AGENT_CMD]
 
 if __name__ == "__main__":
     for cmd in GATES:
