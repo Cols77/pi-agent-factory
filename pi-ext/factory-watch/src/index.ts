@@ -24,6 +24,10 @@ import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
 import { readReviewGuide, reviewGuidePath } from "./review-guide.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { buildDecision } from "./review-model.js";
+import type { ReviewDecisionPayload } from "./review-model.js";
+import { buildReviewPageData, startReviewServer } from "./review-server.js";
+import { openInBrowser, readSurfacePref, writeSurfacePref } from "./review-surface.js";
+import type { Surface } from "./review-surface.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
 import type { MissionControlAction } from "./mission-control-dashboard.js";
@@ -124,11 +128,38 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
                 guide,
               }
             : { guide };
-          const result = await runReviewLoop(ctx.ui, ctx.cwd, rec.task_id, hr.start_commit, files, opts);
-          writeReviewDecision(
-            reviewDecisionPath(ctx.cwd, rec.session_id),
-            buildDecision(result.decision, result.annotations, result.reviewedFiles),
+
+          const remembered = readSurfacePref(ctx.cwd);
+          const pick = await ctx.ui.select(
+            "Open review in",
+            remembered === "browser" ? ["Browser", "Terminal"] : ["Terminal", "Browser"],
           );
+          const surface: Surface = pick === "Browser" ? "browser" : "terminal";
+          writeSurfacePref(ctx.cwd, surface);
+
+          let decision: ReviewDecisionPayload | null = null;
+          if (surface === "browser") {
+            try {
+              const pageData = buildReviewPageData(ctx.cwd, hr.start_commit, files, {
+                taskId: rec.task_id,
+                implementing: opts.implementing,
+                banner: opts.banner,
+                guide: opts.guide ?? null,
+              });
+              const srv = await startReviewServer(pageData);
+              ctx.ui.notify(`review open in your browser: ${srv.url}`, "info");
+              openInBrowser(srv.url);
+              decision = await srv.decision; // resolves on submit; null if the server is closed without a post
+            } catch (err) {
+              ctx.ui.notify(`browser review failed (${String(err)}); falling back to terminal`, "warning");
+            }
+          }
+          if (decision === null) {
+            // terminal surface, or browser closed without submitting / failed to start: fall back to the TUI
+            const result = await runReviewLoop(ctx.ui, ctx.cwd, rec.task_id, hr.start_commit, files, opts);
+            decision = buildDecision(result.decision, result.annotations, result.reviewedFiles);
+          }
+          writeReviewDecision(reviewDecisionPath(ctx.cwd, rec.session_id), decision);
         }
         break;
       }
