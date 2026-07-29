@@ -51,6 +51,12 @@ export class ReviewOverlay {
   private selectedIndex = 0;
   private diffLineCache = new Map<string, string[]>();
   private rowMetaCache = new Map<string, DiffRowMeta[]>();
+  // In-overlay search state (file mode only). `search` doubles as the typed
+  // draft while `searching` is true and as the committed term used by n/N
+  // once committed -- see the "/" and "searching" branches in handleInput.
+  private search = "";
+  private searching = false;
+  private lastSearch = "";
   private readonly files: FileStat[];
   private readonly annotations: Annotation[];
   private readonly reviewed: Set<string>;
@@ -172,10 +178,49 @@ export class ReviewOverlay {
     }
   }
 
+  // Scans the cached rendered diff lines for `file`, starting one row past
+  // (or before, for dir -1) the cursor, wrapping around at most once. Used
+  // by both the Enter-commits-search path and n/N repeat. Case-insensitive;
+  // a blank term or a total absence of matches is a silent no-op -- the
+  // cursor is left exactly where it was, per the "don't crash" constraint.
+  private jumpToMatch(view: Extract<ViewState, { mode: "file" }>, file: FileStat, dir: 1 | -1): void {
+    const term = this.lastSearch.toLowerCase();
+    if (term === "") return;
+    const lines = this.diffLinesFor(file);
+    const total = lines.length;
+    if (total === 0) return;
+    for (let step = 1; step <= total; step++) {
+      const idx = ((view.cursor + dir * step) % total + total) % total;
+      if (lines[idx]!.toLowerCase().includes(term)) {
+        view.cursor = idx;
+        this.followCursor(view, this.getViewportHeight());
+        return;
+      }
+    }
+    // No match anywhere in the file -- leave the cursor put.
+  }
+
   handleInput(data: string): void {
     if (this.view.mode === "file") {
       const view = this.view;
+      const file = this.files[view.index]!;
       const viewportHeight = this.getViewportHeight();
+      // While an in-overlay search is being typed, every key feeds the
+      // search buffer instead of the normal file-mode bindings below --
+      // Enter commits and jumps, Esc cancels back to the plain footer.
+      if (this.searching) {
+        if (matchesKey(data, Key.escape)) {
+          this.searching = false;
+          this.search = "";
+        } else if (data === "\r" || data === "\n") {
+          this.lastSearch = this.search;
+          this.searching = false;
+          this.jumpToMatch(view, file, 1);
+        } else if (data.length === 1 && data >= " " && data !== "\x7f") {
+          this.search += data;
+        }
+        return;
+      }
       if (matchesKey(data, Key.down)) {
         view.scrollOffset += 1;
       } else if (matchesKey(data, Key.up)) {
@@ -213,6 +258,31 @@ export class ReviewOverlay {
         this.onAction({ type: "viewComments" });
       } else if (data === "e") {
         this.onAction({ type: "edit", file: this.files[view.index]!.path });
+      } else if (data === "]") {
+        // Ensure rowMetaCache is populated even if this file hasn't been
+        // rendered yet (mirrors the 'c' handler above for the same reason).
+        this.diffLinesFor(file);
+        const meta = this.rowMetaCache.get(file.path) ?? [];
+        const next = meta.findIndex((m, i) => i > view.cursor && m.kind === "hunk");
+        if (next >= 0) {
+          view.cursor = next;
+          this.followCursor(view, viewportHeight);
+        }
+      } else if (data === "[") {
+        this.diffLinesFor(file);
+        const meta = this.rowMetaCache.get(file.path) ?? [];
+        for (let i = view.cursor - 1; i >= 0; i--) {
+          if (meta[i]?.kind === "hunk") {
+            view.cursor = i;
+            this.followCursor(view, viewportHeight);
+            break;
+          }
+        }
+      } else if (data === "/") {
+        this.search = "";
+        this.searching = true;
+      } else if (data === "n" || data === "N") {
+        this.jumpToMatch(view, file, data === "n" ? 1 : -1);
       }
       return;
     }
@@ -299,9 +369,13 @@ export class ReviewOverlay {
         return marker + line;
       });
     const lastShown = Math.min(view.scrollOffset + viewportHeight, allLines.length);
-    const footer =
-      `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
-      "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, c comment, C file comment, v comments, e edit, q back) --";
+    // While a search is being typed, the footer becomes the "/<search>"
+    // prompt itself rather than the usual status/help line -- still put
+    // through truncateToWidth below like every other rendered line.
+    const footer = this.searching
+      ? `/${this.search}`
+      : `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
+        "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, [ ] hunk, / search, n/N repeat, c comment, C file comment, v comments, e edit, q back) --";
     // See the summary branch: every line must fit the terminal width or
     // pi-tui throws. Diff lines especially can be arbitrarily long.
     return [...visible, footer].map((line) => truncateToWidth(line, width));

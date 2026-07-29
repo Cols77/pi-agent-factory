@@ -272,6 +272,139 @@ describe("ReviewOverlay (file view) per-line comments", () => {
   });
 });
 
+describe("ReviewOverlay diff navigation (hunk jump + in-diff search)", () => {
+  // Two hunks separated by two change lines. Raw diff layout (renderDiff
+  // falls back to raw lines under test -- no theme singleton is initialized,
+  // see diffLinesFor's comment):
+  //   row 0: "@@ -1,1 +1,1 @@"   (hunk)
+  //   row 1: "-a"                (del)
+  //   row 2: "+b"                (add)
+  //   row 3: "@@ -10,1 +10,1 @@" (hunk)
+  //   row 4: "-c"                (del)
+  //   row 5: "+d"                (add)
+  const TWO_HUNK_DIFF = "@@ -1,1 +1,1 @@\n-a\n+b\n@@ -10,1 +10,1 @@\n-c\n+d\n";
+
+  test("] jumps the cursor to the next hunk header", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(TWO_HUNK_DIFF);
+    // A short terminal (viewport height 3) so the jump also has to move
+    // scrollOffset for the target row to become visible -- proves the
+    // cursor really landed on row 3, not just that row 3 exists somewhere
+    // in the (otherwise fully-visible) output.
+    const overlay = new ReviewOverlay(FILES, [], new Set(), { terminal: { rows: 5 } }, "/repo", "abc123", () => {});
+    overlay.handleInput("\r"); // open file, cursor starts on row 0 (1st hunk header)
+    overlay.handleInput("]"); // jump to the 2nd hunk header (row 3)
+    const lines = overlay.render(80);
+    const marked = lines.find((l) => l.startsWith("> "));
+    expect(marked).toBeDefined();
+    expect(marked).toContain("@@ -10,1 +10,1 @@");
+  });
+
+  test("[ jumps the cursor back to the previous hunk header", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(TWO_HUNK_DIFF);
+    const overlay = new ReviewOverlay(FILES, [], new Set(), { terminal: { rows: 5 } }, "/repo", "abc123", () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("]"); // now on the 2nd hunk header (row 3)
+    overlay.handleInput("["); // back to the 1st hunk header (row 0)
+    const lines = overlay.render(80);
+    const marked = lines.find((l) => l.startsWith("> "));
+    expect(marked).toBeDefined();
+    expect(marked).toContain("@@ -1,1 +1,1 @@");
+  });
+
+  test("[ at the first hunk stays put (no earlier hunk to jump to)", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(TWO_HUNK_DIFF);
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("[");
+    const lines = overlay.render(80);
+    expect(lines[0]!.startsWith("> ")).toBe(true);
+    expect(lines[0]).toContain("@@ -1,1 +1,1 @@");
+  });
+
+  // Rows (raw diff, same fallback as above): 0 hunk, 1 "needle one",
+  // 2 "line two", 3 "needle two", 4 "line four", 5 "needle three".
+  const SEARCH_DIFF = "@@ -1,5 +1,5 @@\n needle one\n line two\n needle two\n line four\n needle three\n";
+
+  test("/ then a search term then Enter jumps to the first match past the cursor; n repeats forward", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(SEARCH_DIFF);
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", () => {});
+    overlay.handleInput("\r"); // cursor starts at row 0 (the hunk header)
+    overlay.handleInput("/");
+    for (const ch of "needle") overlay.handleInput(ch);
+    overlay.handleInput("\r"); // commit -> jumps to row 1 ("needle one")
+    let lines = overlay.render(80);
+    expect(lines.find((l) => l.startsWith("> "))).toContain("needle one");
+
+    overlay.handleInput("n"); // repeat forward -> row 3 ("needle two")
+    lines = overlay.render(80);
+    expect(lines.find((l) => l.startsWith("> "))).toContain("needle two");
+
+    overlay.handleInput("n"); // -> row 5 ("needle three")
+    lines = overlay.render(80);
+    expect(lines.find((l) => l.startsWith("> "))).toContain("needle three");
+  });
+
+  test("N repeats the last search backward", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce(SEARCH_DIFF);
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("/");
+    for (const ch of "needle") overlay.handleInput(ch);
+    overlay.handleInput("\r"); // -> row 1 ("needle one")
+    overlay.handleInput("n"); // -> row 3 ("needle two")
+    overlay.handleInput("N"); // back -> row 1 ("needle one")
+    const lines = overlay.render(80);
+    expect(lines.find((l) => l.startsWith("> "))).toContain("needle one");
+  });
+
+  test("search is case-insensitive", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce("@@ -1,2 +1,2 @@\n plain line\n TARGET line\n");
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("/");
+    for (const ch of "target") overlay.handleInput(ch);
+    overlay.handleInput("\r");
+    const lines = overlay.render(80);
+    expect(lines.find((l) => l.startsWith("> "))).toContain("TARGET line");
+  });
+
+  test("n/N with no match leaves the cursor unchanged instead of crashing", () => {
+    vi.mocked(computeFileDiffText).mockReturnValueOnce("@@ -1,2 +1,2 @@\n plain line\n other line\n");
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("/");
+    for (const ch of "zzz") overlay.handleInput(ch);
+    overlay.handleInput("\r"); // no match anywhere -- must not throw
+    expect(() => overlay.handleInput("n")).not.toThrow();
+    expect(() => overlay.handleInput("N")).not.toThrow();
+    const lines = overlay.render(80);
+    expect(lines[0]!.startsWith("> ")).toBe(true); // cursor stayed at row 0
+  });
+
+  test("footer shows a /<search> prompt while searching, truncated to width", () => {
+    const overlay = makeOverlay([], () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("/");
+    for (const ch of "old") overlay.handleInput(ch);
+    const lines = overlay.render(40);
+    expect(lines[lines.length - 1]).toBe("/old");
+    for (const line of lines) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+    }
+  });
+
+  test("Esc cancels an in-progress search without leaving file view", () => {
+    const overlay = makeOverlay([], () => {});
+    overlay.handleInput("\r");
+    overlay.handleInput("/");
+    overlay.handleInput("o");
+    overlay.handleInput("\x1b"); // Esc cancels the search, not the file view
+    const lines = overlay.render(80);
+    expect(lines[lines.length - 1]).not.toContain("/o");
+    expect(lines.join("\n")).toContain("src/rtb.py"); // still in file view (footer shows the path)
+  });
+});
+
 describe("runReviewLoop", () => {
   function fakeUi(overrides: Partial<UiApi> = {}): UiApi {
     return {
