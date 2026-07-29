@@ -38,6 +38,11 @@ export function mapDiffRows(rawDiffLines: string[]): DiffRowMeta[] {
   let newLine = 0;
   let inHunk = false;
   for (const raw of rawDiffLines) {
+    if (raw.startsWith("diff --git ")) {
+      inHunk = false; // new file section: treat following index/---/+++ as meta again
+      out.push({ kind: "meta" });
+      continue;
+    }
     const hunk = HUNK_RE.exec(raw);
     if (hunk) {
       oldLine = Number(hunk[1]);
@@ -51,14 +56,17 @@ export function mapDiffRows(rawDiffLines: string[]): DiffRowMeta[] {
       continue;
     }
     const c = raw[0];
-    if (c === "+") {
+    if (c === "\\") {
+      // "\ No newline at end of file" marker -> not a real source line, no anchor
+      out.push({ kind: "meta" });
+    } else if (c === "+") {
       out.push({ kind: "add", line: newLine, side: "new" });
       newLine += 1;
     } else if (c === "-") {
       out.push({ kind: "del", line: oldLine, side: "old" });
       oldLine += 1;
     } else {
-      // context (leading space) or the rare "\ No newline" marker -> treat as context
+      // context (leading space)
       out.push({ kind: "context", line: newLine, side: "new" });
       oldLine += 1;
       newLine += 1;
