@@ -197,10 +197,11 @@ def run_task(
         )
         if r_ev is not None:
             _report_node(status, task.id, r_ev, 1)
-        feedback = format_review_feedback(decision.comments)
+        feedback = format_review_feedback(decision.annotations)
         addressed.extend(
-            f"your comment (round {_human_round + 1}) on {file}: {text}"
-            for file, text in decision.comments.items()
+            f"your comment (round {_human_round + 1}) on "
+            f"{a.file}{':' + str(a.line) if a.line is not None else ''}: {a.body}"
+            for a in decision.annotations
         )
         already_done = False
 

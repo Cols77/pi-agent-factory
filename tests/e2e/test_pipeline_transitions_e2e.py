@@ -33,7 +33,7 @@ import pytest
 
 from factory.orchestrator.backends import SubprocessGateRunner
 from factory.orchestrator.git_ops import SubprocessGitOps
-from factory.orchestrator.human_review import HumanReviewDecision
+from factory.orchestrator.human_review import Annotation, HumanReviewDecision
 from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
@@ -189,7 +189,7 @@ def _nodes(status: FakeStatusReporter) -> list[str]:
 def test_happy_path_runs_every_stage_through_session_review(tmp_path: Path) -> None:
     _requires_creds()
     ws = _build_workspace(tmp_path)
-    path, status = _run(ws, ScriptedGate([HumanReviewDecision("approve", {})]))
+    path, status = _run(ws, ScriptedGate([HumanReviewDecision("approve", [])]))
 
     nodes = _nodes(status)
     for stage in ("context-gather", "dev", "validation", "review", "human-review", "session-review"):
@@ -202,8 +202,8 @@ def test_reject_then_approve_returns_to_human_and_completes(tmp_path: Path) -> N
     _requires_creds()
     ws = _build_workspace(tmp_path)
     gate = ScriptedGate([
-        HumanReviewDecision("reject", {"src/answer.py": "add a module docstring"}),
-        HumanReviewDecision("approve", {}),
+        HumanReviewDecision("reject", [Annotation(file="src/answer.py", body="add a module docstring")]),
+        HumanReviewDecision("approve", []),
     ])
     path, status = _run(ws, gate)
 
@@ -221,7 +221,7 @@ def test_already_done_approve_completes_without_crashing(tmp_path: Path) -> None
     # `git add -A` with nothing to commit -- must complete and reach session-review.
     _requires_creds()
     ws = _build_workspace(tmp_path, deliverables_already_exist=True)
-    path, status = _run(ws, ScriptedGate([HumanReviewDecision("approve", {})]))
+    path, status = _run(ws, ScriptedGate([HumanReviewDecision("approve", [])]))
 
     nodes = _nodes(status)
     assert "human-review" in nodes

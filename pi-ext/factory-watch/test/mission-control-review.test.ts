@@ -78,7 +78,7 @@ describe("ReviewBrowser decision flow", () => {
     browser.handleInput("a");
     expect(browser.render(80).join("\n")).toContain("Approve task?");
     browser.handleInput("y");
-    expect(onDecision).toHaveBeenCalledWith({ decision: "approve", comments: {} });
+    expect(onDecision).toHaveBeenCalledWith({ decision: "approve", annotations: [], reviewedFiles: [] });
   });
 
   test("reject without any comments shows an inline error instead of a confirm prompt", () => {
@@ -106,7 +106,7 @@ describe("ReviewBrowser comment/edit actions", () => {
   // calls the real functions, and stubbing spawnSync exercises the whole
   // path (resolveEditorLaunch -> spawnEditorBlocking -> temp file roundtrip)
   // the same way those lower-level tests already do.
-  test("a successful comment updates the comments map so a subsequent reject reaches the confirm prompt", () => {
+  test("a successful comment updates the annotation list so a subsequent reject reaches the confirm prompt", () => {
     const onDecision = vi.fn();
     const prevVisual = process.env.VISUAL;
     process.env.VISUAL = "myeditor";
@@ -119,7 +119,7 @@ describe("ReviewBrowser comment/edit actions", () => {
     try {
       const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", onDecision);
       browser.handleInput("c"); // comment on the selected file (src/a.ts)
-      expect(browser.render(80).join("\n")).toContain("[commented]");
+      expect(browser.render(80).join("\n")).toMatch(/src\/a\.ts.*\(1\)/);
 
       browser.handleInput("r");
       expect(browser.render(80).join("\n")).toContain("Reject task?");
@@ -127,7 +127,8 @@ describe("ReviewBrowser comment/edit actions", () => {
       browser.handleInput("y");
       expect(onDecision).toHaveBeenCalledWith({
         decision: "reject",
-        comments: { "src/a.ts": "looks good, one nit below" },
+        annotations: [{ file: "src/a.ts", body: "looks good, one nit below" }],
+        reviewedFiles: [],
       });
     } finally {
       if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
