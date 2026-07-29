@@ -135,6 +135,40 @@ describe("ReviewBrowser comment/edit actions", () => {
     }
   });
 
+  test("v with no comments shows an inline 'no comments yet' message instead of a popup", () => {
+    const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
+    browser.handleInput("v");
+    const out = browser.render(80).join("\n");
+    expect(out).toContain("no comments yet");
+    expect(out).toContain("2 files changed"); // still the file list, no popup mounted
+  });
+
+  test("v opens the comment-overview popup once a comment exists, and q dismisses it back to the file list", () => {
+    const prevVisual = process.env.VISUAL;
+    process.env.VISUAL = "myeditor";
+    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
+      if (cmd === "myeditor") {
+        writeFileSync((args as string[])[0]!, "guard the empty list", "utf-8");
+      }
+      return { status: 0 } as ReturnType<typeof spawnSync>;
+    });
+    try {
+      const browser = new ReviewBrowser(FILES, { terminal: { rows: 24 } }, "/repo", "abc123", "T-001", vi.fn());
+      browser.handleInput("c"); // add a file-level comment on src/a.ts via the (mocked) editor
+      browser.handleInput("v"); // open the comment overview popup
+      const shown = browser.render(80).join("\n");
+      expect(shown).toContain("Comments (1)");
+      expect(shown).not.toContain("2 files changed"); // popup replaces the base overlay
+
+      browser.handleInput("q"); // dismiss the popup
+      const after = browser.render(80).join("\n");
+      expect(after).not.toContain("Comments (1)");
+      expect(after).toContain("2 files changed"); // back to the file list
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+    }
+  });
+
   test("edit launches the resolved editor on the selected file and returns to browsing with no status message on success", () => {
     const prevVisual = process.env.VISUAL;
     process.env.VISUAL = "myeditor";

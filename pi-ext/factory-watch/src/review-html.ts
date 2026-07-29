@@ -18,11 +18,14 @@ export function renderReviewHtml(): string {
   .row .plus { position: absolute; left: 2px; cursor: pointer; opacity: .5; }
   .row .plus:hover { opacity: 1; }
   .banner { color: #c80; padding: 4px 8px; grid-column: 1 / -1; }
+  .guide { grid-column: 1 / -1; padding: 4px 8px; border-bottom: 1px solid #8884; white-space: pre-wrap; font-size: 12px; opacity: .9; }
+  .guide:empty { display: none; }
   button { font: inherit; margin: 4px 4px 0 0; }
   .cmt { border: 1px solid #8884; padding: 4px; margin: 4px 0; }
 </style></head>
 <body>
   <div class="banner" id="banner"></div>
+  <div class="guide" id="guide"></div>
   <div id="tree"></div>
   <div id="diff"></div>
   <div id="side">
@@ -40,6 +43,31 @@ export function renderReviewHtml(): string {
   const reviewed = new Set();
   let active = data.files[0] && data.files[0].path;
   document.getElementById('banner').textContent = data.banner || '';
+
+  // Read-only review-focus guide (confidence / validation / verify checklist /
+  // already-addressed), mirroring what the TUI overlay surfaces. Static for the
+  // session, so rendered once. All text via createTextNode (no innerHTML of
+  // server data).
+  function renderGuide() {
+    const box = document.getElementById('guide');
+    box.innerHTML = '';
+    const addLine = (t) => { const d = document.createElement('div'); d.appendChild(document.createTextNode(t)); box.appendChild(d); };
+    if (data.taskId) addLine('Task: ' + data.taskId);
+    const g = data.guide;
+    if (!g) return;
+    if (g.confidence) addLine('Confidence: ' + g.confidence);
+    if (Array.isArray(g.validation) && g.validation.length) {
+      addLine('Validation: ' + g.validation.map(v => (v.gate + ' ' + (v.summary || '') + (v.ok === false ? ' ✗' : v.ok ? ' ✓' : '')).trim()).join('   '));
+    }
+    if (Array.isArray(g.addressed) && g.addressed.length) {
+      addLine('Already addressed (' + g.addressed.length + '): ' + g.addressed.join('; '));
+    }
+    if (Array.isArray(g.verify) && g.verify.length) {
+      addLine('Verify before approving:');
+      g.verify.forEach((v, i) => addLine('  [' + (i + 1) + '] ' + v.item + (v.file ? '  ' + v.file + (v.line ? ':' + v.line : '') : '')));
+    }
+  }
+  renderGuide();
 
   function renderTree() {
     const tree = document.getElementById('tree');

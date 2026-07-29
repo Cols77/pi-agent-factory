@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { computeReviewFiles } from "./review-diff.ts";
 import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
-import { hasCodeOnPath, ReviewOverlay } from "./review-overlay.ts";
+import { CommentListOverlay, hasCodeOnPath, ReviewOverlay } from "./review-overlay.ts";
 import type { TuiLike } from "./review-overlay.ts";
 import { ConfirmPrompt } from "./confirm-prompt.ts";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.ts";
@@ -93,8 +93,12 @@ export class ReviewBrowser implements Component {
   private readonly reviewed = new Set<string>();
   private readonly cwd: string;
   private readonly taskId: string;
+  private readonly tui: TuiLike;
   private readonly onDecision: (decision: ReviewDecisionPayload) => void;
   private activePrompt: ConfirmPrompt | null = null;
+  // Comment-overview popup (the `v` action). Mutually exclusive with
+  // activePrompt in practice -- both are only reachable from the base overlay.
+  private activeOverlay: CommentListOverlay | null = null;
   private statusMessage: string | null = null;
 
   constructor(
@@ -107,6 +111,7 @@ export class ReviewBrowser implements Component {
   ) {
     this.cwd = cwd;
     this.taskId = taskId;
+    this.tui = tui;
     this.onDecision = onDecision;
     this.overlay = new ReviewOverlay(files, this.annotations, this.reviewed, tui, cwd, startCommit, (action) =>
       this.handleAction(action),
@@ -153,7 +158,16 @@ export class ReviewBrowser implements Component {
     }
 
     if (action.type === "viewComments") {
-      // Task 5 wires up a dedicated comment-review screen.
+      if (this.annotations.length === 0) {
+        this.statusMessage = "no comments yet";
+        return;
+      }
+      // Mount the same comment-overview popup runReviewLoop uses; dismissed
+      // (Esc/q/Enter) via its onDone, which clears activeOverlay so input and
+      // rendering fall back to the base ReviewOverlay.
+      this.activeOverlay = new CommentListOverlay(this.annotations, this.tui, () => {
+        this.activeOverlay = null;
+      });
       return;
     }
 
@@ -189,12 +203,19 @@ export class ReviewBrowser implements Component {
       this.activePrompt.handleInput(data);
       return;
     }
+    if (this.activeOverlay !== null) {
+      this.activeOverlay.handleInput(data);
+      return;
+    }
     this.overlay.handleInput(data);
   }
 
   render(width: number): string[] {
     if (this.activePrompt !== null) {
       return this.activePrompt.render(width);
+    }
+    if (this.activeOverlay !== null) {
+      return this.activeOverlay.render(width);
     }
     const lines = this.overlay.render(width);
     return this.statusMessage === null ? lines : [...lines, "", this.statusMessage];
