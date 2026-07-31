@@ -328,7 +328,7 @@ describe("factory-watch commands", () => {
 
     const files = [{ path: "a.ts", status: "M" as const, added: 1, removed: 0 }];
     vi.mocked(computeReviewFiles).mockReturnValue(files);
-    const decision = { decision: "approve" as const, comments: {} };
+    const decision = { decision: "approve" as const, annotations: [], reviewedFiles: [] };
     vi.mocked(runReviewLoop).mockResolvedValue(decision);
 
     const { commands } = capture();
@@ -382,7 +382,7 @@ describe("factory-watch commands", () => {
     vi.mocked(computeReviewFiles).mockReturnValue(files);
     const guide = { confidence: "high", verify: [{ item: "x" }] };
     vi.mocked(readReviewGuide).mockReturnValue(guide);
-    const decision = { decision: "approve" as const, comments: {} };
+    const decision = { decision: "approve" as const, annotations: [], reviewedFiles: [] };
     vi.mocked(runReviewLoop).mockResolvedValue(decision);
 
     const { commands } = capture();
@@ -422,7 +422,7 @@ describe("factory-watch commands", () => {
 
     const implFiles = [{ path: "src/x.py", status: "A" as const, added: 5, removed: 0 }];
     vi.mocked(computeImplementingFiles).mockReturnValue(implFiles);
-    vi.mocked(runReviewLoop).mockResolvedValue({ decision: "approve", comments: {} });
+    vi.mocked(runReviewLoop).mockResolvedValue({ decision: "approve", annotations: [], reviewedFiles: [] });
 
     const { commands } = capture();
     const ctx = fakeCtx({ cwd });

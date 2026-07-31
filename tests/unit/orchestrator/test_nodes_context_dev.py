@@ -14,13 +14,13 @@ def _task():
     return Task("T-001", "t", "todo", ["c"], "body", Path("t"))
 
 
-def _manifest(tmp_path, proven=True, reject=None):
+def _manifest(tmp_path, checks=None, reject=None):
     (tmp_path / "tasks").mkdir(exist_ok=True)
     (tmp_path / "tasks" / "T-001.md").write_text("dod", encoding="utf-8")
     return {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": proven, "checks": [{"name": "x", "pass": proven}]},
+        "coherence": {"checks": checks if checks is not None else []},
         "context": {"task": "tasks/T-001.md", "source_files": [], "skills": []},
         "reject": reject,
     }
@@ -35,10 +35,34 @@ def test_context_gatherer_pass(tmp_path):
 
 def test_context_gatherer_reject_on_reject_field(tmp_path):
     write_skill_stubs(tmp_path)
-    m = _manifest(tmp_path, proven=False, reject={"reason": "DoD unclear"})
+    m = _manifest(tmp_path, reject={"reason": "DoD unclear"})
     b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, m)]})
     outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
     assert outcome == NodeOutcome.REJECT and manifest is None
+
+
+def test_context_gatherer_pass_with_covered_modify_and_check(tmp_path):
+    write_skill_stubs(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "b.py").write_text("x", encoding="utf-8")
+    task = Task("T-001", "t", "todo", ["c"], "- Modify: `src/b.py`", Path("t"))
+    m = _manifest(tmp_path, checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["src/b.py"]}}])
+    m["context"]["source_files"] = ["src/b.py"]
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, m)]})
+    outcome, manifest, ev = run_context_gatherer(b, task, tmp_path, gates=FakeGateRunner())
+    assert outcome == NodeOutcome.PASS
+
+
+def test_context_gatherer_rejects_when_modify_uncovered(tmp_path):
+    write_skill_stubs(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "b.py").write_text("x", encoding="utf-8")
+    task = Task("T-001", "t", "todo", ["c"], "- Modify: `src/b.py`", Path("t"))
+    # source_files omits the Modify: deliverable -> coverage floor fails both attempts.
+    m = _manifest(tmp_path)
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, m), AgentResult(True, m)]})
+    outcome, manifest, ev = run_context_gatherer(b, task, tmp_path, gates=FakeGateRunner())
+    assert outcome == NodeOutcome.REJECT
 
 
 def test_context_gatherer_already_done(tmp_path):
@@ -219,20 +243,18 @@ def test_run_dev_writes_one_transcript_per_attempt(tmp_path):
     assert (transcript_dir / "dev-attempt2.log").read_text(encoding="utf-8") == "dev attempt 2 raw"
 
 
-def test_summarize_manifest_lists_basenames_and_coherence():
-    m = {"context": {"source_files": ["src/a/rtb.py", "src/waypoint.py", "nav.py"]},
-         "coherence": {"proven": True}}
-    assert _summarize_manifest(m) == "provided: rtb.py, waypoint.py, nav.py · coherence proven"
+def test_summarize_manifest_lists_basenames():
+    m = {"context": {"source_files": ["src/a/rtb.py", "src/waypoint.py", "nav.py"]}}
+    assert _summarize_manifest(m) == "provided: rtb.py, waypoint.py, nav.py"
 
 
 def test_summarize_manifest_truncates_over_three_files():
-    m = {"context": {"source_files": ["a.py", "b.py", "c.py", "d.py", "e.py"]},
-         "coherence": {"proven": True}}
-    assert _summarize_manifest(m) == "provided: a.py, b.py, c.py (+2) · coherence proven"
+    m = {"context": {"source_files": ["a.py", "b.py", "c.py", "d.py", "e.py"]}}
+    assert _summarize_manifest(m) == "provided: a.py, b.py, c.py (+2)"
 
 
-def test_summarize_manifest_no_files_and_unproven():
-    assert _summarize_manifest({"context": {}, "coherence": {}}) == "no source files · coherence unproven"
+def test_summarize_manifest_no_files():
+    assert _summarize_manifest({"context": {}}) == "no source files"
 
 
 def test_summarize_manifest_none():

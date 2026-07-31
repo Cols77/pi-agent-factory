@@ -7,12 +7,14 @@ import { join } from "node:path";
 import { computeReviewFiles } from "./review-diff.ts";
 import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
-import { hasCodeOnPath, ReviewOverlay } from "./review-overlay.ts";
+import { CommentListOverlay, hasCodeOnPath, ReviewOverlay } from "./review-overlay.ts";
 import type { TuiLike } from "./review-overlay.ts";
 import { ConfirmPrompt } from "./confirm-prompt.ts";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.ts";
 import type { ReviewDecisionPayload } from "./review-protocol.ts";
 import type { ReviewAction } from "./review-overlay.ts";
+import { findAnnotation } from "./review-model.ts";
+import type { Annotation } from "./review-model.ts";
 
 // Blocks on the same editor-launch mechanism runReviewLoop's "edit" action
 // uses in review-overlay.ts (resolveEditorLaunch + spawnSync, including the
@@ -87,11 +89,16 @@ export function promptComment(
 // host bridge runReviewLoop uses.
 export class ReviewBrowser implements Component {
   private readonly overlay: ReviewOverlay;
-  private readonly comments = new Map<string, string>();
+  private readonly annotations: Annotation[] = [];
+  private readonly reviewed = new Set<string>();
   private readonly cwd: string;
   private readonly taskId: string;
+  private readonly tui: TuiLike;
   private readonly onDecision: (decision: ReviewDecisionPayload) => void;
   private activePrompt: ConfirmPrompt | null = null;
+  // Comment-overview popup (the `v` action). Mutually exclusive with
+  // activePrompt in practice -- both are only reachable from the base overlay.
+  private activeOverlay: CommentListOverlay | null = null;
   private statusMessage: string | null = null;
 
   constructor(
@@ -104,8 +111,9 @@ export class ReviewBrowser implements Component {
   ) {
     this.cwd = cwd;
     this.taskId = taskId;
+    this.tui = tui;
     this.onDecision = onDecision;
-    this.overlay = new ReviewOverlay(files, this.comments, tui, cwd, startCommit, (action) =>
+    this.overlay = new ReviewOverlay(files, this.annotations, this.reviewed, tui, cwd, startCommit, (action) =>
       this.handleAction(action),
     );
   }
@@ -118,17 +126,48 @@ export class ReviewBrowser implements Component {
   private handleAction(action: ReviewAction): void {
     this.statusMessage = null;
 
-    if (action.type === "comment") {
-      const result = promptComment(this.cwd, this.comments.get(action.file));
+    if (action.type === "comment" || action.type === "fileComment") {
+      const file = action.file;
+      const line = action.type === "comment" ? action.line : undefined;
+      const side = action.type === "comment" ? action.side : undefined;
+      const existing = findAnnotation(this.annotations, file, line, side);
+      const result = promptComment(this.cwd, existing?.body);
       if (!result.ok) {
         this.statusMessage = result.error;
         return;
       }
       if (result.text === undefined) {
-        this.comments.delete(action.file);
+        if (existing) {
+          this.annotations.splice(this.annotations.indexOf(existing), 1);
+        }
+      } else if (existing) {
+        existing.body = result.text;
       } else {
-        this.comments.set(action.file, result.text);
+        this.annotations.push({ file, line, side, body: result.text });
       }
+      return;
+    }
+
+    if (action.type === "toggleReviewed") {
+      if (this.reviewed.has(action.file)) {
+        this.reviewed.delete(action.file);
+      } else {
+        this.reviewed.add(action.file);
+      }
+      return;
+    }
+
+    if (action.type === "viewComments") {
+      if (this.annotations.length === 0) {
+        this.statusMessage = "no comments yet";
+        return;
+      }
+      // Mount the same comment-overview popup runReviewLoop uses; dismissed
+      // (Esc/q/Enter) via its onDone, which clears activeOverlay so input and
+      // rendering fall back to the base ReviewOverlay.
+      this.activeOverlay = new CommentListOverlay(this.annotations, this.tui, () => {
+        this.activeOverlay = null;
+      });
       return;
     }
 
@@ -140,7 +179,7 @@ export class ReviewBrowser implements Component {
       return;
     }
 
-    if (action.type === "reject" && this.comments.size === 0) {
+    if (action.type === "reject" && this.annotations.length === 0) {
       this.statusMessage = "reject requires at least one comment";
       return;
     }
@@ -155,7 +194,7 @@ export class ReviewBrowser implements Component {
       if (!confirmed) {
         return;
       }
-      this.onDecision({ decision: action.type, comments: Object.fromEntries(this.comments) });
+      this.onDecision({ decision: action.type, annotations: this.annotations, reviewedFiles: [...this.reviewed] });
     });
   }
 
@@ -164,12 +203,19 @@ export class ReviewBrowser implements Component {
       this.activePrompt.handleInput(data);
       return;
     }
+    if (this.activeOverlay !== null) {
+      this.activeOverlay.handleInput(data);
+      return;
+    }
     this.overlay.handleInput(data);
   }
 
   render(width: number): string[] {
     if (this.activePrompt !== null) {
       return this.activePrompt.render(width);
+    }
+    if (this.activeOverlay !== null) {
+      return this.activeOverlay.render(width);
     }
     const lines = this.overlay.render(width);
     return this.statusMessage === null ? lines : [...lines, "", this.statusMessage];

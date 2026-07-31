@@ -1,16 +1,14 @@
 import { mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { ReviewDecisionPayload } from "./review-model.js";
+
+export type { ReviewDecisionPayload };
 
 // Synchronous sleep without pulling in a timer dependency. The gate polls
 // review-decision.json, so a transient lock is possible; a short backoff
 // lets the atomic rename succeed.
 function syncSleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-export interface ReviewDecisionPayload {
-  decision: "approve" | "reject";
-  comments: Record<string, string>;
 }
 
 export function reviewDecisionPath(cwd: string, sessionId: string): string {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from factory.orchestrator.backends import AgentBackend, GateRunner
+from factory.evidence.types import EvidenceContext
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
@@ -24,20 +25,20 @@ def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
 
 def _summarize_manifest(manifest: dict | None) -> str:
     """One-line manifest summary for the handoff/summary status: the actual file
-    basenames the context gatherer provided, plus coherence."""
+    basenames the context gatherer provided. Coherence is no longer self-reported
+    (it is derived by validate_manifest), so it is not shown here."""
     if manifest is None:
         return "no manifest"
     ctx = manifest.get("context", {})
     raw = ctx.get("source_files", [])
     files = raw if isinstance(raw, list) else []
-    coherence = "coherence proven" if manifest.get("coherence", {}).get("proven") else "coherence unproven"
     if not files:
-        return f"no source files · {coherence}"
+        return "no source files"
     names = [Path(str(p)).name for p in files]
     shown = ", ".join(names[:3])
     if len(names) > 3:
         shown += f" (+{len(names) - 3})"
-    return f"provided: {shown} · {coherence}"
+    return f"provided: {shown}"
 
 
 def _summarize_review(findings: list) -> str:
@@ -54,6 +55,7 @@ def run_context_gatherer(
     max_attempts: int = 2,
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
+    gates: GateRunner | None = None,
 ) -> tuple[NodeOutcome, dict | None, NodeEvent]:
     errors: list[str] = []
     result: AgentResult | None = None
@@ -111,8 +113,9 @@ def run_context_gatherer(
                 handoff=f"rejected: {manifest['reject']}",
             )
             return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", attempt, extra)
-        errors = validate_manifest(manifest, repo_root)
-        if not errors and manifest.get("coherence", {}).get("proven"):
+        ctx = EvidenceContext(repo_root=repo_root, gates=gates, kb_dir=repo_root / "kb")
+        errors = validate_manifest(manifest, repo_root, task=task, ctx=ctx)
+        if not errors:
             extra = _note_backend_failure({}, result)
             handoff = _summarize_manifest(manifest)
             status.report(

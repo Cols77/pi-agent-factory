@@ -4,14 +4,14 @@ from factory.validation.manifest_validator import validate_manifest
 pytestmark = pytest.mark.unit
 
 
-def _manifest(tmp_path, **ctx):
-    (tmp_path / "tasks").mkdir()
+def _manifest(tmp_path, checks=None, **ctx):
+    (tmp_path / "tasks").mkdir(exist_ok=True)
     (tmp_path / "tasks" / "T-001.md").write_text("dod", encoding="utf-8")
     base = {
         "task_id": "T-001",
         "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"proven": True, "checks": [{"name": "x", "pass": True}]},
+        "coherence": {"checks": checks if checks is not None else []},
         "context": {"task": "tasks/T-001.md", "source_files": [], "skills": []},
         "reject": None,
     }
@@ -19,7 +19,7 @@ def _manifest(tmp_path, **ctx):
     return base
 
 
-def test_valid_manifest_with_existing_paths(tmp_path):
+def test_valid_manifest_no_checks(tmp_path):
     assert validate_manifest(_manifest(tmp_path), tmp_path) == []
 
 
@@ -35,19 +35,45 @@ def test_anchor_is_stripped_before_existence_check(tmp_path):
     assert validate_manifest(m, tmp_path) == []
 
 
-def test_unproven_manifest_fails_gate(tmp_path):
-    m = _manifest(tmp_path, source_files=["nope.py"])
-    m["coherence"]["proven"] = False
-    # Gate per spec: "coherence.proven === true" is required to pass, even
-    # though the manifest is otherwise schema-valid (a REJECT manifest).
-    errors = validate_manifest(m, tmp_path)
-    assert errors
-    assert any("proven" in e for e in errors)
-
-
-def test_proven_true_with_failing_check_fails_gate(tmp_path):
+def test_legacy_pass_field_is_schema_rejected(tmp_path):
     m = _manifest(tmp_path)
-    m["coherence"]["checks"] = [{"name": "task-exists", "pass": False, "evidence": "missing"}]
+    m["coherence"]["checks"] = [{"name": "x", "kind": "files_exist", "args": {"paths": ["a"]}, "pass": True}]
     errors = validate_manifest(m, tmp_path)
-    assert errors
-    assert any("task-exists" in e for e in errors)
+    assert errors  # additionalProperties:false rejects the stray `pass`
+
+
+def test_legacy_proven_field_is_schema_rejected(tmp_path):
+    m = _manifest(tmp_path)
+    m["coherence"]["proven"] = True
+    errors = validate_manifest(m, tmp_path)
+    assert errors  # coherence.additionalProperties:false rejects `proven`
+
+
+def test_connector_check_evaluated_pass(tmp_path):
+    (tmp_path / "real.py").write_text("x", encoding="utf-8")
+    m = _manifest(tmp_path, checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["real.py"]}}])
+    assert validate_manifest(m, tmp_path) == []
+
+
+def test_connector_check_evaluated_fail(tmp_path):
+    m = _manifest(tmp_path, checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["ghost.py"]}}])
+    errors = validate_manifest(m, tmp_path)
+    assert any("ghost.py" in e for e in errors)
+
+
+def test_unknown_kind_rejected(tmp_path):
+    m = _manifest(tmp_path, checks=[{"name": "c", "kind": "made_up", "args": {}}])
+    errors = validate_manifest(m, tmp_path)
+    assert any("unknown kind" in e for e in errors)
+
+
+def test_coverage_floor_requires_modify_deliverable(tmp_path):
+    from factory.orchestrator.ledger import Task
+    from pathlib import Path
+    task = Task(id="T-001", title="t", status="todo", dod=["done"],
+                body="- Modify: `src/b.py`", path=Path("x"))
+    # Manifest gathered nothing; the Modify: deliverable is uncovered even though
+    # every declared check passes -> still an error (honest-but-hollow).
+    m = _manifest(tmp_path)
+    errors = validate_manifest(m, tmp_path, task=task)
+    assert any("src/b.py" in e and "not gathered" in e for e in errors)
