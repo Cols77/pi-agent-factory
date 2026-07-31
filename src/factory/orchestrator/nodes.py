@@ -10,6 +10,8 @@ from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, NodeOutcome
 from factory.validation.manifest_validator import validate_manifest
+from factory.validation.pipeline import validate_task_requirements
+from factory.validation.report import write_validation_report
 
 
 def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
@@ -65,30 +67,47 @@ def run_context_gatherer(
     captured_session_id: str | None = None
     for attempt in range(1, max_attempts + 1):
         status.report(
-            task_id=task.id, node="context-gather", node_state="running",
-            attempt=attempt, max_attempts=max_attempts,
+            task_id=task.id,
+            node="context-gather",
+            node_state="running",
+            attempt=attempt,
+            max_attempts=max_attempts,
         )
 
         def _on_session_id(sid: str) -> None:
             nonlocal captured_session_id
             captured_session_id = sid
             status.report(
-                task_id=task.id, node="context-gather", node_state="running",
-                attempt=attempt, max_attempts=max_attempts, session_id=sid,
+                task_id=task.id,
+                node="context-gather",
+                node_state="running",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                session_id=sid,
             )
 
         def _on_snippet(text: str) -> None:
             status.report(
-                task_id=task.id, node="context-gather", node_state="running",
-                attempt=attempt, max_attempts=max_attempts, snippet=text,
+                task_id=task.id,
+                node="context-gather",
+                node_state="running",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                snippet=text,
                 session_id=captured_session_id,
             )
 
         feedback = "\n".join(errors) if errors else None
         result = backend.run(
             AgentRole.CONTEXT_GATHERER,
-            compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills", feedback=feedback),
-            on_snippet=_on_snippet, on_session_id=_on_session_id,
+            compose_prompt(
+                AgentRole.CONTEXT_GATHERER,
+                task,
+                skills_dir=repo_root / ".pi" / "skills",
+                feedback=feedback,
+            ),
+            on_snippet=_on_snippet,
+            on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "context-gather", attempt, result.raw)
@@ -96,10 +115,14 @@ def run_context_gatherer(
         if manifest.get("already_done"):
             reason = manifest.get("already_done_reason") or "task deliverables already exist"
             status.report(
-                task_id=task.id, node="context-gather", node_state="already-done",
-                attempt=attempt, max_attempts=max_attempts,
+                task_id=task.id,
+                node="context-gather",
+                node_state="already-done",
+                attempt=attempt,
+                max_attempts=max_attempts,
                 handoff="→ review: task appears already complete",
-                session_id=result.session_id, summary=reason,
+                session_id=result.session_id,
+                summary=reason,
             )
             return (
                 NodeOutcome.ALREADY_DONE,
@@ -109,8 +132,11 @@ def run_context_gatherer(
         if manifest.get("reject"):
             extra = _note_backend_failure({"reason": manifest["reject"]}, result)
             status.report(
-                task_id=task.id, node="context-gather", node_state="reject",
-                attempt=attempt, max_attempts=max_attempts,
+                task_id=task.id,
+                node="context-gather",
+                node_state="reject",
+                attempt=attempt,
+                max_attempts=max_attempts,
                 handoff=f"rejected: {manifest['reject']}",
             )
             return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", attempt, extra)
@@ -120,24 +146,35 @@ def run_context_gatherer(
             extra = _note_backend_failure({}, result)
             handoff = _summarize_manifest(manifest)
             status.report(
-                task_id=task.id, node="context-gather", node_state="pass",
-                attempt=attempt, max_attempts=max_attempts,
+                task_id=task.id,
+                node="context-gather",
+                node_state="pass",
+                attempt=attempt,
+                max_attempts=max_attempts,
                 handoff=f"→ dev: {handoff}",
-                session_id=result.session_id, summary=_summarize_manifest(manifest),
+                session_id=result.session_id,
+                summary=_summarize_manifest(manifest),
             )
             return NodeOutcome.PASS, manifest, NodeEvent("context-gather", "pass", attempt, extra)
         status.report(
-            task_id=task.id, node="context-gather", node_state="running",
-            attempt=attempt, max_attempts=max_attempts,
+            task_id=task.id,
+            node="context-gather",
+            node_state="running",
+            attempt=attempt,
+            max_attempts=max_attempts,
             handoff=f"validation errors: {'; '.join(errors[:3])}",
         )
     extra = {"errors": errors}
     if result is not None:
         extra = _note_backend_failure(extra, result)
     status.report(
-        task_id=task.id, node="context-gather", node_state="reject",
-        attempt=max_attempts, max_attempts=max_attempts,
-        handoff=f"failed after {max_attempts} attempts", outcome="rejected",
+        task_id=task.id,
+        node="context-gather",
+        node_state="reject",
+        attempt=max_attempts,
+        max_attempts=max_attempts,
+        handoff=f"failed after {max_attempts} attempts",
+        outcome="rejected",
     )
     return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", max_attempts, extra)
 
@@ -158,75 +195,151 @@ def run_dev(
     captured_session_id: str | None = None
     for attempt in range(1, max_iters + 1):
         status.report(
-            task_id=task.id, node="dev", node_state="running",
-            attempt=attempt, max_attempts=max_iters,
+            task_id=task.id,
+            node="dev",
+            node_state="running",
+            attempt=attempt,
+            max_attempts=max_iters,
         )
 
         def _on_session_id(sid: str) -> None:
             nonlocal captured_session_id
             captured_session_id = sid
             status.report(
-                task_id=task.id, node="dev", node_state="running",
-                attempt=attempt, max_attempts=max_iters, session_id=sid,
+                task_id=task.id,
+                node="dev",
+                node_state="running",
+                attempt=attempt,
+                max_attempts=max_iters,
+                session_id=sid,
             )
 
         def _on_snippet(text: str) -> None:
             status.report(
-                task_id=task.id, node="dev", node_state="running",
-                attempt=attempt, max_attempts=max_iters, snippet=text,
+                task_id=task.id,
+                node="dev",
+                node_state="running",
+                attempt=attempt,
+                max_attempts=max_iters,
+                snippet=text,
                 session_id=captured_session_id,
             )
 
         result = backend.run(
             AgentRole.DEV,
             compose_prompt(
-                AgentRole.DEV, task, manifest, kb_entries, feedback,
+                AgentRole.DEV,
+                task,
+                manifest,
+                kb_entries,
+                feedback,
                 skills_dir=repo_root / ".pi" / "skills",
             ),
-            on_snippet=_on_snippet, on_session_id=_on_session_id,
+            on_snippet=_on_snippet,
+            on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "dev", attempt, result.raw)
         if gates.run("unit") == 0:
             extra = _note_backend_failure({"tests": "green"}, result)
             status.report(
-                task_id=task.id, node="dev", node_state="pass",
-                attempt=attempt, max_attempts=max_iters,
+                task_id=task.id,
+                node="dev",
+                node_state="pass",
+                attempt=attempt,
+                max_attempts=max_iters,
                 handoff="→ validation: unit tests green",
-                session_id=result.session_id, summary="changed files; unit tests pass",
+                session_id=result.session_id,
+                summary="changed files; unit tests pass",
             )
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
         status.report(
-            task_id=task.id, node="dev", node_state="running",
-            attempt=attempt, max_attempts=max_iters,
+            task_id=task.id,
+            node="dev",
+            node_state="running",
+            attempt=attempt,
+            max_attempts=max_iters,
             handoff=f"unit tests failed, retry {attempt}/{max_iters}",
         )
     extra = {"reason": "unit tests red"}
     if result is not None:
         extra = _note_backend_failure(extra, result)
     status.report(
-        task_id=task.id, node="dev", node_state="escalate",
-        attempt=max_iters, max_attempts=max_iters,
-        handoff="escalated: unit tests still red", outcome="escalated",
+        task_id=task.id,
+        node="dev",
+        node_state="escalate",
+        attempt=max_iters,
+        max_attempts=max_iters,
+        handoff="escalated: unit tests still red",
+        outcome="escalated",
     )
     return NodeOutcome.ESCALATE, NodeEvent("dev", "escalate", max_iters, extra)
 
 
 def run_validation(
-    gates: GateRunner, task_id: str = "", status: StatusReporter = NullStatusReporter()
+    gates: GateRunner,
+    task_id: str = "",
+    status: StatusReporter = NullStatusReporter(),
+    *,
+    repo_root: Path | None = None,
+    satisfies: list[str] | None = None,
+    transcript_dir: Path | None = None,
 ) -> tuple[NodeOutcome, NodeEvent]:
-    status.report(task_id=task_id, node="validation", node_state="running", attempt=1, max_attempts=1,
-                 handoff="running sim + integration gates")
+    status.report(
+        task_id=task_id,
+        node="validation",
+        node_state="running",
+        attempt=1,
+        max_attempts=1,
+        handoff="running sim + integration gates",
+    )
     if gates.run("sim") != 0:
-        status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
-                     handoff="sim tests failed")
+        status.report(
+            task_id=task_id,
+            node="validation",
+            node_state="fail",
+            attempt=1,
+            max_attempts=1,
+            handoff="sim tests failed",
+        )
         return NodeOutcome.FAIL, NodeEvent("validation", "fail")
     if gates.run("integration") != 0:
-        status.report(task_id=task_id, node="validation", node_state="fail", attempt=1, max_attempts=1,
-                     handoff="integration tests failed")
+        status.report(
+            task_id=task_id,
+            node="validation",
+            node_state="fail",
+            attempt=1,
+            max_attempts=1,
+            handoff="integration tests failed",
+        )
         return NodeOutcome.FAIL, NodeEvent("validation", "fail")
-    status.report(task_id=task_id, node="validation", node_state="pass", attempt=1, max_attempts=1,
-                 handoff="→ review: sim + integration tests green")
+
+    if repo_root is not None:
+        report, ok = validate_task_requirements(repo_root, satisfies or [])
+        if transcript_dir is not None:
+            write_validation_report(transcript_dir / "validation-report.json", report)
+        if not ok:
+            reds = [e["id"] for e in report["requirements"] if e.get("passed") is not True]
+            status.report(
+                task_id=task_id,
+                node="validation",
+                node_state="fail",
+                attempt=1,
+                max_attempts=1,
+                handoff=f"requirements failed: {', '.join(reds)}",
+            )
+            return NodeOutcome.FAIL, NodeEvent(
+                "validation", "fail", 1, {"failed_requirements": reds}
+            )
+
+    status.report(
+        task_id=task_id,
+        node="validation",
+        node_state="pass",
+        attempt=1,
+        max_attempts=1,
+        handoff="→ review: sim + integration + requirements green",
+    )
     return NodeOutcome.PASS, NodeEvent("validation", "pass")
 
 
@@ -246,21 +359,32 @@ def run_review(
         nonlocal captured_session_id
         captured_session_id = sid
         status.report(
-            task_id=task.id, node="review", node_state="running",
-            attempt=1, max_attempts=1, session_id=sid,
+            task_id=task.id,
+            node="review",
+            node_state="running",
+            attempt=1,
+            max_attempts=1,
+            session_id=sid,
         )
 
     def _on_snippet(text: str) -> None:
         status.report(
-            task_id=task.id, node="review", node_state="running",
-            attempt=1, max_attempts=1, snippet=text,
+            task_id=task.id,
+            node="review",
+            node_state="running",
+            attempt=1,
+            max_attempts=1,
+            snippet=text,
             session_id=captured_session_id,
         )
 
     result = backend.run(
         AgentRole.REVIEW,
-        compose_prompt(AgentRole.REVIEW, task, kb_entries=kb_entries, skills_dir=repo_root / ".pi" / "skills"),
-        on_snippet=_on_snippet, on_session_id=_on_session_id,
+        compose_prompt(
+            AgentRole.REVIEW, task, kb_entries=kb_entries, skills_dir=repo_root / ".pi" / "skills"
+        ),
+        on_snippet=_on_snippet,
+        on_session_id=_on_session_id,
     )
     if transcript_dir is not None:
         write_role_transcript(transcript_dir, "review", 1, result.raw)
@@ -273,19 +397,31 @@ def run_review(
     if gate == 0 and dod_met and not findings:
         extra = _note_backend_failure({"confidence": confidence, "verify": verify}, result)
         status.report(
-            task_id=task.id, node="review", node_state="pass",
-            attempt=1, max_attempts=1,
-            handoff="✓ task complete, DoD met, gates pass", outcome="completed",
-            session_id=result.session_id, summary="DoD met; gates pass",
+            task_id=task.id,
+            node="review",
+            node_state="pass",
+            attempt=1,
+            max_attempts=1,
+            handoff="✓ task complete, DoD met, gates pass",
+            outcome="completed",
+            session_id=result.session_id,
+            summary="DoD met; gates pass",
         )
         return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
     finding_summary = f"{len(findings)} finding(s)" if findings else "DoD not met"
-    extra = _note_backend_failure({"findings": len(findings), "gate": gate, "confidence": confidence, "verify": verify}, result)
+    extra = _note_backend_failure(
+        {"findings": len(findings), "gate": gate, "confidence": confidence, "verify": verify},
+        result,
+    )
     status.report(
-        task_id=task.id, node="review", node_state="changes-requested",
-        attempt=1, max_attempts=1,
+        task_id=task.id,
+        node="review",
+        node_state="changes-requested",
+        attempt=1,
+        max_attempts=1,
         handoff=f"→ dev: {finding_summary}, gate={'pass' if gate == 0 else 'fail'}",
-        session_id=result.session_id, summary=_summarize_review(findings),
+        session_id=result.session_id,
+        summary=_summarize_review(findings),
     )
     return (
         NodeOutcome.CHANGES,
