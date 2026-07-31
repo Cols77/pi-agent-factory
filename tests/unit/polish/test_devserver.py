@@ -45,16 +45,21 @@ def test_setup_starts_service_then_teardown_stops_it(tmp_path):
 
 
 def test_setup_raises_and_cleans_up_on_unhealthy(tmp_path):
-    dead = f"http://127.0.0.1:{_free_port()}"  # nothing listening
+    port_a = _free_port()
+    up_url = f"http://127.0.0.1:{port_a}"  # a real server that DOES come up
+    dead = f"http://127.0.0.1:{_free_port()}"  # nothing ever listens here
     svc = Service(
         name="web",
-        cmd=f'{sys.executable} -c "import time;time.sleep(30)"',
-        health_url=dead,
+        cmd=f"{sys.executable} -m http.server {port_a}",
+        health_url=dead,  # server starts, but its health check points elsewhere → unhealthy
         ready_timeout=1.0,
     )
-    pg = DevServerPlayground([svc], usecases=["u"], browse_url=dead, project_root=tmp_path)
+    pg = DevServerPlayground([svc], usecases=["u"], browse_url=up_url, project_root=tmp_path)
     with pytest.raises(RuntimeError):
         pg.setup("u")
+    # The started service must have been torn down by the except-cleanup path.
+    time.sleep(0.5)
+    assert wait_healthy(up_url, timeout=2) is False
 
 
 def test_from_config(tmp_path):

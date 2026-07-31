@@ -26,7 +26,7 @@ def wait_healthy(url: str, timeout: float = 30.0, interval: float = 0.25) -> boo
         try:
             with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310 (local dev URL)
                 if resp.status < 500:
-                    return True
+                    return True  # any <500 response ⇒ up; 5xx is treated as "not ready yet"
         except urllib.error.HTTPError as exc:
             if exc.code < 500:
                 return True  # server answered (even 4xx) ⇒ up

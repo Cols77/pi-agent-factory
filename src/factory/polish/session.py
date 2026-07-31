@@ -29,7 +29,10 @@ def _install_sigterm(tear: Callable[[], None]):
     """Install a SIGTERM handler that tears down then exits. Returns the previous
     handler, or None if signals aren't settable here (e.g. not the main thread).
     SIGINT/KeyboardInterrupt is already covered by the caller's finally; SIGKILL
-    is uncatchable."""
+    is uncatchable. Residual window: a bare SIGTERM arriving *during*
+    playground.setup() (before this guard installs) is not caught here — a
+    playground's own setup cleanup handles SIGINT/errors, but bare
+    SIGTERM-during-setup, like SIGKILL, can still leak."""
 
     def _handler(signum, frame):
         tear()
