@@ -5,7 +5,7 @@ dod:
 id: T-044
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 4
-status: todo
+status: done
 title: Text Input Dialog (Pygame Widget)
 ---
 
