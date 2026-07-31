@@ -58,8 +58,8 @@ def parse_requirement(path: Path) -> Requirement:
         title=str(meta["title"]),
         statement=str(meta["statement"]),
         domain=str(meta["domain"]),
-        upstream=[str(u) for u in upstream],
-        binding=_parse_binding(meta["binding"]),
+        upstream=[str(u) for u in upstream],  # type: ignore[union-attr]
+        binding=_parse_binding(meta["binding"]),  # type: ignore[arg-type]
         body=post.content,
         path=path,
         checksum=str(checksum) if checksum else None,

@@ -35,7 +35,7 @@ def _parse(path: Path) -> Task:
     if isinstance(satisfies_value, str):
         satisfies = [satisfies_value]
     else:
-        satisfies = [str(s) for s in satisfies_value]
+        satisfies = [str(s) for s in satisfies_value]  # type: ignore[union-attr]
     return Task(
         id=str(meta["id"]),
         title=str(meta["title"]),
