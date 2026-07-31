@@ -81,3 +81,19 @@ def test_load_register_and_get(tmp_path):
     assert [r.id for r in reqs] == ["SR-001", "SR-002"]
     assert get_requirement(reqs, "SR-002").id == "SR-002"
     assert get_requirement(reqs, "SR-999") is None
+
+
+def test_binding_cadence_defaults_and_parses(tmp_path):
+    base = _SR  # existing module-level template with a full binding
+    p = tmp_path / "SR-009.md"
+    p.write_text(base.replace("SR-001", "SR-009"), encoding="utf-8")
+    assert parse_requirement(p).binding.cadence == "every_iteration"  # default
+
+    p2 = tmp_path / "SR-010.md"
+    p2.write_text(
+        base.replace("SR-001", "SR-010").replace(
+            'assert: ">= 0.90"', 'assert: ">= 0.90"\n  cadence: periodic'
+        ),
+        encoding="utf-8",
+    )
+    assert parse_requirement(p2).binding.cadence == "periodic"

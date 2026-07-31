@@ -42,6 +42,7 @@ def run_requirement_validation(
         except Exception as exc:  # isolate a bad harness/metric/trace to this requirement
             entries.append({"id": req.id, "error": str(exc)})
             continue
+        actual_trials = len(result.trials)
         entries.append(
             {
                 "id": req.id,
@@ -49,8 +50,9 @@ def run_requirement_validation(
                 "metric": req.binding.metric,
                 "value": result.metric_value,
                 "assert": req.binding.assert_expr,
-                "passed": result.passed,
-                "trials": len(result.trials),
+                "passed": result.passed and actual_trials >= req.binding.trials,
+                "trials": actual_trials,
+                "declared_trials": req.binding.trials,
                 "stale": not is_checksum_current(req),
                 "artifacts": [str(a) for a in result.artifacts],
             }
