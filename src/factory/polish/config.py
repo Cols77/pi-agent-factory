@@ -6,12 +6,14 @@ from pathlib import Path
 
 import yaml
 
+from factory.polish.devserver import DevServerPlayground
 from factory.polish.playground import Playground
 from factory.polish.reference import ScenarioReplayPlayground
 from factory.validation.harness import Harness
 from factory.validation.sim_harness import SimTestbenchHarness
 
 PLAYGROUND_TYPES: dict[str, Callable[[dict, Path], Playground]] = {
+    "dev-server": DevServerPlayground.from_config,
     "scenario-replay": ScenarioReplayPlayground.from_config,
 }
 HARNESS_TYPES: dict[str, Callable[[dict, Path], Harness]] = {

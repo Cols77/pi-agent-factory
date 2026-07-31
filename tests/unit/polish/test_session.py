@@ -65,10 +65,11 @@ def test_sigterm_handler_tears_down(monkeypatch, tmp_path):
 
     from factory.polish import session as sm
 
-    installed = {}
+    captured = {}
 
     def _fake_signal(sig, handler):
-        installed[sig] = handler
+        if sig == signal_mod.SIGTERM and callable(handler):
+            captured["term"] = handler  # capture the real handler before it's uninstalled
         return signal_mod.SIG_DFL
 
     monkeypatch.setattr(sm.signal, "signal", _fake_signal)
@@ -82,18 +83,10 @@ def test_sigterm_handler_tears_down(monkeypatch, tmp_path):
         def setup(self, usecase):
             return PlaygroundSession(on_teardown=lambda: torn.append(1))
 
-    # Run a normal session; capture the SIGTERM handler that was installed during it.
-    captured = {}
-
-    class _PGCapture(_PG):
-        def setup(self, usecase):
-            s = super().setup(usecase)
-            captured["term"] = installed.get(signal_mod.SIGTERM)
-            return s
-
-    sm.run_polish_session(_PGCapture(), "uc", [], tmp_path / "tasks")
+    # Run a normal session; capture the SIGTERM handler that was installed after setup.
+    sm.run_polish_session(_PG(), "uc", [], tmp_path / "tasks")
     assert torn == [1]  # normal teardown ran exactly once
-    assert callable(captured["term"])  # a SIGTERM handler was installed during the session
+    assert callable(captured.get("term"))  # a SIGTERM handler was installed during the session
 
     # Invoking that handler raises SystemExit (torn flag prevents redundant teardown).
     with pytest.raises(SystemExit):

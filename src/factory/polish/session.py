@@ -49,6 +49,7 @@ def run_polish_session(
     *,
     open_nav: Callable[[list[str]], None] | None = None,
 ) -> list[Path]:
+    session = playground.setup(usecase)
     torn = False
 
     def _tear() -> None:
@@ -59,7 +60,6 @@ def run_polish_session(
 
     atexit.register(_tear)
     prev_term = _install_sigterm(_tear)
-    session = playground.setup(usecase)
     try:
         if open_nav is not None:
             open_nav(session.entrypoints)
