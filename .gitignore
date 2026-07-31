@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Windows reserved device name that git readdir can pick up; breaks `git add -A`
+nul
+
+# Factory run-time artifacts: transcript logs, live status/lock, regenerated
+# summaries. These are per-run scratch the orchestrator writes via `git add -A`
+# during commit_all; they bloat history and never belong in the repo.
+sessions/.factory-transcripts/
+sessions/.factory-status.json
+sessions/.factory-run.log
+sessions/.factory-run.lock
+sessions/latest.md
+sessions/.factory-runs/
+
+# On this public-release branch only: session transcripts are raw agent
+# conversation logs that can embed local paths, file contents, and anything
+# else that flowed through a real dev session. Never publish them.
+sessions/*.session.json
+
+# Windows shell-redirect mistakes accidentally committed upstream.
+/%TEMP%pytest_err.txt
+/%TEMP%pytest_out.txt
+/test_output.txt
