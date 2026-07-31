@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import pygame
 import pytest
 
 pytestmark = pytest.mark.unit
-
-import pygame
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +32,7 @@ class TestTextInputWidget:
         """TextInput imports cleanly."""
         from sim.text_input import TextInput
 
-        assert True
+        assert TextInput is not None
 
     def test_style_constants(self):
         """Panel and font style constants are valid."""
