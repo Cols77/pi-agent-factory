@@ -27,11 +27,12 @@ def test_run_routes_findings_and_tears_down(tmp_path):
     torn, opened = [], []
     pg = _FakePlayground(torn)
     findings = [Finding("uc", "a", sr="SR-001"), Finding("uc", "b")]
-    paths = run_polish_session(pg, "uc", findings, tmp_path / "tasks",
-                               open_nav=lambda eps: opened.extend(eps))
+    paths = run_polish_session(
+        pg, "uc", findings, tmp_path / "tasks", open_nav=lambda eps: opened.extend(eps)
+    )
     assert len(paths) == 2
-    assert opened == ["http://localhost:3000"]      # navigator opened with entrypoints
-    assert torn == ["uc"]                            # teardown ran
+    assert opened == ["http://localhost:3000"]  # navigator opened with entrypoints
+    assert torn == ["uc"]  # teardown ran
     tasks = load_tasks(tmp_path / "tasks")
     assert [t.satisfies for t in tasks] == [["SR-001"], []]
 
@@ -44,7 +45,7 @@ def test_teardown_runs_even_if_routing_raises(tmp_path):
     bad.write_text("x", encoding="utf-8")
     with pytest.raises(OSError):
         run_polish_session(pg, "uc", [Finding("uc", "a")], bad)
-    assert torn == ["uc"]                            # teardown still ran
+    assert torn == ["uc"]  # teardown still ran
 
 
 def test_open_navigator_swallows_errors(monkeypatch):
@@ -55,5 +56,62 @@ def test_open_navigator_swallows_errors(monkeypatch):
         raise OSError("nope")
 
     monkeypatch.setattr(session_mod.subprocess, "Popen", _boom)
-    open_navigator(["http://x"])                     # must not raise
+    open_navigator(["http://x"])  # must not raise
     assert calls  # attempted
+
+
+def test_sigterm_handler_tears_down(monkeypatch, tmp_path):
+    import signal as signal_mod
+
+    from factory.polish import session as sm
+
+    installed = {}
+
+    def _fake_signal(sig, handler):
+        installed[sig] = handler
+        return signal_mod.SIG_DFL
+
+    monkeypatch.setattr(sm.signal, "signal", _fake_signal)
+
+    torn = []
+
+    class _PG:
+        def list_usecases(self):
+            return ["uc"]
+
+        def setup(self, usecase):
+            return PlaygroundSession(on_teardown=lambda: torn.append(1))
+
+    # Run a normal session; capture the SIGTERM handler that was installed during it.
+    captured = {}
+
+    class _PGCapture(_PG):
+        def setup(self, usecase):
+            s = super().setup(usecase)
+            captured["term"] = installed.get(signal_mod.SIGTERM)
+            return s
+
+    sm.run_polish_session(_PGCapture(), "uc", [], tmp_path / "tasks")
+    assert torn == [1]  # normal teardown ran exactly once
+    assert callable(captured["term"])  # a SIGTERM handler was installed during the session
+
+    # Invoking that handler must tear down and raise SystemExit.
+    torn.clear()
+    with pytest.raises(SystemExit):
+        captured["term"](signal_mod.SIGTERM, None)
+    assert torn == [1]
+
+
+def test_teardown_registered_and_unregistered_with_atexit(monkeypatch, tmp_path):
+    from factory.polish import session as sm
+
+    reg, unreg = [], []
+    monkeypatch.setattr(sm.atexit, "register", lambda fn: reg.append(fn) or fn)
+    monkeypatch.setattr(sm.atexit, "unregister", lambda fn: unreg.append(fn))
+
+    class _PG:
+        def setup(self, usecase):
+            return PlaygroundSession(on_teardown=lambda: None)
+
+    sm.run_polish_session(_PG(), "uc", [], tmp_path / "tasks")
+    assert reg and unreg and reg[0] is unreg[0]  # registered then cleaned up
