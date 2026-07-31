@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from pathlib import Path
+
+from factory.requirements.register import (
+    Requirement,
+    get_requirement,
+    is_checksum_current,
+)
+from factory.validation.harness import Harness
+from factory.validation.sim_harness import SimTestbenchHarness
+
+HarnessFor = Callable[[str], Harness]
+
+
+def default_harness_for(traces_dir: Path) -> HarnessFor:
+    def _factory(harness_name: str) -> Harness:
+        if harness_name == "sim-testbench":
+            return SimTestbenchHarness(traces_dir)
+        raise ValueError(f"unknown harness: {harness_name}")
+
+    return _factory
+
+
+def run_requirement_validation(
+    satisfies: list[str],
+    reqs: list[Requirement],
+    harness_for: HarnessFor,
+    workdir: Path,
+) -> dict:
+    entries: list[dict] = []
+    for req_id in satisfies:
+        req = get_requirement(reqs, req_id)
+        if req is None:
+            entries.append({"id": req_id, "error": "unknown requirement"})
+            continue
+        harness = harness_for(req.binding.harness)
+        result = harness.run(req.binding, workdir)
+        entries.append(
+            {
+                "id": req.id,
+                "domain": req.domain,
+                "metric": req.binding.metric,
+                "value": result.metric_value,
+                "assert": req.binding.assert_expr,
+                "passed": result.passed,
+                "trials": len(result.trials),
+                "stale": not is_checksum_current(req),
+                "artifacts": [str(a) for a in result.artifacts],
+            }
+        )
+    return {"requirements": entries}
+
+
+def write_validation_report(path: Path, report: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass  # best-effort, mirrors review_guide.write_review_guide
