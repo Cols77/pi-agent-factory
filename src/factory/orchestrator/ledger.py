@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import frontmatter
@@ -16,6 +16,7 @@ class Task:
     dod: list[str]
     body: str
     path: Path
+    satisfies: list[str] = field(default_factory=list)
 
 
 def _parse(path: Path) -> Task:
@@ -30,6 +31,11 @@ def _parse(path: Path) -> Task:
         dod = [dod_value]
     else:
         dod = list(dod_value)  # type: ignore[arg-type]
+    satisfies_value = meta.get("satisfies") or []
+    if isinstance(satisfies_value, str):
+        satisfies = [satisfies_value]
+    else:
+        satisfies = [str(s) for s in satisfies_value]  # type: ignore[union-attr]
     return Task(
         id=str(meta["id"]),
         title=str(meta["title"]),
@@ -37,6 +43,7 @@ def _parse(path: Path) -> Task:
         dod=dod,
         body=post.content,
         path=path,
+        satisfies=satisfies,
     )
 
 
