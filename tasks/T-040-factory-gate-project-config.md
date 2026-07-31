@@ -5,7 +5,7 @@ dod:
 id: T-040
 source_plan: docs/superpowers/plans/2026-07-21-mission-agent-navigation.md
 source_task: 12
-status: todo
+status: done
 title: Factory Gate & Project Config
 ---
 
