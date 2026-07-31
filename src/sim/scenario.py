@@ -1,4 +1,5 @@
 """Scenario dataclass and YAML I/O for simulation testbench."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -9,6 +10,7 @@ import yaml
 @dataclass
 class Zone:
     """A named polygonal zone in the simulation world."""
+
     id: str
     label: str
     polygon: list[list[float]]
@@ -18,6 +20,7 @@ class Zone:
 @dataclass
 class SpawnerRule:
     """Rule for spawning detection entities."""
+
     label: str
     pool: str
     count: int
@@ -29,6 +32,7 @@ class SpawnerRule:
 @dataclass
 class Scenario:
     """Complete simulation scenario definition."""
+
     name: str
     description: str
     sea_polygon: dict

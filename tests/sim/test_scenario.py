@@ -1,4 +1,5 @@
 """Tests for Scenario dataclass and YAML I/O."""
+
 from __future__ import annotations
 
 import pytest
@@ -39,16 +40,25 @@ class TestScenarioRoundTrip:
             description="Scenario with zones and spawners",
             sea_polygon={"vertices": [[0, 0], [50, 0], [50, 50], [0, 50]]},
             zones=[
-                Zone(id="swim-zone", label="swim_area",
-                     polygon=[[5, 5], [20, 5], [20, 20], [5, 20]],
-                     color=[0, 200, 255, 80]),
+                Zone(
+                    id="swim-zone",
+                    label="swim_area",
+                    polygon=[[5, 5], [20, 5], [20, 20], [5, 20]],
+                    color=[0, 200, 255, 80],
+                ),
             ],
             navigation={"algorithm": "perimeter_sweep", "altitude": 5.0, "offset": 2.0},
             agent={"type": "fake", "responses": []},
             detections={
                 "spawners": [
-                    SpawnerRule(label="swimmer", pool="inside_zone(swim-zone)",
-                                count=3, start_time=0.0, interval=5.0, speed=0.5),
+                    SpawnerRule(
+                        label="swimmer",
+                        pool="inside_zone(swim-zone)",
+                        count=3,
+                        start_time=0.0,
+                        interval=5.0,
+                        speed=0.5,
+                    ),
                 ]
             },
             priority_rules=[{"label": "shark", "min_confidence": 0.7, "reason": "shark detected"}],

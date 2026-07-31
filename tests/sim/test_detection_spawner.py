@@ -1,11 +1,12 @@
 """Tests for DetectionSpawner."""
+
 from __future__ import annotations
 
 import math
 
 import pytest
-from drone.interfaces import Pose, Detection
-from sim.scenario import Zone, SpawnerRule
+from drone.interfaces import Pose
+from sim.scenario import SpawnerRule
 
 pytestmark = pytest.mark.unit
 
@@ -30,8 +31,14 @@ class TestDetectionSpawner:
 
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="swimmer", pool="inside_polygon(sea_polygon)",
-                            count=3, start_time=0.0, interval=0.0, speed=0.0),
+                SpawnerRule(
+                    label="swimmer",
+                    pool="inside_polygon(sea_polygon)",
+                    count=3,
+                    start_time=0.0,
+                    interval=0.0,
+                    speed=0.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -52,8 +59,14 @@ class TestDetectionSpawner:
         # and far from the drone start pose (0, 0).
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="shark", pool="inside_polygon(sea_polygon)",
-                            count=1, start_time=0.0, interval=0.0, speed=0.0),
+                SpawnerRule(
+                    label="shark",
+                    pool="inside_polygon(sea_polygon)",
+                    count=1,
+                    start_time=0.0,
+                    interval=0.0,
+                    speed=0.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -79,8 +92,14 @@ class TestDetectionSpawner:
 
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="swimmer", pool="inside_polygon(sea_polygon)",
-                            count=1, start_time=0.0, interval=0.0, speed=0.0),
+                SpawnerRule(
+                    label="swimmer",
+                    pool="inside_polygon(sea_polygon)",
+                    count=1,
+                    start_time=0.0,
+                    interval=0.0,
+                    speed=0.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -102,8 +121,14 @@ class TestDetectionSpawner:
 
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="swimmer", pool="inside_polygon(sea_polygon)",
-                            count=2, start_time=0.0, interval=0.0, speed=1.0),
+                SpawnerRule(
+                    label="swimmer",
+                    pool="inside_polygon(sea_polygon)",
+                    count=2,
+                    start_time=0.0,
+                    interval=0.0,
+                    speed=1.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -125,8 +150,14 @@ class TestDetectionSpawner:
 
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="swimmer", pool="inside_polygon(sea_polygon)",
-                            count=1, start_time=0.0, interval=0.0, speed=2.0),
+                SpawnerRule(
+                    label="swimmer",
+                    pool="inside_polygon(sea_polygon)",
+                    count=1,
+                    start_time=0.0,
+                    interval=0.0,
+                    speed=2.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -148,8 +179,14 @@ class TestDetectionSpawner:
 
         spawner = DetectionSpawner(
             spawners=[
-                SpawnerRule(label="shark", pool="inside_polygon(sea_polygon)",
-                            count=2, start_time=0.5, interval=0.0, speed=0.0),
+                SpawnerRule(
+                    label="shark",
+                    pool="inside_polygon(sea_polygon)",
+                    count=2,
+                    start_time=0.5,
+                    interval=0.0,
+                    speed=0.0,
+                ),
             ],
             zones=[],
             sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],
@@ -180,8 +217,14 @@ class TestDetectionSpawner:
         def build(seed: int):
             return DetectionSpawner(
                 spawners=[
-                    SpawnerRule(label="swimmer", pool="inside_polygon(sea_polygon)",
-                                count=1, start_time=0.0, interval=0.0, speed=0.0),
+                    SpawnerRule(
+                        label="swimmer",
+                        pool="inside_polygon(sea_polygon)",
+                        count=1,
+                        start_time=0.0,
+                        interval=0.0,
+                        speed=0.0,
+                    ),
                 ],
                 zones=[],
                 sea_polygon=[[0, 0], [100, 0], [100, 100], [0, 100]],

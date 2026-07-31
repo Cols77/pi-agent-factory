@@ -1,4 +1,5 @@
 """DetectionSpawner — spawns entities from scenario rules and reports detections."""
+
 from __future__ import annotations
 
 import math
@@ -12,6 +13,7 @@ from sim.scenario import Zone, SpawnerRule
 @dataclass
 class _Entity:
     """Internal representation of a spawned entity in the simulation world."""
+
     label: str
     position: Pose
     speed: float
@@ -50,12 +52,14 @@ class DetectionSpawner:
             if spawner.start_time <= 0.0:
                 for _ in range(spawner.count):
                     pos = self._random_position_in_pool(spawner.pool)
-                    self._entities.append(_Entity(
-                        label=spawner.label,
-                        position=pos,
-                        speed=spawner.speed,
-                        start_time=spawner.start_time,
-                    ))
+                    self._entities.append(
+                        _Entity(
+                            label=spawner.label,
+                            position=pos,
+                            speed=spawner.speed,
+                            start_time=spawner.start_time,
+                        )
+                    )
 
     def set_drone_pose(self, pose: Pose) -> None:
         """Update the drone's current position."""
@@ -87,13 +91,15 @@ class DetectionSpawner:
             bearing = math.degrees(math.atan2(dy, dx)) % 360
             confidence = max(0.0, min(1.0, 1.0 - rng / self._max_sensor_range))
 
-            dets.append(Detection(
-                label=entity.label,
-                confidence=confidence,
-                bearing=bearing,
-                range=rng,
-                position=entity.position,
-            ))
+            dets.append(
+                Detection(
+                    label=entity.label,
+                    confidence=confidence,
+                    bearing=bearing,
+                    range=rng,
+                    position=entity.position,
+                )
+            )
         return dets
 
     def spawn_entity(self, label: str) -> None:
@@ -106,12 +112,14 @@ class DetectionSpawner:
                 speed = s.speed
                 break
         pos = self._random_position_in_pool(pool)
-        self._entities.append(_Entity(
-            label=label,
-            position=pos,
-            speed=speed,
-            start_time=0.0,
-        ))
+        self._entities.append(
+            _Entity(
+                label=label,
+                position=pos,
+                speed=speed,
+                start_time=0.0,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -133,30 +141,30 @@ class DetectionSpawner:
         for spawner in self._spawner_defs:
             if spawner.start_time <= 0.0:
                 continue  # already spawned in __init__
-            already_spawned = any(
-                e.label == spawner.label for e in self._entities
-            )
+            already_spawned = any(e.label == spawner.label for e in self._entities)
             if not already_spawned and self._clock >= spawner.start_time:
                 for _ in range(spawner.count):
                     pos = self._random_position_in_pool(spawner.pool)
-                    self._entities.append(_Entity(
-                        label=spawner.label,
-                        position=pos,
-                        speed=spawner.speed,
-                        start_time=spawner.start_time,
-                    ))
+                    self._entities.append(
+                        _Entity(
+                            label=spawner.label,
+                            position=pos,
+                            speed=spawner.speed,
+                            start_time=spawner.start_time,
+                        )
+                    )
 
     def _resolve_pool_bounds(self, pool_expr: str) -> list[tuple[float, float]]:
         """Resolve a pool expression like ``inside_zone(id)`` or ``inside_polygon(sea_polygon)``
         to a list of polygon vertices."""
         if pool_expr.startswith("inside_zone("):
-            zone_id = pool_expr[len("inside_zone("):-1]
+            zone_id = pool_expr[len("inside_zone(") : -1]
             for z in self._zones:
                 if z.id == zone_id:
                     return [(p[0], p[1]) for p in z.polygon]
             return []
         if pool_expr.startswith("inside_polygon("):
-            name = pool_expr[len("inside_polygon("):-1]
+            name = pool_expr[len("inside_polygon(") : -1]
             if name == "sea_polygon":
                 return [(p[0], p[1]) for p in self._sea_polygon]
             return []

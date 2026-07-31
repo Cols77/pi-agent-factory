@@ -1,5 +1,6 @@
 """Sim-level tests for FakeFlightController — verifies flight controller integration
 without pybullet, using the deterministic fake."""
+
 from __future__ import annotations
 
 import pytest

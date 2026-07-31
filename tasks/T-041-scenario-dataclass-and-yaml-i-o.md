@@ -5,7 +5,7 @@ dod:
 id: T-041
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 1
-status: todo
+status: done
 title: Scenario Dataclass and YAML I/O
 ---
 
