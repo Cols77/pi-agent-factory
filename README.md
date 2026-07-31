@@ -27,6 +27,17 @@ Consuming projects run their own `kb/`, `tasks/`, `sessions/`, and
 `context-manifests/` stores locally; this repo only ships the orchestrator,
 schemas, and validators that operate on them.
 
+## Polish workflow
+
+`factory polish` lets a human exercise a project use case and turn feedback into
+fix-tickets. A project declares its playgrounds in `.factory/registry.py`
+(`PLAYGROUNDS = {name: Playground}`). Drive it conversationally with the `polish`
+skill, or directly:
+
+- `python -m factory.polish list` — list `<playground>:<usecase>` options
+- `python -m factory.polish run --playground <name> --usecase <uc> --from-json <findings.json>`
+  — route findings to `T-###` tasks
+
 ## Layout
 - `src/factory/` — orchestrator, schemas, validators, deterministic KB retrieval
 - `pi-ext/factory-watch/` — Pi extension: `/factory`, `/factory-run`,
