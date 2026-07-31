@@ -69,6 +69,8 @@ def parse_requirement(path: Path) -> Requirement:
 
 
 def content_checksum(req: Requirement) -> str:
+    # cadence is intentionally excluded: it is scheduling (how often the SR runs),
+    # not a metric input, so changing it must not stale the requirement.
     b = req.binding
     canonical = "\n".join(
         [

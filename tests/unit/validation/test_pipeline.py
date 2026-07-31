@@ -94,3 +94,31 @@ def test_unknown_harness_makes_it_not_ok(tmp_path):
     report, ok = validate_task_requirements(tmp_path, ["SR-001"])
     assert ok is False
     assert "error" in report["requirements"][0]
+
+
+def test_harness_lookup_is_by_instance_key_not_type(tmp_path):
+    # Config registers the sim-testbench TYPE under the instance key "sim"; an SR
+    # whose binding.harness == "sim" must resolve — lookup is by instance key, not type.
+    req = tmp_path / "requirements"
+    req.mkdir()
+    stub = req / "SR-001.md"
+    text = _SR.format(id="SR-001", cadence="every_iteration", ck="null").replace(
+        "harness: sim-testbench", "harness: sim"
+    )
+    stub.write_text(text, encoding="utf-8")
+    ck = content_checksum(parse_requirement(stub))
+    stub.write_text(text.replace("checksum: null", f"checksum: {ck}"), encoding="utf-8")
+    fac = tmp_path / ".factory"
+    fac.mkdir()
+    (fac / "factory.yaml").write_text(
+        "harnesses:\n  sim:\n    type: sim-testbench\n    traces_dir: traces\n", encoding="utf-8"
+    )
+    traces = tmp_path / "traces"
+    traces.mkdir()
+    (traces / "shark_warning.json").write_text(
+        json.dumps({"trials": [{"seed": 0, "frames": GOOD}, {"seed": 1, "frames": GOOD}]}),
+        encoding="utf-8",
+    )
+    report, ok = validate_task_requirements(tmp_path, ["SR-001"])
+    assert ok is True
+    assert report["requirements"][0]["id"] == "SR-001"
