@@ -30,9 +30,10 @@ schemas, and validators that operate on them.
 ## Polish workflow
 
 `factory polish` lets a human exercise a project use case and turn feedback into
-fix-tickets. A project declares its playgrounds in `.factory/registry.py`
-(`PLAYGROUNDS = {name: Playground}`). Drive it conversationally with the `polish`
-skill, or directly:
+fix-tickets. A project declares its playgrounds (and validation harnesses)
+declaratively in `.factory/factory.yaml` — each entry names a built-in factory
+type (`dev-server`, `scenario-replay`, …) plus params. No project code is
+executed. Drive it conversationally with the `polish` skill, or directly:
 
 - `python -m factory.polish list` — list `<playground>:<usecase>` options
 - `python -m factory.polish run --playground <name> --usecase <uc> --from-json <findings.json>`

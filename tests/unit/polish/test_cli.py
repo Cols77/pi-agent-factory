@@ -6,19 +6,20 @@ from factory.polish.cli import cmd_list, cmd_run, main
 
 pytestmark = pytest.mark.unit
 
-_REGISTRY = """
-from pathlib import Path
-from factory.polish.reference import ScenarioReplayPlayground
-
-PLAYGROUNDS = {"ref": ScenarioReplayPlayground(Path(__file__).parent / "usecases")}
+_YAML = """
+playgrounds:
+  ref:
+    type: scenario-replay
+    usecases_dir: usecases
 """
 
 
 def _project(tmp_path):
     fac = tmp_path / ".factory"
-    (fac / "usecases").mkdir(parents=True)
-    (fac / "registry.py").write_text(_REGISTRY, encoding="utf-8")
-    (fac / "usecases" / "shark_warning.json").write_text("{}", encoding="utf-8")
+    fac.mkdir(parents=True)
+    (tmp_path / "usecases").mkdir(parents=True)
+    (fac / "factory.yaml").write_text(_YAML, encoding="utf-8")
+    (tmp_path / "usecases" / "shark_warning.json").write_text("{}", encoding="utf-8")
     return tmp_path
 
 
@@ -30,13 +31,19 @@ def test_cmd_list(tmp_path):
 def test_cmd_run_creates_tickets(tmp_path):
     _project(tmp_path)
     findings = tmp_path / "f.json"
-    findings.write_text(json.dumps([
-        {"description": "ignored swimmer", "snapshot": {"t": 20}, "sr": "SR-001"},
-        {"description": "slow response"},
-    ]), encoding="utf-8")
+    findings.write_text(
+        json.dumps(
+            [
+                {"description": "ignored swimmer", "snapshot": {"t": 20}, "sr": "SR-001"},
+                {"description": "slow response"},
+            ]
+        ),
+        encoding="utf-8",
+    )
     tasks_dir = tmp_path / "tasks"
-    paths = cmd_run(tmp_path, "ref", "shark_warning", findings, tasks_dir,
-                    open_nav=lambda eps: None)
+    paths = cmd_run(
+        tmp_path, "ref", "shark_warning", findings, tasks_dir, open_nav=lambda eps: None
+    )
     assert len(paths) == 2
     tasks = load_tasks(tasks_dir)
     assert [t.satisfies for t in tasks] == [["SR-001"], []]

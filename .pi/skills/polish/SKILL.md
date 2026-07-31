@@ -10,7 +10,8 @@ into fix-work, without leaving the pi session.
 
 ## Steps
 
-1. **Discover.** Run `python -m factory.polish list --project-root <repo>` to list
+1. **Discover.** A project declares its playgrounds in `.factory/factory.yaml`.
+   Run `python -m factory.polish list --project-root <repo>` to list
    `<playground>:<usecase>` options. Help the human pick one (respect an explicit
    `--usecase`).
 2. **Set up + open.** The playground's `setup(usecase)` spins up the environment

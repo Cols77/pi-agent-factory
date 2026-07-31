@@ -28,6 +28,10 @@ class SimTestbenchHarness:
     def __init__(self, traces_dir: Path) -> None:
         self._traces_dir = traces_dir
 
+    @classmethod
+    def from_config(cls, params: dict, project_root: Path) -> "SimTestbenchHarness":
+        return cls(project_root / params["traces_dir"])
+
     def run(self, binding: Binding, workdir: Path) -> HarnessResult:
         scorer = _TRIAL_SCORERS.get(binding.metric)
         if scorer is None:

@@ -5,14 +5,14 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from factory.polish.config import load_config
 from factory.polish.finding import Finding
-from factory.polish.registry import load_playgrounds
 from factory.polish.session import open_navigator, run_polish_session
 
 
 def cmd_list(project_root: Path) -> str:
     lines: list[str] = []
-    for name, pg in load_playgrounds(project_root).items():
+    for name, pg in load_config(project_root).playgrounds.items():
         lines.extend(f"{name}:{uc}" for uc in pg.list_usecases())
     return "\n".join(lines) if lines else "no playgrounds/usecases"
 
@@ -26,7 +26,7 @@ def cmd_run(
     *,
     open_nav: Callable[[list[str]], None] = open_navigator,
 ) -> list[Path]:
-    playground = load_playgrounds(project_root)[playground_name]
+    playground = load_config(project_root).playgrounds[playground_name]
     raw = json.loads(Path(findings_json).read_text(encoding="utf-8"))
     findings = [
         Finding(
