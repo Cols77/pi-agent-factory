@@ -23,5 +23,7 @@ class ScenarioReplayPlayground:
             raise FileNotFoundError(f"no such use case: {usecase}")
         return PlaygroundSession(
             entrypoints=[str(path)],
-            describe=f"Reference replay of '{usecase}'. Inspect {path.name} and describe any issue.",
+            describe=(
+                f"Reference replay of '{usecase}'. Inspect {path.name} and describe any issue."
+            ),
         )

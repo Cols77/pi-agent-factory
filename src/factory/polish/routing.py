@@ -12,11 +12,7 @@ _ID_RE = re.compile(r"T-(\d+)")
 
 
 def _next_task_id(tasks_dir: Path) -> str:
-    nums = [
-        int(m.group(1))
-        for p in tasks_dir.glob("T-*.md")
-        if (m := _ID_RE.search(p.name))
-    ]
+    nums = [int(m.group(1)) for p in tasks_dir.glob("T-*.md") if (m := _ID_RE.search(p.name))]
     return f"T-{(max(nums) + 1) if nums else 1:03d}"
 
 
@@ -32,7 +28,13 @@ def route(finding: Finding, tasks_dir: Path) -> Path:
         finding.description,
     ]
     if finding.snapshot:
-        lines += ["", "## Reproduction snapshot", "```json", json.dumps(finding.snapshot, indent=2), "```"]
+        lines += [
+            "",
+            "## Reproduction snapshot",
+            "```json",
+            json.dumps(finding.snapshot, indent=2),
+            "```",
+        ]
     if finding.artifacts:
         lines += ["", "## Artifacts", *[f"- {a}" for a in finding.artifacts]]
 
