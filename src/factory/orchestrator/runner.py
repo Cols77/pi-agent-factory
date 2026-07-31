@@ -43,6 +43,10 @@ def _load_kb_entries(kb_dir: Path, ids: list[str]) -> list[dict]:
     return out
 
 
+def _commit_message(task: Task) -> str:
+    return f"{task.id}: {task.title}"
+
+
 def _report_node(
     status: StatusReporter, task_id: str, ev: NodeEvent, max_attempts: int, outcome: str | None = None
 ) -> None:
@@ -144,6 +148,7 @@ def run_task(
         if human_review is None:
             if llm_passed:
                 assert r_ev is not None
+                git_ops.commit_all(repo_root, _commit_message(task))
                 _report_node(status, task.id, r_ev, 1, outcome="completed")
                 return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
             break  # escalate below
@@ -179,7 +184,7 @@ def run_task(
         )
         decision = human_review.request_review(task.id, start_commit)
         if decision.decision == "approve":
-            git_ops.commit_all(repo_root, "review: address direct edits during human review")
+            git_ops.commit_all(repo_root, _commit_message(task))
             status.report(
                 task_id=task.id, node="human-review", node_state="approved",
                 attempt=1, max_attempts=1, handoff="approved", start_commit=start_commit,

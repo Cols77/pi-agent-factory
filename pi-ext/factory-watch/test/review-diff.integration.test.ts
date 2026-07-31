@@ -49,9 +49,10 @@ describe("computeReviewFiles / computeFileDiffText against a real repo", () => {
   test("reports the dev agent's uncommitted changes as of the human-review gate", () => {
     const startCommit = headCommit(repo);
     // Simulate what the dev stage actually does by the time human-review
-    // runs: modify tracked files, but do NOT commit (commit only happens
-    // after the human approves -- runner.py's `git_ops.commit_all` call is
-    // inside the `decision.decision == "approve"` branch).
+    // runs: modify tracked files, but do NOT commit (runner.py's
+    // `git_ops.commit_all` only fires once review has passed -- on human
+    // approve, or at the end of an --auto run -- never while human-review
+    // is still blocked waiting on a decision).
     writeFileSync(join(repo, "a.txt"), "two\n", "utf-8");
 
     const files = computeReviewFiles(repo, startCommit);

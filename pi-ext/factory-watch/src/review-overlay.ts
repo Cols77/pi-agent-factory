@@ -221,10 +221,20 @@ export class ReviewOverlay {
         }
         return;
       }
-      if (matchesKey(data, Key.down)) {
-        view.scrollOffset += 1;
-      } else if (matchesKey(data, Key.up)) {
-        view.scrollOffset -= 1;
+      if (matchesKey(data, Key.down) || data === "j") {
+        // Down/j move the comment cursor (not just the viewport) per the
+        // design spec (2026-07-29-review-ux-dual-surface-design.md §5.1):
+        // "a highlighted current line, moved with up/down; the existing
+        // scroll follows it". Plain arrow-key scrolling without moving the
+        // cursor was the shipped behavior's actual bug -- pressing `c`
+        // after arrowing down anchored to whatever row the cursor was
+        // last left at, not the row the reviewer was looking at.
+        const total = this.diffLinesFor(this.files[view.index]!).length;
+        view.cursor = Math.min(view.cursor + 1, Math.max(0, total - 1));
+        this.followCursor(view, viewportHeight);
+      } else if (matchesKey(data, Key.up) || data === "k") {
+        view.cursor = Math.max(view.cursor - 1, 0);
+        this.followCursor(view, viewportHeight);
       } else if (matchesKey(data, Key.pageDown)) {
         view.scrollOffset += viewportHeight;
       } else if (matchesKey(data, Key.pageUp)) {
@@ -235,13 +245,6 @@ export class ReviewOverlay {
         view.scrollOffset = Number.MAX_SAFE_INTEGER;
       } else if (matchesKey(data, Key.escape) || data === "q") {
         this.view = { mode: "summary" };
-      } else if (data === "j") {
-        const total = this.diffLinesFor(this.files[view.index]!).length;
-        view.cursor = Math.min(view.cursor + 1, Math.max(0, total - 1));
-        this.followCursor(view, viewportHeight);
-      } else if (data === "k") {
-        view.cursor = Math.max(view.cursor - 1, 0);
-        this.followCursor(view, viewportHeight);
       } else if (data === "c") {
         // Ensure rowMetaCache is populated even if this file hasn't been
         // rendered yet (e.g. 'c' pressed immediately after opening).
@@ -375,7 +378,7 @@ export class ReviewOverlay {
     const footer = this.searching
       ? `/${this.search}`
       : `${file.path} -- line ${view.scrollOffset + 1}-${lastShown} of ${allLines.length} ` +
-        "(arrows/PgUp/PgDn/Home/End scroll, j/k cursor, [ ] hunk, / search, n/N repeat, c comment, C file comment, v comments, e edit, q back) --";
+        "(↑↓/j/k cursor, PgUp/PgDn/Home/End scroll, [ ] hunk, / search, n/N repeat, c comment, C file comment, v comments, e edit, q back) --";
     // See the summary branch: every line must fit the terminal width or
     // pi-tui throws. Diff lines especially can be arbitrarily long.
     return [...visible, footer].map((line) => truncateToWidth(line, width));

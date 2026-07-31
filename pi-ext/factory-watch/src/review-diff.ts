@@ -42,10 +42,10 @@ export function computeReviewFiles(cwd: string, startCommit: string): FileStat[]
   // the current working tree, not just to HEAD -- so this picks up both
   // committed changes since start_commit AND uncommitted working-tree
   // changes. The human-review gate runs before dev's work is committed
-  // (runner.py only calls git_ops.commit_all after the human approves), so
-  // `{startCommit}..HEAD` would silently report zero files here. This
-  // mirrors the working-tree semantics of git_ops.changed_files in
-  // src/factory/orchestrator/git_ops.py.
+  // (runner.py only calls git_ops.commit_all once review has passed --
+  // human approve, or --auto's completion path), so `{startCommit}..HEAD`
+  // would silently report zero files here. This mirrors the working-tree
+  // semantics of git_ops.changed_files in src/factory/orchestrator/git_ops.py.
   const numstat = spawnSync("git", ["diff", "--numstat", startCommit], {
     cwd, encoding: "utf-8",
   });

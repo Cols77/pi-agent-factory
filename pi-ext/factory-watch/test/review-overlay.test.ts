@@ -83,17 +83,27 @@ describe("ReviewOverlay (summary screen)", () => {
     expect(lines[lines.length - 1]).toContain("of 50");
   });
 
-  test("Down/Up scroll the file view; PageDown/Home/End jump", () => {
+  test("Down/Up move the comment cursor (scrolling only once it walks off the viewport); Home/End jump", () => {
     vi.mocked(computeFileDiffText).mockReturnValueOnce(manyLineDiff(50));
+    // rows: 10 - 2 reserved = 8-row viewport.
     const overlay = makeOverlay([], () => {}, { terminal: { rows: 10 } });
     overlay.handleInput("\r");
-    overlay.handleInput("\x1b[B"); // Down
-    expect(overlay.render(80)[0]).toContain("line 2");
-    overlay.handleInput("\x1b[A"); // Up
-    expect(overlay.render(80)[0]).toContain("line 1");
-    overlay.handleInput("\x1b[F"); // End
+    overlay.handleInput("\x1b[B"); // Down: cursor -> row 1, still inside the viewport
+    let lines = overlay.render(80);
+    expect(lines[0]).toContain("line 1"); // no scroll yet
+    expect(lines[1]).toMatch(/^> .*line 2/); // cursor marker followed the arrow key
+    overlay.handleInput("\x1b[A"); // Up: cursor back to row 0
+    lines = overlay.render(80);
+    expect(lines[0]).toMatch(/^> .*line 1/);
+    for (let i = 0; i < 8; i++) overlay.handleInput("\x1b[B"); // walk past the viewport edge
+    lines = overlay.render(80);
+    // The cursor (row 8, "line 9") no longer fits in the original 0-7
+    // window, so followCursor must have scrolled the viewport to keep it visible.
+    expect(lines[0]).not.toContain("line 1");
+    expect(lines.some((l) => l.startsWith("> ") && l.includes("line 9"))).toBe(true);
+    overlay.handleInput("\x1b[F"); // End: pure scroll jump, independent of the cursor
     expect(overlay.render(80)[overlay.render(80).length - 2]).toContain("line 50");
-    overlay.handleInput("\x1b[H"); // Home
+    overlay.handleInput("\x1b[H"); // Home: pure scroll jump back to the top
     expect(overlay.render(80)[0]).toContain("line 1");
   });
 
@@ -235,6 +245,34 @@ describe("ReviewOverlay (file view) per-line comments", () => {
     overlay.handleInput("j");
     overlay.handleInput("j"); // row 3 ("+new")
     overlay.handleInput("k"); // back to row 2 ("-old")
+    overlay.handleInput("c");
+    const last = actions.at(-1)!;
+    expect(last).toEqual({ type: "comment", file: "src/rtb.py", line: 1, side: "old" });
+  });
+
+  // The design spec (2026-07-29-review-ux-dual-surface-design.md §5.1) calls
+  // for the line cursor to be "moved with up/down" -- the arrow keys, not
+  // just the vim-style j/k -- with scroll following it. Down = "\x1b[B",
+  // Up = "\x1b[A" (see @earendil-works/pi-tui's keys.js LEGACY_SEQUENCES).
+  test("the down arrow moves the comment cursor, not just the viewport scroll", () => {
+    const actions: import("../src/review-overlay.js").ReviewAction[] = [];
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", (a) => actions.push(a));
+    overlay.handleInput("\r"); // open src/rtb.py; cursor starts at row 0
+    overlay.handleInput("\x1b[B"); // down arrow -> row 1 ("@@ -1 +1 @@")
+    overlay.handleInput("\x1b[B"); // down arrow -> row 2 ("-old")
+    overlay.handleInput("c");
+    const last = actions.at(-1)!;
+    expect(last).toEqual({ type: "comment", file: "src/rtb.py", line: 1, side: "old" });
+  });
+
+  test("the up arrow moves the cursor back up, changing the anchor accordingly", () => {
+    const actions: import("../src/review-overlay.js").ReviewAction[] = [];
+    const overlay = new ReviewOverlay(FILES, [], new Set(), fakeTui(), "/repo", "abc123", (a) => actions.push(a));
+    overlay.handleInput("\r");
+    overlay.handleInput("\x1b[B");
+    overlay.handleInput("\x1b[B");
+    overlay.handleInput("\x1b[B"); // row 3 ("+new")
+    overlay.handleInput("\x1b[A"); // up arrow -> back to row 2 ("-old")
     overlay.handleInput("c");
     const last = actions.at(-1)!;
     expect(last).toEqual({ type: "comment", file: "src/rtb.py", line: 1, side: "old" });

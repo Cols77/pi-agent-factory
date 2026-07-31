@@ -58,7 +58,23 @@ def test_approve_marks_task_done_and_commits_uncommitted_edits(tmp_path):
 
     assert path is not None
     assert human_review.requests == [("T-001", "abc123")]
-    assert git_ops.commit_messages == ["review: address direct edits during human review"]
+    assert git_ops.commit_messages == ["T-001: t"]
+
+
+def test_auto_mode_commits_when_review_passes(tmp_path):
+    # No human in the loop: the LLM reviewer passing is the only gate, but the
+    # task's work must still land in a commit -- not just a `status: done`
+    # flip with the diff sitting uncommitted in the working tree.
+    repo = _repo(tmp_path)
+    git_ops = FakeGitOps(head="abc123", has_uncommitted=True)
+
+    path = run_next(
+        repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"}, git_ops=git_ops,
+    )
+
+    assert path is not None
+    assert git_ops.commit_messages == ["T-001: t"]
 
 
 def test_reject_feeds_comments_back_as_dev_feedback_and_retries(tmp_path):
