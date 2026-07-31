@@ -74,6 +74,25 @@ def test_unknown_requirement(tmp_path):
     assert report["requirements"][0] == {"id": "SR-404", "error": "unknown requirement"}
 
 
+def test_harness_failure_isolated(tmp_path):
+    req_dir, traces = _setup(tmp_path)
+    # A second requirement bound to a trace experiment that does not exist.
+    stub = req_dir / "SR-002.md"
+    stub.write_text(
+        _SR.format(ck="null")
+        .replace("SR-001", "SR-002")
+        .replace("experiment: shark_warning", "experiment: does_not_exist"),
+        encoding="utf-8",
+    )
+    reqs = load_register(req_dir)
+    report = run_requirement_validation(
+        ["SR-002", "SR-001"], reqs, default_harness_for(traces), tmp_path
+    )
+    by_id = {e["id"]: e for e in report["requirements"]}
+    assert "error" in by_id["SR-002"]          # missing trace isolated to SR-002
+    assert by_id["SR-001"]["passed"] is True   # good requirement still processed
+
+
 def test_write_report_roundtrip(tmp_path):
     out = tmp_path / "sub" / "validation-report.json"
     write_validation_report(out, {"requirements": []})

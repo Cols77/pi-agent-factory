@@ -36,8 +36,12 @@ def run_requirement_validation(
         if req is None:
             entries.append({"id": req_id, "error": "unknown requirement"})
             continue
-        harness = harness_for(req.binding.harness)
-        result = harness.run(req.binding, workdir)
+        try:
+            harness = harness_for(req.binding.harness)
+            result = harness.run(req.binding, workdir)
+        except Exception as exc:  # isolate a bad harness/metric/trace to this requirement
+            entries.append({"id": req.id, "error": str(exc)})
+            continue
         entries.append(
             {
                 "id": req.id,
