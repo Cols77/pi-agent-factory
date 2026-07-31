@@ -51,6 +51,16 @@ def read_validation(transcript_dir: Path) -> list[dict]:
     return out
 
 
+def read_requirements_report(transcript_dir: Path) -> list[dict]:
+    path = transcript_dir / "validation-report.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    reqs = data.get("requirements", [])
+    return reqs if isinstance(reqs, list) else []
+
+
 def write_review_guide(path: Path, guide: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
