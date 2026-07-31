@@ -35,18 +35,36 @@ def test_anchor_is_stripped_before_existence_check(tmp_path):
     assert validate_manifest(m, tmp_path) == []
 
 
-def test_legacy_pass_field_is_schema_rejected(tmp_path):
-    m = _manifest(tmp_path)
-    m["coherence"]["checks"] = [{"name": "x", "kind": "files_exist", "args": {"paths": ["a"]}, "pass": True}]
-    errors = validate_manifest(m, tmp_path)
-    assert errors  # additionalProperties:false rejects the stray `pass`
+def test_legacy_pass_field_is_stripped_not_rejected(tmp_path):
+    # A valid check with a stray `pass` field is normalized (stripped), then
+    # evaluated normally -- a model-format quirk must not block the pipeline.
+    (tmp_path / "real.py").write_text("x", encoding="utf-8")
+    m = _manifest(tmp_path, checks=[{"name": "x", "kind": "files_exist", "args": {"paths": ["real.py"]}, "pass": True}])
+    assert validate_manifest(m, tmp_path) == []
 
 
-def test_legacy_proven_field_is_schema_rejected(tmp_path):
+def test_legacy_proven_field_is_stripped_not_rejected(tmp_path):
     m = _manifest(tmp_path)
     m["coherence"]["proven"] = True
-    errors = validate_manifest(m, tmp_path)
-    assert errors  # coherence.additionalProperties:false rejects `proven`
+    assert validate_manifest(m, tmp_path) == []
+
+
+def test_evidence_style_checks_are_dropped_not_rejected(tmp_path):
+    # Regression: deepseek-v4-flash emitted checks like
+    # {"name": "x", "evidence": "recorder.py exists", "pass": false} with no
+    # kind/args -- the schema rejected every one and the whole task died on the
+    # first execution. Such checks carry no machine-verifiable claim and are
+    # dropped; the manifest still validates (context refs still checked).
+    m = _manifest(
+        tmp_path,
+        checks=[
+            {"name": "c1", "evidence": "src/sim/recorder.py exists", "pass": False},
+            {"name": "c2", "evidence": "test file exists", "pass": True},
+        ],
+    )
+    assert validate_manifest(m, tmp_path) == []
+    # The dropped checks must not survive into the manifest (hollow claims).
+    assert m["coherence"]["checks"] == []
 
 
 def test_connector_check_evaluated_pass(tmp_path):

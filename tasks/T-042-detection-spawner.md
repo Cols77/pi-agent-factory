@@ -5,7 +5,7 @@ dod:
 id: T-042
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 2
-status: todo
+status: done
 title: Detection Spawner
 ---
 
