@@ -27,3 +27,7 @@ class ScenarioReplayPlayground:
                 f"Reference replay of '{usecase}'. Inspect {path.name} and describe any issue."
             ),
         )
+
+    @classmethod
+    def from_config(cls, params: dict, project_root: Path) -> "ScenarioReplayPlayground":
+        return cls(project_root / params["usecases_dir"])
