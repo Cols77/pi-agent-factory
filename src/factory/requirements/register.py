@@ -17,6 +17,7 @@ class Binding:
     assert_expr: str
     trials: int = 1
     window: dict | None = None
+    cadence: str = "every_iteration"
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ def _parse_binding(raw: dict) -> Binding:
         assert_expr=str(raw["assert"]),
         trials=int(raw.get("trials", 1)),
         window=raw.get("window"),
+        cadence=str(raw.get("cadence", "every_iteration")),
     )
 
 
@@ -67,6 +69,8 @@ def parse_requirement(path: Path) -> Requirement:
 
 
 def content_checksum(req: Requirement) -> str:
+    # cadence is intentionally excluded: it is scheduling (how often the SR runs),
+    # not a metric input, so changing it must not stale the requirement.
     b = req.binding
     canonical = "\n".join(
         [

@@ -23,7 +23,11 @@ from factory.orchestrator.nodes import (
     run_validation,
 )
 from factory.orchestrator.prompts import compose_prompt
-from factory.orchestrator.review_guide import read_validation, write_review_guide
+from factory.orchestrator.review_guide import (
+    read_requirements_report,
+    read_validation,
+    write_review_guide,
+)
 from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
@@ -48,11 +52,19 @@ def _commit_message(task: Task) -> str:
 
 
 def _report_node(
-    status: StatusReporter, task_id: str, ev: NodeEvent, max_attempts: int, outcome: str | None = None
+    status: StatusReporter,
+    task_id: str,
+    ev: NodeEvent,
+    max_attempts: int,
+    outcome: str | None = None,
 ) -> None:
     status.report(
-        task_id=task_id, node=ev.node, node_state=ev.result,
-        attempt=ev.attempts, max_attempts=max_attempts, outcome=outcome,
+        task_id=task_id,
+        node=ev.node,
+        node_state=ev.result,
+        attempt=ev.attempts,
+        max_attempts=max_attempts,
+        outcome=outcome,
     )
 
 
@@ -111,21 +123,43 @@ def run_task(
 
             if not (already_done and first_dev):
                 d_outcome, d_ev = run_dev(
-                    backend, gates, task, manifest, kb_entries, repo_root, max_dev_iters, feedback,
-                    transcript_dir=transcript_dir, status=status,
+                    backend,
+                    gates,
+                    task,
+                    manifest,
+                    kb_entries,
+                    repo_root,
+                    max_dev_iters,
+                    feedback,
+                    transcript_dir=transcript_dir,
+                    status=status,
                 )
                 events.append(d_ev)
                 if d_outcome == NodeOutcome.ESCALATE:
                     _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
-                    return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
+                    return TaskResult(
+                        task.id, task.title, "escalated", iterations, events, False, manifest
+                    )
                 _report_node(status, task.id, d_ev, max_dev_iters)
             first_dev = False
 
-            v_outcome, v_ev = run_validation(gates, task.id, status=status)
+            v_outcome, v_ev = run_validation(
+                gates,
+                task.id,
+                status=status,
+                repo_root=repo_root,
+                satisfies=task.satisfies,
+                transcript_dir=transcript_dir,
+            )
             events.append(v_ev)
             _report_node(status, task.id, v_ev, 1)
             if v_outcome == NodeOutcome.FAIL:
-                feedback = "functional/sim tests failed"
+                reds = v_ev.extra.get("failed_requirements")
+                feedback = (
+                    "requirements failed: " + ", ".join(reds)
+                    if reds
+                    else "functional/sim tests failed"
+                )
                 continue
 
             review_changed_files = git_ops.changed_files(repo_root, start_commit)
@@ -133,8 +167,13 @@ def run_task(
             review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
 
             r_outcome, r_ev, review_findings = run_review(
-                backend, gates, task, review_kb_entries, repo_root,
-                transcript_dir=transcript_dir, status=status,
+                backend,
+                gates,
+                task,
+                review_kb_entries,
+                repo_root,
+                transcript_dir=transcript_dir,
+                status=status,
             )
             events.append(r_ev)
             if r_outcome == NodeOutcome.PASS:
@@ -150,7 +189,9 @@ def run_task(
                 assert r_ev is not None
                 git_ops.commit_all(repo_root, _commit_message(task))
                 _report_node(status, task.id, r_ev, 1, outcome="completed")
-                return TaskResult(task.id, task.title, "completed", iterations, events, True, manifest)
+                return TaskResult(
+                    task.id, task.title, "completed", iterations, events, True, manifest
+                )
             break  # escalate below
 
         # Human is in the loop: surface to them whether or NOT the LLM confirmed,
@@ -159,7 +200,8 @@ def run_task(
         if llm_passed:
             handoff = (
                 "task appears already complete -- approve to mark done"
-                if already_done else "waiting for you to review the diff"
+                if already_done
+                else "waiting for you to review the diff"
             )
         else:
             outstanding = "; ".join(review_findings[:3]) if review_findings else "DoD not met"
@@ -172,12 +214,17 @@ def run_task(
                 "confidence": r_ev.extra.get("confidence") if r_ev is not None else None,
                 "verify": r_ev.extra.get("verify", []) if r_ev is not None else [],
                 "validation": read_validation(transcript_dir),
+                "requirements": read_requirements_report(transcript_dir),
                 "addressed": list(dict.fromkeys(addressed)),  # dedup, keep order
             }
             write_review_guide(transcript_dir / "review-guide.json", guide)
         status.report(
-            task_id=task.id, node="human-review", node_state="blocked",
-            attempt=1, max_attempts=1, handoff=handoff,
+            task_id=task.id,
+            node="human-review",
+            node_state="blocked",
+            attempt=1,
+            max_attempts=1,
+            handoff=handoff,
             start_commit=start_commit,
             already_done=already_done,
             deliverables=parse_deliverables(task.body) if already_done else [],
@@ -186,8 +233,13 @@ def run_task(
         if decision.decision == "approve":
             git_ops.commit_all(repo_root, _commit_message(task))
             status.report(
-                task_id=task.id, node="human-review", node_state="approved",
-                attempt=1, max_attempts=1, handoff="approved", start_commit=start_commit,
+                task_id=task.id,
+                node="human-review",
+                node_state="approved",
+                attempt=1,
+                max_attempts=1,
+                handoff="approved",
+                start_commit=start_commit,
             )
             if r_ev is not None:
                 _report_node(status, task.id, r_ev, 1, outcome="completed")
@@ -197,8 +249,13 @@ def run_task(
         # gets a fresh inner budget. After a human round, dev always runs (an
         # already-done task is no longer treated as pre-complete).
         status.report(
-            task_id=task.id, node="human-review", node_state="changes-requested",
-            attempt=1, max_attempts=1, handoff="rejected: dev will retry", start_commit=start_commit,
+            task_id=task.id,
+            node="human-review",
+            node_state="changes-requested",
+            attempt=1,
+            max_attempts=1,
+            handoff="rejected: dev will retry",
+            start_commit=start_commit,
         )
         if r_ev is not None:
             _report_node(status, task.id, r_ev, 1)
@@ -213,8 +270,12 @@ def run_task(
     # Escalate: --auto reviewer never passed, or the human rejected every round.
     last_event = events[-1]
     status.report(
-        task_id=task.id, node=last_event.node, node_state=last_event.result,
-        attempt=iterations, max_attempts=max_review_cycles, outcome="escalated",
+        task_id=task.id,
+        node=last_event.node,
+        node_state=last_event.result,
+        attempt=iterations,
+        max_attempts=max_review_cycles,
+        outcome="escalated",
     )
     return TaskResult(task.id, task.title, "escalated", iterations, events, False, manifest)
 
@@ -263,8 +324,14 @@ def run_next(
             return None
 
     result = run_task(
-        task, backend, gates, repo_root, status=status, human_review=human_review,
-        git_ops=git_ops, transcript_dir=transcript_dir,
+        task,
+        backend,
+        gates,
+        repo_root,
+        status=status,
+        human_review=human_review,
+        git_ops=git_ops,
+        transcript_dir=transcript_dir,
     )
     # Only mark done on success. Rejected/escalated tasks go back to todo
     # so they can be retried (possibly with a different agent or after fixes).
@@ -275,10 +342,14 @@ def run_next(
     path = write_session(repo_root / "sessions", record)
 
     captured_session_id: str | None = None
-    status.report(task_id=task.id, node="session-review", node_state="running", attempt=1, max_attempts=1)
+    status.report(
+        task_id=task.id, node="session-review", node_state="running", attempt=1, max_attempts=1
+    )
     session_review_prompt = compose_prompt(
-        AgentRole.SESSION_REVIEW, task,
-        events=result.events, existing_kb_titles=list_kb_titles(repo_root / "kb"),
+        AgentRole.SESSION_REVIEW,
+        task,
+        events=result.events,
+        existing_kb_titles=list_kb_titles(repo_root / "kb"),
         skills_dir=repo_root / ".pi" / "skills",
     )
 
@@ -286,8 +357,12 @@ def run_next(
         nonlocal captured_session_id
         captured_session_id = sid
         status.report(
-            task_id=task.id, node="session-review", node_state="running",
-            attempt=1, max_attempts=1, session_id=sid,
+            task_id=task.id,
+            node="session-review",
+            node_state="running",
+            attempt=1,
+            max_attempts=1,
+            session_id=sid,
         )
 
     session_review_result = backend.run(
@@ -296,8 +371,13 @@ def run_next(
     if transcript_dir is not None:
         write_role_transcript(transcript_dir, "session-review", 1, session_review_result.raw)
     status.report(
-        task_id=task.id, node="session-review", node_state="pass",
-        attempt=1, max_attempts=1, outcome="completed", session_id=session_review_result.session_id,
+        task_id=task.id,
+        node="session-review",
+        node_state="pass",
+        attempt=1,
+        max_attempts=1,
+        outcome="completed",
+        session_id=session_review_result.session_id,
     )
 
     return path

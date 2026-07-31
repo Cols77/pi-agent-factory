@@ -1,7 +1,10 @@
 import json
 import pytest
 from factory.orchestrator.review_guide import (
-    parse_gate_summary, review_guide_path, read_validation, write_review_guide,
+    parse_gate_summary,
+    review_guide_path,
+    read_validation,
+    write_review_guide,
 )
 
 pytestmark = pytest.mark.unit
@@ -17,7 +20,10 @@ def test_parse_gate_summary_with_failures():
 
 
 def test_parse_gate_summary_non_pytest_failure_marker():
-    assert parse_gate_summary("ruff....\nsrc/x.py:1:1: E501\nFAILED\n") == {"ok": False, "summary": "ran"}
+    assert parse_gate_summary("ruff....\nsrc/x.py:1:1: E501\nFAILED\n") == {
+        "ok": False,
+        "summary": "ran",
+    }
 
 
 def test_parse_gate_summary_none_when_no_signal():
@@ -56,3 +62,16 @@ def test_write_review_guide_atomic_and_best_effort(tmp_path):
     (tmp_path / "afile").write_text("x", encoding="utf-8")
     write_review_guide(tmp_path / "afile" / "sub" / "x.json", {})  # must not raise
     assert not (tmp_path / "afile" / "sub" / "x.json").exists()
+
+
+def test_read_requirements_report(tmp_path):
+    import json
+
+    from factory.orchestrator.review_guide import read_requirements_report
+
+    assert read_requirements_report(tmp_path) == []  # missing file → []
+    (tmp_path / "validation-report.json").write_text(
+        json.dumps({"requirements": [{"id": "SR-001", "passed": True}]}), encoding="utf-8"
+    )
+    got = read_requirements_report(tmp_path)
+    assert got == [{"id": "SR-001", "passed": True}]
