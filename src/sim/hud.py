@@ -19,7 +19,6 @@ class HUD:
 
     def __init__(self, font_size: int = 18) -> None:
         self._font = pygame.font.Font(None, font_size)
-        self._small_font = pygame.font.Font(None, 14)
 
     def draw(
         self,

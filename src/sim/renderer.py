@@ -103,7 +103,7 @@ class Renderer:
 
         # Detections
         for det in detections:
-            self._draw_detection(det, drone_pose)
+            self._draw_detection(det)
 
         # Drone
         self._draw_drone(drone_pose)
@@ -241,7 +241,7 @@ class Renderer:
         pygame.draw.polygon(self._screen, COLOR_DRONE, pts)
         pygame.draw.circle(self._screen, (200, 200, 255), (int(sx), int(sy)), 12, 1)
 
-    def _draw_detection(self, det: Detection, drone_pose: Pose) -> None:
+    def _draw_detection(self, det: Detection) -> None:
         """Draw a detection entity as a colored circle with a label."""
         sx, sy = _world_to_screen(
             det.position.x,
