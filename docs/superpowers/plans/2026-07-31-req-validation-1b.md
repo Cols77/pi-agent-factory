@@ -380,7 +380,7 @@ checksum: {ck}
 body
 """
 
-_CONFIG = "harnesses:\n  sim:\n    type: sim-testbench\n    traces_dir: traces\n"
+_CONFIG = "harnesses:\n  sim-testbench:\n    type: sim-testbench\n    traces_dir: traces\n"
 
 
 def _project(tmp_path, trials):
@@ -666,7 +666,7 @@ def _project(tmp_path):
     stub.write_text(_SR.format(ck=ck), encoding="utf-8")
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text(
-        "harnesses:\n  sim:\n    type: sim-testbench\n    traces_dir: traces\n", encoding="utf-8")
+        "harnesses:\n  sim-testbench:\n    type: sim-testbench\n    traces_dir: traces\n", encoding="utf-8")
     traces = tmp_path / "traces"
     traces.mkdir()
     (traces / "shark_warning.json").write_text(
