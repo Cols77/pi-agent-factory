@@ -84,9 +84,10 @@ def run_context_gatherer(
                 session_id=captured_session_id,
             )
 
+        feedback = "\n".join(errors) if errors else None
         result = backend.run(
             AgentRole.CONTEXT_GATHERER,
-            compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills"),
+            compose_prompt(AgentRole.CONTEXT_GATHERER, task, skills_dir=repo_root / ".pi" / "skills", feedback=feedback),
             on_snippet=_on_snippet, on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
