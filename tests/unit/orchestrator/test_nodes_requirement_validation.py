@@ -86,3 +86,12 @@ def test_fails_when_sr_red(tmp_path):
     outcome, ev = run_validation(_Gates(), "T-1", repo_root=tmp_path, satisfies=["SR-001"])
     assert outcome == NodeOutcome.FAIL
     assert ev.extra["failed_requirements"] == ["SR-001"]
+
+
+def test_missing_harness_warns_not_fails(tmp_path):
+    # SR present but no harness declared → can't run → warning, NOT a failure.
+    _project(tmp_path, [GOOD, GOOD])
+    (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
+    outcome, ev = run_validation(_Gates(), "T-1", repo_root=tmp_path, satisfies=["SR-001"])
+    assert outcome == NodeOutcome.PASS
+    assert ev.extra["requirement_warnings"] == ["SR-001"]

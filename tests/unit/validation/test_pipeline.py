@@ -88,11 +88,13 @@ def test_validate_empty_when_no_register(tmp_path):
     assert report == {"requirements": []} and ok is True
 
 
-def test_unknown_harness_makes_it_not_ok(tmp_path):
+def test_missing_harness_is_warning_not_failure(tmp_path):
+    # An SR whose harness isn't declared can't run → an "error" entry, but that is
+    # a setup gap (warning), NOT a validation failure: ok stays True.
     _project(tmp_path)
     (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
     report, ok = validate_task_requirements(tmp_path, ["SR-001"])
-    assert ok is False
+    assert ok is True
     assert "error" in report["requirements"][0]
 
 

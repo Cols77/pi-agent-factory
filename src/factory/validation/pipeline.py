@@ -35,5 +35,9 @@ def validate_task_requirements(
 
     ids = select_requirement_ids(reqs, satisfies, full_sweep=full_sweep)
     report = run_requirement_validation(ids, reqs, harness_for, repo_root)
-    ok = all(e.get("passed") is True for e in report["requirements"])
+    # Only a requirement that RAN and failed its assertion (passed is False) makes
+    # the suite not-ok. A requirement that could NOT run — an "error" entry, e.g. no
+    # harness declared in .factory/factory.yaml yet — is a setup gap the caller
+    # surfaces as a warning, not a hard failure.
+    ok = not any(e.get("passed") is False for e in report["requirements"])
     return report, ok

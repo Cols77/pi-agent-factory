@@ -314,12 +314,16 @@ def run_validation(
         )
         return NodeOutcome.FAIL, NodeEvent("validation", "fail")
 
+    warns: list[str] = []
     if repo_root is not None:
         report, ok = validate_task_requirements(repo_root, satisfies or [])
         if transcript_dir is not None:
             write_validation_report(transcript_dir / "validation-report.json", report)
-        if not ok:
-            reds = [e["id"] for e in report["requirements"] if e.get("passed") is not True]
+        # reds = requirements that RAN and failed (block). warns = requirements that
+        # could not run (no harness/scenario defined yet) — surface, don't block.
+        reds = [e["id"] for e in report["requirements"] if e.get("passed") is False]
+        warns = [e["id"] for e in report["requirements"] if "error" in e]
+        if reds:
             status.report(
                 task_id=task_id,
                 node="validation",
@@ -329,7 +333,22 @@ def run_validation(
                 handoff=f"requirements failed: {', '.join(reds)}",
             )
             return NodeOutcome.FAIL, NodeEvent(
-                "validation", "fail", 1, {"failed_requirements": reds}
+                "validation",
+                "fail",
+                1,
+                {"failed_requirements": reds, "requirement_warnings": warns},
+            )
+        if warns:
+            status.report(
+                task_id=task_id,
+                node="validation",
+                node_state="running",
+                attempt=1,
+                max_attempts=1,
+                handoff=(
+                    f"⚠ not validated (no harness/scenario defined): {', '.join(warns)} — "
+                    "declare a harness in .factory/factory.yaml or run /specify-requirements"
+                ),
             )
 
     status.report(
@@ -338,9 +357,9 @@ def run_validation(
         node_state="pass",
         attempt=1,
         max_attempts=1,
-        handoff="→ review: sim + integration + requirements green",
+        handoff="→ review: sim + integration gates green",
     )
-    return NodeOutcome.PASS, NodeEvent("validation", "pass")
+    return NodeOutcome.PASS, NodeEvent("validation", "pass", 1, {"requirement_warnings": warns})
 
 
 def run_review(
