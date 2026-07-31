@@ -95,10 +95,10 @@ def test_sigterm_handler_tears_down(monkeypatch, tmp_path):
     assert torn == [1]  # normal teardown ran exactly once
     assert callable(captured["term"])  # a SIGTERM handler was installed during the session
 
-    # Invoking that handler must tear down and raise SystemExit.
-    torn.clear()
+    # Invoking that handler raises SystemExit (torn flag prevents redundant teardown).
     with pytest.raises(SystemExit):
         captured["term"](signal_mod.SIGTERM, None)
+    # torn remains [1] because idempotent guard prevents double-teardown
     assert torn == [1]
 
 
@@ -115,3 +115,32 @@ def test_teardown_registered_and_unregistered_with_atexit(monkeypatch, tmp_path)
 
     sm.run_polish_session(_PG(), "uc", [], tmp_path / "tasks")
     assert reg and unreg and reg[0] is unreg[0]  # registered then cleaned up
+
+
+def test_sigterm_during_body_tears_down_once(monkeypatch, tmp_path):
+    import signal as signal_mod
+
+    from factory.polish import session as sm
+
+    installed = {}
+    monkeypatch.setattr(
+        sm.signal,
+        "signal",
+        lambda sig, h: installed.setdefault(sig, h) or signal_mod.SIG_DFL,
+    )
+    count = {"n": 0}
+
+    class _PG:
+        def setup(self, usecase):
+            return PlaygroundSession(
+                entrypoints=["x"],
+                on_teardown=lambda: count.__setitem__("n", count["n"] + 1),
+            )
+
+    def _mid(_eps):
+        # simulate SIGTERM arriving mid-body: invoke the installed handler
+        installed[signal_mod.SIGTERM](signal_mod.SIGTERM, None)
+
+    with pytest.raises(SystemExit):
+        sm.run_polish_session(_PG(), "uc", [], tmp_path / "tasks", open_nav=_mid)
+    assert count["n"] == 1  # torn-flag guard prevents double teardown

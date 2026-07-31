@@ -49,11 +49,12 @@ def run_polish_session(
     *,
     open_nav: Callable[[list[str]], None] | None = None,
 ) -> list[Path]:
-    session = None
+    torn = False
 
     def _tear() -> None:
-        nonlocal session
-        if session is not None:
+        nonlocal torn
+        if not torn:
+            torn = True
             session.teardown()
 
     atexit.register(_tear)
