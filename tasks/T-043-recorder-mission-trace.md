@@ -5,7 +5,7 @@ dod:
 id: T-043
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 3
-status: todo
+status: done
 title: Recorder (Mission Trace)
 ---
 

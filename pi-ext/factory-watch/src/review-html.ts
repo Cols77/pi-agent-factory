@@ -15,7 +15,8 @@ export function renderReviewHtml(): string {
   .row.add { background: rgba(0,200,0,.12); }
   .row.del { background: rgba(220,0,0,.12); }
   .row.hunk { color: #6ab; }
-  .row .plus { position: absolute; left: 2px; cursor: pointer; opacity: .5; }
+  .row .plus { position: absolute; left: 2px; cursor: pointer; opacity: 0; }
+  .row:hover .plus { opacity: .6; }
   .row .plus:hover { opacity: 1; }
   .banner { color: #c80; padding: 4px 8px; grid-column: 1 / -1; }
   .guide { grid-column: 1 / -1; padding: 4px 8px; border-bottom: 1px solid #8884; white-space: pre-wrap; font-size: 12px; opacity: .9; }
@@ -30,6 +31,7 @@ export function renderReviewHtml(): string {
   <div id="diff"></div>
   <div id="side">
     <div><strong>Comments (<span id="count">0</span>)</strong></div>
+    <div style="opacity:.7;font-size:11px;margin:2px 0 8px;">hover a diff line, click + to comment</div>
     <div id="cmts"></div>
     <hr>
     <button id="approve">Approve</button>
@@ -96,6 +98,7 @@ export function renderReviewHtml(): string {
       if (m.line !== undefined) {
         const plus = document.createElement('span');
         plus.className = 'plus'; plus.textContent = '+';
+        plus.title = 'comment on this line';
         plus.onclick = () => addComment(active, m.line, m.side);
         row.appendChild(plus);
       }
