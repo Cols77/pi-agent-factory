@@ -5,7 +5,7 @@ dod:
 id: T-046
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 6
-status: todo
+status: done
 title: SimTestbench (Main Orchestrator)
 ---
 

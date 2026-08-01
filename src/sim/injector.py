@@ -34,3 +34,40 @@ class EventInjector:
             self._tb.set_speed(2.0)
         elif key == pygame.K_3:
             self._tb.set_speed(5.0)
+        elif key == pygame.K_b:
+            self._open_bug_capture()
+        elif key == pygame.K_p:
+            self._save_screenshot()
+
+    def _save_screenshot(self) -> None:
+        from datetime import datetime
+        from pathlib import Path
+        screenshots_dir = Path("screenshots")
+        screenshots_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = screenshots_dir / f"{self._tb.scenario.name}_{ts}.png"
+        pygame.image.save(self._tb.screen, str(path))
+        print(f"Screenshot saved: {path}")
+
+    def _open_bug_capture(self) -> None:
+        from sim.text_input import TextInput
+        from sim.bug_capture import capture_bug
+
+        self._tb.pause()
+        dialog = TextInput(self._tb.screen, "What went wrong?")
+        clock = pygame.time.Clock()
+
+        while not dialog.is_done():
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return
+                dialog.handle_event(event)
+
+            # Redraw frame with dialog overlay
+            self._tb._draw_frame()
+            dialog.draw()
+            pygame.display.flip()
+            clock.tick(30)
+
+        if not dialog.cancelled and dialog.text.strip():
+            capture_bug(self._tb, dialog.text.strip())
