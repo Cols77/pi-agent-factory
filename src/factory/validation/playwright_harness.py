@@ -45,6 +45,20 @@ def _spec_passed(report: dict, experiment: str) -> bool:
     return all(bool(s.get("ok")) for s in matched)
 
 
+def _read_report(report_path: Path) -> dict | None:
+    """Parse a trial's reporter JSON, or None when it is missing/unreadable.
+
+    A runner returns a report path even when Playwright never wrote one -- a
+    launch failure (missing browser build), or the TimeoutExpired guard below
+    swallowing a hung run. Such a trial scores False rather than aborting the
+    whole N-trial run.
+    """
+    try:
+        return json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 # (seed, experiment, workdir) -> path to that trial's Playwright JSON report.
 # Injected so aggregation is testable without invoking Playwright.
 TrialRunner = Callable[[int, str, Path], Path]
@@ -123,13 +137,20 @@ class PlaywrightE2EHarness:
                 f"got {binding.metric!r}"
             )
         trials: list[TrialResult] = []
-        reports: list[dict] = []
+        reports: list[dict | None] = []
         n = max(1, binding.trials)
         for seed in range(n):
             report_path = self._run_trial(seed, binding.experiment, workdir)
-            report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+            report = _read_report(report_path)
             reports.append(report)
-            trials.append(TrialResult(seed=seed, passed=_spec_passed(report, binding.experiment)))
+            if report is None:
+                trials.append(
+                    TrialResult(seed=seed, passed=False, detail="no usable Playwright report")
+                )
+            else:
+                trials.append(
+                    TrialResult(seed=seed, passed=_spec_passed(report, binding.experiment))
+                )
         rate = sum(1 for t in trials if t.passed) / len(trials)
         return HarnessResult(
             metric_value=rate,

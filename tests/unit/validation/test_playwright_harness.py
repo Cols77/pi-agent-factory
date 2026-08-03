@@ -62,6 +62,33 @@ def test_run_pass_rate_mixed_and_assertion(tmp_path):
     assert res.passed is False  # 0.666 < 0.9
 
 
+def test_run_scores_false_when_report_missing(tmp_path):
+    # The subprocess runner returns a report path even when Playwright never wrote
+    # one (launch failure, or the TimeoutExpired guard swallowing a hung run).
+    # That trial must score False, not blow up the whole run.
+    def missing_runner(seed, experiment, workdir):
+        return workdir / f"pw-report-seed{seed}.json"
+
+    h = PlaywrightE2EHarness(missing_runner)
+    res = h.run(_binding(2), tmp_path)
+    assert res.metric_value == 0.0
+    assert res.passed is False
+    assert [t.passed for t in res.trials] == [False, False]
+
+
+def test_run_scores_false_when_report_unparseable(tmp_path):
+    # A killed Playwright process can leave a truncated/empty JSON file behind.
+    def truncated_runner(seed, experiment, workdir):
+        path = workdir / f"pw-report-seed{seed}.json"
+        path.write_text('{"suites": [', encoding="utf-8")
+        return path
+
+    h = PlaywrightE2EHarness(truncated_runner)
+    res = h.run(_binding(1), tmp_path)
+    assert res.metric_value == 0.0
+    assert res.trials[0].passed is False
+
+
 def test_run_rejects_unsupported_metric(tmp_path):
     b = Binding(harness="playwright-e2e", experiment="sign-in",
                 metric="preemption_success_rate", assert_expr="> 0.5", trials=1)
