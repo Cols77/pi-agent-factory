@@ -224,23 +224,76 @@ Opening an SR shows the evidence: metric value vs `assert`, actual vs
 
 ## 6. Improving traceability health
 
-Detection alone does not improve anything. The fix workflow mirrors `polish`,
-which already implements exactly this shape — open a surface, gather human input,
-synthesize, **confirm**, then route deterministically into the ledger
-(`.pi/skills/polish/SKILL.md`, `src/factory/polish/routing.py`).
+Detection alone does not improve anything. The fix workflow mirrors `polish`
+(`.pi/skills/polish/SKILL.md`, `src/factory/polish/routing.py`) — gather human
+input, **confirm**, then route deterministically into the ledger.
 
-- **`.pi/skills/trace-fix/SKILL.md`** — walks the gap inventory one item at a
-  time. For each gap it proposes a candidate link *with the evidence it is based
-  on* (e.g. "T-047's body cites preemption; SR-001's statement concerns
-  preemption"), and the human accepts, rejects, or skips.
-- **`/trace-fix`** — a thin command seeding a session with that skill, mirroring
-  how `/plan` seeds one at `index.ts:455-490`.
+### 6.1 A deterministic workflow, not a skill that hopes
+
+A markdown skill is a *suggestion* to a model. "Every gap was discussed" is exactly
+the kind of claim a model will assert without having done it, and a skill cannot
+enforce its own completion.
+
+An LLM cannot be made deterministic. A *workflow* can, by moving **enumeration,
+state, writes, and verification into code** and constraining the model to a single
+judgment per step:
+
+| concern | owner |
+|---|---|
+| which gap comes next | `factory trace next` — deterministic ordering |
+| candidate targets + evidence | `factory trace next` — deterministic retrieval and ranking |
+| **which candidate is right, and why** | **the LLM — the only judgment in the loop** |
+| accept / reject / defer | the human |
+| the write | `factory trace link\|exempt\|defer` |
+| did we cover everything | `factory trace check` — the gate |
+
+The model never decides when the loop ends, never records its own progress, and
+never writes a file.
+
+### 6.2 Dispositions live in frontmatter
+
+Every gap resolves to one of four states, and the first three are **declarations on
+disk**, consistent with §4.2 — not entries in a side ledger that can drift from the
+files it describes:
+
+| disposition | representation |
+|---|---|
+| linked | `satisfies:` / spec reference now present — the gap ceases to exist |
+| exempt | `trace_exempt: true` (+ reason) |
+| **deferred** | `trace_deferred: "<reason>"` — discussed, needs more time |
+| pending | nothing written — **the gate fails on these** |
+
+`deferred` is a first-class outcome, not a failure. Some gaps genuinely need
+investigation that does not fit in the current session; forcing a wrong link to
+clear a counter would be worse than recording an honest deferral. A deferred gap
+stays visible and counted in the inventory forever — it is never silently gone —
+and the next run resumes it with its reason rather than re-litigating it.
+
+### 6.3 The gate
+
+`factory trace check` exits non-zero when any gap is `pending`, listing them. It is
+**stateless**: it re-derives every gap from disk and re-reads every disposition,
+rather than trusting a session log. A model cannot satisfy it by claiming to have
+done the work — only the files can satisfy it.
+
+It exits zero when everything is linked, exempted, or deferred — "at least
+discussed" — and reports the breakdown so *better fixed* stays visible: deferrals
+are surfaced as warnings with their reasons, never as a pass to be proud of.
+
+### 6.4 Surfaces
+
 - **`factory trace link <id> --satisfies SR-### | --spec <path>`** — the only
-  writer. Validates that the target exists before writing, so a confirmed link can
-  never create a fresh dangling reference.
+  writer of links. Validates the target exists first, so a confirmed link can never
+  create a fresh dangling reference.
+- **`.pi/skills/trace-fix/SKILL.md`** — deliberately narrow: reason about *the one
+  gap the CLI just handed you* and recommend a candidate with its evidence. It owns
+  no iteration and no bookkeeping.
+- **`/trace-fix`** — seeds a session with that skill, mirroring `/plan` at
+  `index.ts:455-490`, and runs the gate at the end.
 
-The proposal step is the only place inference exists in this design, and it is
-always surfaced for approval and never persisted without it.
+The proposal step is the only place inference exists in this design. It is always
+surfaced for approval, never persisted without it, and never becomes an edge until
+it is written to disk — at which point it is declared, not inferred.
 
 ---
 
@@ -332,7 +385,8 @@ picture. This is a reason to sequence the map last (§10), not a reason to skip 
 3. **Server + shell + document reader** — sidebar, TOC, trace panel, health and gap
    panes. Shippable without any graph drawing.
 4. **`graph-layout.ts`** — landing map + 1-hop mini-map.
-5. **`factory trace link` + `trace-fix` skill + `/trace-fix`** — close the loop.
+5. **`factory trace next|link|exempt|defer|check` + `trace-fix` skill + `/trace-fix`**
+   — close the loop, with the gate.
 
 Increment 1 must precede all others. Increments 2-3 and 5 are independent of 4.
 
