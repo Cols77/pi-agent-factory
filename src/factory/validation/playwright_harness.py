@@ -49,7 +49,9 @@ def _spec_passed(report: dict, experiment: str) -> bool:
 TrialRunner = Callable[[int, str, Path], Path]
 
 
-def _subprocess_runner(app_dir: Path, seed_env: str, test_cmd: list[str]) -> TrialRunner:
+def _subprocess_runner(
+    app_dir: Path, seed_env: str, test_cmd: list[str], timeout_s: float = 600
+) -> TrialRunner:
     def run_trial(seed: int, experiment: str, workdir: Path) -> Path:
         workdir.mkdir(parents=True, exist_ok=True)
         report_path = workdir / f"pw-report-seed{seed}.json"
@@ -58,12 +60,25 @@ def _subprocess_runner(app_dir: Path, seed_env: str, test_cmd: list[str]) -> Tri
             seed_env: str(seed),
             "PLAYWRIGHT_JSON_OUTPUT_NAME": str(report_path),
         }
+        # `experiment` is passed as Playwright's positional path filter, so it must
+        # be a file-path substring (Playwright positional args filter by file, not
+        # title) -- matches the naming convention the SR bindings will use.
         with (workdir / f"pw-stdout-seed{seed}.log").open("w", encoding="utf-8") as log:
-            subprocess.run(
-                [*test_cmd, experiment, "--reporter=json"],
-                cwd=str(app_dir), env=env, check=False,
-                stdout=log, stderr=subprocess.STDOUT,
-            )
+            try:
+                subprocess.run(
+                    [*test_cmd, experiment, "--reporter=json"],
+                    cwd=str(app_dir), env=env, check=False,
+                    stdout=log, stderr=subprocess.STDOUT,
+                    # shell=True: on Windows, npx/playwright resolve to .cmd shims
+                    # that CreateProcess cannot launch from a bare list arg without
+                    # a shell (WinError 2). Same convention as polish/devserver.py.
+                    shell=True,
+                    timeout=timeout_s,
+                )
+            except subprocess.TimeoutExpired:
+                # Don't let a hung run wedge the trial loop; the report file is
+                # absent/incomplete, so the parser will score this trial False.
+                pass
         return report_path
 
     return run_trial
@@ -83,7 +98,8 @@ class PlaywrightE2EHarness:
         app_dir = project_root / params.get("app_dir", "frontend")
         seed_env = params.get("seed_env", "E2E_SEED")
         test_cmd = list(params.get("test_cmd", ["npx", "playwright", "test"]))
-        return cls(_subprocess_runner(app_dir, seed_env, test_cmd))
+        timeout_s = params.get("timeout_s", 600)
+        return cls(_subprocess_runner(app_dir, seed_env, test_cmd, timeout_s))
 
     def run(self, binding: Binding, workdir: Path) -> HarnessResult:
         if binding.metric != self.SUPPORTED_METRIC:

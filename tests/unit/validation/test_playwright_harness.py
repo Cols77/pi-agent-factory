@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import factory.validation.playwright_harness as pw_harness
 from factory.requirements.register import Binding
 from factory.validation.playwright_harness import PlaywrightE2EHarness, _spec_passed
 
@@ -78,3 +79,65 @@ def test_from_config_runner_is_callable(tmp_path):
     h = PlaywrightE2EHarness.from_config({"app_dir": "frontend", "seed_env": "E2E_SEED"}, tmp_path)
     # the injected runner is a 3-arg callable (seed, experiment, workdir)
     assert callable(h._run_trial)
+
+
+def test_subprocess_runner_builds_expected_argv_and_env(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, cwd=None, env=None, check=None, stdout=None, stderr=None,
+                 shell=None, timeout=None):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["env"] = env
+        captured["check"] = check
+        captured["shell"] = shell
+        captured["timeout"] = timeout
+
+        class _Result:
+            returncode = 0
+
+        return _Result()
+
+    monkeypatch.setattr(pw_harness.subprocess, "run", fake_run)
+
+    app_dir = tmp_path / "frontend"
+    app_dir.mkdir()
+    h = PlaywrightE2EHarness.from_config(
+        {"app_dir": "frontend", "seed_env": "E2E_SEED"}, tmp_path
+    )
+
+    workdir = tmp_path / "trial-workdir"
+    report_path = h._run_trial(0, "sign-in", workdir)
+
+    expected_report = workdir / "pw-report-seed0.json"
+    assert report_path == expected_report
+
+    assert captured["env"]["E2E_SEED"] == "0"
+    assert captured["env"]["PLAYWRIGHT_JSON_OUTPUT_NAME"] == str(expected_report)
+
+    cmd = captured["cmd"]
+    assert cmd[:3] == ["npx", "playwright", "test"]
+    assert "sign-in" in cmd
+    assert "--reporter=json" in cmd
+
+    assert captured["cwd"] == str(app_dir)
+    assert captured["check"] is False
+    assert captured["shell"] is True
+    assert captured["timeout"] == 600
+
+
+def test_subprocess_runner_swallows_timeout_and_still_returns_report_path(tmp_path, monkeypatch):
+    import subprocess as real_subprocess
+
+    def fake_run_timeout(*args, **kwargs):
+        raise real_subprocess.TimeoutExpired(cmd="npx playwright test", timeout=1)
+
+    monkeypatch.setattr(pw_harness.subprocess, "run", fake_run_timeout)
+
+    h = PlaywrightE2EHarness.from_config(
+        {"app_dir": "frontend", "seed_env": "E2E_SEED", "timeout_s": 1}, tmp_path
+    )
+    workdir = tmp_path / "trial-workdir"
+    report_path = h._run_trial(0, "sign-in", workdir)
+
+    assert report_path == workdir / "pw-report-seed0.json"
