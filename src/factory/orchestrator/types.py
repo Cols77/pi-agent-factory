@@ -10,6 +10,7 @@ class AgentRole(str, Enum):
     VALIDATION = "validation"
     REVIEW = "review"
     SESSION_REVIEW = "session-review"
+    SYNTHESIS = "synthesis"
 
 
 class NodeOutcome(str, Enum):
