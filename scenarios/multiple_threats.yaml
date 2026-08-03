@@ -1,0 +1,52 @@
+# scenarios/multiple_threats.yaml
+name: "multiple-threats"
+description: "Multiple sharks and distractions — tests priority resolution"
+sea_polygon:
+  vertices: [[0, 0], [150, 0], [170, 100], [80, 140], [-30, 80]]
+zones:
+  - id: "swim-zone"
+    label: "swim_area"
+    polygon: [[5, 5], [45, 5], [50, 45], [10, 50]]
+    color: [0, 200, 255, 80]
+  - id: "surf-zone"
+    label: "surf_area"
+    polygon: [[100, 10], [140, 20], [120, 60], [85, 50]]
+    color: [255, 200, 0, 80]
+navigation:
+  algorithm: "perimeter_sweep"
+  altitude: 5.0
+  offset: 3.0
+agent:
+  type: "fake"
+  responses: []
+detections:
+  spawners:
+    - label: "swimmer"
+      pool: "inside_zone(swim-zone)"
+      count: 3
+      start_time: 0.0
+      interval: 0.0
+      speed: 0.3
+    - label: "surfer"
+      pool: "inside_zone(surf-zone)"
+      count: 2
+      start_time: 0.0
+      interval: 0.0
+      speed: 1.0
+    - label: "shark"
+      pool: "inside_polygon(sea_polygon)"
+      count: 1
+      start_time: 10.0
+      interval: 0.0
+      speed: 2.0
+    - label: "shark"
+      pool: "inside_polygon(sea_polygon)"
+      count: 1
+      start_time: 25.0
+      interval: 0.0
+      speed: 1.8
+priority_rules:
+  - label: "shark"
+    min_confidence: 0.7
+    reason: "shark detected"
+max_duration: 200.0

@@ -1,0 +1,36 @@
+# scenarios/all_clear.yaml
+name: "all-clear"
+description: "Normal patrol — no threats, drone completes full perimeter sweep"
+sea_polygon:
+  vertices: [[0, 0], [80, 0], [100, 60], [50, 100], [-10, 50]]
+zones:
+  - id: "swim-zone"
+    label: "swim_area"
+    polygon: [[5, 5], [25, 5], [30, 25], [8, 28]]
+    color: [0, 200, 255, 80]
+  - id: "surf-zone"
+    label: "surf_area"
+    polygon: [[60, 5], [80, 10], [70, 35], [55, 30]]
+    color: [255, 200, 0, 80]
+navigation:
+  algorithm: "perimeter_sweep"
+  altitude: 5.0
+  offset: 2.0
+agent:
+  type: "fake"
+  responses: []
+detections:
+  spawners:
+    - label: "swimmer"
+      pool: "inside_zone(swim-zone)"
+      count: 2
+      start_time: 0.0
+      interval: 0.0
+      speed: 0.2
+    - label: "surfer"
+      pool: "inside_zone(surf-zone)"
+      count: 1
+      start_time: 0.0
+      interval: 0.0
+      speed: 0.8
+max_duration: 180.0

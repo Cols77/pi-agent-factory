@@ -1,0 +1,46 @@
+# scenarios/shark_warning.yaml
+name: "shark-warning"
+description: "Shark detected at low confidence, drone approaches to confirm, warns swimmers"
+sea_polygon:
+  vertices: [[0, 0], [100, 0], [120, 80], [60, 120], [-20, 60]]
+zones:
+  - id: "swim-zone"
+    label: "swim_area"
+    polygon: [[10, 10], [40, 10], [45, 40], [15, 45]]
+    color: [0, 200, 255, 80]
+  - id: "surf-zone"
+    label: "surf_area"
+    polygon: [[70, 10], [100, 15], [90, 50], [65, 40]]
+    color: [255, 200, 0, 80]
+navigation:
+  algorithm: "perimeter_sweep"
+  altitude: 5.0
+  offset: 2.0
+agent:
+  type: "fake"
+  responses: []
+detections:
+  spawners:
+    - label: "swimmer"
+      pool: "inside_zone(swim-zone)"
+      count: 2
+      start_time: 0.0
+      interval: 0.0
+      speed: 0.3
+    - label: "surfer"
+      pool: "inside_zone(surf-zone)"
+      count: 1
+      start_time: 0.0
+      interval: 0.0
+      speed: 1.0
+    - label: "shark"
+      pool: "inside_polygon(sea_polygon)"
+      count: 1
+      start_time: 15.0
+      interval: 0.0
+      speed: 1.5
+priority_rules:
+  - label: "shark"
+    min_confidence: 0.7
+    reason: "shark detected near swimmers"
+max_duration: 180.0

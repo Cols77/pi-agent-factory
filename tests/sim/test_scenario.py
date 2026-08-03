@@ -79,3 +79,82 @@ class TestScenarioRoundTrip:
 
         with pytest.raises(FileNotFoundError):
             Scenario.load("/nonexistent/path.yaml")
+
+
+class TestScenarioYamlFiles:
+    """Validate the 5 demo scenario YAML files in scenarios/."""
+
+    SCENARIO_DIR = Path(__file__).resolve().parent.parent.parent / "scenarios"
+
+    def test_swim_patrol_yaml(self):
+        from sim.scenario import Scenario
+
+        path = self.SCENARIO_DIR / "swim_patrol.yaml"
+        scenario = Scenario.load(path)
+        assert scenario.name == "swim-patrol"
+        assert scenario.description
+        assert scenario.sea_polygon["vertices"]
+        assert len(scenario.zones) == 2
+        assert scenario.zones[0].id == "swim-zone"
+        assert scenario.zones[1].id == "surf-zone"
+        assert len(scenario.detections["spawners"]) == 2
+        assert scenario.detections["spawners"][0].label == "swimmer"
+        assert scenario.detections["spawners"][1].label == "surfer"
+        assert scenario.navigation["algorithm"] == "perimeter_sweep"
+        assert scenario.max_duration == 120.0
+
+    def test_shark_warning_yaml(self):
+        from sim.scenario import Scenario
+
+        path = self.SCENARIO_DIR / "shark_warning.yaml"
+        scenario = Scenario.load(path)
+        assert scenario.name == "shark-warning"
+        assert len(scenario.zones) == 2
+        assert len(scenario.detections["spawners"]) == 3
+        assert scenario.detections["spawners"][2].label == "shark"
+        assert scenario.detections["spawners"][2].start_time == 15.0
+        assert scenario.priority_rules is not None
+        assert len(scenario.priority_rules) == 1
+        assert scenario.priority_rules[0]["label"] == "shark"
+        assert scenario.max_duration == 180.0
+
+    def test_multiple_threats_yaml(self):
+        from sim.scenario import Scenario
+
+        path = self.SCENARIO_DIR / "multiple_threats.yaml"
+        scenario = Scenario.load(path)
+        assert scenario.name == "multiple-threats"
+        assert len(scenario.zones) == 2
+        assert len(scenario.detections["spawners"]) == 4
+        assert scenario.detections["spawners"][2].label == "shark"
+        assert scenario.detections["spawners"][2].start_time == 10.0
+        assert scenario.detections["spawners"][3].label == "shark"
+        assert scenario.detections["spawners"][3].start_time == 25.0
+        assert scenario.priority_rules is not None
+        assert scenario.max_duration == 200.0
+
+    def test_false_alarm_yaml(self):
+        from sim.scenario import Scenario
+
+        path = self.SCENARIO_DIR / "false_alarm.yaml"
+        scenario = Scenario.load(path)
+        assert scenario.name == "false-alarm"
+        assert len(scenario.zones) == 2
+        assert len(scenario.detections["spawners"]) == 3
+        assert scenario.detections["spawners"][2].label == "shark"
+        assert scenario.detections["spawners"][2].speed == 3.5
+        assert scenario.priority_rules is not None
+        assert scenario.max_duration == 150.0
+
+    def test_all_clear_yaml(self):
+        from sim.scenario import Scenario
+
+        path = self.SCENARIO_DIR / "all_clear.yaml"
+        scenario = Scenario.load(path)
+        assert scenario.name == "all-clear"
+        assert len(scenario.zones) == 2
+        assert len(scenario.detections["spawners"]) == 2
+        assert scenario.detections["spawners"][0].label == "swimmer"
+        assert scenario.detections["spawners"][1].label == "surfer"
+        assert scenario.priority_rules is None
+        assert scenario.max_duration == 180.0
