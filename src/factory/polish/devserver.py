@@ -24,7 +24,8 @@ def wait_healthy(url: str, timeout: float = 30.0, interval: float = 0.25) -> boo
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310 (local dev URL)
+            # local dev URL only, never user-supplied
+            with urllib.request.urlopen(url, timeout=2) as resp:
                 if resp.status < 500:
                     return True  # any <500 response ⇒ up; 5xx is treated as "not ready yet"
         except urllib.error.HTTPError as exc:
@@ -47,6 +48,7 @@ def _kill(proc: subprocess.Popen) -> None:
                     ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                     timeout=5,
                     capture_output=True,
+                    check=False,
                 )
                 proc.wait(timeout=2)
                 return
