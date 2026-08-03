@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -63,16 +64,30 @@ def _subprocess_runner(
         # `experiment` is passed as Playwright's positional path filter, so it must
         # be a file-path substring (Playwright positional args filter by file, not
         # title) -- matches the naming convention the SR bindings will use.
+        cmd_list = [*test_cmd, experiment, "--reporter=json"]
+        # Platform-gated launch. Windows: npx/playwright resolve to .cmd shims
+        # that CreateProcess cannot launch from a bare list arg (WinError 2), so
+        # run a single joined command STRING through the shell (cmd.exe), same
+        # convention as polish/devserver.py. POSIX: subprocess.run(shell=True)
+        # with a *list* argument is `sh -c argv[0] argv[1:]` -- only argv[0]
+        # ("npx") becomes the command, and everything else (including
+        # "--reporter=json") is passed to the shell as positional params
+        # ($0, $1, ...) instead of to npx. So on POSIX we must run the list
+        # directly with shell=False to get correct arg passing.
+        use_shell = sys.platform == "win32"
+        run_arg = subprocess.list2cmdline(cmd_list) if use_shell else cmd_list
+        # Windows minor: with shell=True the joined string is interpreted by
+        # cmd.exe, which treats `& | ^ % < >` etc. as shell metacharacters.
+        # `experiment` comes from developer-authored SR-binding config (not
+        # runtime user input), so this is low risk -- an experiment value
+        # containing those characters is simply unsupported.
         with (workdir / f"pw-stdout-seed{seed}.log").open("w", encoding="utf-8") as log:
             try:
                 subprocess.run(
-                    [*test_cmd, experiment, "--reporter=json"],
+                    run_arg,
                     cwd=str(app_dir), env=env, check=False,
                     stdout=log, stderr=subprocess.STDOUT,
-                    # shell=True: on Windows, npx/playwright resolve to .cmd shims
-                    # that CreateProcess cannot launch from a bare list arg without
-                    # a shell (WinError 2). Same convention as polish/devserver.py.
-                    shell=True,
+                    shell=use_shell,
                     timeout=timeout_s,
                 )
             except subprocess.TimeoutExpired:

@@ -81,9 +81,7 @@ def test_from_config_runner_is_callable(tmp_path):
     assert callable(h._run_trial)
 
 
-def test_subprocess_runner_builds_expected_argv_and_env(tmp_path, monkeypatch):
-    captured = {}
-
+def _capturing_fake_run(captured):
     def fake_run(cmd, cwd=None, env=None, check=None, stdout=None, stderr=None,
                  shell=None, timeout=None):
         captured["cmd"] = cmd
@@ -98,7 +96,16 @@ def test_subprocess_runner_builds_expected_argv_and_env(tmp_path, monkeypatch):
 
         return _Result()
 
-    monkeypatch.setattr(pw_harness.subprocess, "run", fake_run)
+    return fake_run
+
+
+def test_subprocess_runner_builds_expected_argv_and_env_win32(tmp_path, monkeypatch):
+    """On win32, the launch must go through the shell as a single joined
+    string (npx/playwright resolve to .cmd shims that CreateProcess cannot
+    launch from a bare list)."""
+    captured = {}
+    monkeypatch.setattr(pw_harness.subprocess, "run", _capturing_fake_run(captured))
+    monkeypatch.setattr(pw_harness.sys, "platform", "win32")
 
     app_dir = tmp_path / "frontend"
     app_dir.mkdir()
@@ -116,13 +123,45 @@ def test_subprocess_runner_builds_expected_argv_and_env(tmp_path, monkeypatch):
     assert captured["env"]["PLAYWRIGHT_JSON_OUTPUT_NAME"] == str(expected_report)
 
     cmd = captured["cmd"]
-    assert cmd[:3] == ["npx", "playwright", "test"]
-    assert "sign-in" in cmd
-    assert "--reporter=json" in cmd
+    assert isinstance(cmd, str)
+    assert captured["shell"] is True
+    for token in ("npx", "playwright", "test", "sign-in", "--reporter=json"):
+        assert token in cmd
 
     assert captured["cwd"] == str(app_dir)
     assert captured["check"] is False
-    assert captured["shell"] is True
+    assert captured["timeout"] == 600
+
+
+def test_subprocess_runner_builds_expected_argv_and_env_posix(tmp_path, monkeypatch):
+    """On POSIX, the launch must pass the argv list directly with shell=False
+    -- shell=True + a list would only hand argv[0] to the shell as the
+    command, silently dropping "--reporter=json" and the rest."""
+    captured = {}
+    monkeypatch.setattr(pw_harness.subprocess, "run", _capturing_fake_run(captured))
+    monkeypatch.setattr(pw_harness.sys, "platform", "linux")
+
+    app_dir = tmp_path / "frontend"
+    app_dir.mkdir()
+    h = PlaywrightE2EHarness.from_config(
+        {"app_dir": "frontend", "seed_env": "E2E_SEED"}, tmp_path
+    )
+
+    workdir = tmp_path / "trial-workdir"
+    report_path = h._run_trial(0, "sign-in", workdir)
+
+    expected_report = workdir / "pw-report-seed0.json"
+    assert report_path == expected_report
+
+    assert captured["env"]["E2E_SEED"] == "0"
+    assert captured["env"]["PLAYWRIGHT_JSON_OUTPUT_NAME"] == str(expected_report)
+
+    cmd = captured["cmd"]
+    assert cmd == ["npx", "playwright", "test", "sign-in", "--reporter=json"]
+    assert captured["shell"] is False
+
+    assert captured["cwd"] == str(app_dir)
+    assert captured["check"] is False
     assert captured["timeout"] == 600
 
 
