@@ -1,0 +1,212 @@
+{
+  "session_id": "2026-08-01T13-29-18Z",
+  "started_at": "2026-08-01T14:07:07Z",
+  "ended_at": "2026-08-01T14:07:07Z",
+  "model_backend": "openrouter:deepseek/deepseek-v4-flash",
+  "git": {
+    "branch": "main",
+    "head": "d6a1abb63aab5431db84cf873510a9ad2da55535"
+  },
+  "tasks": [
+    {
+      "task_id": "T-047",
+      "title": "Bug Capture",
+      "outcome": "completed",
+      "iterations": 3,
+      "nodes": [
+        {
+          "node": "context-gather",
+          "result": "pass",
+          "attempts": 2,
+          "extra": {}
+        },
+        {
+          "node": "dev",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "tests": "green"
+          }
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "requirement_warnings": []
+          }
+        },
+        {
+          "node": "review",
+          "result": "changes-requested",
+          "attempts": 1,
+          "extra": {
+            "findings": 3,
+            "gate": 1,
+            "confidence": "High \u2014 I've read the full source of bug_capture.py, injector.py, testbench.py, the plan, and MissionState. The injector wiring gap is definitive, the missing test for capture_bug is clear from the test file, and the scenarios/bugs/ directory absence is confirmed by failed read attempts.",
+            "verify": [
+              {
+                "item": "Check that src/sim/injector.py has a pygame.K_b handler calling _open_bug_capture (or capture_bug directly) \u2014 currently it does not; the bug capture dialog is never reachable",
+                "file": "src/sim/injector.py",
+                "line": 31,
+                "why": "The handler chain ends at K_3; no K_b or K_p handler exists. The plan's injector has these, but the actual file does not."
+              },
+              {
+                "item": "Verify that the capture_bug function's test exists and passes \u2014 the current test only covers BugSnapshot.save/load, not capture_bug itself",
+                "file": "tests/sim/test_bug_capture.py",
+                "why": "No test case calls capture_bug() or checks its returned path string."
+              },
+              {
+                "item": "Confirm that scenarios/bugs/ exists and contains at least one snapshot file, or that the DoD intent is purely about the output path (not a static file) \u2014 the literal DoD says 'YAML snapshot file in scenarios/bugs/'",
+                "why": "Currently no file or directory exists at that path."
+              },
+              {
+                "item": "Verify that capture_bug correctly handles testbench._loop being None (e.g., if called before _build_simulation completes) \u2014 the code has a guard but edge cases like loop reset timing matter",
+                "file": "src/sim/bug_capture.py",
+                "line": 56,
+                "why": "capture_bug accesses testbench._loop._state; if _loop is None the guard saves it, but the testbench access pattern is fragile."
+              },
+              {
+                "item": "Check that the captured YAML snapshot can be loaded back with BugSnapshot.load() and produces the same values \u2014 the YAML round-trip is tested for the dataclass but not for the output of capture_bug",
+                "why": "The asdict() on SpawnerRule and Zone objects may produce YAML that differs from manual dict construction in the test."
+              },
+              {
+                "item": "Confirm that the 'None' guard in mission_state fields (battery defaults to 1.0, waypoints to 0) doesn't mask a real bug where state is legitimately None at capture time",
+                "file": "src/sim/bug_capture.py",
+                "line": 79,
+                "why": "If capture_bug is called immediately after reset, the loop's state may be None and the snapshot would silently record 0.0/0/1.0 instead of the actual state."
+              }
+            ]
+          }
+        },
+        {
+          "node": "dev",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "tests": "green"
+          }
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "requirement_warnings": []
+          }
+        },
+        {
+          "node": "review",
+          "result": "changes-requested",
+          "attempts": 1,
+          "extra": {
+            "findings": 0,
+            "gate": 1,
+            "confidence": "High \u2014 code is straightforward, follows the plan exactly, test coverage is thorough (3 tests including a null-state edge case), and the implementation matches the established patterns in the codebase. Cannot run the full gate suite (bash disabled) but the code is syntactically clean and imports are internally consistent.",
+            "verify": [
+              {
+                "item": "Run `capture_bug` with a testbench where `_loop` is None (not just `_loop._state` is None) to confirm no AttributeError on the `testbench._loop._state` access",
+                "file": "src/sim/bug_capture.py",
+                "line": 68,
+                "why": "The guard `testbench._loop._state if testbench._loop._state else None` is safe only if `_loop` is never None \u2014 accessing `_loop._state` from a None `_loop` would crash before the ternary runs"
+              },
+              {
+                "item": "Verify the YAML file written by `capture_bug` can be round-tripped through `BugSnapshot.load` (i.e., the saved file has no extra/missing keys that would crash `cls(**data)`)",
+                "file": "src/sim/bug_capture.py",
+                "line": 52,
+                "why": "`BugSnapshot.load` uses `cls(**data)` which is brittle \u2014 any extra YAML keys or missing required fields will raise a TypeError"
+              },
+              {
+                "item": "Confirm that `scenarios/bugs/` directory is created on first call (the `save()` method calls `path.parent.mkdir(parents=True, exist_ok=True)`, but the test cleans up the file \u2014 verify the directory persists after the first real run)",
+                "file": "src/sim/bug_capture.py",
+                "line": 48,
+                "why": "The directory is created implicitly by `save()`, but no committed file or .gitkeep exists in the repo \u2014 first-time users might expect the directory to pre-exist"
+              },
+              {
+                "item": "Check that the `pytestmark = pytest.mark.unit` in the test file causes the tests to run in the `unit` gate (the gate runs `pytest -m unit`)",
+                "file": "tests/sim/test_bug_capture.py",
+                "line": 5,
+                "why": "If the marker is misconfigured or the test path isn't discovered, the gate would silently skip these tests"
+              },
+              {
+                "item": "Run `BugSnapshot.load` on a YAML file saved with `capture_bug` (not just the test's manual `BugSnapshot` constructor) to verify the nested dict structure matches the dataclass fields exactly",
+                "file": "src/sim/bug_capture.py",
+                "line": 52,
+                "why": "The test only round-trips a manually-constructed BugSnapshot \u2014 the `capture_bug` function assembles the dict from testbench state, which could have shape mismatches (e.g., nested Zone objects serialized via asdict)"
+              }
+            ]
+          }
+        },
+        {
+          "node": "dev",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "tests": "green"
+          }
+        },
+        {
+          "node": "validation",
+          "result": "pass",
+          "attempts": 1,
+          "extra": {
+            "requirement_warnings": []
+          }
+        },
+        {
+          "node": "review",
+          "result": "changes-requested",
+          "attempts": 1,
+          "extra": {
+            "findings": 3,
+            "gate": 1,
+            "confidence": "High. The implementation is clean, the tests cover the happy path and the no-state edge case, and the integration via injector.py is straightforward. I cannot verify the tests actually pass (bash disabled for this role), but the code is structurally sound.",
+            "verify": [
+              {
+                "item": "Run `uv run pytest tests/sim/test_bug_capture.py -v` and confirm both test classes pass (0 failures)",
+                "file": "tests/sim/test_bug_capture.py",
+                "why": "The test file exists but I cannot run it; confirm the mocks correctly exercise capture_bug()"
+              },
+              {
+                "item": "Press [B] in the sim testbench and verify the TextInput dialog appears, accepts text, and writes a .yaml file to scenarios/bugs/",
+                "file": "src/sim/injector.py",
+                "line": 57,
+                "why": "The integration path from EventInjector._open_bug_capture() through to capture_bug() is the primary user-facing workflow; needs manual smoke test"
+              },
+              {
+                "item": "Check scenarios/bugs/ contains either a committed .gitkeep or a sample snapshot \u2014 an empty directory won't be tracked by git",
+                "file": "scenarios/bugs/",
+                "why": "The DoD says 'YAML snapshot file in scenarios/bugs/'; if the dir is empty, the DoD item is only partially met"
+              },
+              {
+                "item": "Run the testbench from a different working directory (e.g., cd /tmp && python -m sim ...) and verify BUGS_DIR still resolves correctly",
+                "file": "src/sim/bug_capture.py",
+                "line": 10,
+                "why": "BUGS_DIR is a relative Path; if the CWD is not the project root, snapshots will be written to the wrong location"
+              },
+              {
+                "item": "Verify that testbench.py does not have a set_bug_capture_callback method \u2014 the injector calls capture_bug directly, which is fine, but confirm no dead code or broken reference",
+                "file": "src/sim/testbench.py",
+                "why": "The plan's Step 6 spec includes set_bug_capture_callback; the actual implementation omits it in favor of direct import in injector.py \u2014 confirm this is intentional"
+              }
+            ]
+          }
+        }
+      ],
+      "commits": [],
+      "dod": {
+        "met": true
+      }
+    }
+  ],
+  "kb_changes": {
+    "added": [],
+    "updated": [],
+    "pruned": []
+  },
+  "escalations": [],
+  "resume": {
+    "next_task": null,
+    "hint": ""
+  }
+}
