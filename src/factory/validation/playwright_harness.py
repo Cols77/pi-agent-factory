@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -47,6 +49,26 @@ def _spec_passed(report: dict, experiment: str) -> bool:
 TrialRunner = Callable[[int, str, Path], Path]
 
 
+def _subprocess_runner(app_dir: Path, seed_env: str, test_cmd: list[str]) -> TrialRunner:
+    def run_trial(seed: int, experiment: str, workdir: Path) -> Path:
+        workdir.mkdir(parents=True, exist_ok=True)
+        report_path = workdir / f"pw-report-seed{seed}.json"
+        env = {
+            **os.environ,
+            seed_env: str(seed),
+            "PLAYWRIGHT_JSON_OUTPUT_NAME": str(report_path),
+        }
+        with (workdir / f"pw-stdout-seed{seed}.log").open("w", encoding="utf-8") as log:
+            subprocess.run(
+                [*test_cmd, experiment, "--reporter=json"],
+                cwd=str(app_dir), env=env, check=False,
+                stdout=log, stderr=subprocess.STDOUT,
+            )
+        return report_path
+
+    return run_trial
+
+
 class PlaywrightE2EHarness:
     """Live harness: run a Playwright e2e spec headless N times (seeded) and
     score the pass-rate. Executes runs instead of replaying a fixture trace."""
@@ -55,6 +77,13 @@ class PlaywrightE2EHarness:
 
     def __init__(self, run_trial: TrialRunner) -> None:
         self._run_trial = run_trial
+
+    @classmethod
+    def from_config(cls, params: dict, project_root: Path) -> PlaywrightE2EHarness:
+        app_dir = project_root / params.get("app_dir", "frontend")
+        seed_env = params.get("seed_env", "E2E_SEED")
+        test_cmd = list(params.get("test_cmd", ["npx", "playwright", "test"]))
+        return cls(_subprocess_runner(app_dir, seed_env, test_cmd))
 
     def run(self, binding: Binding, workdir: Path) -> HarnessResult:
         if binding.metric != self.SUPPORTED_METRIC:

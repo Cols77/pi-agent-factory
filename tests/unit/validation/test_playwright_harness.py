@@ -67,3 +67,14 @@ def test_run_rejects_unsupported_metric(tmp_path):
     h = PlaywrightE2EHarness(_fake_runner(["pw-report-pass.json"]))
     with pytest.raises(ValueError):
         h.run(b, tmp_path)
+
+
+def test_from_config_builds_harness_with_defaults(tmp_path):
+    h = PlaywrightE2EHarness.from_config({}, tmp_path)
+    assert isinstance(h, PlaywrightE2EHarness)
+
+
+def test_from_config_runner_is_callable(tmp_path):
+    h = PlaywrightE2EHarness.from_config({"app_dir": "frontend", "seed_env": "E2E_SEED"}, tmp_path)
+    # the injected runner is a 3-arg callable (seed, experiment, workdir)
+    assert callable(h._run_trial)
