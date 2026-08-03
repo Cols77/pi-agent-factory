@@ -1,6 +1,8 @@
 import pytest
+
 from factory.polish.config import UnknownTypeError, load_config
 from factory.polish.reference import ScenarioReplayPlayground
+from factory.validation.playwright_harness import PlaywrightE2EHarness
 from factory.validation.sim_harness import SimTestbenchHarness
 
 pytestmark = pytest.mark.unit
@@ -45,3 +47,17 @@ def test_unknown_type_raises(tmp_path):
     bad = "playgrounds:\n  x:\n    type: nope\n"
     with pytest.raises(UnknownTypeError):
         load_config(_project(tmp_path, bad))
+
+
+def test_load_config_builds_playwright_harness(tmp_path):
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        "harnesses:\n"
+        "  web-e2e:\n"
+        "    type: playwright-e2e\n"
+        "    app_dir: frontend\n"
+        "    seed_env: E2E_SEED\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(tmp_path)
+    assert isinstance(cfg.harnesses["web-e2e"], PlaywrightE2EHarness)
