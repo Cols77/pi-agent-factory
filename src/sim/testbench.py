@@ -143,7 +143,8 @@ class SimTestbench:
     def _build_simulation(self) -> None:
         """Build (or rebuild) the simulation components: FC, spawner, agent, loop."""
         nav = self._scenario.navigation
-        sea_verts = [(v[0], v[1]) for v in self._scenario.sea_polygon["vertices"]]
+        sea_verts_tuples = [(v[0], v[1]) for v in self._scenario.sea_polygon["vertices"]]
+        sea_verts = [[v[0], v[1]] for v in self._scenario.sea_polygon["vertices"]]
 
         # Flight controller
         self._fc = FakeFlightController()
@@ -161,7 +162,7 @@ class SimTestbench:
             offset=nav.get("offset", 2.0),
             max_distance_from_shore=nav.get("max_distance_from_shore"),
         )
-        water = WaterArea(vertices=sea_verts)
+        water = WaterArea(vertices=sea_verts_tuples)
         context = NavContext(current_pose=Pose(0, 0, 0, 0), completed_area=[])
         initial_plan = algo.plan(water, context)
 

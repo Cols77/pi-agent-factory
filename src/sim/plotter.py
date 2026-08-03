@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sim.recorder import Recorder
+
 import matplotlib
 
 matplotlib.use("Agg")  # headless backend
 
-import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon as MplPolygon
-
-from sim.recorder import Recorder
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Polygon as MplPolygon  # noqa: E402
 
 
 def generate_report(
@@ -128,7 +128,6 @@ def generate_report(
             continue
         times = [p[0] for p in points]
         confs = [p[1] for p in points]
-        color = label_colors.get(label, "gray")
         ax2.scatter(
             times,
             [i] * len(times),

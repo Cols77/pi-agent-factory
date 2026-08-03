@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pygame
+
+if TYPE_CHECKING:
+    from sim.testbench import SimTestbench
 
 
 class EventInjector:
@@ -11,7 +16,7 @@ class EventInjector:
     Maps key presses to testbench actions (spawn, pause, reset, quit, etc.).
     """
 
-    def __init__(self, testbench: object) -> None:
+    def __init__(self, testbench: SimTestbench) -> None:
         self._tb = testbench
 
     def handle_key(self, key: int) -> None:

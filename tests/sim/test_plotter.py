@@ -13,6 +13,54 @@ from sim.plotter import generate_report
 pytestmark = pytest.mark.unit
 
 
+class TestPlotterLint:
+    """Lint-quality checks on the plotter module source."""
+
+    PLOTTER_PATH = Path("src/sim/plotter.py")
+
+    def test_no_unused_color_variable_in_panel2(self):
+        """The `color = label_colors.get(label, "gray")` in panel 2 should be
+        removed because it is assigned but never used (ruff F841)."""
+        source = self.PLOTTER_PATH.read_text()
+        # The variable `color` is assigned from label_colors.get but never
+        # passed to the scatter call; it should be removed entirely.
+        assert 'color = label_colors.get(label, "gray")' not in source, (
+            "Panel 2 assigns `color = label_colors.get(label, 'gray')` "
+            "but the variable is never passed to ax2.scatter() — remove it."
+        )
+
+    def test_imports_before_matplotlib_use(self):
+        """All imports must appear before the `matplotlib.use("Agg")` call
+        (ruff E402)."""
+        source = self.PLOTTER_PATH.read_text()
+        lines = source.splitlines()
+
+        # Find the line with matplotlib.use("Agg")
+        use_line_idx = None
+        for i, line in enumerate(lines):
+            if 'matplotlib.use("Agg")' in line:
+                use_line_idx = i
+                break
+
+        assert use_line_idx is not None, "Could not find matplotlib.use('Agg')"
+
+        # Find any `import` or `from ... import` after the use() line
+        # without a `# noqa: E402` annotation.
+        for i in range(use_line_idx + 1, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith(("import ", "from ")):
+                # Allow imports with `# noqa: E402` (required because
+                # matplotlib.use("Agg") must be called before importing pyplot).
+                if "# noqa: E402" not in stripped:
+                    pytest.fail(
+                        f"Import at line {i + 1} is after matplotlib.use(\"Agg\") "
+                        f"on line {use_line_idx + 1}: {stripped}\n"
+                        "All imports must be at the top of the file. Add "
+                        "# noqa: E402 if this is intentional (matplotlib "
+                        "backend must be set before importing pyplot)."
+                    )
+
+
 class TestPlotter:
     def test_generate_report_creates_file(self):
         """generate_report should produce a valid PNG file > 1 KB."""
