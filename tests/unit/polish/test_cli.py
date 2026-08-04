@@ -4,7 +4,14 @@ import pytest
 
 from factory.orchestrator.ledger import load_tasks
 from factory.polish.bridge import PolishBridge
-from factory.polish.cli import build_orchestrator, cmd_list, cmd_run, main, run_polish_serve
+from factory.polish.cli import (
+    build_orchestrator,
+    cmd_list,
+    cmd_run,
+    main,
+    run_polish_serve,
+    scope_guard_extension,
+)
 
 from ._fakes import make_orchestrator
 
@@ -71,6 +78,15 @@ def test_build_orchestrator_wires_from_config(tmp_path):
     orch = build_orchestrator(tmp_path, playground="web", provider=None, model=None)
     assert orch is not None
     assert hasattr(orch, "submit_feedback") and hasattr(orch, "state")
+
+
+def test_scope_guard_extension_resolves_inside_the_factory_not_the_target_repo(tmp_path):
+    # The scope-guard extension ships with the factory. Deriving it from the
+    # polished project's root breaks every cross-repo polish session (the whole
+    # point of Increment 2), and only at the first real SYNTHESIS call.
+    ext = scope_guard_extension()
+    assert ext.exists(), f"scope-guard extension missing at {ext}"
+    assert tmp_path not in ext.parents
 
 
 def test_serve_applies_a_command_then_stops(tmp_path):

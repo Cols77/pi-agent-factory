@@ -49,6 +49,17 @@ def cmd_run(
     return run_polish_session(playground, usecase, findings, tasks_dir, open_nav=open_nav)
 
 
+def scope_guard_extension() -> Path:
+    """Path to the scope-guard pi extension, which ships with the FACTORY.
+
+    Deliberately not derived from the polished project's root: polish runs
+    against other repos (CareerOS), and those have no pi-ext/ of their own.
+    """
+    # <factory_root>/src/factory/polish/cli.py -> <factory_root>
+    factory_root = Path(__file__).resolve().parents[3]
+    return factory_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
+
+
 def build_orchestrator(
     project_root: Path,
     playground: str,
@@ -66,9 +77,11 @@ def build_orchestrator(
         factory_run=SubprocessFactoryRunner(provider=provider, model=model).run,
     )
     worker = FixWorker(executor)
-    ext = project_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
     backend = PiAgentBackend(
-        repo_root=project_root, extension_path=ext, provider=provider, model=model
+        repo_root=project_root,
+        extension_path=scope_guard_extension(),
+        provider=provider,
+        model=model,
     )
     return PolishOrchestrator(pg, backend, worker, open_nav=open_navigator)
 
