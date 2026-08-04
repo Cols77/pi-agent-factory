@@ -4,7 +4,7 @@ from pathlib import Path
 
 import frontmatter
 
-from factory.trace.model import Node, load_nodes
+from factory.trace.model import Node, as_str_list, load_nodes
 
 
 def _node(root: Path, node_id: str) -> Node:
@@ -31,10 +31,7 @@ def link_satisfies(root: Path, task_id: str, sr_id: str) -> Path:
         raise ValueError(f"no such requirement: {sr_id}")
     path = _node_path(root, task_id)
     post = frontmatter.load(str(path))
-    existing = post.metadata.get("satisfies") or []
-    if isinstance(existing, str):
-        existing = [existing]
-    current = [str(s) for s in existing]
+    current = as_str_list(post.metadata.get("satisfies"))
     if sr_id not in current:
         current.append(sr_id)
     return _update_meta(path, satisfies=current)

@@ -39,6 +39,31 @@ def cmd_status(root: Path) -> str:
     return "\n".join(lines)
 
 
+def cmd_check(root: Path) -> tuple[str, int]:
+    # Stateless by design: every gap and every disposition is re-derived from disk,
+    # so the gate cannot be satisfied by a claim that the work was done. Spec 6.3.
+    graph = build_graph(root)
+    pending = [g for g in graph.gaps if g.disposition == "pending"]
+    deferred = [g for g in graph.gaps if g.disposition == "deferred"]
+    exempt = [g for g in graph.gaps if g.disposition == "exempt"]
+
+    lines = [
+        f"traceability health: {graph.health.percent}%",
+        f"{len(pending)} pending, {len(deferred)} deferred, {len(exempt)} exempt",
+    ]
+    if pending:
+        lines.append("")
+        lines.append("undiscussed gaps (the gate fails on these):")
+        for gap in pending:
+            lines.append(f"  ! {gap.node_id:<24} {gap.kind:<18} {gap.detail}")
+    if deferred:
+        lines.append("")
+        lines.append("deferred — discussed, still open:")
+        for gap in deferred:
+            lines.append(f"  ~ {gap.node_id:<24} {gap.kind:<18} {gap.detail}")
+    return "\n".join(lines), (1 if pending else 0)
+
+
 def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project-root", default=Path("."), type=Path)
 
@@ -64,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
     p_next = sub.add_parser("next")
     _add_root(p_next)
     p_next.add_argument("--json", action="store_true")
+
+    p_check = sub.add_parser("check")
+    _add_root(p_check)
 
     p_exempt = sub.add_parser("exempt")
     _add_root(p_exempt)
@@ -121,4 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         except LookupError as exc:
             print(f"error: {exc}")
             return 2
+    elif args.cmd == "check":
+        text, code = cmd_check(args.project_root)
+        print(text)
+        return code
     return 0

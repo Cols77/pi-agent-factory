@@ -106,7 +106,8 @@ class Edge:
     kind: EdgeKind
 
 
-def _as_list(value: object) -> list[str]:
+def as_str_list(value: object) -> list[str]:
+    """Coerce a frontmatter field that may be absent, scalar, or a list."""
     if value is None:
         return []
     if isinstance(value, str):
@@ -134,9 +135,9 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
             source_plan = meta.get("source_plan")
             if source_plan:
                 add(Edge(node.id, f"plan:{Path(str(source_plan)).name}", "source_plan"))
-            for sr_id in _as_list(meta.get("satisfies")):
+            for sr_id in as_str_list(meta.get("satisfies")):
                 add(Edge(node.id, sr_id, "satisfies"))
-            for upstream_id in _as_list(meta.get("upstream")):
+            for upstream_id in as_str_list(meta.get("upstream")):
                 add(Edge(node.id, upstream_id, "upstream"))
         elif node.kind == "plan":
             post = _load_post(node.path)
