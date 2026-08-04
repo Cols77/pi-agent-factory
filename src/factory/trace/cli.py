@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from factory.trace.graph import build_graph, graph_to_dict
+from factory.trace.write import link_satisfies, link_spec, set_deferred, set_exempt
 
 
 def cmd_graph(root: Path) -> dict:
@@ -46,10 +47,49 @@ def main(argv: list[str] | None = None) -> int:
     _add_root(p_graph)
     p_graph.add_argument("--json", action="store_true")
 
+    p_link = sub.add_parser("link")
+    _add_root(p_link)
+    p_link.add_argument("node_id")
+    p_link.add_argument("--satisfies", metavar="SR-###")
+    p_link.add_argument("--spec", metavar="FILENAME")
+
+    p_exempt = sub.add_parser("exempt")
+    _add_root(p_exempt)
+    p_exempt.add_argument("node_id")
+    p_exempt.add_argument("--reason", required=True)
+
+    p_defer = sub.add_parser("defer")
+    _add_root(p_defer)
+    p_defer.add_argument("node_id")
+    p_defer.add_argument("--reason", required=True)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "status":
         print(cmd_status(args.project_root))
     elif args.cmd == "graph":
         print(json.dumps(cmd_graph(args.project_root), indent=2))
+    elif args.cmd == "link":
+        if not args.satisfies and not args.spec:
+            parser.error("link requires --satisfies or --spec")
+        try:
+            if args.satisfies:
+                print(link_satisfies(args.project_root, args.node_id, args.satisfies))
+            if args.spec:
+                print(link_spec(args.project_root, args.node_id, args.spec))
+        except (LookupError, ValueError) as exc:
+            print(f"error: {exc}")
+            return 2
+    elif args.cmd == "exempt":
+        try:
+            print(set_exempt(args.project_root, args.node_id, args.reason))
+        except (LookupError, ValueError) as exc:
+            print(f"error: {exc}")
+            return 2
+    elif args.cmd == "defer":
+        try:
+            print(set_deferred(args.project_root, args.node_id, args.reason))
+        except LookupError as exc:
+            print(f"error: {exc}")
+            return 2
     return 0
