@@ -32,6 +32,19 @@ def test_task_without_satisfies_is_a_gap():
     assert "task_no_sr" in _kinds(gaps, "T-001")
 
 
+def test_task_declaring_no_source_plan_at_all_is_a_gap():
+    # Found by running against cool_physical_ai_project: a task with no
+    # source_plan key is as untraceable as one whose source_plan dangles.
+    assert "task_no_plan" in _kinds(find_gaps([_task("T-001")], [], {}), "T-001")
+
+
+def test_task_with_a_declared_source_plan_has_no_plan_gap():
+    nodes = [_task("T-001"), _plan("p1.md")]
+    edges = [Edge("T-001", "plan:p1.md", "source_plan")]
+
+    assert "task_no_plan" not in _kinds(find_gaps(nodes, edges, {}), "T-001")
+
+
 def test_task_source_plan_pointing_at_missing_file_is_a_gap():
     nodes = [_task("T-001")]
     edges = [Edge("T-001", "plan:gone.md", "source_plan")]

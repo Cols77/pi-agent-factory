@@ -10,6 +10,7 @@ from factory.trace.model import Node
 # separately and never folded into the percentage. Spec section 4.5.
 _SLOT_OF_GAP: dict[str, str] = {
     "task_no_sr": "task->SR",
+    "task_no_plan": "task->plan",
     "plan_no_spec": "plan->spec",
     "sr_unsatisfied": "SR satisfied",
     "sr_unvalidated": "SR validated",

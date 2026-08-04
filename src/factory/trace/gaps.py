@@ -8,6 +8,7 @@ from factory.trace.validation_status import SrStatus
 
 GapKind = Literal[
     "task_no_sr",
+    "task_no_plan",
     "task_plan_missing",
     "plan_no_spec",
     "dangling_upstream",
@@ -20,12 +21,13 @@ Disposition = Literal["pending", "exempt", "deferred"]
 
 _KIND_ORDER: dict[str, int] = {
     "task_no_sr": 0,
-    "plan_no_spec": 1,
-    "sr_unsatisfied": 2,
-    "sr_unvalidated": 3,
-    "sr_stale": 4,
-    "dangling_upstream": 5,
-    "task_plan_missing": 6,
+    "task_no_plan": 1,
+    "plan_no_spec": 2,
+    "sr_unsatisfied": 3,
+    "sr_unvalidated": 4,
+    "sr_stale": 5,
+    "dangling_upstream": 6,
+    "task_plan_missing": 7,
 }
 
 
@@ -65,6 +67,10 @@ def find_gaps(
         if node.kind == "task":
             if not any(e.kind == "satisfies" for e in node_edges):
                 add(node, "task_no_sr", "task declares no satisfies")
+            # A task that declares no source_plan at all is just as untraceable as
+            # one whose source_plan dangles -- both leave the task->plan slot unfilled.
+            if not any(e.kind == "source_plan" for e in node_edges):
+                add(node, "task_no_plan", "task declares no source_plan")
             for edge in node_edges:
                 if edge.kind == "source_plan" and edge.dst not in by_id:
                     add(node, "task_plan_missing", f"source_plan target missing: {edge.dst}")

@@ -38,6 +38,15 @@ def test_pending_gap_consumes_a_slot():
     assert health.percent == 50
 
 
+def test_task_without_a_source_plan_consumes_the_plan_slot():
+    gaps = [Gap("T-001", "task_no_plan", "d", "pending")]
+
+    health = compute_health([_task("T-001")], gaps)
+
+    assert _by_name(health)["task->plan"].satisfied == 0
+    assert health.percent == 50
+
+
 def test_exempt_gap_removes_the_slot_so_100_stays_reachable():
     gaps = [Gap("T-001", "task_no_sr", "d", "exempt")]
 
