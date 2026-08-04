@@ -92,3 +92,56 @@ def load_nodes(root: Path) -> list[Node]:
     for path in _glob(root, "docs", "superpowers", "specs", pattern="*.md"):
         nodes.append(_file_node(path, "spec"))
     return nodes
+
+
+EdgeKind = Literal["source_plan", "satisfies", "upstream", "spec_ref"]
+
+_SPEC_REF_RE = re.compile(r"docs/superpowers/specs/([A-Za-z0-9._-]+\.md)")
+
+
+@dataclass(frozen=True)
+class Edge:
+    src: str
+    dst: str
+    kind: EdgeKind
+
+
+def _as_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return []
+
+
+def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
+    edges: list[Edge] = []
+    seen: set[Edge] = set()
+
+    def add(edge: Edge) -> None:
+        if edge not in seen:
+            seen.add(edge)
+            edges.append(edge)
+
+    for node in nodes:
+        if node.kind in ("task", "sr", "br"):
+            post = _load_post(node.path)
+            if post is None:
+                continue
+            meta = post.metadata
+            source_plan = meta.get("source_plan")
+            if source_plan:
+                add(Edge(node.id, f"plan:{Path(str(source_plan)).name}", "source_plan"))
+            for sr_id in _as_list(meta.get("satisfies")):
+                add(Edge(node.id, sr_id, "satisfies"))
+            for upstream_id in _as_list(meta.get("upstream")):
+                add(Edge(node.id, upstream_id, "upstream"))
+        elif node.kind == "plan":
+            post = _load_post(node.path)
+            body = post.content if post is not None else node.path.read_text(encoding="utf-8")
+            for filename in _SPEC_REF_RE.findall(body):
+                add(Edge(node.id, f"spec:{filename}", "spec_ref"))
+
+    return edges
