@@ -4,7 +4,7 @@ dod:
 id: T-049
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 9
-status: todo
+status: done
 title: Scenario YAML Files
 ---
 
