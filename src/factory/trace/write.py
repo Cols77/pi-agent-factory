@@ -53,6 +53,16 @@ def link_spec(root: Path, plan_id: str, spec_filename: str) -> Path:
     return path
 
 
+def link_source_plan(root: Path, task_id: str, plan_filename: str) -> Path:
+    plan_path = root / "docs" / "superpowers" / "plans" / plan_filename
+    if not plan_path.is_file():
+        raise ValueError(f"no such plan: {plan_filename}")
+    return _update_meta(
+        _node_path(root, task_id),
+        source_plan=f"docs/superpowers/plans/{plan_filename}",
+    )
+
+
 def set_exempt(root: Path, node_id: str, reason: str) -> Path:
     node = _node(root, node_id)
     if node.kind in ("sr", "br"):

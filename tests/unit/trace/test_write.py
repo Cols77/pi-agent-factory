@@ -4,7 +4,13 @@ from pathlib import Path
 
 import frontmatter
 import pytest
-from factory.trace.write import link_satisfies, link_spec, set_deferred, set_exempt
+from factory.trace.write import (
+    link_satisfies,
+    link_source_plan,
+    link_spec,
+    set_deferred,
+    set_exempt,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -71,6 +77,20 @@ def test_link_spec_refuses_a_missing_spec(tmp_path):
 
     with pytest.raises(ValueError, match="gone.md"):
         link_spec(root, "plan:p1.md", "gone.md")
+
+
+def test_link_source_plan_writes_the_repo_relative_path(tmp_path):
+    # task_no_plan must be closable, not only deferrable.
+    root = _repo(tmp_path)
+
+    path = link_source_plan(root, "T-001", "p1.md")
+
+    assert frontmatter.load(str(path))["source_plan"] == "docs/superpowers/plans/p1.md"
+
+
+def test_link_source_plan_refuses_a_missing_plan(tmp_path):
+    with pytest.raises(ValueError, match="gone.md"):
+        link_source_plan(_repo(tmp_path), "T-001", "gone.md")
 
 
 def test_set_exempt_and_set_deferred_write_frontmatter(tmp_path):

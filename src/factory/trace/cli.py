@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 from factory.trace.graph import build_graph, graph_to_dict
-from factory.trace.write import link_satisfies, link_spec, set_deferred, set_exempt
+from factory.trace.propose import next_gap, proposal_to_dict
+from factory.trace.write import (
+    link_satisfies,
+    link_source_plan,
+    link_spec,
+    set_deferred,
+    set_exempt,
+)
 
 
 def cmd_graph(root: Path) -> dict:
@@ -52,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     p_link.add_argument("node_id")
     p_link.add_argument("--satisfies", metavar="SR-###")
     p_link.add_argument("--spec", metavar="FILENAME")
+    p_link.add_argument("--source-plan", metavar="FILENAME")
+
+    p_next = sub.add_parser("next")
+    _add_root(p_next)
+    p_next.add_argument("--json", action="store_true")
 
     p_exempt = sub.add_parser("exempt")
     _add_root(p_exempt)
@@ -69,14 +81,31 @@ def main(argv: list[str] | None = None) -> int:
         print(cmd_status(args.project_root))
     elif args.cmd == "graph":
         print(json.dumps(cmd_graph(args.project_root), indent=2))
+    elif args.cmd == "next":
+        proposal = next_gap(args.project_root)
+        if proposal is None:
+            print(json.dumps({"gap": None}) if args.json else "no pending gaps")
+            return 0
+        if args.json:
+            print(json.dumps(proposal_to_dict(proposal), indent=2))
+        else:
+            print(
+                f"{proposal.gap.node_id}  {proposal.gap.kind}  {proposal.gap.detail}"
+                f"  ({proposal.pending_total} pending)"
+            )
+            for candidate in proposal.candidates:
+                print(f"  {candidate.id:<12} {candidate.title}")
+                print(f"    {candidate.summary}")
     elif args.cmd == "link":
-        if not args.satisfies and not args.spec:
-            parser.error("link requires --satisfies or --spec")
+        if not args.satisfies and not args.spec and not args.source_plan:
+            parser.error("link requires --satisfies, --spec, or --source-plan")
         try:
             if args.satisfies:
                 print(link_satisfies(args.project_root, args.node_id, args.satisfies))
             if args.spec:
                 print(link_spec(args.project_root, args.node_id, args.spec))
+            if args.source_plan:
+                print(link_source_plan(args.project_root, args.node_id, args.source_plan))
         except (LookupError, ValueError) as exc:
             print(f"error: {exc}")
             return 2
