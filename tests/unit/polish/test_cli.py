@@ -1,8 +1,12 @@
 import json
 
 import pytest
+
 from factory.orchestrator.ledger import load_tasks
-from factory.polish.cli import build_orchestrator, cmd_list, cmd_run, main
+from factory.polish.bridge import PolishBridge
+from factory.polish.cli import build_orchestrator, cmd_list, cmd_run, main, run_polish_serve
+
+from ._fakes import make_orchestrator
 
 pytestmark = pytest.mark.unit
 
@@ -67,3 +71,25 @@ def test_build_orchestrator_wires_from_config(tmp_path):
     orch = build_orchestrator(tmp_path, playground="web", provider=None, model=None)
     assert orch is not None
     assert hasattr(orch, "submit_feedback") and hasattr(orch, "state")
+
+
+def test_serve_applies_a_command_then_stops(tmp_path):
+    orch = make_orchestrator([{"description": "x"}])
+    orch.setup("sign-in")
+    cmds = tmp_path / "cmds"
+    cmds.mkdir()
+    (cmds / "001.json").write_text(
+        json.dumps({"kind": "feedback", "args": {"text": "broken"}}), "utf-8"
+    )
+    bridge = PolishBridge(orch, tmp_path / "state.json", cmds)
+
+    calls = {"n": 0}
+
+    def should_stop():
+        calls["n"] += 1
+        return calls["n"] > 2  # let a couple of polls run
+
+    run_polish_serve(orch, bridge, should_stop=should_stop, poll_interval=0.0)
+
+    assert orch.state()["gate1_ids"]  # feedback was applied
+    assert not (cmds / "001.json").exists()

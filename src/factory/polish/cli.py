@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 from factory.orchestrator.pi_backend import PiAgentBackend
+from factory.polish.bridge import PolishBridge
 from factory.polish.config import load_config
 from factory.polish.executor import SubprocessFactoryRunner, WorktreeIsolatedExecutor
 from factory.polish.finding import Finding
@@ -69,6 +71,55 @@ def build_orchestrator(
     return PolishOrchestrator(pg, backend, worker, open_nav=open_navigator)
 
 
+# Bridge filenames under the session dir. The TS side (polish-protocol.ts) must
+# use these exact names -- they are the whole contract between the two processes.
+STATE_FILE = "polish-state.json"
+COMMANDS_DIR = "polish-commands"
+LIVE_FILE = "polish-session.live"
+
+
+def run_polish_serve(
+    orchestrator: PolishOrchestrator,
+    bridge: PolishBridge,
+    *,
+    should_stop: Callable[[], bool],
+    poll_interval: float = 0.2,
+) -> None:
+    """Publish state, then drain UI commands until should_stop(). Always tears down."""
+    bridge.publish()
+    try:
+        while not should_stop():
+            bridge.poll_commands()
+            # the worker may have landed a fix between polls -> Gate 2 grows
+            bridge.publish()
+            if poll_interval:
+                time.sleep(poll_interval)
+    finally:
+        orchestrator.teardown()
+
+
+def cmd_serve(
+    project_root: Path,
+    playground: str,
+    usecase: str,
+    session_dir: Path,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    poll_interval: float = 0.2,
+) -> None:
+    """Run the orchestrator behind a file bridge until the UI removes the live file."""
+    orchestrator = build_orchestrator(project_root, playground, provider=provider, model=model)
+    orchestrator.setup(usecase)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    live = session_dir / LIVE_FILE
+    live.write_text("live", encoding="utf-8")
+    bridge = PolishBridge(orchestrator, session_dir / STATE_FILE, session_dir / COMMANDS_DIR)
+    run_polish_serve(
+        orchestrator, bridge, should_stop=lambda: not live.exists(), poll_interval=poll_interval
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="factory-polish")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -82,6 +133,14 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--playground", required=True)
     p_run.add_argument("--usecase", required=True)
     p_run.add_argument("--from-json", required=True, type=Path)
+
+    p_serve = sub.add_parser("serve", parents=[common])
+    p_serve.add_argument("--playground", required=True)
+    p_serve.add_argument("--usecase", required=True)
+    p_serve.add_argument("--session-dir", required=True, type=Path)
+    p_serve.add_argument("--provider", default=None)
+    p_serve.add_argument("--model", default=None)
+
     args = parser.parse_args(argv)
 
     tasks_dir = args.tasks_dir or (args.project_root / "tasks")
@@ -90,4 +149,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "run":
         paths = cmd_run(args.project_root, args.playground, args.usecase, args.from_json, tasks_dir)
         print("\n".join(str(p) for p in paths))
+    elif args.cmd == "serve":
+        cmd_serve(
+            args.project_root,
+            args.playground,
+            args.usecase,
+            args.session_dir,
+            provider=args.provider,
+            model=args.model,
+        )
     return 0

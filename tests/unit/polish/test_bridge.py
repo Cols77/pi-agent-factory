@@ -1,50 +1,16 @@
 import json
-from pathlib import Path
 
 import pytest
 
-from factory.orchestrator.backends import FakeAgentBackend
-from factory.orchestrator.types import AgentResult, AgentRole
 from factory.polish.bridge import PolishBridge
-from factory.polish.orchestrator import PolishOrchestrator
-from factory.polish.playground import PlaygroundSession
-from factory.polish.worker import FixWorker, LandedChange
+
+from ._fakes import make_orchestrator
 
 pytestmark = pytest.mark.unit
 
 
-class _Pg:
-    def list_usecases(self):
-        return ["sign-in"]
-
-    def setup(self, uc):
-        return PlaygroundSession(entrypoints=["http://x"], describe="up")
-
-
-class _FakeExecutor:  # stands in for WorktreeIsolatedExecutor
-    def __init__(self):
-        self.n = 0
-
-    def execute(self, finding):
-        self.n += 1
-        return LandedChange(
-            finding=finding,
-            task_path=Path(f"tasks/T-{self.n:03d}.md"),
-            task_id=f"T-{self.n:03d}",
-            status="landed",
-        )
-
-
-def _orch(tmp_path, findings):
-    backend = FakeAgentBackend(
-        {AgentRole.SYNTHESIS: [AgentResult(ok=True, output={"findings": findings})]}
-    )
-    worker = FixWorker(_FakeExecutor())
-    return PolishOrchestrator(_Pg(), backend, worker, open_nav=lambda e: None)
-
-
 def test_publish_writes_state_with_incrementing_seq(tmp_path):
-    orch = _orch(tmp_path, [{"description": "x"}])
+    orch = make_orchestrator([{"description": "x"}])
     orch.setup("sign-in")
     b = PolishBridge(orch, tmp_path / "polish-state.json", tmp_path / "cmds")
     b.publish()
@@ -56,7 +22,7 @@ def test_publish_writes_state_with_incrementing_seq(tmp_path):
 
 
 def test_poll_commands_dispatches_feedback_then_accept(tmp_path):
-    orch = _orch(tmp_path, [{"description": "sign-in broken", "sr": "SR-010"}])
+    orch = make_orchestrator([{"description": "sign-in broken", "sr": "SR-010"}])
     orch.setup("sign-in")
     cmds = tmp_path / "cmds"
     cmds.mkdir()
@@ -74,4 +40,17 @@ def test_poll_commands_dispatches_feedback_then_accept(tmp_path):
     )
     assert b.poll_commands() == 1
     assert orch.state()["gate1"] == []
+    orch.teardown()
+
+
+def test_poll_commands_skips_half_written_file(tmp_path):
+    orch = make_orchestrator([{"description": "x"}])
+    orch.setup("sign-in")
+    cmds = tmp_path / "cmds"
+    cmds.mkdir()
+    b = PolishBridge(orch, tmp_path / "polish-state.json", cmds)
+
+    (cmds / "001.json").write_text('{"kind": "feed', "utf-8")  # truncated mid-write
+    assert b.poll_commands() == 0
+    assert (cmds / "001.json").exists()  # left for the next poll, not consumed
     orch.teardown()
