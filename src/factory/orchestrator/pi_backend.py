@@ -285,7 +285,14 @@ class PiAgentBackend:
         # Use a temp file for long prompts to avoid Windows' command-line length limit
         prompt_file: str | None = None
         try:
-            if len(prompt) > _CMDLINE_PROMPT_LIMIT:
+            # A newline in an inline -p argument is fatal on Windows: pi is a
+            # .cmd shim, so the argv goes through cmd.exe, which treats the
+            # newline as a command separator -- everything after the first line
+            # (including --mode json) is dropped, pi answers in prose, and the
+            # JSON parser finds nothing. Route any multi-line prompt through the
+            # @file path regardless of length. (Long role prompts already
+            # exceeded the limit, which is why only short multi-line ones broke.)
+            if len(prompt) > _CMDLINE_PROMPT_LIMIT or "\n" in prompt:
                 fd, prompt_file = tempfile.mkstemp(suffix=".md", prefix="pi_prompt_")
                 os.write(fd, prompt.encode("utf-8"))
                 os.close(fd)

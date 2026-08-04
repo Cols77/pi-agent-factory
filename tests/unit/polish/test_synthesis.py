@@ -25,6 +25,15 @@ def test_synthesize_parses_multiple_findings():
     assert out[1].snapshot == {"route": "/tailor"}
 
 
+def test_prompt_demands_a_fenced_json_block():
+    # parse_pi_json returns the LAST ```json block; a prompt that merely asks for
+    # "JSON" gets prose or a bare object, parses to {}, and yields zero findings.
+    # FakeAgentBackend skips the parser, so only this guards the real contract.
+    from factory.polish.synthesis import _PROMPT
+
+    assert "```json" in _PROMPT
+
+
 def test_synthesize_empty_when_backend_not_ok():
     backend = FakeAgentBackend({AgentRole.SYNTHESIS: [AgentResult(ok=False, output={})]})
     assert synthesize(backend, "nothing actionable", "sign-in") == []
