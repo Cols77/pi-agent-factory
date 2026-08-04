@@ -5,9 +5,13 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.polish.config import load_config
+from factory.polish.executor import SubprocessFactoryRunner, WorktreeIsolatedExecutor
 from factory.polish.finding import Finding
+from factory.polish.orchestrator import PolishOrchestrator
 from factory.polish.session import open_navigator, run_polish_session
+from factory.polish.worker import FixWorker
 
 
 def cmd_list(project_root: Path) -> str:
@@ -39,6 +43,30 @@ def cmd_run(
         for r in raw
     ]
     return run_polish_session(playground, usecase, findings, tasks_dir, open_nav=open_nav)
+
+
+def build_orchestrator(
+    project_root: Path,
+    playground: str,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> PolishOrchestrator:
+    """Wire the deterministic polish loop: playground + LLM backend + a serial
+    worker whose fixes run in an isolated worktree and are fast-forwarded into
+    the live branch the dev-server watches (never edited in place)."""
+    cfg = load_config(project_root)
+    pg = cfg.playgrounds[playground]
+    executor = WorktreeIsolatedExecutor(
+        project_root,
+        factory_run=SubprocessFactoryRunner(provider=provider, model=model).run,
+    )
+    worker = FixWorker(executor)
+    ext = project_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
+    backend = PiAgentBackend(
+        repo_root=project_root, extension_path=ext, provider=provider, model=model
+    )
+    return PolishOrchestrator(pg, backend, worker, open_nav=open_navigator)
 
 
 def main(argv: list[str] | None = None) -> int:

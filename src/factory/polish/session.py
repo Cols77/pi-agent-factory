@@ -52,6 +52,13 @@ def run_polish_session(
     *,
     open_nav: Callable[[list[str]], None] | None = None,
 ) -> list[Path]:
+    """DEPRECATED lifecycle wrapper: routes a *pre-supplied* findings list.
+
+    Superseded by PolishOrchestrator (factory.polish.orchestrator), which owns the
+    loop and *produces* findings from live feedback instead of taking them as an
+    argument. Kept for the `factory polish run --from-json` path; new callers
+    should build the orchestrator via factory.polish.cli.build_orchestrator.
+    """
     session = playground.setup(usecase)
     torn = False
 

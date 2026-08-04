@@ -2,7 +2,7 @@ import json
 
 import pytest
 from factory.orchestrator.ledger import load_tasks
-from factory.polish.cli import cmd_list, cmd_run, main
+from factory.polish.cli import build_orchestrator, cmd_list, cmd_run, main
 
 pytestmark = pytest.mark.unit
 
@@ -54,3 +54,16 @@ def test_main_list_exit_code(tmp_path, capsys):
     rc = main(["list", "--project-root", str(tmp_path)])
     assert rc == 0
     assert "ref:shark_warning" in capsys.readouterr().out
+
+
+def test_build_orchestrator_wires_from_config(tmp_path):
+    # minimal .factory/factory.yaml with a dev-server playground
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        "playgrounds:\n  web:\n    type: dev-server\n    browse_url: http://x\n"
+        "    usecases: [sign-in]\n    services: []\n",
+        encoding="utf-8",
+    )
+    orch = build_orchestrator(tmp_path, playground="web", provider=None, model=None)
+    assert orch is not None
+    assert hasattr(orch, "submit_feedback") and hasattr(orch, "state")
