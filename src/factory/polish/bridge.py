@@ -2,16 +2,39 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from factory.polish.orchestrator import PolishOrchestrator
 
+_RETRY_ATTEMPTS = 5
+_RETRY_SLEEP_S = 0.05
+
 
 def _atomic_write(path: Path, text: str) -> None:
+    """Write via temp file + atomic rename, retrying the rename.
+
+    The mirror of atomicWriteWithRetry in polish-protocol.ts, and required for
+    the same reason: Windows holds files open without delete-share, so
+    os.replace raises PermissionError (WinError 5) whenever the UI happens to be
+    reading polish-state.json as we republish it. The UI polls on the same
+    interval we publish on, so this is routine, not exotic -- and without the
+    retry a single collision kills the session and both dev-servers.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)  # atomic on same filesystem
+    last_err: OSError | None = None
+    for _ in range(_RETRY_ATTEMPTS):
+        try:
+            os.replace(tmp, path)  # atomic on same filesystem
+            return
+        except OSError as err:
+            last_err = err
+            time.sleep(_RETRY_SLEEP_S)
+    tmp.unlink(missing_ok=True)  # best-effort cleanup; don't leak .tmp files
+    assert last_err is not None
+    raise last_err
 
 
 class PolishBridge:
@@ -53,7 +76,10 @@ class PolishBridge:
         applied = 0
         for path in sorted(self._commands_dir.glob("*.json")):
             try:
-                cmd = json.loads(path.read_text(encoding="utf-8"))
+                # utf-8-sig tolerates a BOM (some editors/tools emit one) and is
+                # identical to utf-8 when there isn't one. A BOM previously made
+                # json.loads raise, so the command was skipped on every poll forever.
+                cmd = json.loads(path.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError):
                 continue  # a half-written file; try again next poll
             self.dispatch(cmd)
