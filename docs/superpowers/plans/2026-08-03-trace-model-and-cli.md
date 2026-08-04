@@ -1576,11 +1576,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `build_graph` (Task 6), `Gap` (Task 4), `Node` (Task 1).
-- Produces: `Candidate(id, title, evidence, score)`,
-  `Proposal(gap, node_title, node_excerpt, candidates)`,
+- Produces: `Candidate(id, title, summary, shared_terms, score)`,
+  `Proposal(gap, node_title, node_excerpt, pending_total, candidates)`,
   `next_gap(root: Path) -> Proposal | None`, `proposal_to_dict(proposal) -> dict`.
-  This is the deterministic half of the `/trace-fix` loop: it decides *which* gap
-  and *which candidates*; the LLM only decides *which candidate is right, and why*.
+- This is the deterministic half of the `/trace-fix` loop: it decides *which* gap
+  and *which candidates exist*. The LLM decides which candidate is right.
+- **Never truncate the candidate list.** Ranking orders it for convenience;
+  truncating would let a lexical heuristic decide which links are reachable at all,
+  and a correct match whose vocabulary differs would become unpickable. Every
+  candidate carries its `summary` — the requirement's actual statement — because a
+  shared-term count is not something a reader can reason semantically about.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1633,16 +1638,41 @@ def test_proposes_the_first_pending_gap_with_candidates(tmp_path):
     assert proposal.candidates[0].score > proposal.candidates[-1].score
 
 
-def test_candidate_evidence_names_the_shared_terms(tmp_path):
+def test_every_candidate_is_returned_never_truncated(tmp_path):
+    # A lexical ranker must not decide which links are reachable. A correct match
+    # whose vocabulary differs would otherwise be unpickable.
+    _write(
+        tmp_path / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\n---\n\nbody\n",
+    )
+    for n in range(1, 13):
+        _sr(tmp_path, f"SR-{n:03d}", f"requirement number {n}")
+
+    assert len(next_gap(tmp_path).candidates) == 12
+
+
+def test_candidate_carries_the_statement_not_just_a_term_count(tmp_path):
+    # The consumer reasons semantically, which a shared-term count cannot support.
     _write(
         tmp_path / "tasks" / "T-001.md",
         "---\nid: T-001\ntitle: Preempt patrol\nstatus: todo\ndod: []\n---\n\nshark detected\n",
     )
     _sr(tmp_path, "SR-001", "preempt patrol when a shark is detected")
 
-    proposal = next_gap(tmp_path)
+    candidate = next_gap(tmp_path).candidates[0]
 
-    assert "shark" in proposal.candidates[0].evidence
+    assert candidate.summary == "preempt patrol when a shark is detected"
+    assert "shark" in candidate.shared_terms
+
+
+def test_pending_total_is_reported(tmp_path):
+    for task_id in ("T-001", "T-002", "T-003"):
+        _write(
+            tmp_path / "tasks" / f"{task_id}.md",
+            f"---\nid: {task_id}\ntitle: t\nstatus: todo\ndod: []\n---\n",
+        )
+
+    assert next_gap(tmp_path).pending_total == 3
 
 
 def test_deferred_and_exempt_gaps_are_skipped(tmp_path):
@@ -1695,6 +1725,8 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import frontmatter
+
 from factory.trace.gaps import Gap
 from factory.trace.graph import build_graph
 from factory.trace.model import Node
@@ -1707,14 +1739,16 @@ _STOPWORDS = frozenset({
     "task", "plan", "spec", "should", "which", "while", "after", "before",
 })
 
-_EXCERPT_CHARS = 400
+_EXCERPT_CHARS = 1200
+_SUMMARY_CHARS = 400
 
 
 @dataclass(frozen=True)
 class Candidate:
     id: str
     title: str
-    evidence: str
+    summary: str
+    shared_terms: list[str]
     score: int
 
 
@@ -1723,6 +1757,7 @@ class Proposal:
     gap: Gap
     node_title: str
     node_excerpt: str
+    pending_total: int
     candidates: list[Candidate]
 
 
@@ -1737,6 +1772,24 @@ def _read(path: Path) -> str:
         return ""
 
 
+def _summary_of(node: Node) -> str:
+    # An SR's statement is the thing a reader actually needs in order to judge a
+    # match; for everything else the first prose line is the closest equivalent.
+    try:
+        post = frontmatter.load(str(node.path))
+        statement = post.metadata.get("statement")
+        if statement:
+            return str(statement)[:_SUMMARY_CHARS]
+        body = post.content
+    except Exception:
+        body = _read(node.path)
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped[:_SUMMARY_CHARS]
+    return node.title
+
+
 def _candidates_for(gap: Gap, node: Node, nodes: list[Node]) -> list[Candidate]:
     if gap.kind == "task_no_sr":
         pool = [n for n in nodes if n.kind == "sr"]
@@ -1748,29 +1801,29 @@ def _candidates_for(gap: Gap, node: Node, nodes: list[Node]) -> list[Candidate]:
         return []
 
     source_terms = _terms(f"{node.title}\n{_read(node.path)}")
-    candidates: list[Candidate] = []
-    for other in pool:
-        shared = sorted(source_terms & _terms(f"{other.title}\n{_read(other.path)}"))
-        headline = ", ".join(shared[:6])
-        candidates.append(
-            Candidate(
-                id=other.id,
-                title=other.title,
-                evidence=f"shared terms: {headline}" if shared else "no shared terms",
-                score=len(shared),
-            )
+    candidates = [
+        Candidate(
+            id=other.id,
+            title=other.title,
+            summary=_summary_of(other),
+            shared_terms=sorted(source_terms & _terms(f"{other.title}\n{_read(other.path)}")),
+            score=len(source_terms & _terms(f"{other.title}\n{_read(other.path)}")),
         )
+        for other in pool
+    ]
+    # Ranking only ORDERS the list. It is never truncated: a lexical heuristic must
+    # not get to decide which links are reachable, or a correct match phrased in
+    # different vocabulary becomes unpickable.
     # Deterministic: score descending, then id ascending. Never a random tiebreak.
     candidates.sort(key=lambda c: (-c.score, c.id))
-    return candidates[:5]
+    return candidates
 
 
 def next_gap(root: Path) -> Proposal | None:
     graph = build_graph(root)
     by_id = {n.id: n for n in graph.nodes}
-    for gap in graph.gaps:
-        if gap.disposition != "pending":
-            continue
+    pending = [g for g in graph.gaps if g.disposition == "pending"]
+    for gap in pending:
         node = by_id.get(gap.node_id)
         if node is None:
             continue
@@ -1778,6 +1831,7 @@ def next_gap(root: Path) -> Proposal | None:
             gap=gap,
             node_title=node.title,
             node_excerpt=_read(node.path)[:_EXCERPT_CHARS],
+            pending_total=len(pending),
             candidates=_candidates_for(gap, node, graph.nodes),
         )
     return None
@@ -1788,6 +1842,7 @@ def proposal_to_dict(proposal: Proposal) -> dict:
         "gap": asdict(proposal.gap),
         "node_title": proposal.node_title,
         "node_excerpt": proposal.node_excerpt,
+        "pending_total": proposal.pending_total,
         "candidates": [asdict(c) for c in proposal.candidates],
     }
 ```
@@ -1819,15 +1874,19 @@ Add the branch immediately before `return 0`:
         if args.json:
             print(json.dumps(proposal_to_dict(proposal), indent=2))
         else:
-            print(f"{proposal.gap.node_id}  {proposal.gap.kind}  {proposal.gap.detail}")
+            print(
+                f"{proposal.gap.node_id}  {proposal.gap.kind}  {proposal.gap.detail}"
+                f"  ({proposal.pending_total} pending)"
+            )
             for candidate in proposal.candidates:
-                print(f"  {candidate.id:<12} {candidate.title}  ({candidate.evidence})")
+                print(f"  {candidate.id:<12} {candidate.title}")
+                print(f"    {candidate.summary}")
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/unit/trace/ -v`
-Expected: PASS — 54 passed
+Expected: PASS — 56 passed
 
 - [ ] **Step 6: Commit**
 
@@ -1991,7 +2050,7 @@ Add the branch immediately before `return 0`:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/unit/trace/ -v`
-Expected: PASS — 59 passed
+Expected: PASS — 61 passed
 
 - [ ] **Step 5: Verify the whole suite and the linters still pass**
 
@@ -2025,9 +2084,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - **The browser viewer** (`md-render.ts`, `docs-server.ts`, `docs-html.ts`,
   `graph-layout.ts`, `/review-plans --browser`) — plan 2. It consumes
   `factory trace graph --json` and holds no traceability rules.
-- **The `/trace-fix` loop** (`.pi/skills/trace-fix/SKILL.md`, the `/trace-fix`
-  command, the gate wiring) — plan 3. It drives `next` → human confirms →
-  `link|exempt|defer` → `check`.
+- **The `/trace-fix` workflow** — plan 3. It registers five tools (`trace_next`,
+  `trace_link`, `trace_exempt`, `trace_defer`, `trace_check`) over these CLI
+  commands, so the model reasons over the candidates while the tools do the
+  enumerating, validating and writing.
 - **Gap prevention** — gating `factory-run` on a task closing with no `satisfies:`,
   and teaching `writing-plans` to emit a spec key. Deliberately out of scope per
   spec §9; it changes orchestrator and skill behaviour.

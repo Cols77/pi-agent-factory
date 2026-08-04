@@ -112,10 +112,18 @@ Document reads do not spawn anything.
 ```
 factory trace status [--json]      -> health score + gap inventory
 factory trace graph --json         -> nodes + edges + gaps + validation state
-factory trace link <id> --satisfies SR-### | --spec <path>   -> deterministic write
+factory trace next --json          -> next pending gap + EVERY candidate + statements
+factory trace link <id> --satisfies SR-### | --spec <path>   -> validated write
+factory trace exempt|defer <id> --reason "<why>"             -> validated write
+factory trace check                -> the gate; non-zero while any gap is pending
 
-/trace-fix  -> seeds a pi session with the trace-fix skill:
-               propose a link from evidence -> human confirms -> `factory trace link` writes
+/trace-fix  -> seeds a pi session with the trace-fix skill; the model works
+               through gaps using registered tools over the commands above:
+
+   trace_next -> model reads every candidate's statement and judges by meaning
+              -> proposes one with reasoning -> human confirms
+              -> trace_link | trace_exempt | trace_defer  (code validates + writes)
+              -> repeat -> trace_check
 ```
 
 ---
@@ -236,19 +244,31 @@ enforce its own completion.
 
 An LLM cannot be made deterministic. A *workflow* can, by moving **enumeration,
 state, writes, and verification into code** and constraining the model to a single
-judgment per step:
+judgment per step. This is implemented with registered tools (`pi.registerTool`),
+so the model drives the conversation while every mechanical operation runs
+deterministic code:
 
 | concern | owner |
 |---|---|
-| which gap comes next | `factory trace next` — deterministic ordering |
-| candidate targets + evidence | `factory trace next` — deterministic retrieval and ranking |
+| which gap comes next | `trace_next` — deterministic ordering |
+| the candidate set | `trace_next` — **every candidate, each with its full statement** |
 | **which candidate is right, and why** | **the LLM — the only judgment in the loop** |
 | accept / reject / defer | the human |
-| the write | `factory trace link\|exempt\|defer` |
-| did we cover everything | `factory trace check` — the gate |
+| is the link target real | `trace_link` — refuses a non-existent target |
+| the write | `trace_link` / `trace_exempt` / `trace_defer` |
+| did we cover everything | `trace_check` — the gate |
 
 The model never decides when the loop ends, never records its own progress, and
 never writes a file.
+
+**Ranking orders; it never truncates.** Candidates are ordered by shared-term
+overlap, and that ordering is a lexical hint the model is told to distrust. Cutting
+the list to a top-N would let a heuristic that cannot reason decide which links are
+reachable at all — a task and a requirement describing the same behaviour in
+different vocabulary would become impossible to link. For the same reason every
+candidate carries its requirement statement: a shared-term count is not something
+that can be reasoned about semantically. Semantic matching is the one thing the
+model is genuinely better at, and the workflow must not filter it out upstream.
 
 ### 6.2 Dispositions live in frontmatter
 
@@ -285,11 +305,14 @@ are surfaced as warnings with their reasons, never as a pass to be proud of.
 - **`factory trace link <id> --satisfies SR-### | --spec <path>`** — the only
   writer of links. Validates the target exists first, so a confirmed link can never
   create a fresh dangling reference.
-- **`.pi/skills/trace-fix/SKILL.md`** — deliberately narrow: reason about *the one
-  gap the CLI just handed you* and recommend a candidate with its evidence. It owns
-  no iteration and no bookkeeping.
+- **Five registered tools** — `trace_next`, `trace_link`, `trace_exempt`,
+  `trace_defer`, `trace_check` — each a thin wrapper over that CLI. The model
+  reaches the workflow only through them; it never edits frontmatter.
+- **`.pi/skills/trace-fix/SKILL.md`** — deliberately narrow: judge *the one gap
+  `trace_next` just handed you* by reading the candidates' statements, and
+  recommend one with reasoning. It owns no iteration and no bookkeeping.
 - **`/trace-fix`** — seeds a session with that skill, mirroring `/plan` at
-  `index.ts:455-490`, and runs the gate at the end.
+  `index.ts:455-490`.
 
 The proposal step is the only place inference exists in this design. It is always
 surfaced for approval, never persisted without it, and never becomes an edge until
