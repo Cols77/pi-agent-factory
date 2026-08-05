@@ -26,6 +26,9 @@ class GateRunner(Protocol):
 class FakeAgentBackend:
     def __init__(self, scripts: dict[AgentRole, list[AgentResult]]) -> None:
         self._scripts = {k: list(v) for k, v in scripts.items()}
+        # Recorded so tests can assert what a role was actually told, not just
+        # what it returned.
+        self.prompts: list[tuple[AgentRole, str]] = []
 
     def run(
         self,
@@ -34,6 +37,7 @@ class FakeAgentBackend:
         on_snippet: Callable[[str], None] | None = None,
         on_session_id: Callable[[str], None] | None = None,
     ) -> AgentResult:
+        self.prompts.append((role, prompt))
         queue = self._scripts.get(role)
         assert queue, f"FakeAgentBackend: no scripted result for {role}"
         return queue.pop(0)

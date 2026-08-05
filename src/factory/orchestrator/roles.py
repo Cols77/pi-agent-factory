@@ -100,7 +100,12 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "\"why\": \"<one line, optional>\"}]}. "
         "ALWAYS include confidence and 3-6 verify items -- even when dod_met is true; that is "
         "exactly when the human needs to know where you are least sure. verify items are "
-        "concrete behaviors to check, NOT file summaries."
+        "concrete behaviors to check, NOT file summaries.\n"
+        "Read files with the read/view tool -- NOT with bash (bash is disabled for your role). "
+        "The sim and integration suites have ALREADY been run for you by the validation node "
+        "before you were invoked; see 'What happened this run' below for their results. Do not "
+        "ask the human to run them again. verify items are behaviors to check by hand, never "
+        "commands the factory has already executed."
     ),
     AgentRole.SESSION_REVIEW: (
         "Analyze this task's full pipeline run (see the events below): what happened at "
@@ -111,6 +116,8 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "there). Then append a short 'Suggestions' section to this session's summary in "
         "sessions/ noting any skill or prompt improvements that would have made this run "
         "more efficient -- these are suggestions for a human to read later, not changes to "
-        "apply yourself."
+        "apply yourself.\n"
+        "Read and write files with the read/view and write tools -- NOT with bash (bash is "
+        "disabled for your role)."
     ),
 }
