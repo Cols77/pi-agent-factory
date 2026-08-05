@@ -9,8 +9,6 @@ dependencies = [
   "anthropic>=0.40",
   "google-genai>=1.0",
   "openai>=1.50",
-  "pygame>=2.6.1",
-  "matplotlib>=3.11.1",
 ]
 
 [dependency-groups]
@@ -27,8 +25,6 @@ build-backend = "setuptools.build_meta"
 testpaths = ["tests"]
 markers = [
   "unit: fast deterministic tests",
-  "agent: agent decision tests with mocked LLM",
-  "sim: pybullet simulation tests",
 ]
 addopts = "-m unit"
 

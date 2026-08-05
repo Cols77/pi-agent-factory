@@ -1,1 +1,0 @@
-"""Drone mission system."""

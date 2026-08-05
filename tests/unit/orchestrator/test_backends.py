@@ -37,30 +37,43 @@ def test_fake_backend_accepts_and_ignores_on_snippet():
     assert seen == []  # FakeAgentBackend never calls it -- no real streaming to report
 
 
+def _repo_providing_sim_gate(root: Path, body: str = "print('sim ok')\n") -> Path:
+    """A synthetic project that provides a sim gate.
+
+    These tests used to point at this repo and run its real sim gate, chosen
+    because `sim` was a disjoint marker and so would not recurse into `pytest -m
+    unit`. The factory no longer owns any sim tests -- that suite moved to the
+    drone repo -- so the gate is now supplied by a throwaway project instead.
+    That is closer to the truth anyway: what is under test is the runner, not
+    whichever suites this repo happens to contain.
+    """
+    gates = root / "scripts" / "gates"
+    gates.mkdir(parents=True, exist_ok=True)
+    (gates / "sim_smoke.py").write_text(body, encoding="utf-8")
+    return root
+
+
 def test_subprocess_gate_runner_writes_log_when_log_dir_set(tmp_path: Path):
-    # "sim" (not "unit") on purpose: the unit gate shells out to `pytest -m
-    # unit`, which would pick this very test file back up and recurse
-    # forever. The sim suite is a separate, disjoint marker, so it is safe to
-    # invoke for real here while still exercising a real gate script/process.
+    project = _repo_providing_sim_gate(tmp_path / "project")
     log_dir = tmp_path / "logs"
-    runner = SubprocessGateRunner(_REPO_ROOT, log_dir=log_dir)
+    runner = SubprocessGateRunner(project, log_dir=log_dir)
 
     rc = runner.run("sim")
 
     log_path = log_dir / "sim-gate.log"
     assert log_path.exists()
-    content = log_path.read_text(encoding="utf-8")
-    assert content.strip() != ""
+    assert log_path.read_text(encoding="utf-8").strip() != ""
     assert rc == 0
 
 
 def test_subprocess_gate_runner_no_log_dir_writes_nothing(tmp_path: Path):
-    runner = SubprocessGateRunner(_REPO_ROOT)  # log_dir defaults to None
+    project = _repo_providing_sim_gate(tmp_path / "project")
+    runner = SubprocessGateRunner(project)  # log_dir defaults to None
 
     rc = runner.run("sim")
 
     assert rc == 0
-    assert list(tmp_path.iterdir()) == []
+    assert list((tmp_path / "project").glob("*-gate.log")) == []
 
 
 def test_subprocess_gate_reports_not_applicable_when_the_project_has_no_such_gate(tmp_path):
