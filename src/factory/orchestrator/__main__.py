@@ -17,6 +17,7 @@ from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.orchestrator.run_state import read_last_run
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FileStatusReporter
+from factory.paths import scope_guard_extension
 
 
 def _git_info(repo_root: Path) -> dict:
@@ -65,9 +66,16 @@ def main() -> None:
             print(format_task_board(tasks))
         return
 
-    ext = repo_root / "pi-ext" / "scope-guard" / "src" / "index.ts"
+    # The extension ships with the FACTORY. Deriving it from --repo meant every
+    # cross-repo run launched pi with a path that does not exist there: pi
+    # refused to start, context-gather returned nothing and rejected, the run
+    # abandoned the task and still exited 0 -- reported upstream as a clean run
+    # that simply committed nothing.
     backend = PiAgentBackend(
-        repo_root=repo_root, extension_path=ext, provider=args.provider, model=args.model
+        repo_root=repo_root,
+        extension_path=scope_guard_extension(),
+        provider=args.provider,
+        model=args.model,
     )
 
     session_id = _now_id()

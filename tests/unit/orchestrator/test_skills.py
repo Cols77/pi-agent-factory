@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 
+import factory.paths
 from factory.orchestrator.skills import factory_skills_dir, load_skill_block
 
 pytestmark = pytest.mark.unit
@@ -44,6 +47,24 @@ def test_project_vendored_skill_wins_over_the_factory_copy(tmp_path):
     )
     block = load_skill_block(tmp_path, "verification-before-completion")
     assert "PROJECT LOCAL OVERRIDE" in block
+
+
+def test_no_module_derives_a_factory_asset_from_the_target_repo():
+    """Factory-owned assets must resolve from factory.paths, never from --repo.
+
+    This exact mistake has now caused three silent failures: the scope-guard
+    path in polish, the role skills, and the scope-guard path in the
+    orchestrator's own entrypoint -- where pi refused to start, context-gather
+    rejected, and the run still exited 0 while committing nothing.
+    """
+    src_root = Path(factory.paths.__file__).resolve().parent
+    offenders = [
+        py.relative_to(src_root).as_posix()
+        for py in src_root.rglob("*.py")
+        if 'repo_root / "pi-ext"' in py.read_text(encoding="utf-8")
+        or 'project_root / "pi-ext"' in py.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], f"derive these from factory.paths instead: {offenders}"
 
 
 def test_missing_everywhere_names_both_locations(tmp_path):

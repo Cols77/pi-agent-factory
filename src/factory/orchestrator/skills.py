@@ -4,16 +4,11 @@ from pathlib import Path
 
 import frontmatter
 
+from factory.paths import factory_skills_dir
 
-def factory_skills_dir() -> Path:
-    """The factory's own vendored skills.
-
-    Role skills ship with the FACTORY, not with the repo being worked on, so
-    they must resolve from here whenever the target project doesn't vendor its
-    own. Same reasoning as scope_guard_extension() in factory.polish.cli.
-    """
-    # <factory_root>/src/factory/orchestrator/skills.py -> <factory_root>
-    return Path(__file__).resolve().parents[3] / ".pi" / "skills"
+# Re-exported: role skills ship with the FACTORY, not with the repo being worked
+# on, so they resolve from factory.paths whenever the target project has none.
+__all__ = ["factory_skills_dir", "load_skill_block"]
 
 
 def load_skill_block(skills_dir: Path, name: str) -> str:
