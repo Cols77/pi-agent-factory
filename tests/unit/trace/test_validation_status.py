@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from factory.trace.validation_status import load_validation
+
+pytestmark = pytest.mark.unit
+
+
+def _report(tmp_path: Path, entries: list[dict]) -> None:
+    path = tmp_path / "validation" / "validation-report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"requirements": entries}), encoding="utf-8")
+
+
+def test_passing_entry(tmp_path):
+    _report(
+        tmp_path,
+        [{
+            "id": "SR-001", "domain": "behavioral", "metric": "preemption_success_rate",
+            "value": 1.0, "assert": ">= 0.90", "passed": True, "trials": 3,
+            "declared_trials": 3, "stale": False, "artifacts": ["traces/shark.json"],
+        }],
+    )
+
+    status = load_validation(tmp_path)["SR-001"]
+
+    assert status.state == "passed"
+    assert status.stale is False
+    assert status.value == 1.0
+    assert status.assert_expr == ">= 0.90"
+    assert status.trials == 3
+    assert status.declared_trials == 3
+    assert status.artifacts == ["traces/shark.json"]
+
+
+def test_failing_entry(tmp_path):
+    _report(tmp_path, [{"id": "SR-002", "passed": False, "stale": False}])
+
+    assert load_validation(tmp_path)["SR-002"].state == "failed"
+
+
+def test_harness_error_entry_is_its_own_state(tmp_path):
+    _report(tmp_path, [{"id": "SR-003", "error": "unknown harness: bogus"}])
+
+    status = load_validation(tmp_path)["SR-003"]
+
+    assert status.state == "error"
+    assert status.error == "unknown harness: bogus"
+
+
+def test_stale_is_orthogonal_to_passed(tmp_path):
+    # The dangerous state: green earned against a statement that has since changed.
+    _report(tmp_path, [{"id": "SR-004", "passed": True, "stale": True}])
+
+    status = load_validation(tmp_path)["SR-004"]
+
+    assert status.state == "passed"
+    assert status.stale is True
+
+
+def test_missing_report_yields_empty_map_not_an_error(tmp_path):
+    assert load_validation(tmp_path) == {}
+
+
+def test_unreadable_report_yields_empty_map(tmp_path):
+    path = tmp_path / "validation" / "validation-report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+
+    assert load_validation(tmp_path) == {}
