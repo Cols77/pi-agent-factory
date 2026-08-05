@@ -27,7 +27,7 @@ gate("full") == 0  AND  dod_met == true  AND  findings == []   ->  PASS
 anything else                                                  ->  CHANGES-REQUESTED (back to Dev)
 ```
 
-`gate("full")` runs lint + typecheck + unit tests (the project's `full` gate, declared in .factory/factory.yaml) — independent of what you say. **There is no severity tier that doesn't block.** Unlike the interactive "Critical / Important / Minor" review format, any single entry in `findings` — however minor — sends the task back to Dev. If you wouldn't actually want this task re-opened over an issue, don't put it in `findings`; mention it as prose commentary instead, outside the JSON block.
+`gate("full")` runs the project's `full` gate, declared in .factory/factory.yaml — independent of what you say. **There is no severity tier that doesn't block.** Unlike the interactive "Critical / Important / Minor" review format, any single entry in `findings` — however minor — sends the task back to Dev. If you wouldn't actually want this task re-opened over an issue, don't put it in `findings`; mention it as prose commentary instead, outside the JSON block.
 
 ## What to Check
 
