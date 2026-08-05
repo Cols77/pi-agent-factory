@@ -104,6 +104,31 @@ def test_poll_commands_reads_a_bom_prefixed_command(tmp_path):
     orch.teardown()
 
 
+def test_poll_commands_survives_a_command_naming_an_unknown_gid(tmp_path):
+    # The panel's view is always a poll behind the orchestrator, so a row can be
+    # consumed between render and keypress. Observed live: one such command
+    # (KeyError on the gid) killed the serve loop and both dev-servers.
+    orch = make_orchestrator([{"description": "x"}])
+    orch.setup("sign-in")
+    cmds = tmp_path / "cmds"
+    cmds.mkdir()
+    b = PolishBridge(orch, tmp_path / "polish-state.json", cmds)
+
+    (cmds / "001.json").write_text(
+        json.dumps({"kind": "accept", "args": {"gid": "g1-gone"}}), "utf-8"
+    )
+    assert b.poll_commands() == 1  # consumed, not fatal
+    assert orch.state()["usecase"] == "sign-in"  # session still alive
+
+    # and a good command right after it still works
+    (cmds / "002.json").write_text(
+        json.dumps({"kind": "feedback", "args": {"text": "broken"}}), "utf-8"
+    )
+    assert b.poll_commands() == 1
+    assert orch.state()["gate1_ids"]
+    orch.teardown()
+
+
 def test_poll_commands_skips_half_written_file(tmp_path):
     orch = make_orchestrator([{"description": "x"}])
     orch.setup("sign-in")

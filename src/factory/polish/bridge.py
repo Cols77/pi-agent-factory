@@ -82,7 +82,16 @@ class PolishBridge:
                 cmd = json.loads(path.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError):
                 continue  # a half-written file; try again next poll
-            self.dispatch(cmd)
+            try:
+                self.dispatch(cmd)
+            except KeyError:
+                # The UI polls state on the same interval we publish it, so its
+                # view is always slightly behind: a Gate 1 row can be accepted or
+                # reworked between the render the human saw and the key they
+                # pressed. A command naming a gid that no longer exists is a
+                # normal race, not a reason to kill the session (which took both
+                # dev-servers with it when it happened live).
+                pass
             path.unlink(missing_ok=True)
             applied += 1
         if applied:
