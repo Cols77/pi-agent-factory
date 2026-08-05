@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from factory.config import load_config, require_gates
+from factory.config import GateConfigError, load_config, require_gates
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
@@ -81,9 +81,13 @@ def main() -> None:
 
     session_id = _now_id()
     transcript_dir = repo_root / "sessions" / ".factory-transcripts" / session_id
-    gates = ConfigGateRunner(
-        repo_root, require_gates(load_config(repo_root), repo_root), log_dir=transcript_dir
-    )
+    try:
+        gates = ConfigGateRunner(
+            repo_root, require_gates(load_config(repo_root), repo_root), log_dir=transcript_dir
+        )
+    except GateConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
 
     kwargs = {}
     if args.provider and args.model:

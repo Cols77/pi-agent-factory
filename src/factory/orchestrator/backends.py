@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
@@ -51,6 +52,19 @@ class FakeGateRunner:
         return 0
 
 
+def _quote_for_shell(path: str) -> str:
+    """Quote an interpreter path for safe interpolation into a `shell=True`
+    command string. cmd.exe and POSIX shells disagree on quoting rules, so
+    this picks the platform-correct call rather than hardcoding either --
+    an unquoted path containing a space (e.g. under 'C:\\Users\\First Last\\'
+    or 'C:\\Program Files\\...') would otherwise split into two tokens and
+    fail every gate.
+    """
+    if sys.platform == "win32":
+        return subprocess.list2cmdline([path])
+    return shlex.quote(path)
+
+
 class ConfigGateRunner:
     """Runs the gate steps a project declares in .factory/factory.yaml.
 
@@ -81,7 +95,7 @@ class ConfigGateRunner:
 
         chunks: list[str] = []
         for step in steps:
-            cmd = step.cmd.replace("{python}", sys.executable)
+            cmd = step.cmd.replace("{python}", _quote_for_shell(sys.executable))
             cwd = self._repo_root / step.cwd if step.cwd else self._repo_root
             if self._log_dir is None:
                 rc = subprocess.run(cmd, shell=True, cwd=str(cwd), check=False).returncode

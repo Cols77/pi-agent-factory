@@ -1,4 +1,6 @@
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -66,3 +68,37 @@ def test_without_log_dir_nothing_is_written(tmp_path):
     runner = ConfigGateRunner(tmp_path, {"unit": [_ok()]})
     assert runner.run("unit") == 0
     assert not (tmp_path / "unit-gate.log").exists()
+
+
+def test_python_placeholder_is_quoted_when_the_interpreter_path_has_a_space(tmp_path, monkeypatch):
+    """The runner uses shell=True, so an unquoted {python} expansion whose
+    path contains a space (e.g. 'C:\\Users\\First Last\\...') splits into two
+    shell tokens and every gate fails. Reproduce that path shape by making
+    sys.executable resolve through a directory junction/symlink whose name
+    contains a space, pointing at the real interpreter's install root (not
+    just its immediate directory -- a venv's python.exe locates pyvenv.cfg
+    relative to itself, so only mirroring the whole root keeps it runnable)."""
+    exe = Path(sys.executable).resolve()
+    real_root = exe.parent.parent  # venv root: real_root/Scripts|bin/python(.exe)
+    rel_exe = exe.relative_to(real_root)
+    spaced_dir = tmp_path / "a b"
+
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(spaced_dir), str(real_root)],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"could not create a directory junction: {result.stderr or result.stdout}")
+    else:
+        spaced_dir.symlink_to(real_root)
+
+    spaced_python = spaced_dir / rel_exe
+    assert spaced_python.exists(), "junction/symlink did not expose the interpreter"
+
+    monkeypatch.setattr(sys, "executable", str(spaced_python))
+
+    runner = ConfigGateRunner(
+        tmp_path, {"unit": [GateStep(cmd='{python} -c "print(1)"')]}, log_dir=tmp_path / "logs"
+    )
+    assert runner.run("unit") == 0

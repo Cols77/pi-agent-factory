@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from factory.config import GateConfigError
 from factory.orchestrator.__main__ import main
 
 pytestmark = pytest.mark.unit
@@ -62,14 +61,18 @@ def test_main_error_status_on_run_next_exception(tmp_path, monkeypatch):
     assert not lock_path.exists(), f"Lock file should be removed after exception, but exists at {lock_path}"
 
 
-def test_main_run_requires_declared_gates_before_run_next(tmp_path, monkeypatch):
+def test_main_run_requires_declared_gates_before_run_next(tmp_path, monkeypatch, capsys):
     """main() must build its gates via require_gates, not a bare
     load_config(repo_root).gates -- a repo with no .factory/factory.yaml has
     to fail loudly here, before run_next runs anything, or a project that
     declares no gates would validate nothing while reporting green (the
     failure mode Task 3's require_gates exists to prevent). run_next is
     monkeypatched to fail the test if it is ever reached, so this can only
-    pass if the config check fires first."""
+    pass if the config check fires first.
+
+    main() catches GateConfigError at the construction site and turns it into
+    a clean SystemExit (mirroring the AlreadyRunningError handler), rather
+    than letting it escape as a raw traceback with no status file written."""
     # Deliberately no .factory/factory.yaml under tmp_path.
     monkeypatch.setattr(sys, "argv", ["factory.orchestrator", "run", "--repo", str(tmp_path)])
 
@@ -78,8 +81,10 @@ def test_main_run_requires_declared_gates_before_run_next(tmp_path, monkeypatch)
 
     monkeypatch.setattr("factory.orchestrator.__main__.run_next", mock_run_next)
 
-    with pytest.raises(GateConfigError, match="no gates"):
+    with pytest.raises(SystemExit) as exc_info:
         main()
+    assert exc_info.value.code == 1
+    assert "no gates" in capsys.readouterr().err
 
 
 def test_main_list_prints_task_board_and_touches_no_run_state(tmp_path, monkeypatch, capsys):
