@@ -73,6 +73,29 @@ def test_green_run_that_committed_nothing_is_not_landed(tmp_path):
     assert not (live / "tasks").exists()
 
 
+def test_failed_fix_keeps_the_worktree_for_debugging(tmp_path):
+    # A failed run's worktree holds the only evidence of what the dev agent did
+    # (or didn't) do. Discarding it threw that away and made the failure
+    # un-diagnosable after the fact.
+    live = _repo(tmp_path)
+
+    def fake_run(task_id, wt: Path) -> RunOutcome:
+        (wt / "app.txt").write_text("half-done", encoding="utf-8")
+        return RunOutcome(ok=False, detail="validation red")
+
+    ex = WorktreeIsolatedExecutor(live, factory_run=fake_run)
+    landed = ex.execute(Finding(usecase="sign-in", description="broken"))
+
+    assert landed.status == "failed"
+    kept = list((live / ".worktrees").glob("polish-fix-*"))
+    assert len(kept) == 1, "the failed run's worktree should be kept"
+    assert str(kept[0]) in landed.detail, "and the human must be told where it is"
+    # the agent's partial work is inspectable
+    assert (kept[0] / "app.txt").read_text(encoding="utf-8") == "half-done"
+    # while the live tree is still untouched
+    assert (live / "app.txt").read_text(encoding="utf-8") == "v0"
+
+
 def test_red_fix_leaves_live_untouched(tmp_path):
     live = _repo(tmp_path)
 

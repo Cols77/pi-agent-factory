@@ -59,6 +59,7 @@ class WorktreeIsolatedExecutor:
         self._worktrees_root.mkdir(parents=True, exist_ok=True)
         wt = self._worktrees_root / branch.replace("/", "-")
         _git(self._live, "worktree", "add", "-b", branch, str(wt), "HEAD")
+        keep = False  # a failed run's worktree is kept for inspection
         task_path = wt / self._tasks_subdir / "pending.md"  # replaced below; keeps type-checkers happy
         try:
             task_path = route(finding, wt / self._tasks_subdir)
@@ -86,8 +87,15 @@ class WorktreeIsolatedExecutor:
                         live_task_path = self._live / self._tasks_subdir / task_path.name
                     else:
                         detail = f"fast-forward into live failed: {ff.stderr.strip()}"
+            if status == "failed":
+                # Keep the worktree: it holds the only record of what the dev
+                # agent actually did, and discarding it makes the failure
+                # impossible to diagnose afterwards. Say where it is.
+                keep = True
+                detail = f"{detail} -- worktree kept for debugging: {wt}"
             return LandedChange(finding=finding, task_path=live_task_path,
                                 task_id=task_id, status=status, detail=detail)
         finally:
-            _git(self._live, "worktree", "remove", "--force", str(wt))
-            _git(self._live, "branch", "-D", branch)  # best-effort; ignored if already gone
+            if not keep:
+                _git(self._live, "worktree", "remove", "--force", str(wt))
+                _git(self._live, "branch", "-D", branch)  # best-effort if already gone
