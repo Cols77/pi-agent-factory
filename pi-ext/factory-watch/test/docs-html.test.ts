@@ -34,6 +34,30 @@ describe("renderDocsHtml", () => {
     }
   });
 
+  test("labels list entries by node id, not title alone", () => {
+    // The sidebar used to render n.title only, so a task the factory reports as
+    // T-051 was unfindable by that id while the map labelled it T-051.
+    expect(html).toContain("shortId(n.id)");
+  });
+
+  test("offers a filter so a known id can be found directly", () => {
+    expect(html).toContain('id="filter"');
+    expect(html).toContain("T-051");
+  });
+
+  test("draws graph nodes as boxes over the edges, not as bare anchors", () => {
+    expect(html).toContain("layout.width");
+    expect(html).toContain("'rect'");
+    // edges are appended before nodes so opaque boxes paint over them
+    expect(html.indexOf("class: 'gedge'")).toBeLessThan(html.indexOf("class: 'gnode'"));
+  });
+
+  test("is responsive rather than a fixed three-column slab", () => {
+    expect(html).toContain("@media");
+    expect(html).toContain("viewBox");
+    expect(html).toContain('name="viewport"');
+  });
+
   test("carries a legend for all five validation states", () => {
     for (const label of ["pass", "fail", "error", "never validated", "stale"]) {
       expect(html.toLowerCase()).toContain(label);
