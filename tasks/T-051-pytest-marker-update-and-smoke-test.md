@@ -4,10 +4,8 @@ dod:
 id: T-051
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 11
-status: todo
+status: done
 title: Pytest Marker Update and Smoke Test
 ---
-
-
 
 Full steps: docs/superpowers/plans/2026-07-30-sim-testbench.md, Task 11.
