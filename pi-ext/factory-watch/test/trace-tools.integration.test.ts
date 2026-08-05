@@ -9,8 +9,10 @@ import { traceCheckTool, traceLinkTool, traceNextTool } from "../src/trace-tools
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CTX = { cwd: REPO_ROOT };
 
-function run(tool: { execute: Function }, params: unknown) {
-  return tool.execute("call-1", params, undefined, undefined, CTX);
+async function run(tool: { execute: Function }, params: unknown) {
+  const r = await tool.execute("call-1", params, undefined, undefined, CTX);
+  // AgentToolResult.content is a block array; flatten it for assertions.
+  return { ...r, content: r.content.map((c: { text: string }) => c.text).join("\n") };
 }
 
 describe("trace tools against the real CLI", () => {

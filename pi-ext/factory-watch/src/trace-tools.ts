@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import type { PiApi } from "./pi-types.js";
 import { loadNextGap, runTrace, runTraceCheck } from "./trace-cli.js";
 import {
   formatCheck,
@@ -13,8 +14,11 @@ interface ToolCtx {
   cwd: string;
 }
 
-function result(content: string): { content: string } {
-  return { content };
+// AgentToolResult.content is a block array, not a string, and `details` is
+// required -- pi's getTextOutput calls result.content.filter(), so returning a
+// bare string crashes the interactive renderer.
+function result(text: string): { content: { type: "text"; text: string }[]; details: null } {
+  return { content: [{ type: "text", text }], details: null };
 }
 
 export const traceNextTool = {
@@ -138,7 +142,10 @@ export const traceCheckTool = {
   },
 };
 
-export function registerTraceTools(pi: { registerTool(tool: unknown): void }): void {
+// Typed as PiApi's real registerTool, NOT `{ registerTool(tool: unknown) }`.
+// The `unknown` version silently opted every tool out of being checked against
+// ToolDefinition, which is how a string `content` reached the renderer.
+export function registerTraceTools(pi: Pick<PiApi, "registerTool">): void {
   for (const tool of [
     traceNextTool,
     traceLinkTool,

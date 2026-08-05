@@ -20,8 +20,10 @@ import {
 
 const CTX = { cwd: "/repo" };
 
-function run(tool: { execute: Function }, params: unknown) {
-  return tool.execute("call-1", params, undefined, undefined, CTX);
+async function run(tool: { execute: Function }, params: unknown) {
+  const r = await tool.execute("call-1", params, undefined, undefined, CTX);
+  // AgentToolResult.content is a block array; flatten it for assertions.
+  return { ...r, content: r.content.map((c: { text: string }) => c.text).join("\n") };
 }
 
 const PROPOSAL = {
@@ -154,5 +156,18 @@ describe("trace_check", () => {
     const result = await run(traceCheckTool, {});
     expect(result.content).toContain("GATE FAILED");
     expect(result.content).toContain("45");
+  });
+});
+
+describe("tool result shape", () => {
+  test("returns a content block array with details, as AgentToolResult requires", async () => {
+    // Regression: returning { content: string } typechecked (registerTraceTools
+    // took `unknown`) and crashed pi's renderer at result.content.filter().
+    spawnSync.mockReturnValue({ status: 0, stdout: "0 pending, 0 deferred, 0 exempt", stderr: "" });
+    const raw = await traceCheckTool.execute("id", {}, undefined, undefined, CTX);
+    expect(Array.isArray(raw.content)).toBe(true);
+    expect(raw.content[0]).toMatchObject({ type: "text" });
+    expect(typeof raw.content[0]!.text).toBe("string");
+    expect("details" in raw).toBe(true);
   });
 });
