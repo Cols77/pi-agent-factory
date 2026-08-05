@@ -82,6 +82,10 @@ STATE_FILE = "polish-state.json"
 COMMANDS_DIR = "polish-commands"
 LIVE_FILE = "polish-session.live"
 
+# ~5s of unbroken failures at the default poll interval: long past a lock race,
+# short of letting a genuinely unwritable state file look like a healthy session.
+_MAX_CONSECUTIVE_PUBLISH_FAILURES = 25
+
 
 def run_polish_serve(
     orchestrator: PolishOrchestrator,
@@ -91,12 +95,33 @@ def run_polish_serve(
     poll_interval: float = 0.2,
 ) -> None:
     """Publish state, then drain UI commands until should_stop(). Always tears down."""
+    consecutive_publish_failures = 0
+
+    def _publish() -> None:
+        """Publish state, tolerating the odd lost race.
+
+        The panel reads polish-state.json on the same cadence we rewrite it --
+        five times a second -- so on Windows a reader's handle will occasionally
+        outlast the rename retries. The file is a cache of state we still hold,
+        so a lost tick costs nothing: the next publish carries the same data.
+        Killing an 18-minute session (and both dev-servers) over one is absurd.
+        A sustained run of failures is a different thing and still raises.
+        """
+        nonlocal consecutive_publish_failures
+        try:
+            bridge.publish()
+            consecutive_publish_failures = 0
+        except OSError:
+            consecutive_publish_failures += 1
+            if consecutive_publish_failures >= _MAX_CONSECUTIVE_PUBLISH_FAILURES:
+                raise
+
     try:
-        bridge.publish()  # inside the try: a throw here must still tear down
+        _publish()  # inside the try: a throw here must still tear down
         while not should_stop():
             bridge.poll_commands()
             # the worker may have landed a fix between polls -> Gate 2 grows
-            bridge.publish()
+            _publish()
             if poll_interval:
                 time.sleep(poll_interval)
     finally:

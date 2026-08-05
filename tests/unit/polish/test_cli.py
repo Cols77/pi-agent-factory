@@ -89,9 +89,43 @@ def test_scope_guard_extension_resolves_inside_the_factory_not_the_target_repo(t
     assert tmp_path not in ext.parents
 
 
-def test_serve_tears_down_even_if_the_first_publish_fails(tmp_path):
-    # The opening publish must be inside the try: a throw there would otherwise
-    # skip teardown entirely and leave both dev-servers running.
+def test_serve_survives_a_transient_publish_failure(tmp_path):
+    # Observed live: a Windows file lock beat the rename retries after 18 minutes
+    # of healthy operation and killed the session and both dev-servers. The state
+    # file is a cache -- a lost tick must cost nothing.
+    orch = make_orchestrator([{"description": "x"}])
+    orch.setup("sign-in")
+
+    class _FlakyBridge:
+        def __init__(self):
+            self.attempts = 0
+            self.published = 0
+
+        def publish(self):
+            self.attempts += 1
+            if self.attempts <= 3:
+                raise PermissionError(5, "Access is denied")
+            self.published += 1
+
+        def poll_commands(self):
+            return 0
+
+    bridge = _FlakyBridge()
+    ticks = {"n": 0}
+
+    def should_stop():
+        ticks["n"] += 1
+        return ticks["n"] > 6
+
+    run_polish_serve(orch, bridge, should_stop=should_stop, poll_interval=0.0)
+
+    assert bridge.published > 0, "should have recovered and kept publishing"
+    assert orch.state()["entrypoints"] == []  # torn down cleanly at the end
+
+
+def test_serve_gives_up_and_tears_down_if_publishing_never_works(tmp_path):
+    # A genuinely unwritable state file must not masquerade as a healthy session.
+    # The opening publish is inside the try, so teardown still runs.
     orch = make_orchestrator([{"description": "x"}])
     orch.setup("sign-in")
 
@@ -103,7 +137,7 @@ def test_serve_tears_down_even_if_the_first_publish_fails(tmp_path):
             return 0
 
     with pytest.raises(OSError):
-        run_polish_serve(orch, _BoomBridge(), should_stop=lambda: True, poll_interval=0.0)
+        run_polish_serve(orch, _BoomBridge(), should_stop=lambda: False, poll_interval=0.0)
 
     # teardown ran: the playground session was released
     assert orch.state()["entrypoints"] == []
