@@ -19,3 +19,19 @@ def test_context_gatherer_prompt_documents_typed_checks():
     assert "proven=true" not in prompt
     # Coverage requirement is stated.
     assert "Modify:" in prompt
+
+
+def test_review_prompt_tells_the_agent_bash_is_disabled():
+    # roles.py gives REVIEW Scope(bash="deny"), but only CONTEXT_GATHERER's prompt
+    # said so. Without it the agent hit the denial at runtime with no guidance and
+    # improvised by asking the human to run commands itself.
+    prompt = ROLE_PROMPTS[AgentRole.REVIEW]
+    assert "bash" in prompt
+
+
+def test_every_bash_denied_role_says_so_in_its_prompt():
+    from factory.orchestrator.roles import ROLE_SCOPE
+
+    for role, scope in ROLE_SCOPE.items():
+        if scope.bash == "deny":
+            assert "bash" in ROLE_PROMPTS[role], f"{role.value} denies bash without saying so"

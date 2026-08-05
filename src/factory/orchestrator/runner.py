@@ -174,6 +174,7 @@ def run_task(
                 repo_root,
                 transcript_dir=transcript_dir,
                 status=status,
+                events=list(events),
             )
             events.append(r_ev)
             if r_outcome == NodeOutcome.PASS:

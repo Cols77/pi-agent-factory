@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import shutil
 import subprocess
 import tempfile
@@ -15,7 +14,11 @@ from pathlib import Path
 from factory.orchestrator.roles import ROLE_SCOPE
 from factory.orchestrator.types import AgentResult, AgentRole
 
-_JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
+# The real JSON the agent emits is always the LAST ```json block. A thinking
+# block frequently quotes the prompt ("emit ONLY a fenced ```json block"), so
+# parsing must anchor on the final occurrence rather than a forward findall,
+# which a literal fragment could fool.
+_JSON_START = "```json"
 
 # Bounds on how long an agent subprocess may run before the orchestrator kills
 # it, so a stalled or runaway agent can't hang the pipeline forever (the
@@ -131,11 +134,20 @@ def parse_pi_json(stdout: str) -> dict:
         if isinstance(event, dict) and event.get("type") == "message_end":
             text_parts.extend(_assistant_text_blocks(event.get("message")))
     full = "".join(text_parts)
-    blocks = _JSON_BLOCK.findall(full)
-    if not blocks:
+
+    # The real JSON is the LAST ```json block the agent emits. A thinking block
+    # frequently quotes the prompt ("emit ONLY a fenced ```json block"), which a
+    # forward findall can mistake for the real block and swallow the actual
+    # closing fence. Search backward from the end so the last ```json always
+    # wins; extract to the next ``` fence after it.
+    start = full.rfind(_JSON_START)
+    if start < 0:
+        return {}
+    end = full.find("```", start + len(_JSON_START))
+    if end < 0:
         return {}
     try:
-        return json.loads(blocks[-1])
+        return json.loads(full[start + len(_JSON_START):end])
     except json.JSONDecodeError:
         return {}
 

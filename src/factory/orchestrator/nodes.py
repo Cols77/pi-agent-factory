@@ -370,6 +370,7 @@ def run_review(
     repo_root: Path,
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
+    events: list[NodeEvent] | None = None,
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
     status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
     captured_session_id: str | None = None
@@ -400,7 +401,13 @@ def run_review(
     result = backend.run(
         AgentRole.REVIEW,
         compose_prompt(
-            AgentRole.REVIEW, task, kb_entries=kb_entries, skills_dir=repo_root / ".pi" / "skills"
+            AgentRole.REVIEW,
+            task,
+            kb_entries=kb_entries,
+            skills_dir=repo_root / ".pi" / "skills",
+            # Tells the reviewer the gates already ran, so it stops asking the
+            # human to run suites the validation node executed before it started.
+            events=events,
         ),
         on_snippet=_on_snippet,
         on_session_id=_on_session_id,

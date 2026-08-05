@@ -157,3 +157,19 @@ def test_run_review_carries_confidence_and_verify_in_event(tmp_path):
     _outcome, ev, _findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path)
     assert ev.extra["confidence"] == "medium -- edges thin"
     assert ev.extra["verify"] == [{"item": "advance past last waypoint", "file": "src/x.py", "line": 44}]
+
+
+def test_review_prompt_reports_that_validation_already_ran(tmp_path):
+    # run_validation executes the sim/integration gates deterministically BEFORE
+    # run_review (runner.py). Without being told, the review agent cannot know the
+    # suites are already green and asks the human to run them again.
+    from factory.orchestrator.types import NodeEvent
+
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
+    events = [NodeEvent("dev", "pass"), NodeEvent("validation", "pass")]
+
+    run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path, events=events)
+
+    prompt = b.prompts[0][1]
+    assert "validation: pass" in prompt
