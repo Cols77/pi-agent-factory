@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from factory.config import GateConfigError, load_config, require_gates
