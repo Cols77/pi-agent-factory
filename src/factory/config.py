@@ -75,3 +75,19 @@ def load_config(project_root: Path) -> FactoryConfig:
         for n, s in (data.get("harnesses") or {}).items()
     }
     return FactoryConfig(playgrounds, harnesses, _parse_gates(data))
+
+
+def require_gates(cfg: FactoryConfig, project_root: Path) -> dict[str, list[GateStep]]:
+    """Gates for a project that must have them, else raise.
+
+    'This project has no sim' and 'this project never said what to check' are
+    different statements. An individual gate may be omitted -- it skips -- but a
+    project with no gates at all would validate nothing while reporting green.
+    """
+    if not cfg.gates:
+        raise GateConfigError(
+            f"{project_root / '.factory' / 'factory.yaml'} declares no gates. "
+            "Add a 'gates:' section naming what to run for unit/sim/integration/full; "
+            "an individual gate may be omitted and will be skipped."
+        )
+    return cfg.gates
