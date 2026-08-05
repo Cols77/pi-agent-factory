@@ -54,6 +54,20 @@ class FakeGateRunner:
         return 0
 
 
+# A gate the project does not provide. Distinct from 0 (ran, passed) and from any
+# positive code (ran, failed) -- absence must never be reported as failure, or a
+# repo without a sim suite fails every task at the validation node.
+GATE_NOT_APPLICABLE = -1
+
+# pytest's exit code for "no tests were collected". For a gate that means the
+# project has no such suite, not that the suite failed.
+PYTEST_NO_TESTS_COLLECTED = 5
+
+
+def _translate(code: int) -> int:
+    return GATE_NOT_APPLICABLE if code == PYTEST_NO_TESTS_COLLECTED else code
+
+
 class SubprocessGateRunner:
     _SCRIPTS = {
         "unit": "scripts/gates/unit.py",
@@ -69,11 +83,15 @@ class SubprocessGateRunner:
     def run(self, name: str) -> int:
         script = self._SCRIPTS[name]
         if name == "integration":
+            if not (self._repo_root / "tests" / "integration").is_dir():
+                return GATE_NOT_APPLICABLE
             cmd = [sys.executable, "-m", "pytest", "tests/integration/", "-q", "-m", "integration"]
         else:
+            if not (self._repo_root / script).is_file():
+                return GATE_NOT_APPLICABLE
             cmd = [sys.executable, script]
         if self._log_dir is None:
-            return subprocess.run(cmd, cwd=self._repo_root).returncode
+            return _translate(subprocess.run(cmd, cwd=self._repo_root).returncode)
         self._log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._log_dir / f"{name}-gate.log"
         proc = subprocess.run(
@@ -81,4 +99,4 @@ class SubprocessGateRunner:
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         log_path.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
-        return proc.returncode
+        return _translate(proc.returncode)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from factory.orchestrator.backends import AgentBackend, GateRunner
+from factory.orchestrator.backends import GATE_NOT_APPLICABLE, AgentBackend, GateRunner
 from factory.evidence.types import EvidenceContext
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
@@ -293,7 +293,10 @@ def run_validation(
         max_attempts=1,
         handoff="running sim + integration gates",
     )
-    if gates.run("sim") != 0:
+    # GATE_NOT_APPLICABLE means the project provides no such suite -- skip it.
+    # Only a gate that actually ran and failed fails the node.
+    sim_result = gates.run("sim")
+    if sim_result not in (0, GATE_NOT_APPLICABLE):
         status.report(
             task_id=task_id,
             node="validation",
@@ -303,7 +306,7 @@ def run_validation(
             handoff="sim tests failed",
         )
         return NodeOutcome.FAIL, NodeEvent("validation", "fail")
-    if gates.run("integration") != 0:
+    if gates.run("integration") not in (0, GATE_NOT_APPLICABLE):
         status.report(
             task_id=task_id,
             node="validation",

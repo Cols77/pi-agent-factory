@@ -173,3 +173,18 @@ def test_review_prompt_reports_that_validation_already_ran(tmp_path):
 
     prompt = b.prompts[0][1]
     assert "validation: pass" in prompt
+
+
+def test_validation_passes_when_a_gate_is_not_applicable():
+    # Absence of a sim suite is not a validation failure. Without this, removing
+    # the factory's sim gate made run_validation report "sim tests failed" on
+    # every task, blaming drone tests that no longer existed.
+    from factory.orchestrator.backends import GATE_NOT_APPLICABLE
+
+    gates = FakeGateRunner({"sim": [GATE_NOT_APPLICABLE], "integration": [GATE_NOT_APPLICABLE]})
+
+    assert run_validation(gates)[0] == NodeOutcome.PASS
+
+
+def test_validation_still_fails_on_a_gate_that_ran_and_failed():
+    assert run_validation(FakeGateRunner({"sim": [1]}))[0] == NodeOutcome.FAIL
