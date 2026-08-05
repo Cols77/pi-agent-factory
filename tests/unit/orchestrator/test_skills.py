@@ -1,5 +1,6 @@
 import pytest
-from factory.orchestrator.skills import load_skill_block
+
+from factory.orchestrator.skills import factory_skills_dir, load_skill_block
 
 pytestmark = pytest.mark.unit
 
@@ -22,3 +23,32 @@ def test_load_skill_block_wraps_stripped_content(tmp_path):
 def test_load_skill_block_missing_skill_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_skill_block(tmp_path, "does-not-exist")
+
+
+def test_missing_project_skill_falls_back_to_the_factorys_own(tmp_path):
+    # The role skills ship with the FACTORY. Resolving them only from the repo
+    # being worked on made every cross-repo run die -- polishing CareerOS blew up
+    # on <careeros>/.pi/skills/verification-before-completion/SKILL.md.
+    block = load_skill_block(tmp_path, "verification-before-completion")
+    assert block.startswith('<skill name="verification-before-completion"')
+    assert str(factory_skills_dir()) in block  # located in the factory, not tmp_path
+
+
+def test_project_vendored_skill_wins_over_the_factory_copy(tmp_path):
+    # roles.py documents that a project MAY vendor its own skills; local wins.
+    skill_dir = tmp_path / "verification-before-completion"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: verification-before-completion\n---\n\nPROJECT LOCAL OVERRIDE\n",
+        encoding="utf-8",
+    )
+    block = load_skill_block(tmp_path, "verification-before-completion")
+    assert "PROJECT LOCAL OVERRIDE" in block
+
+
+def test_missing_everywhere_names_both_locations(tmp_path):
+    with pytest.raises(FileNotFoundError) as exc:
+        load_skill_block(tmp_path, "no-such-skill")
+    msg = str(exc.value)
+    assert str(tmp_path) in msg
+    assert str(factory_skills_dir()) in msg

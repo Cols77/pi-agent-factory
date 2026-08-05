@@ -1,8 +1,12 @@
-import pytest
 from pathlib import Path
-from factory.orchestrator.types import AgentRole, NodeEvent
+
+import pytest
+
+from factory.orchestrator import skills as skills_mod
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
+from factory.orchestrator.types import AgentRole, NodeEvent
+
 from ._skill_fixtures import write_skill_stubs
 
 pytestmark = pytest.mark.unit
@@ -49,9 +53,24 @@ def test_compose_prompt_tolerates_non_dict_context_value(tmp_path):
     assert "T-001" in out
 
 
-def test_compose_prompt_requires_every_vendored_skill_to_exist(tmp_path):
-    """Missing skill file for a role's ROLE_SKILLS entry is a hard error, not a
-    silent fallback to a bare skill name."""
+def test_compose_prompt_falls_back_to_the_factorys_skills(tmp_path):
+    """A target project need not vendor the factory's role skills.
+
+    Resolving them only from the project made factory-run unusable against any
+    other repo (polishing CareerOS died on a missing verification-before-
+    completion/SKILL.md). The skill's real content is loaded from the factory --
+    this is not the 'bare skill name' degradation the hard error guards against.
+    """
+    (tmp_path / ".pi" / "skills").mkdir(parents=True)  # empty -- nothing vendored
+    out = compose_prompt(AgentRole.REVIEW, TASK, skills_dir=tmp_path / ".pi" / "skills")
+    assert '<skill name="requesting-code-review"' in out
+
+
+def test_compose_prompt_requires_every_vendored_skill_to_exist(tmp_path, monkeypatch):
+    """A skill vendored NOWHERE is still a hard error, not a silent degradation."""
+    empty_factory = tmp_path / "factory-skills"
+    empty_factory.mkdir()
+    monkeypatch.setattr(skills_mod, "factory_skills_dir", lambda: empty_factory)
     (tmp_path / ".pi" / "skills").mkdir(parents=True)  # empty -- nothing vendored
     with pytest.raises(FileNotFoundError):
         compose_prompt(AgentRole.REVIEW, TASK, skills_dir=tmp_path / ".pi" / "skills")
