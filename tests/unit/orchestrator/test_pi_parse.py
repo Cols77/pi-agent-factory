@@ -223,6 +223,32 @@ THINKING_STREAM = json.dumps({
 })
 
 
+def test_parse_extracts_json_when_thinking_contains_literal_fence():
+    """Regression: thinking block containing a literal ```json fragment (agent
+    quoting the prompt) must not confuse the regex. The real JSON is in the
+    text block and must be the one extracted.
+    """
+    stream = json.dumps({
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": 'The role says "Emit ONLY a fenced ```json block". I\'ll do that.\n\n',
+                },
+                {
+                    "type": "text",
+                    "text": 'Here it is:\n```json\n{"dod_met": true, "findings": []}\n```\n',
+                },
+            ],
+        },
+    })
+    out = parse_pi_json(stream)
+    assert out["dod_met"] is True
+    assert out["findings"] == []
+
+
 def test_parse_extracts_json_from_thinking_blocks():
     out = parse_pi_json(THINKING_STREAM)
     assert out["task_id"] == "T-9"
