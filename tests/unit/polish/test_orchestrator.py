@@ -68,6 +68,32 @@ def test_feedback_to_gate1_to_worker_to_gate2(tmp_path):
     orch.teardown()
 
 
+def test_gate2_rows_expose_the_failure_detail(tmp_path):
+    # LandedChange.detail says WHY a fix failed; without it in state() the panel
+    # shows a bare "failed" and the human has to go read serve's stdout.
+    class _FailingExecutor:
+        def execute(self, finding):
+            return LandedChange(
+                finding=finding,
+                task_path=Path("tasks/T-001.md"),
+                task_id="T-001",
+                status="failed",
+                detail="factory-run exited 0 but committed no fix for T-001",
+            )
+
+    backend = _backend([{"description": "pdf blank"}])
+    orch = PolishOrchestrator(
+        _StubPlayground(), backend, FixWorker(_FailingExecutor()), open_nav=lambda eps: None
+    )
+    orch.setup("sign-in")
+    (gid,) = orch.submit_feedback("pdf is blank")
+    orch.accept_finding(gid)
+    row = _wait_gate2(orch)[0]
+    assert row["status"] == "failed"
+    assert "committed no fix" in row["detail"]
+    orch.teardown()
+
+
 def test_comment_requeues_rework(tmp_path):
     backend = _backend([{"description": "pdf blank"}])
     worker = FixWorker(_FakeExecutor(["landed"]))

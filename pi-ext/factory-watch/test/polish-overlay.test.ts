@@ -15,6 +15,7 @@ const state = {
       description: "fix login",
       sr: "SR-010",
       status: "landed" as const,
+      detail: "",
       verdict: "pending" as const,
     },
   ],
@@ -27,6 +28,23 @@ describe("renderPolishPanel", () => {
     expect(lines).toContain("queue: 2");
     expect(lines).toContain("sign-in broken"); // gate 1
     expect(lines).toContain("T-007"); // gate 2 landed change
+  });
+
+  it("shows why a fix failed", () => {
+    // Without this the panel shows a bare "failed" and the human has to go read
+    // the orchestrator's stdout to find out what happened.
+    const failed = {
+      ...state,
+      gate2: [
+        {
+          ...state.gate2[0]!,
+          status: "failed" as const,
+          detail: "factory-run exited 0 but committed no fix for T-007",
+        },
+      ],
+    };
+    const lines = renderPolishPanel(failed, { typing: false, cursor: 0 }).join("\n");
+    expect(lines).toContain("committed no fix");
   });
 
   it("renders (none) for empty gates", () => {

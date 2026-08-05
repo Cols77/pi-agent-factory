@@ -14,6 +14,8 @@ export interface Gate2Row {
   description: string;
   sr: string | null;
   status: "landed" | "failed";
+  /** Why a fix failed. Empty when it landed. */
+  detail: string;
   verdict: "pending" | "accepted" | "wrong";
 }
 

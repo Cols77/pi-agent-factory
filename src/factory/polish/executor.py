@@ -66,15 +66,26 @@ class WorktreeIsolatedExecutor:
             task_id = m.group(0) if m else task_path.stem
             _git(wt, "add", "-A")
             _git(wt, "commit", "-m", f"chore(polish): queue {task_id}")
+            queued_head = _git(wt, "rev-parse", "HEAD").stdout.strip()
             outcome = self._factory_run(task_id, wt)
             status, detail, live_task_path = "failed", outcome.detail, task_path
             if outcome.ok:
-                ff = _git(self._live, "merge", "--ff-only", branch)
-                if ff.returncode == 0:
-                    status, detail = "landed", ""
-                    live_task_path = self._live / self._tasks_subdir / task_path.name
+                # A clean exit is NOT a fix. If factory-run committed nothing, the
+                # only commit on this branch is our own queued ticket; landing that
+                # would report "fixed" for work that never happened -- and a landed
+                # row invites a Gate 2 tick, which re-grounds a linked SR.
+                if _git(wt, "rev-parse", "HEAD").stdout.strip() == queued_head:
+                    detail = (
+                        f"factory-run exited 0 but committed no fix for {task_id} "
+                        "(only the queued task was on the branch); nothing landed"
+                    )
                 else:
-                    detail = f"fast-forward into live failed: {ff.stderr.strip()}"
+                    ff = _git(self._live, "merge", "--ff-only", branch)
+                    if ff.returncode == 0:
+                        status, detail = "landed", ""
+                        live_task_path = self._live / self._tasks_subdir / task_path.name
+                    else:
+                        detail = f"fast-forward into live failed: {ff.stderr.strip()}"
             return LandedChange(finding=finding, task_path=live_task_path,
                                 task_id=task_id, status=status, detail=detail)
         finally:

@@ -37,6 +37,9 @@ export function renderPolishPanel(state: PolishState, mode: PanelMode): string[]
             : " ";
     const cur = g2active && i === mode.cursor ? "* " : "  ";
     lines.push(`  ${cur}${mark} ${r.task_id}  ${r.description}${r.sr ? `  (${r.sr})` : ""}`);
+    // A bare "failed" is useless to the human -- say what went wrong, indented
+    // under its row, so they can decide between comment and redirect.
+    if (r.detail) lines.push(`        ${r.detail}`);
   });
   lines.push("");
   lines.push("up/down move  Tab switch gate  [f] feedback  [q] quit");

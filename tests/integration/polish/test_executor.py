@@ -52,6 +52,27 @@ def test_green_fix_fast_forwards_into_live(tmp_path):
     assert leftover == []
 
 
+def test_green_run_that_committed_nothing_is_not_landed(tmp_path):
+    # Observed live: factory-run exited 0 without producing a dev commit, so the
+    # only thing fast-forwarded into CareerOS was the executor's own
+    # "chore(polish): queue T-001" ticket -- reported to the human as "landed".
+    # A landed row invites a Gate 2 tick, and ticking an SR-linked row re-grounds
+    # that requirement, so a false green here certifies work that never happened.
+    live = _repo(tmp_path)
+
+    def fake_run(task_id, wt: Path) -> RunOutcome:
+        return RunOutcome(ok=True)  # exits clean, changes nothing
+
+    ex = WorktreeIsolatedExecutor(live, factory_run=fake_run)
+    landed = ex.execute(Finding(usecase="sign-in", description="broken"))
+
+    assert landed.status == "failed"
+    assert "no fix" in landed.detail
+    # the queue-only commit must NOT reach the live tree
+    assert (live / "app.txt").read_text(encoding="utf-8") == "v0"
+    assert not (live / "tasks").exists()
+
+
 def test_red_fix_leaves_live_untouched(tmp_path):
     live = _repo(tmp_path)
 

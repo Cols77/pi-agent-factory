@@ -93,7 +93,10 @@ class PolishOrchestrator:
                 "gate2": [
                     {"gid": r.gid, "task_id": r.change.task_id,
                      "description": r.change.finding.description,
-                     "sr": r.change.finding.sr, "status": r.change.status, "verdict": r.verdict}
+                     "sr": r.change.finding.sr, "status": r.change.status,
+                     # why a fix failed -- otherwise the panel shows a bare
+                     # "failed" and the human must go read serve's stdout
+                     "detail": r.change.detail, "verdict": r.verdict}
                     for r in self._gate2.rows()
                 ],
             }
