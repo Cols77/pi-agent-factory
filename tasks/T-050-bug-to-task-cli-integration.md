@@ -5,7 +5,7 @@ dod:
 id: T-050
 source_plan: docs/superpowers/plans/2026-07-30-sim-testbench.md
 source_task: 10
-status: todo
+status: done
 title: bug_to_task CLI Integration
 ---
 
