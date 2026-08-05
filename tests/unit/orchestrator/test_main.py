@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -8,12 +9,25 @@ from factory.orchestrator.__main__ import main
 pytestmark = pytest.mark.unit
 
 
+def _write_gate_config(repo_root: Path) -> None:
+    # main() now builds its gate runner from config (require_gates), so any
+    # repo it runs against needs a declared gate or construction itself raises
+    # before run_next is even reached.
+    factory_dir = repo_root / ".factory"
+    factory_dir.mkdir(parents=True, exist_ok=True)
+    (factory_dir / "factory.yaml").write_text(
+        'gates:\n  unit:\n    - { cmd: "{python} -c \\"pass\\"" }\n',
+        encoding="utf-8",
+    )
+
+
 def test_main_error_status_on_run_next_exception(tmp_path, monkeypatch):
     """Test that when run_next() raises an exception, the error status is written before re-raising."""
     # Set up the repo structure with sessions directory
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     (tmp_path / "tasks").mkdir()
+    _write_gate_config(tmp_path)
 
     # Monkeypatch sys.argv to simulate CLI invocation
     monkeypatch.setattr(sys, "argv", ["factory.orchestrator", "run", "--repo", str(tmp_path)])
@@ -69,6 +83,7 @@ def test_main_run_passes_task_id_through(tmp_path, monkeypatch):
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     (tmp_path / "tasks").mkdir()
+    _write_gate_config(tmp_path)
 
     monkeypatch.setattr(
         sys, "argv",

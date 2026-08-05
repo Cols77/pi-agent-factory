@@ -8,7 +8,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from factory.orchestrator.backends import SubprocessGateRunner
+from factory.config import load_config, require_gates
+from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
@@ -80,7 +81,9 @@ def main() -> None:
 
     session_id = _now_id()
     transcript_dir = repo_root / "sessions" / ".factory-transcripts" / session_id
-    gates = SubprocessGateRunner(repo_root, log_dir=transcript_dir)
+    gates = ConfigGateRunner(
+        repo_root, require_gates(load_config(repo_root), repo_root), log_dir=transcript_dir
+    )
 
     kwargs = {}
     if args.provider and args.model:

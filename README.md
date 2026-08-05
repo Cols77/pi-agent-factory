@@ -17,7 +17,8 @@ sh scripts/install-pif.sh   # installs a global `pif` command pointed at this re
 
 ## Gates (exit-code only)
 ```
-uv run python scripts/gates/all.py             # lint + types + unit
+# gate commands are declared in .factory/factory.yaml; run them directly:
+uv run ruff check . && uv run pyright && uv run pytest -m unit -q
 uv run python scripts/gates/validate_manifest.py <manifest.json>
 uv run python scripts/gates/validate_session.py <session.json>
 uv run python scripts/gates/validate_kb.py <kb/kb-XXXX-*.md>
