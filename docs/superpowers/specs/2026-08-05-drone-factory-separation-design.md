@@ -107,8 +107,9 @@ are the only ones that generated drone tasks.
 
 ### 3.3 Tasks — move, with four explicit rulings
 
-**Move (drone, 20):** T-029, T-030, T-031, T-032, T-033, T-034, T-035, T-036,
-T-037, T-038, T-039, T-041, T-042, T-043, T-044, T-045, T-046, T-047, T-048, T-050.
+**Move (drone, 20 unambiguous):** T-029, T-030, T-031, T-032, T-033, T-034, T-035,
+T-036, T-037, T-038, T-039, T-041, T-042, T-043, T-044, T-045, T-046, T-047,
+T-048, T-050 — plus the four below, giving **24 in total**.
 
 **Rulings on the four whose deliverables straddle the boundary:**
 
@@ -116,13 +117,13 @@ T-037, T-038, T-039, T-041, T-042, T-043, T-044, T-045, T-046, T-047, T-048, T-0
 |---|---|---|---|
 | T-049 | Scenario YAML Files | **drone** | delivers `scenarios/*.yaml`; the automated test missed it only because its body cites no backticked path |
 | T-051 | Pytest Marker Update and Smoke Test | **drone** | its subject is the sim suite; the `sim` marker follows the sim tests |
-| T-040 | Factory Gate & Project Config | **factory** | delivers `pyproject.toml` markers and `scripts/gates/`; it configured the factory to run drone tests, which is factory machinery |
-| T-052 | Update Factory Gate Scripts | **factory** | same — gate scripts are factory infrastructure |
+| T-040 | Factory Gate & Project Config | **drone** | its deliverable is the *sim* marker and the sim gate wiring; the generic pipeline it also touched is base machinery that stays (§3.5) |
+| T-052 | Update Factory Gate Scripts | **drone** | same — the sim gate is the drone's plug, not the factory's base |
 
-T-040 and T-052 stay behind while their `source_plan` moves, which leaves them
-declaring a plan that no longer exists in the factory. That is a real gap, and
-`factory trace` will report it as `task_plan_missing` rather than hiding it. It is
-resolved in §6, not papered over.
+All four move. Where a task's deliverable spans both sides — T-040 configured the
+`agent` marker as well as `sim` — the task follows its **drone-specific** half,
+and the generic half stays in the factory as base machinery. The task record moves
+with the product it describes; the factory keeps the mechanism.
 
 ### 3.4 Dependencies
 
@@ -130,31 +131,65 @@ Move `pygame>=2.6.1` and `matplotlib>=3.11.1` from the factory's `pyproject.toml
 to the drone's. Neither is used by `src/factory/`; both exist solely for the sim
 testbench and its plotter.
 
-### 3.5 Gates and markers — reconstruct, do not move
+### 3.5 The plug-in contract — the factory is the base, the drone is a plug
 
-Once `tests/sim/` leaves, the factory's `sim` pytest marker and
-`scripts/gates/sim_smoke.py` describe tests it no longer has, while the drone repo
-needs equivalents it does not have.
+The governing rule: **the factory provides mechanism, a project provides its own
+plugs.** That is already this repo's stated direction —
+`2026-07-31-polish-workflow-and-validation-node-design.md` §3 says the validation
+node "never mentions drones" and that a repo declares what it has in a per-project
+registry under `.factory/`, with "the drone repo registers `sim-testbench`".
 
-- **Factory:** drop the `sim` marker and `sim_smoke.py`, and remove the sim gate
-  from any pipeline that references it.
-- **Drone:** gains its own `sim` marker and smoke gate, written to fit that repo.
+**Gates never received that treatment.** `SubprocessGateRunner._SCRIPTS`
+(`src/factory/orchestrator/backends.py`) hardcodes:
 
-This is the one part of the split that is not a file move, and it is where the
-factory's own test suite is most likely to break. It is called out separately for
-that reason.
+```python
+"sim": "scripts/gates/sim_smoke.py",
+```
+
+That is a drone-specific gate baked into the factory's base, and the split
+exposes it as a hard coupling rather than a cosmetic one:
+
+- `run_validation` calls `gates.run("sim")` unconditionally (`nodes.py`).
+- `SubprocessGateRunner.run` does `script = self._SCRIPTS[name]`.
+
+So deleting the factory's sim gate raises `KeyError` and breaks `factory-run`.
+The gate mechanism must therefore learn the contract as part of this split:
+
+- **Factory (base):** keeps `SubprocessGateRunner`, `_proc.py`, and the
+  lint/typecheck/unit/agent gates. Gate resolution becomes **project-relative**:
+  a gate whose script the project does not provide is reported as *not applicable*
+  and skipped, never a `KeyError` and never a silent pass disguised as green.
+  The factory drops the `sim` marker and `sim_smoke.py`, because it has no sim.
+- **Drone (plug):** carries `scripts/gates/sim_smoke.py` and its own `sim` marker.
+  When the factory later runs against the drone repo, that gate is discovered
+  there.
+
+This is the only part of the split that changes factory behaviour rather than
+moving files, and it is where the factory's own suite is most likely to break.
+It is a **prerequisite**, not follow-on: without it the factory cannot run at all
+once the sim gate leaves.
+
+The fuller registry (`.factory/registry.py` declaring `HARNESSES`/`PLAYGROUNDS`)
+is **specified but not implemented** — there is no `polish/registry.py`, and
+`nodes.py:350` only names `.factory/factory.yaml` inside an error string. This
+split needs only the gate half of that contract; the rest stays deferred (§7).
 
 ---
 
 ## 4. What each repository looks like afterwards
 
-**Factory** — `src/factory/` only; 25 tasks, all factory work; 20 specs and 27
-plans of factory design; no `pygame`/`matplotlib`; its own gates unchanged except
-for the removed sim gate.
+**Factory (the base)** — `src/factory/` only; 21 tasks, all factory work; 20 specs
+and 27 plans of factory design; no `pygame`/`matplotlib`; lint/typecheck/unit/agent
+gates intact, sim gate gone, and gate resolution now project-relative so a repo
+that provides no such gate is handled rather than crashing.
 
-**Drone** — `src/drone/` and `src/sim/`; `tests/sim/`; `scenarios/`; 22 tasks;
-2 product specs and 2 plans; `requirements/SR-001.md` finally sitting beside the
-code it constrains.
+**Drone (a plug)** — `src/drone/` and `src/sim/`; `tests/sim/`; `scenarios/`;
+24 tasks; 2 product specs and 2 plans; its own `sim` marker and
+`scripts/gates/sim_smoke.py`; and `requirements/SR-001.md` finally sitting beside
+the code it constrains.
+
+Nothing in the factory names the drone afterwards. Nothing in the drone
+reimplements the factory.
 
 ---
 
@@ -178,14 +213,16 @@ can be inspected and abandoned at any point before step 5.
 
 ## 6. Handling the artifacts left pointing across the boundary
 
-- **T-040 and T-052** keep a `source_plan` whose file has moved. Rather than
-  rewrite their frontmatter to a path in another repository — which no tool in
-  either repo can resolve — they are re-pointed at the factory plan that actually
-  governs the gate work they did, or, if none fits, their `source_plan` is dropped
-  and the resulting `task_no_plan` gap is closed through `/trace-fix` like any
-  other. Deciding which is a judgement call for the human at execution time.
-- **`SR-001`'s `upstream: [BR-002]`** remains dangling. Out of scope here; it is a
-  real gap and `factory trace` will keep reporting it.
+With all 24 tasks moving alongside both their plans, no task is left declaring a
+`source_plan` in another repository — the boundary now falls between repos, not
+through the ledger. Two loose ends remain and are reported honestly rather than
+hidden:
+
+- **`SR-001`'s `upstream: [BR-002]`** stays dangling; no `BR-*.md` exists anywhere.
+  `factory trace` will keep reporting it as `dangling_upstream`.
+- **The drone repo's 24 tasks satisfy no requirement**, so `factory trace status`
+  against it will read close to 0% on `task->SR`. That is the true state and the
+  reason the doctor pass exists.
 
 ---
 
@@ -206,6 +243,9 @@ tree:
 - Factory: `uv run pytest -m unit`, `uv run ruff check .`, `uv run pyright`, and
   the extension's `npm test` / `npm run typecheck` — with no reference remaining
   to `src/sim`, `src/drone`, `tests/sim` or `scenarios`.
+- Factory: `factory-run` still completes against the factory itself with the sim
+  gate absent — the §3.5 change proven, not assumed, since an unhandled gate
+  lookup would raise `KeyError` at the validation node.
 - Drone: its test suite runs, and `uv run python -m factory.trace status
   --project-root <drone>` reports a graph containing the moved tasks, the moved
   plans, and `SR-001`.
