@@ -621,8 +621,23 @@ describe("factory-watch commands", () => {
   test("/review-plans notifies when no docs are found, without opening a viewer", async () => {
     const { commands } = capture();
     const ctx = fakeCtx({ cwd: "/nonexistent/path/for/this/test/only" });
-    await commands.get("review-plans")!.handler("", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no specs, plans, or tasks"), "info");
+    // --terminal skips the surface prompt so this still exercises the empty-list
+    // branch rather than short-circuiting on an unanswered "Open docs in" select.
+    await commands.get("review-plans")!.handler("--terminal", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("no specs, plans, requirements, or tasks"),
+      "info",
+    );
+  });
+
+  test("/review-plans --stop reports when no docs server is running", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("review-plans")!.handler("--stop", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("no docs server running"),
+      "info",
+    );
   });
 
   test("/review-plans does nothing further when the picker is cancelled", async () => {
@@ -644,7 +659,10 @@ describe("factory-watch commands", () => {
     // package scripts with process.cwd() set to the package directory (pi-ext/factory-watch),
     // which has no docs/tasks dirs of its own and would hit the empty-list branch instead.
     const ctx = fakeCtx({ cwd: REPO_ROOT, ui });
-    await commands.get("review-plans")!.handler("", ctx);
+    // --terminal so the single select() below is the DOCUMENT picker. Without it
+    // the surface prompt would be the one cancelled, and this test would still
+    // pass while no longer testing what it names.
+    await commands.get("review-plans")!.handler("--terminal", ctx);
     expect(select).toHaveBeenCalledTimes(1);
     expect(custom).not.toHaveBeenCalled();
   });

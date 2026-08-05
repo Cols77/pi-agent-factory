@@ -26,7 +26,13 @@ import { runReviewLoop } from "./review-overlay.js";
 import { buildDecision } from "./review-model.js";
 import type { ReviewDecisionPayload } from "./review-model.js";
 import { buildReviewPageData, startReviewServer } from "./review-server.js";
-import { openInBrowser, readSurfacePref, writeSurfacePref } from "./review-surface.js";
+import {
+  openInBrowser,
+  parseReviewPlansArgs,
+  readSurfacePref,
+  writeSurfacePref,
+} from "./review-surface.js";
+import { ensureDocsServer, stopDocsServer } from "./docs-server.js";
 import type { Surface } from "./review-surface.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
@@ -490,11 +496,49 @@ export default function factoryWatch(pi: PiApi): void {
   });
 
   pi.registerCommand("review-plans", {
-    description: "Browse and view specs, plans, and tasks in a scrollable, rendered view",
-    handler: async (_args: string, ctx: ExtCommandCtx) => {
+    description: "Browse specs, plans, requirements and tasks (--browser | --terminal | --stop)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const parsedArgs = parseReviewPlansArgs(args);
+
+      if (parsedArgs.stop) {
+        ctx.ui.notify(
+          stopDocsServer() ? "docs server stopped" : "no docs server running",
+          "info",
+        );
+        return;
+      }
+
+      let surface = parsedArgs.surface;
+      if (surface === null) {
+        const remembered = readSurfacePref(ctx.cwd, "docs");
+        const pick = await ctx.ui.select(
+          "Open docs in",
+          remembered === "browser" ? ["Browser", "Terminal"] : ["Terminal", "Browser"],
+        );
+        if (pick === undefined) return;
+        surface = pick === "Browser" ? "browser" : "terminal";
+        writeSurfacePref(ctx.cwd, surface, "docs");
+      }
+
+      if (surface === "browser") {
+        try {
+          // Non-blocking by design: open the tab and return, so the session stays
+          // usable while the docs stay open beside it. Spec section 4.
+          const server = await ensureDocsServer(ctx.cwd);
+          ctx.ui.notify(`docs open at ${server.url} (/review-plans --stop to close)`, "info");
+          openInBrowser(server.url);
+          return;
+        } catch (err) {
+          ctx.ui.notify(
+            `browser docs failed (${String(err)}); falling back to terminal`,
+            "warning",
+          );
+        }
+      }
+
       const docs = listDocs(ctx.cwd);
       if (docs.length === 0) {
-        ctx.ui.notify("no specs, plans, or tasks found", "info");
+        ctx.ui.notify("no specs, plans, requirements, or tasks found", "info");
         return;
       }
 

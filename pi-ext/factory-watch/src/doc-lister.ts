@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseTaskFrontmatter } from "./task-header.js";
+import { parseReqFrontmatter, parseTaskFrontmatter } from "./task-header.js";
 
 export interface DocEntry {
-  type: "spec" | "plan" | "task";
+  type: "spec" | "plan" | "task" | "req";
   label: string;
   path: string;
   mtimeMs: number;
@@ -29,6 +29,18 @@ function buildTaskLabel(path: string, file: string): string {
   return `[task] ${file}`;
 }
 
+function buildReqLabel(path: string, file: string): string {
+  try {
+    const parsed = parseReqFrontmatter(readFileSync(path, "utf-8"));
+    if (parsed) {
+      return `[req] ${parsed.id} -- ${parsed.title}`;
+    }
+  } catch {
+    // fall through to filename fallback
+  }
+  return `[req] ${file}`;
+}
+
 export function listDocs(repoRoot: string): DocEntry[] {
   const entries: DocEntry[] = [];
 
@@ -50,6 +62,17 @@ export function listDocs(repoRoot: string): DocEntry[] {
     entries.push({
       type: "task",
       label: buildTaskLabel(path, file),
+      path,
+      mtimeMs: statSync(path).mtimeMs,
+    });
+  }
+
+  const reqsDir = join(repoRoot, "requirements");
+  for (const file of listMarkdownFiles(reqsDir).filter((f) => f.startsWith("SR-"))) {
+    const path = join(reqsDir, file);
+    entries.push({
+      type: "req",
+      label: buildReqLabel(path, file),
       path,
       mtimeMs: statSync(path).mtimeMs,
     });

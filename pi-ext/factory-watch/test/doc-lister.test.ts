@@ -61,3 +61,17 @@ describe("listDocs", () => {
     expect(listDocs(root)).toEqual([]);
   });
 });
+
+describe("listDocs requirements", () => {
+  test("lists SR files alongside specs, plans and tasks", () => {
+    const root = mkdtempSync(join(tmpdir(), "doc-lister-sr-"));
+    makeRepo(root);
+    mkdirSync(join(root, "requirements"), { recursive: true });
+    writeFileSync(
+      join(root, "requirements", "SR-001.md"),
+      "---\nid: SR-001\ntitle: Preempt patrol\nstatement: s\ndomain: d\n---\n",
+    );
+    const labels = listDocs(root).map((d) => d.label);
+    expect(labels).toContain("[req] SR-001 -- Preempt patrol");
+  });
+});

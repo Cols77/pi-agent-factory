@@ -4,27 +4,49 @@ import { dirname, join } from "node:path";
 
 export type Surface = "terminal" | "browser";
 
+export type SurfaceKey = "review" | "docs";
+
 export function surfacePrefPath(cwd: string): string {
   return join(cwd, "sessions", ".factory-review-surface.json");
 }
 
-export function readSurfacePref(cwd: string): Surface {
+export function readSurfacePref(cwd: string, key: SurfaceKey = "review"): Surface {
   try {
-    const p = JSON.parse(readFileSync(surfacePrefPath(cwd), "utf-8")) as { surface?: string };
-    return p.surface === "browser" ? "browser" : "terminal";
+    const raw = JSON.parse(readFileSync(surfacePrefPath(cwd), "utf-8")) as Record<string, string>;
+    // "surface" is the pre-existing key for code review; keep honouring it so
+    // an existing preference file is not silently discarded.
+    const value = key === "review" ? (raw["surface"] ?? raw["review"]) : raw[key];
+    return value === "browser" ? "browser" : "terminal";
   } catch {
     return "terminal";
   }
 }
 
-export function writeSurfacePref(cwd: string, pref: Surface): void {
+export function writeSurfacePref(cwd: string, pref: Surface, key: SurfaceKey = "review"): void {
   try {
     const path = surfacePrefPath(cwd);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ surface: pref }), "utf-8");
+    let existing: Record<string, string> = {};
+    try {
+      existing = JSON.parse(readFileSync(path, "utf-8")) as Record<string, string>;
+    } catch {
+      existing = {};
+    }
+    existing[key === "review" ? "surface" : key] = pref;
+    writeFileSync(path, JSON.stringify(existing), "utf-8");
   } catch {
     // best-effort; a failed write just means we don't remember the choice
   }
+}
+
+export function parseReviewPlansArgs(args: string): {
+  surface: Surface | null;
+  stop: boolean;
+} {
+  const stop = /(^|\s)--stop(\s|$)/.test(args);
+  if (/(^|\s)--browser(\s|$)/.test(args)) return { surface: "browser", stop };
+  if (/(^|\s)--terminal(\s|$)/.test(args)) return { surface: "terminal", stop };
+  return { surface: null, stop };
 }
 
 export function openInBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
