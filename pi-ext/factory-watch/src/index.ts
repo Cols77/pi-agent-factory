@@ -11,7 +11,9 @@ import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
+import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
+import { registerTraceTools } from "./trace-tools.js";
+import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
 import type { TaskSummary } from "./task-picker.js";
@@ -47,6 +49,7 @@ const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
 const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
+const TRACE_FIX_SKILL_NAMES = ["trace-fix"];
 
 function parseAutoFlag(args: string): { auto: boolean; rest: string } {
   const auto = /(^|\s)--auto(\s|$)/.test(args);
@@ -188,6 +191,9 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
 
 export default function factoryWatch(pi: PiApi): void {
   registerWriteChunkGuard(pi);
+  // The deterministic half of /trace-fix: the model reasons, these tools do the
+  // enumerating, validating and writing.
+  registerTraceTools(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -490,6 +496,47 @@ export default function factoryWatch(pi: PiApi): void {
       await ctx.newSession({
         withSession: async (session: ReplacedSessionCtx) => {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
+        },
+      });
+    },
+  });
+
+  pi.registerCommand("trace-fix", {
+    description: "Work through traceability gaps with the trace tools",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const check = runTraceCheck(ctx.cwd);
+      if (check.ok) {
+        ctx.ui.notify(
+          `trace-fix: nothing pending (${check.deferred} deferred, ${check.exempt} exempt)`,
+          "info",
+        );
+        return;
+      }
+
+      const { skills } = loadSkills({
+        cwd: ctx.cwd,
+        agentDir: join(homedir(), ".pi", "agent"),
+        skillPaths: [],
+        includeDefaults: true,
+      });
+
+      const skillBlocks: string[] = [];
+      for (const name of TRACE_FIX_SKILL_NAMES) {
+        const skill = skills.find((s) => s.name === name);
+        if (skill === undefined) {
+          ctx.ui.notify(`/trace-fix: skill not found: ${name}`, "error");
+          return;
+        }
+        const body = stripFrontmatter(readFileSync(skill.filePath, "utf-8")).trim();
+        skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
+      }
+
+      const seed = buildTraceFixSeedPrompt(skillBlocks, check.report);
+      // newSession() replaces the session and makes ctx stale (see /clear at
+      // the handler above), so nothing may touch ctx after this call.
+      await ctx.newSession({
+        withSession: async (session: ReplacedSessionCtx) => {
+          await session.sendUserMessage(seed, { deliverAs: "followUp" });
         },
       });
     },
