@@ -515,8 +515,10 @@ git commit -m "feat(gates): the factory declares its own gates in .factory/facto
 - Modify: `src/factory/orchestrator/backends.py` (delete `SubprocessGateRunner`)
 - Modify: `tests/unit/orchestrator/test_backends.py` (drop its `SubprocessGateRunner` tests)
 - Modify: `tests/e2e/test_pipeline_transitions_e2e.py:94-98,175` (`_write_gates` writes config, not scripts)
-- Delete: `scripts/gates/{all,unit,sim_smoke,lint,typecheck}.py`, `scripts/gates/_proc.py`
-- Delete: `tests/gates/test_all_gate.py`, `tests/gates/test_proc.py`
+- Modify: `scripts/gates/_proc.py` (trim to `run_and_propagate` only — KEEP the file)
+- Modify: `README.md:20`, `.pi/skills/coding-principles/SKILL.md:30`
+- Delete: `scripts/gates/{all,unit,sim_smoke,lint,typecheck}.py`
+- Delete: `tests/gates/test_all_gate.py`
 
 **Interfaces:**
 - Consumes: `ConfigGateRunner` (Task 2), `load_config`/`require_gates` (Tasks 1/3).
@@ -577,15 +579,48 @@ from factory.orchestrator.backends import ConfigGateRunner
 
 Remove the whole class and its `_SCRIPTS` map. Leave `GateRunner`, `FakeGateRunner`, `ConfigGateRunner`, and the agent backends untouched.
 
-- [ ] **Step 5: Delete the retired scripts and their tests**
+- [ ] **Step 5: Delete the retired scripts and their test**
 
 ```bash
 git rm scripts/gates/all.py scripts/gates/unit.py scripts/gates/sim_smoke.py \
-       scripts/gates/lint.py scripts/gates/typecheck.py scripts/gates/_proc.py \
-       tests/gates/test_all_gate.py tests/gates/test_proc.py
+       scripts/gates/lint.py scripts/gates/typecheck.py \
+       tests/gates/test_all_gate.py
 ```
 
 `scripts/gates/{ext,watch_ext,validate_kb,validate_manifest,validate_session}.py` are standalone checks, NOT part of the gate map — leave them.
+
+- [ ] **Step 6: Trim `scripts/gates/_proc.py` — do NOT delete it**
+
+`ext.py:3` and `watch_ext.py:3` both do `from _proc import run_and_propagate`, and `tests/gates/test_proc.py` tests exactly that function. Deleting the file would break two currently-passing gate tests. Delete only the command constants, which now live in `.factory/factory.yaml`:
+
+```python
+from __future__ import annotations
+
+import subprocess
+
+# Shared by the standalone gate scripts (ext.py, watch_ext.py). The per-gate
+# command lines that used to live here are now declared in .factory/factory.yaml.
+
+
+def run_and_propagate(cmd: list[str]) -> int:
+    """Run cmd, stream its output, return its exit code. No parsing of stdout."""
+    return subprocess.run(cmd, check=False).returncode
+```
+
+Leave `tests/gates/test_proc.py` unchanged — it only exercises `run_and_propagate`.
+
+- [ ] **Step 7: Update the two docs that name the deleted script**
+
+`README.md:20` — the `full` gate is now declared in config, and there is no CLI subcommand that runs a gate by name (`factory.orchestrator` accepts only `run` and `list`). So document the config as the source of truth and give the direct equivalents:
+
+```
+# gate commands are declared in .factory/factory.yaml; run them directly:
+uv run ruff check . && uv run pyright && uv run pytest -m unit -q
+```
+
+Leave the three `validate_*.py` lines beneath it untouched — those scripts survive.
+
+`.pi/skills/coding-principles/SKILL.md:30` — the REVIEW role reads this at runtime, so it must not describe a deleted file. Replace the parenthetical `(scripts/gates/all.py)` with `(the project's `full` gate, declared in .factory/factory.yaml)`. Leave the rest of that sentence and the surrounding severity-tier text exactly as it is.
 
 - [ ] **Step 6: Run the full suite + lint/type**
 
