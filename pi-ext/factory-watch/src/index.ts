@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
+import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
@@ -513,22 +514,22 @@ export default function factoryWatch(pi: PiApi): void {
         return;
       }
 
-      const { skills } = loadSkills({
-        cwd: ctx.cwd,
-        agentDir: join(homedir(), ".pi", "agent"),
-        skillPaths: [],
-        includeDefaults: true,
-      });
-
+      // Resolved via findSkillFile, not loadSkills: commands run with ctx.cwd set
+      // to whatever repo the human is in, and a target project may vendor no
+      // skills at all -- cool_physical_ai_project's .pi/ is empty. The factory's
+      // own copy travels with this extension, so /trace-fix works anywhere.
       const skillBlocks: string[] = [];
       for (const name of TRACE_FIX_SKILL_NAMES) {
-        const skill = skills.find((s) => s.name === name);
-        if (skill === undefined) {
-          ctx.ui.notify(`/trace-fix: skill not found: ${name}`, "error");
+        const filePath = findSkillFile(ctx.cwd, name);
+        if (filePath === null) {
+          ctx.ui.notify(
+            `/trace-fix: skill not found: ${name} (looked in ${ctx.cwd}/.pi/skills and ${factorySkillsDir()})`,
+            "error",
+          );
           return;
         }
-        const body = stripFrontmatter(readFileSync(skill.filePath, "utf-8")).trim();
-        skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
+        const body = stripFrontmatter(readFileSync(filePath, "utf-8")).trim();
+        skillBlocks.push(buildSkillBlock({ name, location: filePath, body }));
       }
 
       const seed = buildTraceFixSeedPrompt(skillBlocks, check.report);
