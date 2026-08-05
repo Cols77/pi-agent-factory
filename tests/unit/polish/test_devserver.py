@@ -3,6 +3,7 @@ import sys
 import time
 
 import pytest
+
 from factory.polish.devserver import DevServerPlayground, Service, wait_healthy
 from factory.polish.playground import Playground
 
@@ -21,6 +22,30 @@ def test_is_a_playground(tmp_path):
     pg = DevServerPlayground([], ["u"], "http://x", project_root=tmp_path)
     assert isinstance(pg, Playground)
     assert pg.list_usecases() == ["u"]
+
+
+def test_setup_refuses_when_the_port_is_already_serving(tmp_path):
+    # Observed live: a second session's Next.js saw 3000 taken, fell back to 3001,
+    # and its health check then went green against the FIRST session's app. Nothing
+    # could tell "this port answers, but it isn't mine", so the session reported
+    # healthy while pointed at someone else's server.
+    port = _free_port()
+    url = f"http://127.0.0.1:{port}"
+    squatter = socket.socket()
+    squatter.bind(("127.0.0.1", port))
+    squatter.listen(1)
+    try:
+        svc = Service(
+            name="web",
+            cmd=f"{sys.executable} -m http.server {port}",
+            health_url=url,
+            ready_timeout=5.0,
+        )
+        pg = DevServerPlayground([svc], usecases=["u"], browse_url=url, project_root=tmp_path)
+        with pytest.raises(RuntimeError, match="already"):
+            pg.setup("u")
+    finally:
+        squatter.close()
 
 
 def test_setup_starts_service_then_teardown_stops_it(tmp_path):

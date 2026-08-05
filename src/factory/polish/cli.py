@@ -101,8 +101,8 @@ def run_polish_serve(
     poll_interval: float = 0.2,
 ) -> None:
     """Publish state, then drain UI commands until should_stop(). Always tears down."""
-    bridge.publish()
     try:
+        bridge.publish()  # inside the try: a throw here must still tear down
         while not should_stop():
             bridge.poll_commands()
             # the worker may have landed a fix between polls -> Gate 2 grows

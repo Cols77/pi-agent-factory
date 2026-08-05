@@ -89,6 +89,26 @@ def test_scope_guard_extension_resolves_inside_the_factory_not_the_target_repo(t
     assert tmp_path not in ext.parents
 
 
+def test_serve_tears_down_even_if_the_first_publish_fails(tmp_path):
+    # The opening publish must be inside the try: a throw there would otherwise
+    # skip teardown entirely and leave both dev-servers running.
+    orch = make_orchestrator([{"description": "x"}])
+    orch.setup("sign-in")
+
+    class _BoomBridge:
+        def publish(self):
+            raise OSError("state file unwritable")
+
+        def poll_commands(self):
+            return 0
+
+    with pytest.raises(OSError):
+        run_polish_serve(orch, _BoomBridge(), should_stop=lambda: True, poll_interval=0.0)
+
+    # teardown ran: the playground session was released
+    assert orch.state()["entrypoints"] == []
+
+
 def test_serve_applies_a_command_then_stops(tmp_path):
     orch = make_orchestrator([{"description": "x"}])
     orch.setup("sign-in")
