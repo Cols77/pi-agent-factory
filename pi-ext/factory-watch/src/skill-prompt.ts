@@ -16,3 +16,16 @@ export function buildPlanSeedPrompt(topic: string, skillBlocks: string[]): strin
   ].join("\n\n");
   return [...skillBlocks, instructions, `Topic: ${topic}`].join("\n\n");
 }
+
+export function buildTraceFixSeedPrompt(skillBlocks: string[], gapReport: string): string {
+  const instructions = [
+    "You are closing traceability gaps for this repo. Use the loaded `trace-fix` skill.",
+    "Work through the gaps with the trace tools: `trace_next` for the next gap and its candidates, `trace_link` / `trace_exempt` / `trace_defer` to record a decision, and `trace_check` for the gate. The tools own enumeration, validation and every write.",
+    "You own exactly one thing: judging which candidate genuinely matches, and saying why. `trace_next` returns EVERY candidate with its full requirement statement, ordered by shared-term overlap — that ordering is a lexical hint, not a judgement. The right answer is often not first, and may share no vocabulary with the task at all. Read the statements.",
+    "Propose one candidate to the human with your reasoning and wait for their answer before calling any write tool.",
+    "Never edit `satisfies:`, `trace_exempt:` or `trace_deferred:` in a file directly. `trace_link` verifies the target exists; a hand-edited link can create a dangling reference it would have refused.",
+    "Never claim a gap was handled without having called the tool. `trace_check` re-reads the files and will contradict you.",
+    "Finish by calling `trace_check` and reporting its output verbatim.",
+  ].join("\n\n");
+  return [...skillBlocks, instructions, `Current gap report:\n${gapReport}`].join("\n\n");
+}

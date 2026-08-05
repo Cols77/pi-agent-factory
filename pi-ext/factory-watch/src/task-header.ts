@@ -76,6 +76,39 @@ export function parseTaskFrontmatter(content: string): ParsedTask | null {
   return { id, title, status, dod, body };
 }
 
+export interface ParsedReq {
+  id: string;
+  title: string;
+}
+
+// Requirements carry id/title/statement/domain/binding but never status or dod,
+// so parseTaskFrontmatter -- which requires both -- always rejects them. Kept
+// separate rather than loosening that function, whose strictness /factory-run
+// relies on to treat a malformed task as a hard error.
+export function parseReqFrontmatter(content: string): ParsedReq | null {
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) {
+    return null;
+  }
+  let id: string | undefined;
+  let title: string | undefined;
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    const kv = line.match(/^(\w+):\s*(.*)$/);
+    if (!kv) {
+      continue;
+    }
+    if (kv[1] === "id") {
+      id = unquote(kv[2] ?? "");
+    } else if (kv[1] === "title") {
+      title = unquote(kv[2] ?? "");
+    }
+  }
+  if (!id || !title) {
+    return null;
+  }
+  return { id, title };
+}
+
 export function formatTaskHeader(parsed: ParsedTask): string {
   const dodLines = parsed.dod.map((d) => `- ${d}`).join("\n");
   return `Task ${parsed.id} -- ${parsed.title}\nStatus: ${parsed.status}\nDoD:\n${dodLines}`;

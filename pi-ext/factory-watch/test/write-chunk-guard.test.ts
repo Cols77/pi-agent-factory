@@ -27,6 +27,7 @@ function setup(): {
   const handlers: Record<string, (...args: never[]) => unknown> = {};
   const pi: PiApi = {
     registerCommand: () => {},
+    registerTool: () => {},
     on: ((event: string, handler: (...args: never[]) => unknown) => {
       handlers[event] = handler;
     }) as PiApi["on"],

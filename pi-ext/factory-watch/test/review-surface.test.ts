@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readSurfacePref, writeSurfacePref } from "../src/review-surface.js";
+import {
+  parseReviewPlansArgs,
+  readSurfacePref,
+  writeSurfacePref,
+} from "../src/review-surface.js";
 
 const dirs: string[] = [];
 function tmp() {
@@ -29,5 +33,31 @@ describe("surface pref", () => {
     writeSurfacePref(d, "browser");
     writeFileSync(join(d, "sessions", ".factory-review-surface.json"), "not json");
     expect(readSurfacePref(d)).toBe("terminal");
+  });
+});
+
+describe("parseReviewPlansArgs", () => {
+  test("defaults to prompting", () => {
+    expect(parseReviewPlansArgs("")).toEqual({ surface: null, stop: false });
+  });
+  test("recognises --browser, --terminal and --stop", () => {
+    expect(parseReviewPlansArgs("--browser").surface).toBe("browser");
+    expect(parseReviewPlansArgs("--terminal").surface).toBe("terminal");
+    expect(parseReviewPlansArgs("--stop").stop).toBe(true);
+  });
+});
+
+describe("surface preference keys", () => {
+  test("docs and review preferences are independent", () => {
+    const d = tmp();
+    writeSurfacePref(d, "browser", "docs");
+    expect(readSurfacePref(d, "docs")).toBe("browser");
+    // choosing browser for docs must not redirect where code review opens
+    expect(readSurfacePref(d)).toBe("terminal");
+  });
+  test("the default key keeps its existing behaviour", () => {
+    const d = tmp();
+    writeSurfacePref(d, "browser");
+    expect(readSurfacePref(d)).toBe("browser");
   });
 });

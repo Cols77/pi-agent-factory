@@ -10,7 +10,7 @@
 // redeclaring minimal subsets of them would be pure risk with no benefit.
 
 import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export interface ModelInfo {
   provider: string;
@@ -97,6 +97,10 @@ export interface BeforeAgentStartEventResult {
 
 export interface PiApi {
   registerCommand(name: string, def: CommandDef): void;
+  // Imported rather than hand-declared, for the same reason as TUI/Theme above:
+  // a minimal re-declaration would be assignability risk with no benefit, and
+  // type-compat-check.ts would not catch drift in a shape we invented.
+  registerTool(tool: ToolDefinition<any, any, any>): void;
   on(
     event: "tool_call",
     handler: (event: ToolCallEvent, ctx: EventCtx) => ToolCallEventResult | void,

@@ -11,7 +11,10 @@ import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { buildPlanSeedPrompt, buildSkillBlock } from "./skill-prompt.js";
+import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
+import { registerTraceTools } from "./trace-tools.js";
+import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
+import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
 import type { TaskSummary } from "./task-picker.js";
@@ -26,7 +29,13 @@ import { runReviewLoop } from "./review-overlay.js";
 import { buildDecision } from "./review-model.js";
 import type { ReviewDecisionPayload } from "./review-model.js";
 import { buildReviewPageData, startReviewServer } from "./review-server.js";
-import { openInBrowser, readSurfacePref, writeSurfacePref } from "./review-surface.js";
+import {
+  openInBrowser,
+  parseReviewPlansArgs,
+  readSurfacePref,
+  writeSurfacePref,
+} from "./review-surface.js";
+import { ensureDocsServer, stopDocsServer } from "./docs-server.js";
 import type { Surface } from "./review-surface.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
@@ -41,6 +50,7 @@ const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
 const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
+const TRACE_FIX_SKILL_NAMES = ["trace-fix"];
 
 function parseAutoFlag(args: string): { auto: boolean; rest: string } {
   const auto = /(^|\s)--auto(\s|$)/.test(args);
@@ -182,6 +192,9 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
 
 export default function factoryWatch(pi: PiApi): void {
   registerWriteChunkGuard(pi);
+  // The deterministic half of /trace-fix: the model reasons, these tools do the
+  // enumerating, validating and writing.
+  registerTraceTools(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -489,12 +502,91 @@ export default function factoryWatch(pi: PiApi): void {
     },
   });
 
-  pi.registerCommand("review-plans", {
-    description: "Browse and view specs, plans, and tasks in a scrollable, rendered view",
+  pi.registerCommand("trace-fix", {
+    description: "Work through traceability gaps with the trace tools",
     handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const check = runTraceCheck(ctx.cwd);
+      if (check.ok) {
+        ctx.ui.notify(
+          `trace-fix: nothing pending (${check.deferred} deferred, ${check.exempt} exempt)`,
+          "info",
+        );
+        return;
+      }
+
+      // Resolved via findSkillFile, not loadSkills: commands run with ctx.cwd set
+      // to whatever repo the human is in, and a target project may vendor no
+      // skills at all -- cool_physical_ai_project's .pi/ is empty. The factory's
+      // own copy travels with this extension, so /trace-fix works anywhere.
+      const skillBlocks: string[] = [];
+      for (const name of TRACE_FIX_SKILL_NAMES) {
+        const filePath = findSkillFile(ctx.cwd, name);
+        if (filePath === null) {
+          ctx.ui.notify(
+            `/trace-fix: skill not found: ${name} (looked in ${ctx.cwd}/.pi/skills and ${factorySkillsDir()})`,
+            "error",
+          );
+          return;
+        }
+        const body = stripFrontmatter(readFileSync(filePath, "utf-8")).trim();
+        skillBlocks.push(buildSkillBlock({ name, location: filePath, body }));
+      }
+
+      const seed = buildTraceFixSeedPrompt(skillBlocks, check.report);
+      // newSession() replaces the session and makes ctx stale (see /clear at
+      // the handler above), so nothing may touch ctx after this call.
+      await ctx.newSession({
+        withSession: async (session: ReplacedSessionCtx) => {
+          await session.sendUserMessage(seed, { deliverAs: "followUp" });
+        },
+      });
+    },
+  });
+
+  pi.registerCommand("review-plans", {
+    description: "Browse specs, plans, requirements and tasks (--browser | --terminal | --stop)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const parsedArgs = parseReviewPlansArgs(args);
+
+      if (parsedArgs.stop) {
+        ctx.ui.notify(
+          stopDocsServer() ? "docs server stopped" : "no docs server running",
+          "info",
+        );
+        return;
+      }
+
+      let surface = parsedArgs.surface;
+      if (surface === null) {
+        const remembered = readSurfacePref(ctx.cwd, "docs");
+        const pick = await ctx.ui.select(
+          "Open docs in",
+          remembered === "browser" ? ["Browser", "Terminal"] : ["Terminal", "Browser"],
+        );
+        if (pick === undefined) return;
+        surface = pick === "Browser" ? "browser" : "terminal";
+        writeSurfacePref(ctx.cwd, surface, "docs");
+      }
+
+      if (surface === "browser") {
+        try {
+          // Non-blocking by design: open the tab and return, so the session stays
+          // usable while the docs stay open beside it. Spec section 4.
+          const server = await ensureDocsServer(ctx.cwd);
+          ctx.ui.notify(`docs open at ${server.url} (/review-plans --stop to close)`, "info");
+          openInBrowser(server.url);
+          return;
+        } catch (err) {
+          ctx.ui.notify(
+            `browser docs failed (${String(err)}); falling back to terminal`,
+            "warning",
+          );
+        }
+      }
+
       const docs = listDocs(ctx.cwd);
       if (docs.length === 0) {
-        ctx.ui.notify("no specs, plans, or tasks found", "info");
+        ctx.ui.notify("no specs, plans, requirements, or tasks found", "info");
         return;
       }
 
