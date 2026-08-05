@@ -87,6 +87,10 @@ drone.
 | `src/sim/` | 13 |
 | `tests/sim/` | 12 |
 | `scenarios/` | 5 |
+| `tests/agent/` | 3 — every `agent`-marked test imports only `drone.*` |
+| `tests/integration/test_mission_loop.py` | 1 — the only `integration`-marked test, imports only `drone.*` |
+
+`tests/e2e/` stays: it imports only `factory.orchestrator.*`.
 
 `cool_physical_ai_project/src/drone/fake_flight_controller.py` already exists and
 is superseded by the incoming `src/drone/`; the incoming copy wins, and any
@@ -150,19 +154,46 @@ That is a drone-specific gate baked into the factory's base, and the split
 exposes it as a hard coupling rather than a cosmetic one:
 
 - `run_validation` calls `gates.run("sim")` unconditionally (`nodes.py`).
-- `SubprocessGateRunner.run` does `script = self._SCRIPTS[name]`.
+- `SubprocessGateRunner.run` resolves `self._SCRIPTS[name]` to a path and shells it.
 
-So deleting the factory's sim gate raises `KeyError` and breaks `factory-run`.
+The failure is quieter than a crash, which makes it worse. Delete
+`scripts/gates/sim_smoke.py` and the path still resolves; the subprocess merely
+fails to open, returns non-zero, and `run_validation` reports **"sim tests
+failed"** — blaming drone tests that no longer exist, on every task. Keeping the
+file is no better: `pytest -m sim` with no sim tests exits 5, also non-zero.
+
+**And it is not only the sim gate.** Every test carrying the `agent` marker and
+every test carrying the `integration` marker is a drone test:
+
+| gate | selects | all drone? | after the split |
+|---|---|---|---|
+| `sim` | `pytest -m sim` | yes | script gone / selects nothing |
+| `agent` | `pytest -m agent` | **yes** — 3 files, all `tests/agent/` | selects nothing → exit 5 |
+| `integration` | `pytest tests/integration/` | **yes** — 1 file | empty directory → exit 5 |
+
+So three of the factory's gates are currently *defined by the drone's tests*.
+`all.py` runs `AGENT_CMD`, so it would fail; `run_validation` runs the integration
+gate, so every task would fail. This is the coupling in its fullest form, and it
+is why "the factory is the base" has to be made true in code, not just asserted.
+
+The rule that resolves all three uniformly: **"nothing to run" is not-applicable,
+never failure.** Concretely, a missing gate script and pytest's exit code 5 (no
+tests collected) both mean the project does not provide that gate. A gate that
+runs and fails still fails.
+
 The gate mechanism must therefore learn the contract as part of this split:
 
 - **Factory (base):** keeps `SubprocessGateRunner`, `_proc.py`, and the
-  lint/typecheck/unit/agent gates. Gate resolution becomes **project-relative**:
-  a gate whose script the project does not provide is reported as *not applicable*
-  and skipped, never a `KeyError` and never a silent pass disguised as green.
-  The factory drops the `sim` marker and `sim_smoke.py`, because it has no sim.
-- **Drone (plug):** carries `scripts/gates/sim_smoke.py` and its own `sim` marker.
-  When the factory later runs against the drone repo, that gate is discovered
-  there.
+  lint/typecheck/unit gates. Gate resolution becomes **project-relative** in both
+  code paths that run gates — `SubprocessGateRunner` (used by `factory-run`) and
+  `scripts/gates/_proc.run_and_propagate` (used by `all.py`). A gate the project
+  does not provide is reported as *not applicable* and skipped; never a crash,
+  and never a silent pass disguised as green. The factory drops the `sim` and
+  `agent` markers and `sim_smoke.py`, because it has neither suite.
+- **Drone (plug):** already carries `scripts/gates/sim_smoke.py`, `SIM_CMD` and a
+  `sim` marker, and gains the `agent` and `integration` suites with the code they
+  test. When the factory later runs against the drone repo, those gates are
+  discovered there.
 
 This is the only part of the split that changes factory behaviour rather than
 moving files, and it is where the factory's own suite is most likely to break.
