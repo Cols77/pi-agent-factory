@@ -135,6 +135,17 @@ def main(
             payload["error"] = "resume executor is not configured"
             _emit(payload, args.json)
             return 4
+        if assessment.actions and assessment.actions[0] == "restore-patch":
+            assert checkpoint.patch_path is not None
+            patch = Path(checkpoint.patch_path)
+            if not patch.is_absolute():
+                patch = repo_root / patch
+            operations.restore_patch(repo_root, patch)
+            restored = operations.worktree_fingerprint(repo_root, checkpoint.start_commit)
+            if restored != checkpoint.worktree_fingerprint:
+                payload["error"] = "restored worktree does not match checkpoint fingerprint"
+                _emit(payload, args.json)
+                return 3
         resume_callback(checkpoint)
         payload["resumed"] = True
         _emit(payload, args.json)

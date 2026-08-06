@@ -184,6 +184,37 @@ def test_write_patch_captures_tracked_diff_and_untracked_sidecar(tmp_path):
     assert base64.b64decode(sidecar["files"][0]["data"]) == b"\x00\x01"
 
 
+def test_restore_patch_recovers_tracked_and_untracked_bytes(tmp_path):
+    repo = _init_repo(tmp_path)
+    (repo / ".gitignore").write_text("sessions/\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "ignore recovery"], cwd=repo, check=True)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "new.bin").write_bytes(b"\x00\x01")
+    expected = ops.worktree_fingerprint(repo, start)
+    patch = repo / "sessions" / "checkpoint.patch"
+    ops.write_patch(repo, start, patch)
+
+    subprocess.run(["git", "reset", "--hard", start], cwd=repo, check=True)
+    (repo / "new.bin").unlink()
+    assert ops.check_patch(repo, patch) is True
+    ops.restore_patch(repo, patch)
+    assert (repo / "a.txt").read_text(encoding="utf-8") == "two\n"
+    assert (repo / "new.bin").read_bytes() == b"\x00\x01"
+    assert ops.worktree_fingerprint(repo, start) == expected
+
+
+def test_write_patch_rejects_recovery_data_outside_repository(tmp_path):
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    repo = _init_repo(repo_path)
+    ops = SubprocessGitOps()
+    with pytest.raises(ValueError, match="inside the repository"):
+        ops.write_patch(repo, ops.head_commit(repo), tmp_path / "outside.patch")
+
+
 def test_check_patch_distinguishes_clean_and_conflicting_worktrees(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()

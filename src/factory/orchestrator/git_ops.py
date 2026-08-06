@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ class GitOps(Protocol):
     def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str: ...
     def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path: ...
     def check_patch(self, repo_root: Path, path: Path) -> bool: ...
+    def restore_patch(self, repo_root: Path, path: Path) -> None: ...
 
 
 class SubprocessGitOps:
@@ -142,6 +144,10 @@ class SubprocessGitOps:
         return digest.hexdigest()
 
     def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path:
+        try:
+            path.resolve().relative_to(repo_root.resolve())
+        except ValueError as exc:
+            raise ValueError("checkpoint patch must be inside the repository") from exc
         # Enumerate before creating the checkpoint itself, which may live inside
         # a repository whose test fixture has not configured ignore rules.
         untracked_files = self._untracked_files(repo_root)
@@ -153,6 +159,7 @@ class SubprocessGitOps:
             {
                 "path": relative,
                 "data": base64.b64encode((repo_root / relative).read_bytes()).decode("ascii"),
+                "mode": stat.S_IMODE((repo_root / relative).stat().st_mode),
             }
             for relative in untracked_files
         ]
@@ -171,6 +178,32 @@ class SubprocessGitOps:
             capture_output=True,
         )
         return result.returncode == 0
+
+    def restore_patch(self, repo_root: Path, path: Path) -> None:
+        subprocess.run(
+            ["git", "apply", "--binary", str(path.resolve())],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        )
+        sidecar = path.with_suffix(path.suffix + ".untracked.json")
+        if not sidecar.exists():
+            return
+        value = json.loads(sidecar.read_text(encoding="utf-8"))
+        for item in value.get("files", []):
+            relative = item["path"]
+            target = (repo_root / relative).resolve()
+            try:
+                target.relative_to(repo_root.resolve())
+            except ValueError as exc:
+                raise ValueError(f"untracked checkpoint path escapes repository: {relative}") from exc
+            data = base64.b64decode(item["data"], validate=True)
+            if target.exists() and target.read_bytes() != data:
+                raise ValueError(f"untracked checkpoint conflicts with existing file: {relative}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            if isinstance(item.get("mode"), int):
+                target.chmod(item["mode"])
 
 
 class FakeGitOps:
@@ -225,3 +258,7 @@ class FakeGitOps:
 
     def check_patch(self, repo_root: Path, path: Path) -> bool:
         return path.exists()
+
+    def restore_patch(self, repo_root: Path, path: Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(path)

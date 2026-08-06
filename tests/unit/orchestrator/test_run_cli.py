@@ -75,6 +75,31 @@ def test_resume_invokes_callback_only_when_resumable(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["resumed"] is True
 
 
+def test_resume_restores_a_cleanly_applicable_saved_patch_before_callback(tmp_path, capsys):
+    write(tmp_path, checkpoint(patch_path="checkpoint.patch"))
+    (tmp_path / "checkpoint.patch").write_bytes(b"patch")
+
+    class RestoringFake(FakeGitOps):
+        def __init__(self):
+            super().__init__(head="a" * 40)
+            self.fingerprint = "changed"
+            self.restored = False
+
+        def restore_patch(self, repo_root, path):
+            self.restored = True
+            self.fingerprint = "f" * 64
+
+    fake = RestoringFake()
+    resumed = []
+    assert main(
+        ["resume", "run-1", "--repo", str(tmp_path), "--json"],
+        git_ops=fake,
+        resume_callback=lambda cp: resumed.append(cp.run_id),
+    ) == 0
+    assert fake.restored is True
+    assert resumed == ["run-1"]
+
+
 def test_resume_conflict_and_inspect_only_exit_codes(tmp_path, capsys):
     write(tmp_path, checkpoint(head_commit="b" * 40))
     assert main(
