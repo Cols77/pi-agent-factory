@@ -10,7 +10,7 @@ from factory.orchestrator.pi_backend import (
     _has_json_events_without_text_field,
     parse_pi_json,
 )
-from factory.orchestrator.types import AgentRole
+from factory.orchestrator.types import AgentRole, InterruptionReason
 
 pytestmark = pytest.mark.unit
 
@@ -263,6 +263,39 @@ def test_thinking_only_message_is_not_flagged_as_missing_text():
 
 # --- RC1: agent-subprocess timeouts (a stalled or runaway agent must not hang
 # the orchestrator forever) -----------------------------------------------------
+
+def test_classify_interruption_uses_explicit_provider_signals_only():
+    from factory.orchestrator.pi_backend import classify_interruption
+
+    provider_error = json.dumps({
+        "type": "provider_error", "message": "maximum context length exceeded"
+    })
+    assert classify_interruption(1, provider_error) is InterruptionReason.CONTEXT_LIMIT
+    stop_event = json.dumps({"type": "agent_end", "reason": "context_limit"})
+    assert classify_interruption(0, stop_event) is InterruptionReason.CONTEXT_LIMIT
+
+
+def test_classify_interruption_keeps_timeouts_and_process_exits_distinct():
+    from factory.orchestrator.pi_backend import classify_interruption
+
+    assert classify_interruption(-9, "", "idle") is InterruptionReason.IDLE_TIMEOUT
+    assert classify_interruption(-9, "", "total") is InterruptionReason.TOTAL_TIMEOUT
+    assert classify_interruption(7, "unknown crash") is InterruptionReason.PROCESS_EXIT
+    assert classify_interruption(0, "") is None
+
+
+def test_classify_interruption_does_not_treat_assistant_prose_as_a_signal():
+    from factory.orchestrator.pi_backend import classify_interruption
+
+    prose = json.dumps({
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "We should consider the token limit."}],
+        },
+    })
+    assert classify_interruption(0, prose) is None
+
 
 def test_drain_lines_yields_all_then_stops_without_timeout():
     from factory.orchestrator.pi_backend import _drain_lines

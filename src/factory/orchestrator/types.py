@@ -13,6 +13,13 @@ class AgentRole(str, Enum):
     SYNTHESIS = "synthesis"
 
 
+class InterruptionReason(str, Enum):
+    CONTEXT_LIMIT = "context_limit"
+    IDLE_TIMEOUT = "idle_timeout"
+    TOTAL_TIMEOUT = "total_timeout"
+    PROCESS_EXIT = "process_exit"
+
+
 class NodeOutcome(str, Enum):
     PASS = "pass"
     FAIL = "fail"
@@ -28,6 +35,7 @@ class AgentResult:
     output: dict
     raw: str = ""
     session_id: str | None = None
+    interruption: InterruptionReason | None = None
 
 
 @dataclass

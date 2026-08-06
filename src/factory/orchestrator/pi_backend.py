@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from factory.orchestrator.roles import ROLE_SCOPE
-from factory.orchestrator.types import AgentResult, AgentRole
+from factory.orchestrator.types import AgentResult, AgentRole, InterruptionReason
 
 # The real JSON the agent emits is always the LAST ```json block. A thinking
 # block frequently quotes the prompt ("emit ONLY a fenced ```json block"), so
@@ -28,6 +28,61 @@ _JSON_START = "```json"
 # bound.
 _DEFAULT_IDLE_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_IDLE_TIMEOUT_S", "300"))
 _DEFAULT_TOTAL_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_TOTAL_TIMEOUT_S", "1200"))
+_CONTEXT_ERROR_MARKERS = (
+    "context length",
+    "maximum context",
+    "token limit",
+    "prompt is too long",
+)
+_CONTEXT_STOP_REASONS = {"context_limit", "context_length", "max_context", "prompt_too_long"}
+
+
+def classify_interruption(
+    returncode: int | None,
+    output: str,
+    timed_out_reason: str | None = None,
+) -> InterruptionReason | None:
+    """Classify only explicit process/provider interruption signals.
+
+    Assistant prose is deliberately excluded: a model discussing a "token limit"
+    is not evidence that the provider stopped the process for one.
+    """
+    if timed_out_reason == "idle":
+        return InterruptionReason.IDLE_TIMEOUT
+    if timed_out_reason == "total":
+        return InterruptionReason.TOTAL_TIMEOUT
+
+    terminal_errors: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            event = json.loads(stripped)
+        except json.JSONDecodeError:
+            terminal_errors.append(stripped)
+            continue
+        if not isinstance(event, dict):
+            continue
+        reason = event.get("reason", event.get("stop_reason"))
+        if isinstance(reason, str) and reason.lower() in _CONTEXT_STOP_REASONS:
+            return InterruptionReason.CONTEXT_LIMIT
+        if event.get("type") in {"error", "agent_error", "provider_error"}:
+            for key in ("error", "message", "detail"):
+                value = event.get(key)
+                if isinstance(value, str):
+                    terminal_errors.append(value)
+                elif isinstance(value, dict):
+                    terminal_errors.extend(str(item) for item in value.values())
+    if any(
+        marker in message.lower()
+        for message in terminal_errors
+        for marker in _CONTEXT_ERROR_MARKERS
+    ):
+        return InterruptionReason.CONTEXT_LIMIT
+    if returncode not in (None, 0):
+        return InterruptionReason.PROCESS_EXIT
+    return None
 
 
 def _drain_lines(
@@ -377,7 +432,13 @@ class PiAgentBackend:
                 "stalled or ran away without finishing. Treating this attempt as failed.\n"
                 "Partial stdout follows:\n" + stdout
             )
-            return AgentResult(ok=False, output=output, raw=raw, session_id=parse_session_id(stdout))
+            return AgentResult(
+                ok=False,
+                output=output,
+                raw=raw,
+                session_id=parse_session_id(stdout),
+                interruption=classify_interruption(proc.returncode, stdout, timed_out_reason),
+            )
 
         # Finding 1+2 (final review): a zero exit code with non-empty stdout that
         # yields an empty parsed output is normally read as "the agent said
@@ -401,4 +462,10 @@ class PiAgentBackend:
                 "assumption being wrong for this stream. Raw stdout:\n" + stdout
             )
 
-        return AgentResult(ok=ok, output=output, raw=raw, session_id=parse_session_id(stdout))
+        return AgentResult(
+            ok=ok,
+            output=output,
+            raw=raw,
+            session_id=parse_session_id(stdout),
+            interruption=classify_interruption(proc.returncode, stdout),
+        )
