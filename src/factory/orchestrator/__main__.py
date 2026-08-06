@@ -134,7 +134,8 @@ def main() -> None:
             repo_root, backend, gates, git_info=_git_info(repo_root),
             session_id=session_id, status=status, task_id=args.task,
             human_review=human_review, transcript_dir=transcript_dir, force=args.force,
-            artifact_store=artifact_store, evidence_dir=repo_root / "evidence", **kwargs,
+            artifact_store=artifact_store, evidence_dir=repo_root / "evidence",
+            checkpoint_runs=True, **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:

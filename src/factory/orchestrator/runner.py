@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from factory.evidence.artifacts import ArtifactStore
 from factory.evidence.finalize import finalize_run_evidence
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
+from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import GitOps, SubprocessGitOps
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
 from factory.orchestrator.ledger import (
@@ -26,6 +28,7 @@ from factory.orchestrator.nodes import (
     run_validation,
 )
 from factory.orchestrator.prompts import compose_prompt
+from factory.orchestrator.journal import RunCheckpoint
 from factory.orchestrator.review_guide import (
     read_requirements_report,
     read_validation,
@@ -89,13 +92,39 @@ def run_task(
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
     start_commit: str | None = None,
+    execution: RunExecution | None = None,
+    resume: RunCheckpoint | None = None,
 ) -> TaskResult:
     events: list[NodeEvent] = []
     start_commit = start_commit or git_ops.head_commit(repo_root)
 
-    c_outcome, manifest, c_ev = run_context_gatherer(
-        backend, task, repo_root, transcript_dir=transcript_dir, status=status, gates=gates
+    context_record = next(
+        (
+            item
+            for item in reversed(resume.completed if resume is not None else [])
+            if item.get("node") == "context-gather"
+        ),
+        None,
     )
+    if resume is not None and resume.node != "context-gather" and context_record is not None:
+        context_data = context_record.get("data", {})
+        manifest = context_data.get("manifest")
+        c_outcome = NodeOutcome(context_data.get("outcome", "pass"))
+        raw_event = context_data.get("event", {})
+        c_ev = NodeEvent(**raw_event) if raw_event else NodeEvent("context-gather", "pass")
+    else:
+        c_outcome, manifest, c_ev = run_context_gatherer(
+            backend, task, repo_root, transcript_dir=transcript_dir, status=status, gates=gates
+        )
+        if execution is not None:
+            execution.record(
+                node="context-gather",
+                state="completed" if manifest is not None else "failed",
+                attempt=c_ev.attempts,
+                next_node="dev" if manifest is not None else "closed",
+                remaining={"dev": max_dev_iters, "review": max_review_cycles},
+                data={"outcome": c_outcome.value, "manifest": manifest, "event": asdict(c_ev)},
+            )
     events.append(c_ev)
     if c_outcome == NodeOutcome.REJECT or manifest is None:
         _report_node(status, task.id, c_ev, c_ev.attempts, outcome="rejected")
@@ -114,6 +143,7 @@ def run_task(
     feedback: str | None = None
     iterations = 0
     first_dev = True  # already_done skips ONLY the very first dev attempt
+    resume_at = resume.node if resume is not None else None
     addressed: list[str] = []
 
     # Outer loop = human rounds; each human reject grants a FRESH inner (LLM)
@@ -129,7 +159,8 @@ def run_task(
         for _cycle in range(max_review_cycles):
             iterations += 1
 
-            if not (already_done and first_dev):
+            resume_skips_dev = first_dev and resume_at in {"validation", "review", "human-review"}
+            if not (already_done and first_dev) and not resume_skips_dev:
                 d_outcome, d_ev = run_dev(
                     backend,
                     gates,
@@ -143,6 +174,18 @@ def run_task(
                     status=status,
                 )
                 events.append(d_ev)
+                if execution is not None:
+                    execution.record(
+                        node="dev",
+                        state="completed" if d_outcome is not NodeOutcome.ESCALATE else "failed",
+                        attempt=d_ev.attempts,
+                        next_node="validation" if d_outcome is not NodeOutcome.ESCALATE else "closed",
+                        remaining={
+                            "dev": max(0, max_dev_iters - d_ev.attempts),
+                            "review": max(0, max_review_cycles - _cycle),
+                        },
+                        data={"outcome": d_outcome.value, "event": asdict(d_ev)},
+                    )
                 if d_outcome == NodeOutcome.ESCALATE:
                     _report_node(status, task.id, d_ev, max_dev_iters, outcome="escalated")
                     return TaskResult(
@@ -150,6 +193,7 @@ def run_task(
                     )
                 _report_node(status, task.id, d_ev, max_dev_iters)
             first_dev = False
+            resume_at = None
 
             v_outcome, v_ev = run_validation(
                 gates,
@@ -160,6 +204,18 @@ def run_task(
                 transcript_dir=transcript_dir,
             )
             events.append(v_ev)
+            if execution is not None:
+                execution.record(
+                    node="validation",
+                    state="completed",
+                    attempt=v_ev.attempts,
+                    next_node="dev" if v_outcome is NodeOutcome.FAIL else "review",
+                    remaining={
+                        "dev": max(0, max_dev_iters - iterations),
+                        "review": max(0, max_review_cycles - _cycle),
+                    },
+                    data={"outcome": v_outcome.value, "event": asdict(v_ev)},
+                )
             _report_node(status, task.id, v_ev, 1)
             if v_outcome == NodeOutcome.FAIL:
                 reds = v_ev.extra.get("failed_requirements")
@@ -185,6 +241,28 @@ def run_task(
                 events=list(events),
             )
             events.append(r_ev)
+            if execution is not None:
+                execution.record(
+                    node="review",
+                    state="completed",
+                    attempt=r_ev.attempts,
+                    next_node=(
+                        "human-review"
+                        if r_outcome is NodeOutcome.PASS and human_review is not None
+                        else "code-commit"
+                        if r_outcome is NodeOutcome.PASS
+                        else "dev"
+                    ),
+                    remaining={
+                        "dev": max(0, max_dev_iters - iterations),
+                        "review": max(0, max_review_cycles - _cycle - 1),
+                    },
+                    data={
+                        "outcome": r_outcome.value,
+                        "findings": review_findings,
+                        "event": asdict(r_ev),
+                    },
+                )
             if r_outcome == NodeOutcome.PASS:
                 llm_passed = True
                 break
@@ -197,6 +275,15 @@ def run_task(
             if llm_passed:
                 assert r_ev is not None
                 git_ops.commit_all(repo_root, _commit_message(task))
+                if execution is not None:
+                    execution.record(
+                        node="code-commit",
+                        state="completed",
+                        attempt=1,
+                        next_node="evidence-finalize",
+                        remaining={},
+                        data={"commit": git_ops.head_commit(repo_root)},
+                    )
                 _report_node(status, task.id, r_ev, 1, outcome="completed")
                 return TaskResult(
                     task.id, task.title, "completed", iterations, events, True, manifest
@@ -238,9 +325,38 @@ def run_task(
             already_done=already_done,
             deliverables=parse_deliverables(task.body) if already_done else [],
         )
+        if execution is not None:
+            execution.record(
+                node="human-review",
+                state="started",
+                attempt=_human_round + 1,
+                next_node="human-review",
+                remaining={"human": max(0, outer_rounds - _human_round)},
+            )
         decision = human_review.request_review(task.id, start_commit)
+        if execution is not None:
+            execution.record(
+                node="human-review",
+                state="completed",
+                attempt=_human_round + 1,
+                next_node="code-commit" if decision.decision == "approve" else "dev",
+                remaining={"human": max(0, outer_rounds - _human_round - 1)},
+                data={
+                    "decision": decision.decision,
+                    "annotations": [asdict(item) for item in decision.annotations],
+                },
+            )
         if decision.decision == "approve":
             git_ops.commit_all(repo_root, _commit_message(task))
+            if execution is not None:
+                execution.record(
+                    node="code-commit",
+                    state="completed",
+                    attempt=1,
+                    next_node="evidence-finalize",
+                    remaining={},
+                    data={"commit": git_ops.head_commit(repo_root)},
+                )
             status.report(
                 task_id=task.id,
                 node="human-review",
@@ -313,8 +429,12 @@ def run_next(
     force: bool = False,
     artifact_store: ArtifactStore | None = None,
     evidence_dir: Path | None = None,
+    checkpoint_runs: bool = False,
+    resume: RunCheckpoint | None = None,
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
+    if resume is not None and task_id is None:
+        task_id = resume.task_id
     if task_id is not None:
         task = get_task(tasks, task_id)
         if task is None:
@@ -322,7 +442,7 @@ def run_next(
         # `force` re-runs a task that isn't `todo` (e.g. one left `done` or
         # `in-progress` after a manual intervention), so the pipeline can be
         # resumed instead of dead-ending with TaskNotTodoError (RC3).
-        if task.status != "todo" and not force:
+        if task.status != "todo" and not force and resume is None:
             raise TaskNotTodoError(task_id, task.status)
     else:
         # Pick the next todo task by STATUS only. A task whose Create:/Test:
@@ -334,9 +454,22 @@ def run_next(
         if task is None:
             return None
 
-    sid = session_id or _default_session_id()
+    sid = resume.run_id if resume is not None else session_id or _default_session_id()
     started_at = _utc_now()
-    start_commit = git_ops.head_commit(repo_root)
+    start_commit = resume.start_commit if resume is not None else git_ops.head_commit(repo_root)
+    execution = (
+        RunExecution.create(repo_root, sid, task.id, start_commit, git_ops)
+        if checkpoint_runs or resume is not None
+        else None
+    )
+    if execution is not None and resume is None:
+        execution.record(
+            node="context-gather",
+            state="started",
+            attempt=1,
+            next_node="context-gather",
+            remaining={"dev": 3, "review": 3},
+        )
     result = run_task(
         task,
         backend,
@@ -347,6 +480,8 @@ def run_next(
         git_ops=git_ops,
         transcript_dir=transcript_dir,
         start_commit=start_commit,
+        execution=execution,
+        resume=resume,
     )
     result.start_commit = start_commit
     result.result_commit = git_ops.head_commit(repo_root)
@@ -377,6 +512,16 @@ def run_next(
             [task.path, manifest_path],
             f"evidence: record {task.id} run {sid}",
         )
+        if execution is not None:
+            execution.artifacts.append(manifest_path.relative_to(repo_root).as_posix())
+            execution.record(
+                node="evidence-finalize",
+                state="completed",
+                attempt=1,
+                next_node="session-review",
+                remaining={},
+                data={"manifest": manifest_path.relative_to(repo_root).as_posix()},
+            )
 
     record = build_record(sid, model_backend, [result], git_info or {})
     path = write_session(repo_root / "sessions", record)
@@ -410,6 +555,15 @@ def run_next(
     )
     if transcript_dir is not None:
         write_role_transcript(transcript_dir, "session-review", 1, session_review_result.raw)
+    if execution is not None:
+        execution.record(
+            node="session-review",
+            state="completed",
+            attempt=1,
+            next_node="closed",
+            remaining={},
+            session_id=session_review_result.session_id,
+        )
     status.report(
         task_id=task.id,
         node="session-review",
