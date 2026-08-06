@@ -159,6 +159,47 @@ describe("ensureDocsServer", () => {
     expect(runState.checkpoint).toBeNull();
   });
 
+  test("routes explicit run actions only through the Python client", async () => {
+    spawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ checkpoint: { run_id: "run-1" }, assessment: null, abandoned: true }),
+      stderr: "",
+    });
+    const server = await ensureDocsServer(repo());
+    const response = await fetch(`${server.url}/api/run-state/run-1/abandon`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "superseded" }),
+    });
+    expect(response.status).toBe(200);
+    expect(spawnSync.mock.calls[0]![1]).toContain("abandon");
+    expect(spawnSync.mock.calls[0]![1]).toContain("superseded");
+  });
+
+  test("rejects malformed run actions before invoking Python", async () => {
+    const server = await ensureDocsServer(repo());
+    const blank = await fetch(`${server.url}/api/run-state/run-1/abandon`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: " " }),
+    });
+    expect(blank.status).toBe(400);
+    const extra = await fetch(`${server.url}/api/run-state/run-1/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+    expect(extra.status).toBe(400);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  test("maps Python recovery conflicts without optimistic success", async () => {
+    spawnSync.mockReturnValue({ status: 3, stdout: '{"assessment":{"state":"conflict"}}', stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const response = await fetch(`${server.url}/api/run-state/run-1/resume`, { method: "POST" });
+    expect(response.status).toBe(409);
+  });
+
   test("reports evidence CLI failure without taking down document browsing", async () => {
     spawnSync.mockReturnValue({ status: 2, stdout: "", stderr: "evidence unavailable" });
     const server = await ensureDocsServer(repo());

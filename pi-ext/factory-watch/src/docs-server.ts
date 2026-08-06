@@ -7,6 +7,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 import {
   loadCurrentRun,
   loadTaskEvidence,
+  requestRunAction,
   runPreflight,
   runReconcile,
 } from "./evidence-client.js";
@@ -158,6 +159,35 @@ export function loadTaskReviews(cwd: string, taskId: string): ArchivedReview[] {
   return reviews.sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at));
 }
 
+function readActionBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  callback: (value: Record<string, unknown>) => void,
+): void {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  req.on("data", (chunk: Buffer) => {
+    size += chunk.length;
+    if (size <= 16 * 1024) chunks.push(chunk);
+  });
+  req.on("end", () => {
+    if (size > 16 * 1024) {
+      json(res, 413, { error: "request body too large" });
+      return;
+    }
+    const text = Buffer.concat(chunks).toString("utf-8").trim();
+    try {
+      const value = text === "" ? {} : JSON.parse(text) as unknown;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error("body must be a JSON object");
+      }
+      callback(value as Record<string, unknown>);
+    } catch (err) {
+      json(res, 400, { error: `invalid action body: ${String(err)}` });
+    }
+  });
+}
+
 function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
@@ -228,6 +258,40 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
       return;
     }
     json(res, 200, result.value);
+    return;
+  }
+
+  const actionMatch = /^\/api\/run-state\/([A-Za-z0-9._-]+)\/(resume|abandon)$/.exec(url.pathname);
+  if (req.method === "POST" && actionMatch !== null) {
+    const runId = actionMatch[1]!;
+    const action = actionMatch[2] as "resume" | "abandon";
+    readActionBody(req, res, (body) => {
+      const keys = Object.keys(body);
+      if (action === "resume" && keys.length !== 0) {
+        json(res, 400, { error: "resume body must be empty" });
+        return;
+      }
+      const reason = body.reason;
+      if (
+        action === "abandon"
+        && (keys.length !== 1 || typeof reason !== "string" || reason.trim() === "")
+      ) {
+        json(res, 400, { error: "abandonment requires exactly one non-blank reason" });
+        return;
+      }
+      const result = requestRunAction(
+        cwd,
+        runId,
+        action,
+        typeof reason === "string" ? reason.trim() : undefined,
+      );
+      if (!result.ok) {
+        const status = result.status === 3 ? 409 : result.status === 4 ? 422 : 503;
+        json(res, status, { error: result.error });
+        return;
+      }
+      json(res, 200, result.value);
+    });
     return;
   }
 
