@@ -47,3 +47,5 @@ class TaskResult:
     events: list[NodeEvent]
     dod_met: bool
     manifest: dict | None = None
+    start_commit: str | None = None
+    result_commit: str | None = None

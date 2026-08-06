@@ -100,6 +100,53 @@ def test_fake_git_ops_changed_files_defaults_to_empty():
     assert FakeGitOps().changed_files(None, "abc123") == []
 
 
+def test_commit_paths_does_not_stage_or_commit_unrelated_files(tmp_path):
+    repo = _init_repo(tmp_path)
+    wanted = repo / "evidence" / "runs" / "run-1.json"
+    wanted.parent.mkdir(parents=True)
+    wanted.write_text("{}", encoding="utf-8")
+    unrelated = repo / "unrelated.txt"
+    unrelated.write_text("leave me", encoding="utf-8")
+
+    assert SubprocessGitOps().commit_paths(repo, [wanted], "evidence: record run") is True
+
+    status = subprocess.run(
+        ["git", "status", "--short"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout
+    assert "unrelated.txt" in status
+    assert "evidence/runs/run-1.json" not in status
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert committed == ["evidence/runs/run-1.json"]
+
+
+def test_commit_paths_refuses_a_path_outside_repository(tmp_path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = _init_repo(repo_dir)
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="outside repository"):
+        SubprocessGitOps().commit_paths(repo, [outside], "not allowed")
+
+
+def test_binary_diff_and_changed_files_between_capture_committed_range(tmp_path):
+    repo = _init_repo(tmp_path)
+    start = SubprocessGitOps().head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    assert SubprocessGitOps().commit_all(repo, "change") is True
+    end = SubprocessGitOps().head_commit(repo)
+
+    assert b"+two" in SubprocessGitOps().binary_diff(repo, start, end)
+    assert SubprocessGitOps().changed_files_between(repo, start, end) == ["a.txt"]
+
+
 def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):
     # A git failure (e.g. a Windows reserved-name path git refuses with exit
     # 128) must NOT crash the caller -- commit_all returns False and warns,
