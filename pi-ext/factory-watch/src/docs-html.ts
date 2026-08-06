@@ -33,11 +33,14 @@ export function renderDocsHtml(): string {
   #doc { padding: 4px 24px 24px; max-width: 82ch; }
   #doc pre { background: var(--sunk); padding: 10px; overflow-x: auto; border-radius: 4px; }
   #reviews { padding: 0 24px 48px; max-width: 110ch; }
-  .review-record { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 6px 9px; }
-  .review-record summary { cursor: pointer; font-weight: 600; }
+  .review-record, .evidence-run { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 6px 9px; }
+  .review-record summary, .evidence-run summary { cursor: pointer; font-weight: 600; }
   .review-record .review-meta { font-size: 12px; opacity: .75; margin: 5px 0; }
-  .review-record pre { background: var(--sunk); padding: 10px; overflow: auto; max-height: 50vh; }
-  .review-record ul { margin: 5px 0; }
+  .review-record pre, .evidence-run pre { background: var(--sunk); padding: 10px; overflow: auto; max-height: 50vh; }
+  .review-record ul, .evidence-run ul { margin: 5px 0; }
+  .provenance { display: inline-block; font-size: 10px; opacity: .7; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 5px; text-transform: uppercase; }
+  .evidence-section { margin: 7px 0; }
+  .evidence-section > strong { display: block; margin-bottom: 2px; }
   #doc table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
   #doc th, #doc td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; }
   #doc code { background: var(--sunk); padding: 0 3px; border-radius: 3px; }
@@ -412,42 +415,131 @@ export function renderDocsHtml(): string {
     box.appendChild(svg);
   }
 
-  async function renderReviews(node) {
-    const box = el('reviews'); box.innerHTML = '';
-    if (node.kind !== 'task') return;
+  function provenance(label) {
+    const badge = text(document.createElement('span'), label);
+    badge.className = 'provenance';
+    return badge;
+  }
+
+  function evidenceSection(parent, label) {
+    const section = document.createElement('div'); section.className = 'evidence-section';
+    const head = text(document.createElement('strong'), label); head.appendChild(provenance('recorded'));
+    section.appendChild(head); parent.appendChild(section); return section;
+  }
+
+  async function attachArtifact(parent, ref, label) {
+    if (!ref || !ref.sha256) return;
+    const button = document.createElement('button'); button.textContent = label;
+    const output = document.createElement('pre'); output.hidden = true;
+    button.onclick = async () => {
+      if (!output.hidden) { output.hidden = true; return; }
+      const response = await fetch('/api/artifact/' + encodeURIComponent(ref.sha256));
+      output.textContent = response.ok ? await response.text() : 'Artifact unavailable (' + response.status + ').';
+      output.hidden = false;
+    };
+    parent.append(button, output);
+  }
+
+  function renderAnnotations(parent, annotations) {
+    if (!Array.isArray(annotations) || !annotations.length) return;
+    const list = document.createElement('ul');
+    annotations.forEach((a) => {
+      const row = document.createElement('li');
+      row.appendChild(document.createTextNode((a.file || '(file)') +
+        (a.line === null || a.line === undefined ? '' : ':' + a.line) +
+        (a.severity ? ' [' + a.severity + ']' : '') + ': ' + (a.body || '')));
+      list.appendChild(row);
+    });
+    parent.appendChild(list);
+  }
+
+  async function renderLegacyReviews(node, box) {
     const r = await fetch('/api/reviews?task=' + encodeURIComponent(shortId(node.id)));
-    if (active !== node.id) return; // a later navigation won the race
-    const heading = text(document.createElement('div'), 'Human review history');
-    heading.className = 'group'; box.appendChild(heading);
+    if (active !== node.id) return;
+    const heading = text(document.createElement('div'), 'Local legacy review history');
+    heading.className = 'group'; heading.appendChild(provenance('local')); box.appendChild(heading);
     if (!r.ok) { text(box, 'Review history unavailable.').className = 'legend'; return; }
     const data = await r.json();
     if (!data.reviews.length) {
-      text(box, 'No retained human reviews for this task yet. Reviews created before archival was enabled cannot be reconstructed.').className = 'legend';
+      text(box, 'No durable evidence exists for this task. Reviews created before archival was enabled cannot be reconstructed.').className = 'legend';
       return;
     }
     for (const review of data.reviews) {
       const details = document.createElement('details'); details.className = 'review-record';
-      const summary = document.createElement('summary');
-      summary.appendChild(document.createTextNode((review.reviewed_at || 'unknown time') + ' · ' + review.decision +
-        ' · ' + review.annotations.length + ' comment' + (review.annotations.length === 1 ? '' : 's')));
+      const summary = text(document.createElement('summary'),
+        (review.reviewed_at || 'unknown time') + ' · ' + review.decision);
       details.appendChild(summary);
-      const meta = document.createElement('div'); meta.className = 'review-meta';
-      meta.appendChild(document.createTextNode('Start commit: ' + (review.start_commit || 'unknown') +
-        (review.reviewed_files.length ? ' · reviewed: ' + review.reviewed_files.join(', ') : '')));
-      details.appendChild(meta);
-      if (review.annotations.length) {
-        const list = document.createElement('ul');
-        review.annotations.forEach((a) => {
-          const row = document.createElement('li');
-          row.appendChild(document.createTextNode(a.file + (a.line === null ? '' : ':' + a.line) +
-            (a.severity ? ' [' + a.severity + ']' : '') + ': ' + a.body));
-          list.appendChild(row);
-        });
-        details.appendChild(list);
-      }
+      renderAnnotations(details, review.annotations);
       const patch = document.createElement('pre');
       patch.appendChild(document.createTextNode(review.diff || review.diff_error || '(no changes captured)'));
-      details.appendChild(patch);
+      details.appendChild(patch); box.appendChild(details);
+    }
+  }
+
+  async function renderTaskEvidence(node) {
+    const box = el('reviews'); box.innerHTML = '';
+    if (node.kind !== 'task') return;
+    const response = await fetch('/api/evidence/task?task=' + encodeURIComponent(shortId(node.id)));
+    if (active !== node.id) return;
+    if (!response.ok) {
+      text(box, 'Durable evidence unavailable.').className = 'legend';
+      await renderLegacyReviews(node, box); return;
+    }
+    const data = await response.json();
+    if (!Array.isArray(data.runs) || data.runs.length === 0) {
+      await renderLegacyReviews(node, box); return;
+    }
+    const heading = text(document.createElement('div'), 'Implementation evidence');
+    heading.className = 'group'; heading.appendChild(provenance('recorded')); box.appendChild(heading);
+    for (const run of data.runs) {
+      const details = document.createElement('details'); details.className = 'evidence-run';
+      const summary = text(document.createElement('summary'),
+        (run.ended_at || run.run_id) + ' · ' + run.outcome + ' · evidence ' + run.publication.state);
+      details.appendChild(summary);
+      const meta = document.createElement('div'); meta.className = 'review-meta';
+      meta.appendChild(document.createTextNode('Code: ' + run.start_commit + ' → ' + run.result_commit));
+      details.appendChild(meta);
+
+      const implementation = evidenceSection(details, 'Implementation');
+      const files = run.implementation && Array.isArray(run.implementation.changed_files)
+        ? run.implementation.changed_files : [];
+      text(implementation, files.length ? files.join(', ') : 'No changed files recorded.');
+      await attachArtifact(implementation, run.implementation && run.implementation.patch, 'View implementation patch');
+
+      const validation = evidenceSection(details, 'Validation');
+      if (!Array.isArray(run.validation) || !run.validation.length) {
+        text(validation, 'Missing validation evidence.').className = 'legend';
+      } else {
+        run.validation.forEach((entry) => {
+          const requirements = Array.isArray(entry.requirements) ? entry.requirements : [];
+          if (!requirements.length) text(validation, 'Validation report recorded; no requirement results.');
+          requirements.forEach((req) => text(validation,
+            req.id + ': ' + (req.error ? 'error — ' + req.error : req.passed ? 'passed' : 'failed') +
+            (req.stale ? ' · stale' : '')));
+          attachArtifact(validation, entry.report, 'View validation report');
+        });
+      }
+
+      const reviews = evidenceSection(details, 'Reviews');
+      if (!Array.isArray(run.reviews) || !run.reviews.length) {
+        text(reviews, 'Missing human-review evidence.').className = 'legend';
+      } else {
+        run.reviews.forEach((review, index) => {
+          const round = text(document.createElement('div'),
+            'Round ' + (index + 1) + ' · ' + (review.decision || 'unknown decision') +
+            ' · ' + (review.reviewed_at || 'unknown time'));
+          reviews.appendChild(round); renderAnnotations(reviews, review.annotations);
+          attachArtifact(reviews, review.patch, 'View reviewed patch');
+        });
+      }
+
+      const decisions = evidenceSection(details, 'Design decisions');
+      if (!Array.isArray(run.decisions) || !run.decisions.length) {
+        text(decisions, 'No design decision was recorded for this run.').className = 'legend';
+      } else {
+        run.decisions.forEach((decision) => text(decisions,
+          decision.title || decision.id || 'Recorded decision'));
+      }
       box.appendChild(details);
     }
   }
@@ -491,7 +583,7 @@ export function renderDocsHtml(): string {
     }
     renderTrace(nodeId);
     renderList();
-    await renderReviews(node);
+    await renderTaskEvidence(node);
     // The 1-hop mini-map: same layout component, smaller scope.
     el('mini').innerHTML = '';
     group(el('mini'), 'Neighbourhood');

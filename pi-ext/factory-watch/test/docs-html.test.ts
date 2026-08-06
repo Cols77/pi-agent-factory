@@ -20,6 +20,8 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("/api/graph");
     expect(html).toContain("/api/doc?path=");
     expect(html).toContain("/api/layout");
+    expect(html).toContain("/api/evidence/task?task=");
+    expect(html).toContain("/api/artifact/");
     expect(html).toContain("/api/reviews?task=");
   });
 
@@ -59,10 +61,21 @@ describe("renderDocsHtml", () => {
     expect(html).toContain('name="viewport"');
   });
 
-  test("renders retained human-review decisions and their captured diffs on task pages", () => {
-    expect(html).toContain("Human review history");
-    expect(html).toContain("Reviews created before archival was enabled");
-    expect(html).toContain("review.diff");
+  test("renders the recorded implementation, validation, reviews, and decisions for task runs", () => {
+    for (const label of [
+      "Implementation evidence", "Implementation", "Validation", "Reviews", "Design decisions",
+    ]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain("provenance('recorded')");
+    expect(html).toContain("View implementation patch");
+    expect(html).toContain("View validation report");
+  });
+
+  test("uses local review archives only as an explicitly-labelled legacy fallback", () => {
+    expect(html).toContain("Local legacy review history");
+    expect(html).toContain("provenance('local')");
+    expect(html).toContain("before archival was enabled");
   });
 
   test("carries a legend for all five validation states", () => {
