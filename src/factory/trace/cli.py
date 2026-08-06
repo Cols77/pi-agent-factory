@@ -30,6 +30,7 @@ def cmd_status(root: Path) -> str:
         lines.append(f"  {cls.name:<14} {cls.satisfied}/{cls.expected}{suffix}")
     lines.append(f"  dangling refs  {health.dangling}")
     lines.append(f"  deferred       {health.deferred}")
+    lines.append(f"  proposed       {health.proposed}")
     pending = [g for g in graph.gaps if g.disposition == "pending"]
     lines.append("")
     lines.append(f"gaps: {len(graph.gaps)} ({len(pending)} pending)")

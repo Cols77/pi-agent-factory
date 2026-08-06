@@ -20,6 +20,7 @@ class Node:
     path: Path
     exempt: bool = False
     deferred: str | None = None
+    proposed: bool = False
 
 
 def _load_post(path: Path) -> frontmatter.Post | None:
@@ -54,6 +55,9 @@ def _id_node(path: Path, kind: NodeKind) -> Node:
         path=path,
         exempt=exempt,
         deferred=deferred,
+        # The absence of a binding IS the proposed state -- read here rather than
+        # from the register so build_graph never loads config or imports target code.
+        proposed=kind == "sr" and "binding" not in post.metadata,
     )
 
 

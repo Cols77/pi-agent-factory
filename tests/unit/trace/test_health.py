@@ -87,3 +87,53 @@ def test_upstream_is_never_an_expected_slot():
 
 def test_empty_repo_is_100_percent_not_a_division_error():
     assert compute_health([], []).percent == 100
+
+
+def _proposed_sr(node_id: str) -> Node:
+    return Node(node_id, "sr", node_id, Path(f"requirements/{node_id}.md"), proposed=True)
+
+
+def test_a_proposed_requirement_leaves_the_validated_denominator():
+    # Nobody has claimed it is measurable yet, so counting it as an unfilled
+    # validation slot would punish the doctor for recording a real state.
+    nodes = [_proposed_sr("SR-009")]
+    gaps = [
+        Gap("SR-009", "sr_unsatisfied", "d", "pending"),
+        Gap("SR-009", "sr_proposed", "d", "deferred"),
+    ]
+
+    health = compute_health(nodes, gaps)
+
+    assert _by_name(health)["SR validated"].expected == 0
+    assert health.proposed == 1
+
+
+def test_a_proposed_requirement_stays_in_the_satisfied_denominator():
+    nodes = [_proposed_sr("SR-009")]
+    gaps = [
+        Gap("SR-009", "sr_unsatisfied", "d", "pending"),
+        Gap("SR-009", "sr_proposed", "d", "deferred"),
+    ]
+
+    satisfied = _by_name(compute_health(nodes, gaps))["SR satisfied"]
+
+    assert satisfied.expected == 1
+    assert satisfied.satisfied == 0
+
+
+def test_an_unvalidatable_requirement_counts_as_unfilled():
+    # Excluding it would hand a project with no config a green validation score.
+    nodes = [_sr("SR-001")]
+    gaps = [Gap("SR-001", "sr_unvalidatable", "no harness", "pending")]
+
+    validated = _by_name(compute_health(nodes, gaps))["SR validated"]
+
+    assert validated.expected == 1
+    assert validated.satisfied == 0
+
+
+def test_proposed_is_reported_on_its_own_line_not_as_deferred():
+    nodes = [_proposed_sr("SR-009")]
+    gaps = [Gap("SR-009", "sr_proposed", "d", "deferred")]
+
+    assert compute_health(nodes, gaps).deferred == 0

@@ -123,3 +123,40 @@ def test_gap_order_is_deterministic():
     second = [(g.node_id, g.kind) for g in find_gaps(list(reversed(nodes)), [], {})]
 
     assert first == second
+
+
+def _proposed_sr(node_id: str) -> Node:
+    return Node(node_id, "sr", node_id, Path(f"requirements/{node_id}.md"), proposed=True)
+
+
+def test_a_proposed_requirement_reports_sr_proposed_and_is_deferred():
+    gaps = find_gaps([_proposed_sr("SR-009")], [], {})
+    kinds = _kinds(gaps, "SR-009")
+
+    assert "sr_proposed" in kinds
+    assert "sr_unvalidated" not in kinds
+    # Deferred, not pending: the human accepted it knowing the binding was open,
+    # which is exactly "discussed, still open". Pending would red-gate the repo
+    # the moment the doctor is used.
+    proposed = next(g for g in gaps if g.kind == "sr_proposed")
+    assert proposed.disposition == "deferred"
+
+
+def test_an_errored_requirement_is_unvalidatable_and_carries_the_reason():
+    validation = {"SR-001": SrStatus("SR-001", "error", error="no harness 'sim-testbench'")}
+    gaps = find_gaps([_sr("SR-001")], [], validation)
+
+    gap = next(g for g in gaps if g.kind == "sr_unvalidatable")
+    assert "no harness" in gap.detail
+    assert gap.disposition == "pending"
+
+
+def test_a_bound_requirement_with_no_report_is_unvalidated_not_unvalidatable():
+    kinds = _kinds(find_gaps([_sr("SR-001")], [], {}), "SR-001")
+
+    assert "sr_unvalidated" in kinds
+    assert "sr_unvalidatable" not in kinds
+
+
+def test_a_proposed_requirement_still_needs_a_satisfying_task():
+    assert "sr_unsatisfied" in _kinds(find_gaps([_proposed_sr("SR-009")], [], {}), "SR-009")

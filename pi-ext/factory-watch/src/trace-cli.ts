@@ -53,6 +53,9 @@ export interface TraceHealth {
   expected: number;
   dangling: number;
   deferred: number;
+  // Requirements accepted in substance whose binding is undecided. Reported on
+  // its own line: they are out of the "SR validated" denominator, not deferred.
+  proposed: number;
   classes: TraceHealthClass[];
 }
 

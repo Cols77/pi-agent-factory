@@ -13,6 +13,7 @@ _SLOT_OF_GAP: dict[str, str] = {
     "task_no_plan": "task->plan",
     "plan_no_spec": "plan->spec",
     "sr_unsatisfied": "SR satisfied",
+    "sr_unvalidatable": "SR validated",
     "sr_unvalidated": "SR validated",
 }
 
@@ -40,6 +41,7 @@ class Health:
     expected: int
     dangling: int
     deferred: int
+    proposed: int = 0
 
     @property
     def percent(self) -> int:
@@ -59,9 +61,19 @@ def compute_health(nodes: list[Node], gaps: list[Gap]) -> Health:
 
     dangling = 0
     deferred = 0
+    proposed = 0
     for gap in gaps:
         if gap.kind in ("dangling_upstream", "task_plan_missing"):
             dangling += 1
+            continue
+        if gap.kind == "sr_proposed":
+            # Nobody has yet claimed this requirement is measurable, so counting
+            # it as an unfilled validation slot would punish the doctor for
+            # recording a real state. It keeps its SR-satisfied slot: a
+            # requirement with no task is a gap whether or not it is bound.
+            # Reported on its own line rather than folded into deferred.
+            proposed += 1
+            expected["SR validated"] -= 1
             continue
         if gap.disposition == "deferred":
             deferred += 1
@@ -90,4 +102,5 @@ def compute_health(nodes: list[Node], gaps: list[Gap]) -> Health:
         expected=sum(c.expected for c in classes),
         dangling=dangling,
         deferred=deferred,
+        proposed=proposed,
     )
