@@ -8,7 +8,7 @@ last_seen: "2026-07-27"
 occurrences: 1
 tags: [pytest, gates, timeout, verification]
 scope:
-  files: ["scripts/gates/unit.py", "tests/unit/**"]
+  files: [".factory/factory.yaml", "tests/unit/**"]
   error_signatures:
     - "Command timed out after 120 seconds"
     - "pytest -m unit"
@@ -27,7 +27,7 @@ In this run, the deterministic unit gate completed 249 tests in about 130 second
 the 120-second limit used by the first Dev attempt.
 
 ## Rule / fix
-Use the repository gate command (`python scripts/gates/unit.py`) for full-unit verification
-and allow at least 300 seconds. Reserve shorter timeouts for targeted tests; do not interpret
-a timeout near the suite's known runtime as a test failure without rerunning through the
-canonical gate.
+Use the project's declared `unit` gate (see `.factory/factory.yaml`, run via `ConfigGateRunner`)
+for full-unit verification and allow at least 300 seconds. Reserve shorter timeouts for targeted
+tests; do not interpret a timeout near the suite's known runtime as a test failure without
+rerunning through the canonical gate.

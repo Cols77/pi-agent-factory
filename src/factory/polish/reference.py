@@ -29,5 +29,5 @@ class ScenarioReplayPlayground:
         )
 
     @classmethod
-    def from_config(cls, params: dict, project_root: Path) -> "ScenarioReplayPlayground":
+    def from_config(cls, params: dict, project_root: Path) -> ScenarioReplayPlayground:
         return cls(project_root / params["usecases_dir"])

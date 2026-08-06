@@ -1,0 +1,14 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "auth/sign-in.spec.ts",
+      "file": "auth/sign-in.spec.ts",
+      "specs": [
+        { "title": "user can sign in with valid credentials", "ok": false, "file": "auth/sign-in.spec.ts", "line": 5,
+          "tests": [{ "status": "unexpected", "results": [{ "status": "failed" }] }] }
+      ],
+      "suites": []
+    }
+  ]
+}

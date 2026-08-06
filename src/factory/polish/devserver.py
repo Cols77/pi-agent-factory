@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +26,8 @@ def wait_healthy(url: str, timeout: float = 30.0, interval: float = 0.25) -> boo
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310 (local dev URL)
+            # local dev URL only, never user-supplied
+            with urllib.request.urlopen(url, timeout=2) as resp:
                 if resp.status < 500:
                     return True  # any <500 response ⇒ up; 5xx is treated as "not ready yet"
         except urllib.error.HTTPError as exc:
@@ -34,6 +37,16 @@ def wait_healthy(url: str, timeout: float = 30.0, interval: float = 0.25) -> boo
             pass
         time.sleep(interval)
     return False
+
+
+def port_in_use(url: str) -> bool:
+    """True if something is already listening on *url*'s host:port."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    with socket.socket() as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
 
 
 def _kill(proc: subprocess.Popen) -> None:
@@ -47,6 +60,7 @@ def _kill(proc: subprocess.Popen) -> None:
                     ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                     timeout=5,
                     capture_output=True,
+                    check=False,
                 )
                 proc.wait(timeout=2)
                 return
@@ -94,6 +108,21 @@ class DevServerPlayground:
         return list(self._usecases)
 
     def setup(self, usecase: str) -> PlaygroundSession:
+        # Pre-flight, before starting anything: a health check cannot tell whose
+        # server answered. If someone else already owns the port (another polish
+        # session, or a hand-started dev server), ours would either fail to bind
+        # or silently drift to another port while the check went green against
+        # THEIR app -- a session reporting healthy while pointed at the wrong
+        # thing. Refuse loudly instead.
+        for svc in self._services:
+            if svc.health_url and port_in_use(svc.health_url):
+                raise RuntimeError(
+                    f"service {svc.name!r}: {svc.health_url} is already being served. "
+                    "Stop the other dev server or polish session first -- health "
+                    "checks cannot tell whose server answered, so continuing would "
+                    "report green against the wrong app."
+                )
+
         procs: list[subprocess.Popen] = []
 
         def _teardown() -> None:

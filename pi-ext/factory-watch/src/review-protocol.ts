@@ -15,15 +15,19 @@ export function reviewDecisionPath(cwd: string, sessionId: string): string {
   return join(cwd, "sessions", ".factory-transcripts", sessionId, "review-decision.json");
 }
 
-export function writeReviewDecision(path: string, decision: ReviewDecisionPayload): void {
+/**
+ * Write `text` to `path` via temp-file + atomic rename, retrying the rename.
+ *
+ * On Windows, renameSync can fail with ERROR_ACCESS_DENIED (EPERM / WinError 5)
+ * when the destination is held open by another process without delete-share --
+ * the same class of fragility as FileStatusReporter's os.replace on the status
+ * file. A reader polling the file makes a transient lock likely; a few retries
+ * let it succeed. Shared by every cross-process file bridge in this extension.
+ */
+export function atomicWriteWithRetry(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(decision), "utf-8");
-  // Retry the atomic rename. On Windows, renameSync can fail with
-  // ERROR_ACCESS_DENIED (EPERM / WinError 5) when the destination is held open
-  // by another process without delete-share -- the same class of fragility as
-  // FileStatusReporter's os.replace on the status file. The gate polls this
-  // file, so a transient lock is possible; a few retries let it succeed.
+  writeFileSync(tmpPath, text, "utf-8");
   let lastErr: unknown;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -40,4 +44,8 @@ export function writeReviewDecision(path: string, decision: ReviewDecisionPayloa
     // best-effort cleanup; ignore
   }
   throw lastErr;
+}
+
+export function writeReviewDecision(path: string, decision: ReviewDecisionPayload): void {
+  atomicWriteWithRetry(path, JSON.stringify(decision));
 }

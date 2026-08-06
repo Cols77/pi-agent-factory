@@ -24,6 +24,15 @@ import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 import { computeImplementingFiles, computeReviewFiles } from "./review-diff.js";
 import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
+import { PolishOverlay } from "./polish-overlay.js";
+import type { PolishAction } from "./polish-overlay.js";
+import type { PolishStateFile } from "./polish-model.js";
+import {
+  polishCommandsDir,
+  polishStatePath,
+  readPolishState,
+  writePolishCommand,
+} from "./polish-protocol.js";
 import { readReviewGuide, reviewGuidePath } from "./review-guide.js";
 import { runReviewLoop } from "./review-overlay.js";
 import { buildDecision } from "./review-model.js";
@@ -187,6 +196,122 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
         break;
       }
     }
+  }
+}
+
+const POLISH_POLL_MS = 200;
+
+export function parsePolishTarget(args: string): { playground: string; usecase: string } | null {
+  const m = /^(\S+):(\S+)$/.exec(args.trim());
+  return m ? { playground: m[1]!, usecase: m[2]! } : null;
+}
+
+/** Read the bridge state file, returning it only when the publisher's seq advanced. */
+export function pollPolishState(statePath: string, lastSeq: number): PolishStateFile | null {
+  const parsed = readPolishState(statePath);
+  if (parsed && parsed.seq > lastSeq) return parsed;
+  return null;
+}
+
+// Spawn the deterministic Python orchestrator behind a file bridge, then drive
+// the control panel against it: direct keys (accept/discard/tick) write command
+// files from inside the overlay; free-text actions close the panel so ui.editor
+// can run, then reopen it.
+async function runPolishSession(
+  ctx: ExtCommandCtx,
+  target: { playground: string; usecase: string },
+): Promise<void> {
+  const sessionId = `polish-${Date.now()}`;
+  const statePath = polishStatePath(ctx.cwd, sessionId);
+  const cmdsDir = polishCommandsDir(ctx.cwd, sessionId);
+
+  // The serve loop starts the app (front+back), opens the browser, publishes
+  // polish-state.json, and consumes polish-commands/*.json.
+  const child = spawn(
+    "python",
+    [
+      "-m",
+      "factory.polish",
+      "serve",
+      "--project-root",
+      ctx.cwd,
+      "--playground",
+      target.playground,
+      "--usecase",
+      target.usecase,
+      "--session",
+      sessionId,
+    ],
+    { cwd: ctx.cwd, stdio: "ignore" },
+  );
+
+  let lastSeq = 0;
+  try {
+    loop: for (;;) {
+      const action = await ctx.ui.custom<PolishAction>((tui, _theme, _keybindings, done) => {
+        let poll: ReturnType<typeof setInterval> | undefined;
+        const overlay = new PolishOverlay(
+          tui,
+          (cmd) => writePolishCommand(cmdsDir, cmd),
+          (a) => {
+            if (poll) clearInterval(poll);
+            done(a);
+          },
+        );
+        const first = pollPolishState(statePath, lastSeq);
+        if (first) {
+          lastSeq = first.seq;
+          overlay.update(first.state);
+        }
+        poll = setInterval(() => {
+          // Same staleness guard as the other poll loops here: ctx.ui can throw
+          // after a session replacement/reload. Stop polling rather than taking
+          // the host process down on the next tick.
+          try {
+            const s = pollPolishState(statePath, lastSeq);
+            if (s) {
+              lastSeq = s.seq;
+              overlay.update(s.state);
+              tui.requestRender();
+            }
+          } catch {
+            if (poll) clearInterval(poll);
+          }
+        }, POLISH_POLL_MS);
+        return overlay;
+      });
+
+      switch (action.type) {
+        case "quit":
+          break loop;
+        case "feedback": {
+          const text = await ctx.ui.editor(`Feedback - ${target.usecase}`, "");
+          if (text) writePolishCommand(cmdsDir, { kind: "feedback", args: { text } });
+          break;
+        }
+        case "edit": {
+          const text = await ctx.ui.editor("Edit finding description", action.description);
+          if (text) {
+            writePolishCommand(cmdsDir, {
+              kind: "edit",
+              args: { gid: action.gid, changes: { description: text } },
+            });
+          }
+          break;
+        }
+        case "comment": {
+          const text = await ctx.ui.editor("What's wrong with this change?", "");
+          if (text) {
+            writePolishCommand(cmdsDir, { kind: "comment", args: { gid: action.gid, text } });
+          }
+          break;
+        }
+      }
+    }
+  } finally {
+    // SIGTERM -> the serve loop's handler stops the loop and tears down both
+    // dev-servers and the fix worker.
+    child.kill();
   }
 }
 
@@ -499,6 +624,18 @@ export default function factoryWatch(pi: PiApi): void {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
         },
       });
+    },
+  });
+
+  pi.registerCommand("polish", {
+    description: "Run a factory polish session (deterministic orchestrator + control panel)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const target = parsePolishTarget(args);
+      if (!target) {
+        ctx.ui.notify("usage: /polish <playground>:<usecase>", "error");
+        return;
+      }
+      await runPolishSession(ctx, target);
     },
   });
 

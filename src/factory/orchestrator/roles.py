@@ -49,6 +49,7 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.VALIDATION: ["verification-before-completion", "sim-functional-tests"],
     AgentRole.REVIEW: ["requesting-code-review", "verification-before-completion", "coding-principles"],
     AgentRole.SESSION_REVIEW: ["session-report"],
+    AgentRole.SYNTHESIS: ["polish"],
 }
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
@@ -57,6 +58,9 @@ ROLE_SCOPE: dict[AgentRole, Scope] = {
     AgentRole.VALIDATION: Scope(allow=[], bash="allow"),
     AgentRole.REVIEW: Scope(allow=[], bash="deny"),
     AgentRole.SESSION_REVIEW: Scope(allow=["sessions/**", "kb/**"], bash="deny"),
+    # Synthesis only converts the human's feedback text into findings JSON. It
+    # writes nothing and runs nothing -- the orchestrator routes the findings.
+    AgentRole.SYNTHESIS: Scope(allow=[], bash="deny"),
 }
 
 ROLE_PROMPTS: dict[AgentRole, str] = {
@@ -91,6 +95,17 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "Consult the provided knowledge-base entries. Do not stop until unit tests pass."
     ),
     AgentRole.VALIDATION: "Run the functional/sim suite. Do not modify source.",
+    AgentRole.SYNTHESIS: (
+        "Convert the human's play-test feedback into structured findings. Emit ONLY a "
+        'fenced ```json block: {"findings": [{"description": <str>, '
+        '"snapshot": {<repro route/steps/state>, optional}, '
+        '"sr": "<a violated SR-### if obvious, else null>", '
+        '"artifacts": [<path>, ...] (optional)}]}. '
+        "One finding per distinct issue. Do NOT invent issues the feedback does not "
+        "support, and do not fix anything -- the orchestrator routes each finding to a "
+        "task after the human accepts it. "
+        "Read files with the read/view tool -- NOT with bash (bash is disabled for your role)."
+    ),
     AgentRole.REVIEW: (
         "Review the change for YAGNI/DRY and against the Definition of Done. Emit ONLY a "
         "fenced ```json block: {\"dod_met\": bool, \"principles\": [..], \"findings\": [..], "

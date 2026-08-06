@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from factory.config import GateStep
 from factory.orchestrator.types import AgentResult, AgentRole
 
 
@@ -64,39 +66,69 @@ GATE_NOT_APPLICABLE = -1
 PYTEST_NO_TESTS_COLLECTED = 5
 
 
-def _translate(code: int) -> int:
-    return GATE_NOT_APPLICABLE if code == PYTEST_NO_TESTS_COLLECTED else code
+def _quote_for_shell(path: str) -> str:
+    """Quote an interpreter path for safe interpolation into a `shell=True`
+    command string. cmd.exe and POSIX shells disagree on quoting rules, so
+    this picks the platform-correct call rather than hardcoding either --
+    an unquoted path containing a space (e.g. under 'C:\\Users\\First Last\\'
+    or 'C:\\Program Files\\...') would otherwise split into two tokens and
+    fail every gate.
+    """
+    if sys.platform == "win32":
+        return subprocess.list2cmdline([path])
+    return shlex.quote(path)
 
 
-class SubprocessGateRunner:
-    _SCRIPTS = {
-        "unit": "scripts/gates/unit.py",
-        "sim": "scripts/gates/sim_smoke.py",
-        "full": "scripts/gates/all.py",
-        "integration": None,  # handled inline in run()
-    }
+class ConfigGateRunner:
+    """Runs the gate steps a project declares in .factory/factory.yaml.
 
-    def __init__(self, repo_root: Path, log_dir: Path | None = None) -> None:
+    An undeclared gate reports GATE_NOT_APPLICABLE and is recorded in .skipped:
+    a webapp has no 'sim', and forcing it to invent one invites `exit 0` stubs,
+    which are worse than an honest skip. Not-applicable is deliberately distinct
+    from 0 -- run_validation treats both as non-failing, but only 0 means a suite
+    actually ran and passed. Skipped gates are logged so a typo'd key reads as
+    'not declared' rather than vanishing.
+    """
+
+    def __init__(self, repo_root: Path, gates: dict[str, list[GateStep]],
+                 log_dir: Path | None = None) -> None:
         self._repo_root = repo_root
+        self._gates = gates
         self._log_dir = log_dir
+        self.skipped: list[str] = []
 
     def run(self, name: str) -> int:
-        script = self._SCRIPTS[name]
-        if name == "integration":
-            if not (self._repo_root / "tests" / "integration").is_dir():
-                return GATE_NOT_APPLICABLE
-            cmd = [sys.executable, "-m", "pytest", "tests/integration/", "-q", "-m", "integration"]
-        else:
-            if not (self._repo_root / script).is_file():
-                return GATE_NOT_APPLICABLE
-            cmd = [sys.executable, script]
+        steps = self._gates.get(name)
+        if not steps:
+            if name not in self.skipped:
+                self.skipped.append(name)
+            self._write_log(name, f"gate {name!r} is not declared in .factory/factory.yaml; skipped\n")
+            return GATE_NOT_APPLICABLE
+
+        chunks: list[str] = []
+        for step in steps:
+            cmd = step.cmd.replace("{python}", _quote_for_shell(sys.executable))
+            cwd = self._repo_root / step.cwd if step.cwd else self._repo_root
+            if self._log_dir is None:
+                rc = subprocess.run(cmd, shell=True, cwd=str(cwd), check=False).returncode
+            else:
+                proc = subprocess.run(
+                    cmd, shell=True, cwd=str(cwd), check=False,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                )
+                chunks.append(f"$ {cmd}\n{proc.stdout or ''}{proc.stderr or ''}")
+                rc = proc.returncode
+            if rc == PYTEST_NO_TESTS_COLLECTED:
+                chunks.append(f"[gate] step matched nothing (exit 5), treated as pass: {cmd}\n")
+                continue
+            if rc != 0:
+                self._write_log(name, "".join(chunks))
+                return rc
+        self._write_log(name, "".join(chunks))
+        return 0
+
+    def _write_log(self, name: str, text: str) -> None:
         if self._log_dir is None:
-            return _translate(subprocess.run(cmd, cwd=self._repo_root).returncode)
+            return
         self._log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = self._log_dir / f"{name}-gate.log"
-        proc = subprocess.run(
-            cmd, cwd=self._repo_root,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
-        log_path.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
-        return _translate(proc.returncode)
+        (self._log_dir / f"{name}-gate.log").write_text(text, encoding="utf-8")

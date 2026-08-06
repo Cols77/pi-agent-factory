@@ -31,7 +31,8 @@ from pathlib import Path
 
 import pytest
 
-from factory.orchestrator.backends import SubprocessGateRunner
+from factory.config import load_config
+from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.git_ops import SubprocessGitOps
 from factory.orchestrator.human_review import Annotation, HumanReviewDecision
 from factory.orchestrator.pi_backend import PiAgentBackend
@@ -92,13 +93,20 @@ def _write_skills(ws: Path) -> None:
 
 
 def _write_gates(ws: Path) -> None:
-    # Trivial gates that always pass, so the pipeline flows through every stage
-    # and we assert on TRANSITIONS, not dev correctness. Make them stricter
-    # (e.g. assert the deliverable exists) to also gate on real work.
-    gdir = ws / "scripts" / "gates"
-    gdir.mkdir(parents=True, exist_ok=True)
-    for name in ("unit.py", "sim_smoke.py", "all.py"):
-        (gdir / name).write_text("import sys\nprint('gate ok')\nsys.exit(0)\n", encoding="utf-8")
+    # Trivial gates that always pass, so the pipeline flows through every stage.
+    (ws / ".factory").mkdir(parents=True, exist_ok=True)
+    (ws / ".factory" / "factory.yaml").write_text(
+        'gates:\n'
+        '  unit:\n'
+        '    - { cmd: "{python} -c \\"pass\\"" }\n'
+        '  sim:\n'
+        '    - { cmd: "{python} -c \\"pass\\"" }\n'
+        '  integration:\n'
+        '    - { cmd: "{python} -c \\"pass\\"" }\n'
+        '  full:\n'
+        '    - { cmd: "{python} -c \\"pass\\"" }\n',
+        encoding="utf-8",
+    )
 
 
 def _write_plan(ws: Path) -> None:
@@ -172,7 +180,7 @@ def _run(ws: Path, gate: ScriptedGate) -> tuple[Path | None, FakeStatusReporter]
         provider="openrouter", model=os.environ["OPENROUTER_MODEL"],
     )
     transcript_dir = ws / "sessions" / ".factory-transcripts" / "e2e"
-    gates = SubprocessGateRunner(ws, log_dir=transcript_dir)
+    gates = ConfigGateRunner(ws, load_config(ws).gates, log_dir=transcript_dir)
     status = FakeStatusReporter()
     path = run_next(
         ws, backend, gates,

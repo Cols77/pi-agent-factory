@@ -1,13 +1,8 @@
-from pathlib import Path
-
 import pytest
 from factory.orchestrator.types import AgentRole, AgentResult
-from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner, SubprocessGateRunner
+from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 
 pytestmark = pytest.mark.unit
-
-# tests/unit/orchestrator/test_backends.py -> repo root is 3 parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_fake_backend_pops_in_order():
@@ -35,94 +30,3 @@ def test_fake_backend_accepts_and_ignores_on_snippet():
     result = b.run(AgentRole.DEV, "p", on_snippet=seen.append)
     assert result.output["n"] == 1
     assert seen == []  # FakeAgentBackend never calls it -- no real streaming to report
-
-
-def _repo_providing_sim_gate(root: Path, body: str = "print('sim ok')\n") -> Path:
-    """A synthetic project that provides a sim gate.
-
-    These tests used to point at this repo and run its real sim gate, chosen
-    because `sim` was a disjoint marker and so would not recurse into `pytest -m
-    unit`. The factory no longer owns any sim tests -- that suite moved to the
-    drone repo -- so the gate is now supplied by a throwaway project instead.
-    That is closer to the truth anyway: what is under test is the runner, not
-    whichever suites this repo happens to contain.
-    """
-    gates = root / "scripts" / "gates"
-    gates.mkdir(parents=True, exist_ok=True)
-    (gates / "sim_smoke.py").write_text(body, encoding="utf-8")
-    return root
-
-
-def test_subprocess_gate_runner_writes_log_when_log_dir_set(tmp_path: Path):
-    project = _repo_providing_sim_gate(tmp_path / "project")
-    log_dir = tmp_path / "logs"
-    runner = SubprocessGateRunner(project, log_dir=log_dir)
-
-    rc = runner.run("sim")
-
-    log_path = log_dir / "sim-gate.log"
-    assert log_path.exists()
-    assert log_path.read_text(encoding="utf-8").strip() != ""
-    assert rc == 0
-
-
-def test_subprocess_gate_runner_no_log_dir_writes_nothing(tmp_path: Path):
-    project = _repo_providing_sim_gate(tmp_path / "project")
-    runner = SubprocessGateRunner(project)  # log_dir defaults to None
-
-    rc = runner.run("sim")
-
-    assert rc == 0
-    assert list((tmp_path / "project").glob("*-gate.log")) == []
-
-
-def test_subprocess_gate_reports_not_applicable_when_the_project_has_no_such_gate(tmp_path):
-    # The factory has no sim tests once the drone leaves. A gate the project does
-    # not provide must be distinguishable from a gate that ran and failed.
-    from factory.orchestrator.backends import GATE_NOT_APPLICABLE, SubprocessGateRunner
-
-    assert SubprocessGateRunner(tmp_path).run("sim") == GATE_NOT_APPLICABLE
-
-
-def test_subprocess_gate_runs_a_script_the_project_does_provide(tmp_path):
-    from factory.orchestrator.backends import GATE_NOT_APPLICABLE, SubprocessGateRunner
-
-    gates = tmp_path / "scripts" / "gates"
-    gates.mkdir(parents=True)
-    (gates / "sim_smoke.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
-
-    result = SubprocessGateRunner(tmp_path).run("sim")
-
-    assert result == 0
-    assert result != GATE_NOT_APPLICABLE
-
-
-def test_a_provided_gate_that_fails_still_reports_its_failure(tmp_path):
-    from factory.orchestrator.backends import GATE_NOT_APPLICABLE, SubprocessGateRunner
-
-    gates = tmp_path / "scripts" / "gates"
-    gates.mkdir(parents=True)
-    (gates / "sim_smoke.py").write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
-
-    result = SubprocessGateRunner(tmp_path).run("sim")
-
-    assert result == 3
-    assert result != GATE_NOT_APPLICABLE
-
-
-def test_a_gate_that_collects_no_tests_is_not_applicable(tmp_path):
-    # pytest exits 5 when nothing is collected -- "the project has no such suite",
-    # not "the suite failed".
-    from factory.orchestrator.backends import GATE_NOT_APPLICABLE, SubprocessGateRunner
-
-    gates = tmp_path / "scripts" / "gates"
-    gates.mkdir(parents=True)
-    (gates / "sim_smoke.py").write_text("import sys\nsys.exit(5)\n", encoding="utf-8")
-
-    assert SubprocessGateRunner(tmp_path).run("sim") == GATE_NOT_APPLICABLE
-
-
-def test_integration_gate_on_a_repo_without_that_suite_is_not_applicable(tmp_path):
-    from factory.orchestrator.backends import GATE_NOT_APPLICABLE, SubprocessGateRunner
-
-    assert SubprocessGateRunner(tmp_path).run("integration") == GATE_NOT_APPLICABLE
