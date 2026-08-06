@@ -54,7 +54,10 @@ class RunJournal:
     def checkpoint(self, checkpoint: RunCheckpoint) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         tmp = self.checkpoint_path.with_name(self.checkpoint_path.name + ".tmp")
-        tmp.write_text(json.dumps(asdict(checkpoint), indent=2), encoding="utf-8")
+        with tmp.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(asdict(checkpoint), indent=2))
+            stream.flush()
+            os.fsync(stream.fileno())
         tmp.replace(self.checkpoint_path)
 
     def events(self) -> list[RunEvent]:

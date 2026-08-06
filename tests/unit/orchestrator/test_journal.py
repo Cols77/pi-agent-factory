@@ -54,9 +54,11 @@ def test_append_is_durable_and_replays_in_order(tmp_path):
     ]
 
 
-def test_checkpoint_round_trip_is_atomic(tmp_path):
+def test_checkpoint_round_trip_is_atomic_and_durable(tmp_path):
     journal = RunJournal(tmp_path)
-    journal.checkpoint(checkpoint())
+    with patch("factory.orchestrator.journal.os.fsync") as fsync:
+        journal.checkpoint(checkpoint())
+    fsync.assert_called_once()
     assert journal.latest() == checkpoint()
     assert not (tmp_path / "checkpoint.json.tmp").exists()
 
