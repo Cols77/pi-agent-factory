@@ -25,3 +25,6 @@ sessions/.factory-run.log
 sessions/.factory-run.lock
 sessions/latest.md
 sessions/.factory-runs/
+
+# Content-addressed evidence blobs; compact evidence/runs manifests stay tracked.
+.factory/artifacts/
