@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/evidence_manifest.schema.json",
+  "title": "Factory run evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "task_id", "started_at", "ended_at",
+    "start_commit", "result_commit", "outcome", "inputs", "implementation",
+    "validation", "reviews", "decisions", "publication"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "pattern": "^T-[0-9]+$"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": "string", "format": "date-time"},
+    "start_commit": {"type": "string", "pattern": "^[a-fA-F0-9]{40,64}$"},
+    "result_commit": {"type": "string", "pattern": "^[a-fA-F0-9]{40,64}$"},
+    "outcome": {"enum": ["completed", "rejected", "escalated"]},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task", "requirements", "factory_config_sha256"],
+      "properties": {
+        "task": {"$ref": "#/$defs/fileInput"},
+        "requirements": {"type": "array", "items": {"$ref": "#/$defs/requirementInput"}},
+        "factory_config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed_files", "patch"],
+      "properties": {
+        "changed_files": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "patch": {"$ref": "#/$defs/blob"}
+      }
+    },
+    "validation": {"type": "array", "items": {"type": "object"}},
+    "reviews": {"type": "array", "items": {"type": "object"}},
+    "decisions": {"type": "array", "items": {"type": "object"}},
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "errors"],
+      "properties": {
+        "state": {"enum": ["local", "queued", "published", "failed"]},
+        "errors": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "fileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "requirementInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^SR-[0-9]+$"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size", "media_type"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "size": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string", "minLength": 1},
+        "local": {"type": "boolean"},
+        "publication": {"enum": ["local", "queued", "published", "failed"]},
+        "uri": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
