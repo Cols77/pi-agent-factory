@@ -38,6 +38,7 @@ from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
 from factory.orchestrator.types import AgentRole, NodeEvent, NodeOutcome, TaskResult
+from factory.preflight.checks import run_completion_preflight
 from factory.validation.kb_validator import parse_entry
 
 
@@ -485,6 +486,40 @@ def run_next(
     )
     result.start_commit = start_commit
     result.result_commit = git_ops.head_commit(repo_root)
+    if result.outcome == "completed" and transcript_dir is not None:
+        completion = run_completion_preflight(
+            repo_root,
+            task,
+            transcript_dir,
+            require_review=human_review is not None and artifact_store is not None,
+        )
+        if not completion.ok:
+            issue_data = [
+                {
+                    "code": issue.code,
+                    "severity": issue.severity.value,
+                    "detail": issue.detail,
+                }
+                for issue in completion.issues
+            ]
+            event = NodeEvent(
+                "completion-preflight",
+                "fail",
+                1,
+                {"issues": issue_data},
+            )
+            result.events.append(event)
+            result.outcome = "escalated"
+            result.dod_met = False
+            if execution is not None:
+                execution.record(
+                    node="completion-preflight",
+                    state="failed",
+                    attempt=1,
+                    next_node="closed",
+                    remaining={},
+                    data={"issues": issue_data},
+                )
     # Only mark done on success. Rejected/escalated tasks go back to todo
     # so they can be retried (possibly with a different agent or after fixes).
     set_status(task, "done" if result.outcome == "completed" else "todo")
