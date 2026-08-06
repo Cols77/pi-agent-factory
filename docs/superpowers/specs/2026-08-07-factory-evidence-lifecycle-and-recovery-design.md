@@ -27,10 +27,9 @@ TypeScript tests, and TypeScript typechecking.
 
 Known follow-ups (not silently treated as complete):
 
-- publication queue retry and bounded reconciliation repair commands, plus a
-  severity-aware CI reconciliation gate;
-- an explicit evidence schema-v2 migration that makes generic dependencies
-  mandatory rather than optional for older manifests;
+- publication queue retry and explicit legacy-review migration repairs
+  (reasoned interrupted-run abandonment and the severity-aware reconciliation
+  gate are implemented);
 - process-kill/reboot integration coverage and continuation support for
   context-limited roles other than development;
 - richer browser focus URLs and the later feature/SR briefing, validation matrix,
