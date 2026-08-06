@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
+from factory.evidence.artifacts import ArtifactStore
+from factory.evidence.finalize import finalize_run_evidence
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.git_ops import GitOps, SubprocessGitOps
@@ -51,6 +54,10 @@ def _commit_message(task: Task) -> str:
     return f"{task.id}: {task.title}"
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _report_node(
     status: StatusReporter,
     task_id: str,
@@ -81,9 +88,10 @@ def run_task(
     human_review: HumanReviewGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
+    start_commit: str | None = None,
 ) -> TaskResult:
     events: list[NodeEvent] = []
-    start_commit = git_ops.head_commit(repo_root)
+    start_commit = start_commit or git_ops.head_commit(repo_root)
 
     c_outcome, manifest, c_ev = run_context_gatherer(
         backend, task, repo_root, transcript_dir=transcript_dir, status=status, gates=gates
@@ -303,6 +311,8 @@ def run_next(
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
     force: bool = False,
+    artifact_store: ArtifactStore | None = None,
+    evidence_dir: Path | None = None,
 ) -> Path | None:
     tasks = load_tasks(repo_root / "tasks")
     if task_id is not None:
@@ -324,6 +334,9 @@ def run_next(
         if task is None:
             return None
 
+    sid = session_id or _default_session_id()
+    started_at = _utc_now()
+    start_commit = git_ops.head_commit(repo_root)
     result = run_task(
         task,
         backend,
@@ -333,12 +346,38 @@ def run_next(
         human_review=human_review,
         git_ops=git_ops,
         transcript_dir=transcript_dir,
+        start_commit=start_commit,
     )
+    result.start_commit = start_commit
+    result.result_commit = git_ops.head_commit(repo_root)
     # Only mark done on success. Rejected/escalated tasks go back to todo
     # so they can be retried (possibly with a different agent or after fixes).
     set_status(task, "done" if result.outcome == "completed" else "todo")
 
-    sid = session_id or _default_session_id()
+    if (artifact_store is None) != (evidence_dir is None):
+        raise ValueError("artifact_store and evidence_dir must be configured together")
+    if artifact_store is not None and evidence_dir is not None:
+        runtime_dir = transcript_dir or (
+            repo_root / "sessions" / ".factory-transcripts" / sid
+        )
+        manifest_path = finalize_run_evidence(
+            repo_root=repo_root,
+            run_id=sid,
+            task=task,
+            result=result,
+            transcript_dir=runtime_dir,
+            store=artifact_store,
+            evidence_dir=evidence_dir,
+            git_ops=git_ops,
+            started_at=started_at,
+            ended_at=_utc_now(),
+        )
+        git_ops.commit_paths(
+            repo_root,
+            [task.path, manifest_path],
+            f"evidence: record {task.id} run {sid}",
+        )
+
     record = build_record(sid, model_backend, [result], git_info or {})
     path = write_session(repo_root / "sessions", record)
 
@@ -385,6 +424,4 @@ def run_next(
 
 
 def _default_session_id() -> str:
-    from datetime import datetime, timezone
-
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")

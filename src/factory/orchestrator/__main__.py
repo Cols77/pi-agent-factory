@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.config import GateConfigError, load_config, require_gates
+from factory.evidence.artifacts import LocalArtifactStore
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
@@ -104,12 +105,13 @@ def main() -> None:
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
     human_review = None if args.auto else FileHumanReviewGate(transcript_dir, repo_root=repo_root)
+    artifact_store = LocalArtifactStore(repo_root / ".factory" / "artifacts" / "objects")
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
             session_id=session_id, status=status, task_id=args.task,
             human_review=human_review, transcript_dir=transcript_dir, force=args.force,
-            **kwargs,
+            artifact_store=artifact_store, evidence_dir=repo_root / "evidence", **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
     except Exception as exc:

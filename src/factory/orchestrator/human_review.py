@@ -88,6 +88,13 @@ class FileHumanReviewGate:
             else:
                 diff_error = result.stderr.strip() or f"git diff exited {result.returncode}"
 
+        try:
+            review_guide = json.loads(
+                (self._transcript_dir / "review-guide.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            review_guide = None
+
         record = {
             "version": 1,
             "reviewed_at": _now(),
@@ -98,6 +105,7 @@ class FileHumanReviewGate:
             "reviewed_files": decision.reviewed_files,
             "diff": diff,
             "diff_error": diff_error,
+            "review_guide": review_guide,
         }
         # A review archive is append-only evidence.  Write it before consuming
         # the handoff file, so an I/O failure cannot silently erase a review;

@@ -68,6 +68,10 @@ def test_gate_archives_the_exact_decision_and_working_tree_diff(tmp_path: Path):
 
     transcript_dir = tmp_path / "transcript"
     transcript_dir.mkdir()
+    (transcript_dir / "review-guide.json").write_text(
+        json.dumps({"confidence": "high", "verify": [{"item": "branch"}]}),
+        encoding="utf-8",
+    )
     (transcript_dir / "review-decision.json").write_text(
         json.dumps({
             "decision": "reject",
@@ -87,6 +91,7 @@ def test_gate_archives_the_exact_decision_and_working_tree_diff(tmp_path: Path):
     assert record["decision"] == "reject"
     assert record["annotations"][0]["body"] == "explain this"
     assert record["reviewed_files"] == ["source.py"]
+    assert record["review_guide"]["confidence"] == "high"
     assert "+after = True" in record["diff"]
     assert "-before = True" in record["diff"]
 

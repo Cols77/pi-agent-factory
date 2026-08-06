@@ -43,6 +43,10 @@ def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
         diff = record.pop("diff", "")
         if isinstance(diff, str):
             record["patch"] = _blob_dict(store.put(diff.encode("utf-8"), "text/x-diff"))
+        guide = record.pop("review_guide", None)
+        if isinstance(guide, dict):
+            guide_bytes = json.dumps(guide, indent=2).encode("utf-8")
+            record["guide"] = _blob_dict(store.put(guide_bytes, "application/json"))
         reviews.append(record)
 
     guide_path = transcript_dir / "review-guide.json"
@@ -50,7 +54,7 @@ def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
         guide_data = guide_path.read_bytes()
     except OSError:
         guide_data = b""
-    if guide_data and reviews:
+    if guide_data and reviews and "guide" not in reviews[-1]:
         reviews[-1]["guide"] = _blob_dict(store.put(guide_data, "application/json"))
     return reviews
 
