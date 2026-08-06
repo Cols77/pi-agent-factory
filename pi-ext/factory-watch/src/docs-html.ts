@@ -33,6 +33,10 @@ export function renderDocsHtml(): string {
   #doc { padding: 4px 24px 24px; max-width: 82ch; }
   #doc pre { background: var(--sunk); padding: 10px; overflow-x: auto; border-radius: 4px; }
   #reviews { padding: 0 24px 48px; max-width: 110ch; }
+  #recovery { margin: 10px 16px 0; }
+  .recovery-panel { border: 1px solid var(--warn); border-radius: 4px; padding: 8px 10px; }
+  .recovery-panel textarea { display: block; width: 100%; min-height: 54px; margin: 7px 0; }
+  .recovery-actions { display: flex; gap: 6px; margin-top: 7px; }
   .review-record, .evidence-run { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 6px 9px; }
   .review-record summary, .evidence-run summary { cursor: pointer; font-weight: 600; }
   .review-record .review-meta { font-size: 12px; opacity: .75; margin: 5px 0; }
@@ -124,6 +128,7 @@ export function renderDocsHtml(): string {
       <button id="toggleTrace">Trace</button>
       <span id="crumb"></span>
     </div>
+    <div id="recovery"></div>
     <div id="map"></div>
     <div id="doc"></div>
     <div id="reviews"></div>
@@ -150,6 +155,7 @@ export function renderDocsHtml(): string {
   let graph = null;
   let active = null;
   let filter = '';
+  let runPoll = null;
 
   const res = await fetch('/api/graph');
   if (!res.ok) {
@@ -544,6 +550,71 @@ export function renderDocsHtml(): string {
     }
   }
 
+  async function runAction(runId, action, body) {
+    const options = { method: 'POST', headers: { 'content-type': 'application/json' } };
+    if (body !== undefined) options.body = JSON.stringify(body);
+    const response = await fetch('/api/run-state/' + encodeURIComponent(runId) + '/' + action, options);
+    let payload = {};
+    try { payload = await response.json(); } catch {}
+    if (!response.ok) {
+      const assessment = payload.assessment;
+      const reasons = assessment && Array.isArray(assessment.reasons)
+        ? assessment.reasons.join('; ') : (payload.error || 'action failed (' + response.status + ')');
+      window.alert(reasons);
+      return false;
+    }
+    return true;
+  }
+
+  async function renderRunState() {
+    const host = el('recovery');
+    const response = await fetch('/api/run-state');
+    if (!response.ok) return;
+    const payload = await response.json();
+    const checkpoint = payload.checkpoint;
+    const assessment = payload.assessment;
+    host.replaceChildren();
+    if (!checkpoint || !assessment || assessment.state === 'complete') {
+      if (runPoll !== null) { clearInterval(runPoll); runPoll = null; }
+      return;
+    }
+    const panel = document.createElement('section'); panel.className = 'recovery-panel';
+    const heading = text(document.createElement('strong'),
+      'Interrupted run · ' + checkpoint.task_id + ' · ' + checkpoint.node);
+    heading.appendChild(provenance('recorded')); panel.appendChild(heading);
+    text(panel, 'State: ' + assessment.state);
+    const reasons = document.createElement('ul');
+    (assessment.reasons || []).forEach((reason) => {
+      reasons.appendChild(text(document.createElement('li'), reason));
+    });
+    panel.appendChild(reasons);
+    const rationale = document.createElement('textarea');
+    rationale.placeholder = 'Required rationale for abandonment';
+    rationale.setAttribute('aria-label', 'Abandonment rationale');
+    panel.appendChild(rationale);
+    const actions = document.createElement('div'); actions.className = 'recovery-actions';
+    const inspect = text(document.createElement('button'), 'Inspect evidence');
+    inspect.onclick = () => openDoc(checkpoint.task_id);
+    const resume = text(document.createElement('button'), 'Resume');
+    resume.onclick = async () => {
+      if (!window.confirm('Resume this run from its recorded checkpoint?')) return;
+      if (await runAction(checkpoint.run_id, 'resume')) await renderRunState();
+    };
+    const abandon = text(document.createElement('button'), 'Abandon');
+    abandon.onclick = async () => {
+      const reason = rationale.value.trim();
+      if (!reason) { window.alert('A non-blank abandonment rationale is required.'); return; }
+      if (!window.confirm('Abandon this run while retaining its evidence and checkpoints?')) return;
+      if (await runAction(checkpoint.run_id, 'abandon', { reason })) await renderRunState();
+    };
+    actions.append(inspect, resume, abandon); panel.appendChild(actions); host.appendChild(panel);
+    if (active === checkpoint.task_id) {
+      const node = graph && graph.nodes.find((item) => item.id === active);
+      if (node) await renderTaskEvidence(node);
+    }
+    if (runPoll === null) runPoll = setInterval(renderRunState, 2000);
+  }
+
   async function renderMap() {
     el('doc').innerHTML = ''; el('reviews').innerHTML = ''; el('toc').innerHTML = '';
     el('trace').innerHTML = ''; el('mini').innerHTML = '';
@@ -600,9 +671,13 @@ export function renderDocsHtml(): string {
     if (hit) openDoc(hit.id);
   };
 
+  window.addEventListener('pagehide', () => {
+    if (runPoll !== null) clearInterval(runPoll);
+  });
   renderHealth();
   renderList();
   renderMap();
+  renderRunState();
 })();
 </script>
 </body></html>`;

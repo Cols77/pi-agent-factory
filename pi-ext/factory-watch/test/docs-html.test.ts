@@ -23,6 +23,7 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("/api/evidence/task?task=");
     expect(html).toContain("/api/artifact/");
     expect(html).toContain("/api/reviews?task=");
+    expect(html).toContain("/api/run-state");
   });
 
   test("does not reimplement layout arithmetic in the page", () => {
@@ -32,7 +33,7 @@ describe("renderDocsHtml", () => {
   });
 
   test("renders the panes the spec calls for", () => {
-    for (const id of ["sidebar", "doc", "toc", "trace", "health", "map", "reviews"]) {
+    for (const id of ["sidebar", "doc", "toc", "trace", "health", "recovery", "map", "reviews"]) {
       expect(html).toContain(`id="${id}"`);
     }
   });
@@ -76,6 +77,18 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("Local legacy review history");
     expect(html).toContain("provenance('local')");
     expect(html).toContain("before archival was enabled");
+  });
+
+  test("shows interrupted-run recovery with explicit human guards", () => {
+    for (const label of [
+      "Interrupted run", "Inspect evidence", "Resume", "Abandon", "Abandonment rationale",
+    ]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain("window.confirm('Resume this run");
+    expect(html).toContain("A non-blank abandonment rationale is required");
+    expect(html).toContain("setInterval(renderRunState, 2000)");
+    expect(html).toContain("pagehide");
   });
 
   test("carries a legend for all five validation states", () => {
