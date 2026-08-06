@@ -103,7 +103,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
-    human_review = None if args.auto else FileHumanReviewGate(transcript_dir)
+    human_review = None if args.auto else FileHumanReviewGate(transcript_dir, repo_root=repo_root)
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),

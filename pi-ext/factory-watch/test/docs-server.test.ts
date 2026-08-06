@@ -13,6 +13,25 @@ const EMPTY_GRAPH = {
   health: { percent: 100, satisfied: 0, expected: 0, dangling: 0, deferred: 0, classes: [] },
 };
 
+function writeReviewArchive(root: string): void {
+  const reviews = join(root, "sessions", ".factory-transcripts", "run-1", "reviews");
+  mkdirSync(reviews, { recursive: true });
+  writeFileSync(
+    join(reviews, "review-001.json"),
+    JSON.stringify({
+      version: 1,
+      reviewed_at: "2026-08-07T12:00:00Z",
+      task_id: "T-001",
+      start_commit: "abc123",
+      decision: "reject",
+      annotations: [{ file: "source.py", line: 4, side: "new", body: "cover this branch", severity: "must-fix" }],
+      reviewed_files: ["source.py"],
+      diff: "diff --git a/source.py b/source.py\\n+new\\n",
+      diff_error: null,
+    }),
+  );
+}
+
 function repo(): string {
   const root = mkdtempSync(join(tmpdir(), "docs-server-"));
   mkdirSync(join(root, "tasks"), { recursive: true });
@@ -89,6 +108,22 @@ describe("ensureDocsServer", () => {
     expect(full.edges).toHaveLength(1);
     const scoped = await (await fetch(`${server.url}/api/layout?root=SR-001&hops=1`)).json();
     expect(scoped.nodes.map((n: { id: string }) => n.id).sort()).toEqual(["SR-001", "T-001"]);
+  });
+
+  test("returns retained review evidence for a task", async () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(EMPTY_GRAPH), stderr: "" });
+    const root = repo();
+    writeReviewArchive(root);
+    const server = await ensureDocsServer(root);
+    const body = await (await fetch(`${server.url}/api/reviews?task=T-001`)).json();
+    expect(body.reviews).toHaveLength(1);
+    expect(body.reviews[0]).toMatchObject({
+      task_id: "T-001",
+      decision: "reject",
+      reviewed_files: ["source.py"],
+      diff: expect.stringContaining("+new"),
+    });
+    expect(body.reviews[0].annotations[0]).toMatchObject({ file: "source.py", line: 4 });
   });
 
   test("renders a document on /api/doc", async () => {

@@ -30,8 +30,14 @@ export function renderDocsHtml(): string {
     background: Canvas;
   }
   #crumb { opacity: .7; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #doc { padding: 4px 24px 48px; max-width: 82ch; }
+  #doc { padding: 4px 24px 24px; max-width: 82ch; }
   #doc pre { background: var(--sunk); padding: 10px; overflow-x: auto; border-radius: 4px; }
+  #reviews { padding: 0 24px 48px; max-width: 110ch; }
+  .review-record { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 6px 9px; }
+  .review-record summary { cursor: pointer; font-weight: 600; }
+  .review-record .review-meta { font-size: 12px; opacity: .75; margin: 5px 0; }
+  .review-record pre { background: var(--sunk); padding: 10px; overflow: auto; max-height: 50vh; }
+  .review-record ul { margin: 5px 0; }
   #doc table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
   #doc th, #doc td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; }
   #doc code { background: var(--sunk); padding: 0 3px; border-radius: 3px; }
@@ -117,6 +123,7 @@ export function renderDocsHtml(): string {
     </div>
     <div id="map"></div>
     <div id="doc"></div>
+    <div id="reviews"></div>
   </div>
   <div id="right"><div id="toc"></div><div id="trace"></div><div id="mini"></div></div>
 <script>
@@ -405,8 +412,48 @@ export function renderDocsHtml(): string {
     box.appendChild(svg);
   }
 
+  async function renderReviews(node) {
+    const box = el('reviews'); box.innerHTML = '';
+    if (node.kind !== 'task') return;
+    const r = await fetch('/api/reviews?task=' + encodeURIComponent(shortId(node.id)));
+    if (active !== node.id) return; // a later navigation won the race
+    const heading = text(document.createElement('div'), 'Human review history');
+    heading.className = 'group'; box.appendChild(heading);
+    if (!r.ok) { text(box, 'Review history unavailable.').className = 'legend'; return; }
+    const data = await r.json();
+    if (!data.reviews.length) {
+      text(box, 'No retained human reviews for this task yet. Reviews created before archival was enabled cannot be reconstructed.').className = 'legend';
+      return;
+    }
+    for (const review of data.reviews) {
+      const details = document.createElement('details'); details.className = 'review-record';
+      const summary = document.createElement('summary');
+      summary.appendChild(document.createTextNode((review.reviewed_at || 'unknown time') + ' · ' + review.decision +
+        ' · ' + review.annotations.length + ' comment' + (review.annotations.length === 1 ? '' : 's')));
+      details.appendChild(summary);
+      const meta = document.createElement('div'); meta.className = 'review-meta';
+      meta.appendChild(document.createTextNode('Start commit: ' + (review.start_commit || 'unknown') +
+        (review.reviewed_files.length ? ' · reviewed: ' + review.reviewed_files.join(', ') : '')));
+      details.appendChild(meta);
+      if (review.annotations.length) {
+        const list = document.createElement('ul');
+        review.annotations.forEach((a) => {
+          const row = document.createElement('li');
+          row.appendChild(document.createTextNode(a.file + (a.line === null ? '' : ':' + a.line) +
+            (a.severity ? ' [' + a.severity + ']' : '') + ': ' + a.body));
+          list.appendChild(row);
+        });
+        details.appendChild(list);
+      }
+      const patch = document.createElement('pre');
+      patch.appendChild(document.createTextNode(review.diff || review.diff_error || '(no changes captured)'));
+      details.appendChild(patch);
+      box.appendChild(details);
+    }
+  }
+
   async function renderMap() {
-    el('doc').innerHTML = ''; el('toc').innerHTML = '';
+    el('doc').innerHTML = ''; el('reviews').innerHTML = ''; el('toc').innerHTML = '';
     el('trace').innerHTML = ''; el('mini').innerHTML = '';
     el('crumb').textContent = 'All artifacts';
     active = null;
@@ -444,6 +491,7 @@ export function renderDocsHtml(): string {
     }
     renderTrace(nodeId);
     renderList();
+    await renderReviews(node);
     // The 1-hop mini-map: same layout component, smaller scope.
     el('mini').innerHTML = '';
     group(el('mini'), 'Neighbourhood');

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -48,6 +49,46 @@ def test_gate_reads_annotations(tmp_path):
     assert d.decision == "reject"
     assert d.annotations[0].file == "a.py"
     assert d.annotations[0].line == 3
+
+
+def test_gate_archives_the_exact_decision_and_working_tree_diff(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    source = repo / "source.py"
+    source.write_text("before = True\n", encoding="utf-8")
+    subprocess.run(["git", "add", "source.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+    start_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    source.write_text("after = True\n", encoding="utf-8")
+
+    transcript_dir = tmp_path / "transcript"
+    transcript_dir.mkdir()
+    (transcript_dir / "review-decision.json").write_text(
+        json.dumps({
+            "decision": "reject",
+            "annotations": [{"file": "source.py", "line": 1, "side": "new", "body": "explain this"}],
+            "reviewedFiles": ["source.py"],
+        }),
+        encoding="utf-8",
+    )
+
+    decision = FileHumanReviewGate(transcript_dir, repo, poll_interval=0.01).request_review(
+        "T-001", start_commit
+    )
+
+    record = json.loads((transcript_dir / "reviews" / "review-001.json").read_text(encoding="utf-8"))
+    assert decision.reviewed_files == ["source.py"]
+    assert record["task_id"] == "T-001"
+    assert record["decision"] == "reject"
+    assert record["annotations"][0]["body"] == "explain this"
+    assert record["reviewed_files"] == ["source.py"]
+    assert "+after = True" in record["diff"]
+    assert "-before = True" in record["diff"]
 
 
 def test_gate_falls_back_to_legacy_comments(tmp_path):

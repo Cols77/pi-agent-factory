@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { isAbsolute, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { renderMarkdown } from "./md-render.js";
 import { layoutGraph, neighbourhood } from "./graph-layout.js";
 import { loadTraceGraph } from "./trace-cli.js";
@@ -29,6 +29,97 @@ export function resolveDocPath(root: string, relative: string): string | null {
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+export interface ArchivedReviewAnnotation {
+  file: string;
+  body: string;
+  line: number | null;
+  side: string | null;
+  severity: string | null;
+}
+
+export interface ArchivedReview {
+  reviewed_at: string;
+  task_id: string;
+  start_commit: string;
+  decision: string;
+  annotations: ArchivedReviewAnnotation[];
+  reviewed_files: string[];
+  diff: string;
+  diff_error: string | null;
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function parseArchivedReview(value: unknown, taskId: string): ArchivedReview | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.task_id !== taskId || typeof raw.decision !== "string") return null;
+  const annotations = Array.isArray(raw.annotations)
+    ? raw.annotations.flatMap((item): ArchivedReviewAnnotation[] => {
+        if (typeof item !== "object" || item === null) return [];
+        const annotation = item as Record<string, unknown>;
+        if (typeof annotation.file !== "string" || typeof annotation.body !== "string") return [];
+        return [{
+          file: annotation.file,
+          body: annotation.body,
+          line: typeof annotation.line === "number" ? annotation.line : null,
+          side: typeof annotation.side === "string" ? annotation.side : null,
+          severity: typeof annotation.severity === "string" ? annotation.severity : null,
+        }];
+      })
+    : [];
+  return {
+    reviewed_at: asString(raw.reviewed_at),
+    task_id: taskId,
+    start_commit: asString(raw.start_commit),
+    decision: raw.decision,
+    annotations,
+    reviewed_files: Array.isArray(raw.reviewed_files)
+      ? raw.reviewed_files.filter((file): file is string => typeof file === "string")
+      : [],
+    diff: asString(raw.diff),
+    diff_error: typeof raw.diff_error === "string" ? raw.diff_error : null,
+  };
+}
+
+// Archives are emitted by FileHumanReviewGate under their session transcript
+// directory.  They are append-only review evidence, not inferred from current
+// git state, so later task work cannot rewrite the review a human actually saw.
+export function loadTaskReviews(cwd: string, taskId: string): ArchivedReview[] {
+  const transcripts = resolve(cwd, "sessions", ".factory-transcripts");
+  let sessions: string[];
+  try {
+    sessions = readdirSync(transcripts);
+  } catch {
+    return [];
+  }
+  const reviews: ArchivedReview[] = [];
+  for (const session of sessions) {
+    let files: string[];
+    try {
+      files = readdirSync(join(transcripts, session, "reviews"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const parsed = parseArchivedReview(
+          JSON.parse(readFileSync(join(transcripts, session, "reviews", file), "utf-8")) as unknown,
+          taskId,
+        );
+        if (parsed !== null) reviews.push(parsed);
+      } catch {
+        // A partial/corrupt historical artifact is not a reason to hide other
+        // review rounds or fail the documentation workspace.
+      }
+    }
+  }
+  return reviews.sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at));
 }
 
 function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
@@ -70,6 +161,11 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
             Number.isFinite(hops) ? hops : 1,
           );
     json(res, 200, layoutGraph(scoped.nodes, scoped.edges));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/reviews") {
+    json(res, 200, { reviews: loadTaskReviews(cwd, url.searchParams.get("task") ?? "") });
     return;
   }
 

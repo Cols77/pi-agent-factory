@@ -16,10 +16,11 @@ describe("renderDocsHtml", () => {
     expect(html).not.toContain("cdn");
   });
 
-  test("fetches only the three local apis", () => {
+  test("fetches only local workspace apis", () => {
     expect(html).toContain("/api/graph");
     expect(html).toContain("/api/doc?path=");
     expect(html).toContain("/api/layout");
+    expect(html).toContain("/api/reviews?task=");
   });
 
   test("does not reimplement layout arithmetic in the page", () => {
@@ -29,7 +30,7 @@ describe("renderDocsHtml", () => {
   });
 
   test("renders the panes the spec calls for", () => {
-    for (const id of ["sidebar", "doc", "toc", "trace", "health", "map"]) {
+    for (const id of ["sidebar", "doc", "toc", "trace", "health", "map", "reviews"]) {
       expect(html).toContain(`id="${id}"`);
     }
   });
@@ -56,6 +57,12 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("@media");
     expect(html).toContain("viewBox");
     expect(html).toContain('name="viewport"');
+  });
+
+  test("renders retained human-review decisions and their captured diffs on task pages", () => {
+    expect(html).toContain("Human review history");
+    expect(html).toContain("Reviews created before archival was enabled");
+    expect(html).toContain("review.diff");
   });
 
   test("carries a legend for all five validation states", () => {
