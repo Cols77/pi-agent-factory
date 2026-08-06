@@ -22,7 +22,7 @@ Delivered:
 - the `/system` navigator, durable implementation/validation/review views, and
   guarded interrupted-run recovery controls.
 
-Verified after implementation with 654 Python tests, Pyright, Ruff, 552
+Verified after implementation with 659 Python tests, Pyright, Ruff, 552
 TypeScript tests, and TypeScript typechecking.
 
 Known follow-ups (not silently treated as complete):
