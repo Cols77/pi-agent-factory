@@ -17,6 +17,7 @@ from factory.orchestrator.human_review import FileHumanReviewGate
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
+from factory.orchestrator.run_cli import main as run_state_main
 from factory.orchestrator.run_state import read_last_run
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FileStatusReporter
@@ -36,6 +37,9 @@ def _now_id() -> str:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "run-state":
+        raise SystemExit(run_state_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(prog="factory.orchestrator")
     parser.add_argument("command", choices=["run", "list"])
     parser.add_argument("--repo", default=".")

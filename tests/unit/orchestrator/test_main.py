@@ -92,6 +92,18 @@ def test_main_run_requires_declared_gates_before_run_next(tmp_path, monkeypatch,
     assert "declares no gates" in capsys.readouterr().err
 
 
+def test_main_dispatches_run_state_without_constructing_a_backend(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["factory.orchestrator", "run-state", "current", "--repo", str(tmp_path), "--json"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 0
+    assert json.loads(capsys.readouterr().out) == {"checkpoint": None, "assessment": None}
+
+
 def test_main_list_prints_task_board_and_touches_no_run_state(tmp_path, monkeypatch, capsys):
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
