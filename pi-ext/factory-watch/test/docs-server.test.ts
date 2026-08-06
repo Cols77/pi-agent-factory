@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -30,6 +31,29 @@ function writeReviewArchive(root: string): void {
       diff_error: null,
     }),
   );
+}
+
+function writeDurableEvidence(root: string): { digest: string; manifest: Record<string, unknown> } {
+  const patch = Buffer.from("diff --git a/source.py b/source.py\n+new\n");
+  const digest = createHash("sha256").update(patch).digest("hex");
+  const objects = join(root, ".factory", "artifacts", "objects", digest.slice(0, 2));
+  mkdirSync(objects, { recursive: true });
+  writeFileSync(join(objects, digest), patch);
+  const runs = join(root, "evidence", "runs");
+  mkdirSync(runs, { recursive: true });
+  const manifest = {
+    schema_version: 1,
+    run_id: "run-1",
+    task_id: "T-001",
+    outcome: "completed",
+    implementation: {
+      changed_files: ["source.py"],
+      patch: { sha256: digest, size: patch.length, media_type: "text/x-diff" },
+    },
+    validation: [], reviews: [], decisions: [], publication: { state: "local", errors: [] },
+  };
+  writeFileSync(join(runs, "run-1.json"), JSON.stringify(manifest));
+  return { digest, manifest };
 }
 
 function repo(): string {
@@ -108,6 +132,48 @@ describe("ensureDocsServer", () => {
     expect(full.edges).toHaveLength(1);
     const scoped = await (await fetch(`${server.url}/api/layout?root=SR-001&hops=1`)).json();
     expect(scoped.nodes.map((n: { id: string }) => n.id).sort()).toEqual(["SR-001", "T-001"]);
+  });
+
+  test("serves durable task evidence from the Python model", async () => {
+    const root = repo();
+    const { manifest } = writeDurableEvidence(root);
+    spawnSync.mockReturnValue({
+      status: 0, stdout: JSON.stringify({ runs: [manifest] }), stderr: "",
+    });
+    const server = await ensureDocsServer(root);
+    const body = await (await fetch(`${server.url}/api/evidence/task?task=T-001`)).json();
+    expect(body.runs[0]).toMatchObject({ run_id: "run-1", task_id: "T-001" });
+  });
+
+  test("reports evidence CLI failure without taking down document browsing", async () => {
+    spawnSync.mockReturnValue({ status: 2, stdout: "", stderr: "evidence unavailable" });
+    const server = await ensureDocsServer(repo());
+    const response = await fetch(`${server.url}/api/evidence/task?task=T-001`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("evidence unavailable");
+  });
+
+  test("serves only hash-verified artifacts referenced by a manifest", async () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(EMPTY_GRAPH), stderr: "" });
+    const root = repo();
+    const { digest } = writeDurableEvidence(root);
+    const server = await ensureDocsServer(root);
+    const good = await fetch(`${server.url}/api/artifact/${digest}`);
+    expect(good.status).toBe(200);
+    expect(await good.text()).toContain("+new");
+    expect((await fetch(`${server.url}/api/artifact/${"0".repeat(64)}`)).status).toBe(404);
+  });
+
+  test("refuses a referenced artifact whose bytes do not match its hash", async () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(EMPTY_GRAPH), stderr: "" });
+    const root = repo();
+    const { digest } = writeDurableEvidence(root);
+    writeFileSync(
+      join(root, ".factory", "artifacts", "objects", digest.slice(0, 2), digest),
+      "tampered",
+    );
+    const server = await ensureDocsServer(root);
+    expect((await fetch(`${server.url}/api/artifact/${digest}`)).status).toBe(409);
   });
 
   test("returns retained review evidence for a task", async () => {

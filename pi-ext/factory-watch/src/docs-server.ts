@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { isAbsolute, join, resolve, sep } from "node:path";
+import { loadTaskEvidence } from "./evidence-client.js";
 import { renderMarkdown } from "./md-render.js";
 import { layoutGraph, neighbourhood } from "./graph-layout.js";
 import { loadTraceGraph } from "./trace-cli.js";
@@ -89,6 +91,35 @@ function parseArchivedReview(value: unknown, taskId: string): ArchivedReview | n
 // Archives are emitted by FileHumanReviewGate under their session transcript
 // directory.  They are append-only review evidence, not inferred from current
 // git state, so later task work cannot rewrite the review a human actually saw.
+function containsArtifact(value: unknown, digest: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsArtifact(item, digest));
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record["sha256"] === digest) return true;
+  return Object.values(record).some((item) => containsArtifact(item, digest));
+}
+
+function artifactIsReferenced(cwd: string, digest: string): boolean {
+  let files: string[];
+  const runs = resolve(cwd, "evidence", "runs");
+  try {
+    files = readdirSync(runs);
+  } catch {
+    return false;
+  }
+  return files.some((file) => {
+    if (!file.endsWith(".json")) return false;
+    try {
+      return containsArtifact(
+        JSON.parse(readFileSync(join(runs, file), "utf-8")) as unknown,
+        digest,
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function loadTaskReviews(cwd: string, taskId: string): ArchivedReview[] {
   const transcripts = resolve(cwd, "sessions", ".factory-transcripts");
   let sessions: string[];
@@ -161,6 +192,41 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
             Number.isFinite(hops) ? hops : 1,
           );
     json(res, 200, layoutGraph(scoped.nodes, scoped.edges));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/evidence/task") {
+    const result = loadTaskEvidence(cwd, url.searchParams.get("task") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname.startsWith("/api/artifact/")) {
+    const digest = url.pathname.slice("/api/artifact/".length);
+    if (!/^[a-f0-9]{64}$/.test(digest) || !artifactIsReferenced(cwd, digest)) {
+      json(res, 404, { error: "artifact not found" });
+      return;
+    }
+    try {
+      const data = readFileSync(
+        resolve(cwd, ".factory", "artifacts", "objects", digest.slice(0, 2), digest),
+      );
+      if (createHash("sha256").update(data).digest("hex") !== digest) {
+        json(res, 409, { error: "artifact hash mismatch" });
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(data);
+    } catch {
+      json(res, 404, { error: "artifact not found" });
+    }
     return;
   }
 
