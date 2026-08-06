@@ -12,6 +12,7 @@ from typing import Protocol
 
 class GitOps(Protocol):
     def head_commit(self, repo_root: Path) -> str: ...
+    def commit_exists(self, repo_root: Path, commit: str) -> bool: ...
     def commit_all(self, repo_root: Path, message: str) -> bool: ...
     def commit_paths(self, repo_root: Path, paths: list[Path], message: str) -> bool: ...
     def changed_files(self, repo_root: Path, start_commit: str) -> list[str]: ...
@@ -32,6 +33,14 @@ class SubprocessGitOps:
             ["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, text=True, check=True,
         )
         return result.stdout.strip()
+
+    def commit_exists(self, repo_root: Path, commit: str) -> bool:
+        result = subprocess.run(
+            ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+            cwd=repo_root,
+            capture_output=True,
+        )
+        return result.returncode == 0
 
     def commit_all(self, repo_root: Path, message: str) -> bool:
         # Best-effort: stage and commit any working-tree changes. A git failure
@@ -178,6 +187,9 @@ class FakeGitOps:
 
     def head_commit(self, repo_root: Path) -> str:
         return self.head
+
+    def commit_exists(self, repo_root: Path, commit: str) -> bool:
+        return commit == self.head
 
     def commit_all(self, repo_root: Path, message: str) -> bool:
         if self.has_uncommitted:
