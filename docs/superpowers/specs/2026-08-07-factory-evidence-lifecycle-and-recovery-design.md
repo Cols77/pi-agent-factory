@@ -1,8 +1,40 @@
 # Design: Factory Evidence Lifecycle, Freshness, and Recovery
 
 **Date:** 2026-08-07
-**Status:** Draft for written review
+**Status:** Approved; foundation implemented with follow-ups listed below
 **Author:** Colin AUBE (with AI assistance)
+
+## Implementation status (2026-08-07)
+
+Delivered:
+
+- content-addressed artifacts, validated durable run manifests, exact-path
+  evidence commits, evidence query APIs, and browser task evidence;
+- append-only journals, atomic checkpoints, binary/untracked patch snapshots,
+  conservative recovery classification, inspect/resume/abandon CLI flows, and
+  explicit start blocking when an interrupted run exists;
+- explicit agent interruption classification and fresh-session continuation for
+  context-limited development attempts;
+- content-based dependency fingerprints, start/completion preflight, and a
+  read-only reconciliation inventory that never invents task attribution;
+- shared Python-backed evidence, preflight, reconciliation, and run-state APIs
+  consumed by the browser and read-only PIF system-context tools;
+- the `/system` navigator, durable implementation/validation/review views, and
+  guarded interrupted-run recovery controls.
+
+Verified after implementation with 654 Python tests, Pyright, Ruff, 552
+TypeScript tests, and TypeScript typechecking.
+
+Known follow-ups (not silently treated as complete):
+
+- publication queue retry and bounded reconciliation repair commands, plus a
+  severity-aware CI reconciliation gate;
+- an explicit evidence schema-v2 migration that makes generic dependencies
+  mandatory rather than optional for older manifests;
+- process-kill/reboot integration coverage and continuation support for
+  context-limited roles other than development;
+- richer browser focus URLs and the later feature/SR briefing, validation matrix,
+  decision timeline, and grounded natural-language guide.
 
 ## 1. Context
 
