@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
+import { registerSystemContextTools } from "./system-context-tools.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -320,6 +321,7 @@ export default function factoryWatch(pi: PiApi): void {
   // The deterministic half of /trace-fix: the model reasons, these tools do the
   // enumerating, validating and writing.
   registerTraceTools(pi);
+  registerSystemContextTools(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
