@@ -6,7 +6,10 @@ from pathlib import Path
 
 from factory.config import GateConfigError, load_config, require_gates
 from factory.freshness.model import FreshnessIssue, FreshnessReport, FreshnessSeverity
+from factory.orchestrator.git_ops import SubprocessGitOps
 from factory.orchestrator.ledger import get_task, load_tasks
+from factory.orchestrator.recovery import assess_recovery
+from factory.orchestrator.run_cli import load_current_checkpoint
 from factory.requirements.register import load_register
 from factory.trace.graph import build_graph
 
@@ -116,6 +119,32 @@ def run_preflight(
                 "git:HEAD",
             )
         )
+
+    checkpoint = load_current_checkpoint(repo_root)
+    if checkpoint is not None:
+        try:
+            assessment = assess_recovery(repo_root, checkpoint, SubprocessGitOps())
+            issues.append(
+                _issue(
+                    "interrupted_run",
+                    FreshnessSeverity.BLOCKING,
+                    checkpoint.run_id,
+                    "an interrupted run requires explicit recovery: "
+                    + "; ".join(assessment.reasons)
+                    + f"; use run-state inspect {checkpoint.run_id}",
+                    "run-checkpoint",
+                )
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            issues.append(
+                _issue(
+                    "run_checkpoint_invalid",
+                    FreshnessSeverity.INTEGRITY,
+                    checkpoint.run_id,
+                    str(exc),
+                    "run-checkpoint",
+                )
+            )
 
     if task is not None:
         try:

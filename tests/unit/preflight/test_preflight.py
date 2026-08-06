@@ -6,6 +6,8 @@ import subprocess
 import pytest
 
 from factory.freshness.model import FreshnessSeverity
+from factory.orchestrator.git_ops import SubprocessGitOps
+from factory.orchestrator.journal import RunCheckpoint, RunJournal
 from factory.preflight.checks import run_preflight
 from factory.preflight.cli import main
 
@@ -71,6 +73,22 @@ def test_missing_trace_links_block_non_exempt_task(tmp_path):
     report = run_preflight(_repo(tmp_path, exempt=False), "T-001")
     assert codes(report)["task_no_sr"].severity is FreshnessSeverity.BLOCKING
     assert codes(report)["task_no_plan"].severity is FreshnessSeverity.BLOCKING
+
+
+def test_interrupted_run_requires_explicit_recovery_before_new_work(tmp_path):
+    repo = _repo(tmp_path)
+    git = SubprocessGitOps()
+    head = git.head_commit(repo)
+    run_dir = repo / "sessions" / ".factory-runs" / "by-session" / "run-1"
+    RunJournal(run_dir).checkpoint(
+        RunCheckpoint(
+            1, "run-1", "T-001", "validation", 1, {}, head, head,
+            git.worktree_fingerprint(repo, head), None, [], {}, None, [], "process_exit"
+        )
+    )
+    issue = codes(run_preflight(repo, "T-001"))["interrupted_run"]
+    assert issue.severity is FreshnessSeverity.BLOCKING
+    assert "run-state inspect run-1" in issue.detail
 
 
 def test_invalid_gate_config_is_integrity_failure(tmp_path):
