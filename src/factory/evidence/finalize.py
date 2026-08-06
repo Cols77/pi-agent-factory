@@ -7,6 +7,11 @@ from pathlib import Path
 
 from factory.evidence.artifacts import ArtifactStore, BlobRef
 from factory.evidence.manifests import MANIFEST_SCHEMA_VERSION, write_run_manifest
+from factory.freshness.fingerprint import (
+    fingerprint_file,
+    fingerprint_git_tree,
+    fingerprint_tool,
+)
 from factory.orchestrator.git_ops import GitOps
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.types import TaskResult
@@ -106,6 +111,19 @@ def finalize_run_evidence(
 
     config_path = repo_root / ".factory" / "factory.yaml"
     config_bytes = config_path.read_bytes() if config_path.exists() else b""
+    dependencies = [
+        fingerprint_file(f"task:{task.id}", task.path, repo_root),
+        *(
+            fingerprint_file(
+                f"requirement:{item['id']}", repo_root / item["path"], repo_root
+            )
+            for item in requirement_inputs
+        ),
+        fingerprint_file("factory-config", config_path, repo_root),
+        fingerprint_git_tree(repo_root, ref=result.result_commit),
+        fingerprint_tool("evidence-schema", f"v{MANIFEST_SCHEMA_VERSION}"),
+    ]
+    dependencies.sort(key=lambda item: item.name)
 
     if result.result_commit == result.start_commit:
         patch = git_ops.binary_diff(repo_root, result.start_commit)
@@ -133,6 +151,7 @@ def finalize_run_evidence(
             "requirements": requirement_inputs,
             "factory_config_sha256": _digest(config_bytes),
         },
+        "dependencies": [asdict(item) for item in dependencies],
         "implementation": {
             "changed_files": changed_files,
             "patch": _blob_dict(patch_ref),

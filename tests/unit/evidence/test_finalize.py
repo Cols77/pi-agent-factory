@@ -109,6 +109,13 @@ def test_finalize_captures_implementation_reviews_validation_and_inputs(tmp_path
     patch_hash = manifest["implementation"]["patch"]["sha256"]
     assert b"+after = True" in store.get(patch_hash)
     assert manifest["inputs"]["requirements"][0]["id"] == "SR-001"
+    assert [item["name"] for item in manifest["dependencies"]] == [
+        "candidate-tree",
+        "evidence-schema",
+        "factory-config",
+        "requirement:SR-001",
+        "task:T-001",
+    ]
     assert manifest["reviews"][0]["decision"] == "reject"
     assert "diff" not in manifest["reviews"][0]
     assert store.has(manifest["reviews"][0]["patch"]["sha256"])
