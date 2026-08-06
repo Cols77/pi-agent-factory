@@ -25,18 +25,24 @@ export const traceNextTool = {
   name: "trace_next",
   label: "Trace: next gap",
   description:
-    "Return the next pending traceability gap, with the node's excerpt and EVERY candidate " +
-    "target including its full requirement statement. Candidates are ordered by shared-term " +
-    "overlap, which is a lexical hint only — judge matches by meaning, not by position.",
-  parameters: Type.Object({}),
+    "Return a pending traceability gap, with the node's excerpt, EVERY candidate target " +
+    "including its full requirement statement, and the full list of pending gaps. Candidates " +
+    "are ordered by shared-term overlap, which is a lexical hint only — judge matches by " +
+    "meaning, not by position. Pass `node_id` to work a specific gap: the default order is a " +
+    "default, not a queue.",
+  parameters: Type.Object({
+    node_id: Type.Optional(
+      Type.String({ description: "Pending gap to focus, e.g. T-047. Omit for the first." }),
+    ),
+  }),
   async execute(
     _id: string,
-    _params: Record<string, never>,
+    params: { node_id?: string },
     _signal: AbortSignal | undefined,
     _onUpdate: unknown,
     ctx: ToolCtx,
   ) {
-    const next = loadNextGap(ctx.cwd);
+    const next = loadNextGap(ctx.cwd, params.node_id);
     if (!next.ok) return result(`trace_next failed: ${next.error}`);
     if (next.proposal === null) return result(formatNoGaps());
     return result(formatProposal(next.proposal));

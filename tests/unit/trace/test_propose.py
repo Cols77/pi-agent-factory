@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from factory.trace.propose import next_gap, proposal_to_dict
+from factory.trace.propose import UnknownGapError, next_gap, proposal_to_dict
 
 pytestmark = pytest.mark.unit
 
@@ -113,3 +113,68 @@ def test_proposal_dict_is_json_serialisable(tmp_path):
     )
 
     json.dumps(proposal_to_dict(next_gap(tmp_path)))
+
+
+def _task(tmp_path: Path, task_id: str) -> None:
+    _write(
+        tmp_path / "tasks" / f"{task_id}.md",
+        f"---\nid: {task_id}\ntitle: {task_id}\nstatus: todo\ndod: []\n---\nbody\n",
+    )
+
+
+def test_the_proposal_lists_every_pending_gap(tmp_path):
+    # Visibility is not commit granularity: the whole list is shown, one
+    # confirmation is still taken at a time.
+    for task_id in ("T-001", "T-002"):
+        _task(tmp_path, task_id)
+
+    proposal = next_gap(tmp_path)
+
+    assert len(proposal.pending) == proposal.pending_total
+    assert {p.node_id for p in proposal.pending} == {"T-001", "T-002"}
+    assert {p.kind for p in proposal.pending} == {"task_no_sr", "task_no_plan"}
+
+
+def test_the_default_focus_is_unchanged(tmp_path):
+    _task(tmp_path, "T-002")
+    _task(tmp_path, "T-001")
+
+    assert next_gap(tmp_path).gap.node_id == "T-001"
+
+
+def test_a_named_gap_is_focused_and_the_list_is_the_same(tmp_path):
+    _task(tmp_path, "T-001")
+    _task(tmp_path, "T-002")
+
+    focused = next_gap(tmp_path, node_id="T-002")
+
+    assert focused.gap.node_id == "T-002"
+    assert len(focused.pending) == next_gap(tmp_path).pending_total
+
+
+def test_an_unknown_gap_is_refused(tmp_path):
+    _task(tmp_path, "T-001")
+
+    with pytest.raises(UnknownGapError, match="T-404"):
+        next_gap(tmp_path, node_id="T-404")
+
+
+def test_a_long_excerpt_is_marked_and_names_its_file(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\n---\n" + ("x" * 5000),
+    )
+
+    excerpt = next_gap(tmp_path).node_excerpt
+
+    assert "[truncated at 1200 chars" in excerpt
+    assert "T-001.md" in excerpt
+
+
+def test_a_short_excerpt_is_untouched(tmp_path):
+    path = _write(
+        tmp_path / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\n---\nshort\n",
+    )
+
+    assert next_gap(tmp_path).node_excerpt == path.read_text(encoding="utf-8")

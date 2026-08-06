@@ -46,3 +46,20 @@ describe("buildTraceFixSeedPrompt", () => {
     expect(prompt.toLowerCase()).toContain("never edit");
   });
 });
+
+describe("buildTraceFixSeedPrompt field of view", () => {
+  const prompt = buildTraceFixSeedPrompt(['<skill name="trace-fix">body</skill>'], "45 pending");
+
+  test("no longer claims the tools own enumeration", () => {
+    expect(prompt).not.toContain("own enumeration");
+  });
+
+  test("tells the agent it may choose a gap", () => {
+    expect(prompt).toContain("node_id");
+  });
+
+  test("still points at the gate and still forbids batching", () => {
+    expect(prompt).toContain("trace_check");
+    expect(prompt.toLowerCase()).toContain("one gap, one proposal, one confirmation");
+  });
+});

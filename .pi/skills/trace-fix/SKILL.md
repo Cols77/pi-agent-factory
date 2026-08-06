@@ -14,14 +14,19 @@ belongs.
 
 You own **one judgment per gap**: which candidate genuinely matches, and why.
 
-You do **not** own enumeration, validation, writing, or deciding when the work is
-finished. Those belong to the `trace_*` tools. This split is deliberate — a gate
-that trusted your account of your own progress would be worthless.
+You do **not** own validation, writing, or deciding when the work is finished.
+Those belong to the `trace_*` tools. That split is deliberate — a gate that
+trusted your account of your own progress would be worthless.
+
+You **do** own which gap to work. `trace_next` returns every pending gap; the
+focused one is a default ordering, not a queue.
 
 ## Steps
 
-1. **Get the next gap.** Call `trace_next`. It returns the gap, the node's excerpt,
-   how many gaps remain, and **every** candidate with its full statement.
+1. **Get a gap.** Call `trace_next`. It returns the gap, the node's excerpt, every
+   pending gap, and **every** candidate with its full statement. Pass `node_id` to
+   focus a specific one — related gaps are often easier to judge together, even
+   though you still confirm them one at a time.
 2. **Judge by meaning.** Candidates are ordered by shared-term overlap. That is a
    lexical hint, not a verdict — a task titled "Bug Capture" and a requirement about
    preempting patrol may share no vocabulary and still be the right pair, while two
@@ -52,4 +57,10 @@ that trusted your account of your own progress would be worthless.
   what has to happen before it can be resolved.
 - **Requirements cannot be exempted.** An SR that no task satisfies and no run
   validates is a real gap. Defer it instead.
+- **Excerpts and summaries may be clipped.** When one ends with a `[truncated …]`
+  marker, read the file it names before judging. A task's `dod` block is often the
+  part that falls off the end.
+- **Some gaps do not close by linking.** An unvalidated or stale requirement closes
+  by running validation; a dangling upstream closes by fixing the reference or
+  creating the target. Deferring those records them, it does not resolve them.
 - **Do not batch.** One gap, one proposal, one confirmation.

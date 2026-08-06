@@ -7,11 +7,11 @@ import {
 } from "../src/trace-tool-format.js";
 import type { TraceProposal } from "../src/trace-cli.js";
 
-function proposal(candidateCount: number): TraceProposal {
+function proposal(candidateCount: number, kind = "task_no_sr"): TraceProposal {
   return {
     gap: {
       node_id: "T-047",
-      kind: "task_no_sr",
+      kind,
       detail: "task declares no satisfies",
       disposition: "pending",
     },
@@ -25,6 +25,10 @@ function proposal(candidateCount: number): TraceProposal {
       shared_terms: i === 0 ? ["capture"] : [],
       score: i === 0 ? 1 : 0,
     })),
+    pending: [
+      { node_id: "T-047", kind, detail: "task declares no satisfies" },
+      { node_id: "T-048", kind: "task_no_plan", detail: "task declares no source_plan" },
+    ],
   };
 }
 
@@ -93,5 +97,41 @@ describe("formatWriteResult", () => {
 describe("formatNoGaps", () => {
   test("says there is nothing pending", () => {
     expect(formatNoGaps()).toContain("No pending gaps");
+  });
+});
+
+describe("formatProposal pending list and per-kind guidance", () => {
+  test("renders every pending gap and labels the order as a default", () => {
+    const out = formatProposal(proposal(2));
+    expect(out).toContain("T-047");
+    expect(out).toContain("T-048");
+    expect(out.toLowerCase()).toContain("a default, not a queue");
+  });
+
+  test("an unvalidated requirement is not told to exempt or link", () => {
+    const out = formatProposal(proposal(0, "sr_unvalidated"));
+    expect(out).toContain("running validation");
+    expect(out).not.toContain("trace_exempt");
+    expect(out).not.toContain("trace_link");
+  });
+
+  test("a stale requirement gets the same validation guidance", () => {
+    expect(formatProposal(proposal(0, "sr_stale"))).toContain("running validation");
+  });
+
+  test("a dangling upstream is told the target does not exist", () => {
+    const out = formatProposal(proposal(0, "dangling_upstream"));
+    expect(out).toContain("does not exist");
+    expect(out).not.toContain("trace_exempt");
+  });
+
+  test("a missing source_plan keeps its link and exempt route", () => {
+    const out = formatProposal(proposal(0, "task_plan_missing"));
+    expect(out).toContain("--source-plan");
+    expect(out).toContain("trace_exempt");
+  });
+
+  test("an unrecognised candidate-less kind still gets the generic message", () => {
+    expect(formatProposal(proposal(0, "sr_unvalidatable"))).toContain("no candidates exist");
   });
 });
