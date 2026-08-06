@@ -12,6 +12,7 @@ from factory.evidence.manifests import load_run_manifest
 from factory.freshness.fingerprint import fingerprint_file
 from factory.orchestrator.journal import RunJournal
 from factory.orchestrator.ledger import load_tasks
+from factory.orchestrator.recovery import abandon_run
 
 
 class ReconcileKind(str, Enum):
@@ -98,10 +99,50 @@ def _active_run_ids(repo_root: Path) -> set[str]:
     active: set[str] = set()
     root = repo_root / "sessions" / ".factory-runs" / "by-session"
     for run_dir in sorted(root.glob("*")):
+        if (run_dir / "abandoned.json").exists():
+            continue
         checkpoint = RunJournal(run_dir).latest()
         if checkpoint is not None and checkpoint.node not in {"completed", "closed"}:
             active.add(checkpoint.run_id)
     return active
+
+
+BLOCKING_RECONCILE_KINDS = {
+    ReconcileKind.MISSING_EVIDENCE,
+    ReconcileKind.UNRESOLVED_COMMIT,
+    ReconcileKind.STALE_VALIDATION,
+    ReconcileKind.MISSING_BLOB,
+}
+
+
+def blocks_evidence_gate(item: ReconcileItem) -> bool:
+    return item.kind in BLOCKING_RECONCILE_KINDS
+
+
+def repair_reconciliation(
+    repo_root: Path,
+    items: list[ReconcileItem],
+    *,
+    reason: str | None,
+) -> list[dict[str, str]]:
+    """Perform only repairs whose provenance is already explicit."""
+    actions: list[dict[str, str]] = []
+    interrupted = [item for item in items if item.kind is ReconcileKind.INTERRUPTED_RUN]
+    if interrupted and (reason is None or not reason.strip()):
+        raise ValueError("repairing an interrupted run requires --reason")
+    for item in interrupted:
+        run_dir = repo_root / item.source
+        marker = abandon_run(run_dir, reason or "")
+        actions.append(
+            {
+                "kind": "abandon_interrupted_run",
+                "subject": item.subject,
+                "path": marker.relative_to(repo_root).as_posix(),
+            }
+        )
+    # Missing evidence and unattributed changes are intentionally untouched:
+    # no deterministic operation can create their absent provenance.
+    return actions
 
 
 def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem]:

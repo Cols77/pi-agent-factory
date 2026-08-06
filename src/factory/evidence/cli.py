@@ -7,7 +7,11 @@ import sys
 from pathlib import Path
 
 from factory.evidence.manifests import list_run_manifests, load_run_manifest
-from factory.evidence.reconcile import reconcile
+from factory.evidence.reconcile import (
+    blocks_evidence_gate,
+    reconcile,
+    repair_reconciliation,
+)
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -34,6 +38,10 @@ def _parser() -> argparse.ArgumentParser:
     reconciliation.add_argument("--task", default=None)
     reconciliation.add_argument("--repo", default=".")
     reconciliation.add_argument("--json", action="store_true")
+    reconciliation.add_argument("--repair", action="store_true")
+    reconciliation.add_argument("--reason", default=None)
+    reconciliation.add_argument("--gate", action="store_true")
+    reconciliation.add_argument("--strict", action="store_true")
     return parser
 
 
@@ -57,15 +65,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reconcile":
         try:
             items = reconcile(repo, args.task)
+            actions = (
+                repair_reconciliation(repo, items, reason=args.reason)
+                if args.repair
+                else []
+            )
+            if actions:
+                items = reconcile(repo, args.task)
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             print(f"could not reconcile evidence: {exc}", file=sys.stderr)
             return 2
-        payload = {"items": [item.to_dict() for item in items]}
+        payload = {
+            "items": [item.to_dict() for item in items],
+            "repairs": actions,
+        }
         if args.json:
             print(json.dumps(payload))
         else:
             for item in items:
                 print(f"{item.kind.value}  {item.subject}  {item.detail}")
+        if args.gate:
+            pending = bool(items) if args.strict else any(blocks_evidence_gate(item) for item in items)
+            return 1 if pending else 0
         return 1 if items else 0
 
     if args.command == "run":

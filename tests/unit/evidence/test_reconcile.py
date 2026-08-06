@@ -135,10 +135,54 @@ def test_reconcile_cli_emits_json_and_uses_pending_exit_code(tmp_path, capsys):
     assert payload["items"][0]["kind"] == "missing_evidence"
 
 
+def test_repair_abandons_only_explicit_interrupted_run_with_reason(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    run_dir = repo / "sessions" / ".factory-runs" / "by-session" / "run-1"
+    RunJournal(run_dir).checkpoint(
+        RunCheckpoint(
+            1, "run-1", "T-001", "validation", 1, {}, "a" * 40, "a" * 40,
+            "f" * 64, None, [], {}, None, [], "process_exit"
+        )
+    )
+    assert main([
+        "reconcile", "--repo", str(repo), "--repair", "--reason", "superseded", "--json"
+    ]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["repairs"][0]["kind"] == "abandon_interrupted_run"
+    assert (run_dir / "abandoned.json").exists()
+    assert all(item["kind"] != "interrupted_run" for item in payload["items"])
+
+
+def test_repair_refuses_interrupted_run_without_reason(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    run_dir = repo / "sessions" / ".factory-runs" / "by-session" / "run-1"
+    RunJournal(run_dir).checkpoint(
+        RunCheckpoint(
+            1, "run-1", "T-001", "validation", 1, {}, "a" * 40, "a" * 40,
+            "f" * 64, None, [], {}, None, [], "process_exit"
+        )
+    )
+    assert main(["reconcile", "--repo", str(repo), "--repair", "--json"]) == 2
+    assert "requires --reason" in capsys.readouterr().err
+
+
+def test_gate_ignores_warnings_unless_strict(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    task = repo / "tasks" / "T-001-example.md"
+    task.write_text(task.read_text(encoding="utf-8").replace("status: done", "status: todo"), encoding="utf-8")
+    _commit_all(repo)
+    (repo / "unexpected.txt").write_text("external", encoding="utf-8")
+    assert main(["reconcile", "--repo", str(repo), "--gate", "--json"]) == 0
+    capsys.readouterr()
+    assert main([
+        "reconcile", "--repo", str(repo), "--gate", "--strict", "--json"
+    ]) == 1
+
+
 def test_reconcile_cli_returns_zero_for_clean_todo_repository(tmp_path, capsys):
     repo = _repo(tmp_path)
     task = repo / "tasks" / "T-001-example.md"
     task.write_text(task.read_text(encoding="utf-8").replace("status: done", "status: todo"), encoding="utf-8")
     _commit_all(repo)
     assert main(["reconcile", "--repo", str(repo), "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"items": []}
+    assert json.loads(capsys.readouterr().out) == {"items": [], "repairs": []}

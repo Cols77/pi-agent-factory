@@ -106,6 +106,15 @@ def test_abandonment_is_atomic_reasoned_and_keeps_checkpoint(tmp_path):
     assert not path.with_name(path.name + ".tmp").exists()
 
 
+def test_abandonment_is_idempotent_only_for_the_same_reason(tmp_path):
+    first = abandon_run(tmp_path, "superseded")
+    before = first.read_bytes()
+    assert abandon_run(tmp_path, "superseded") == first
+    assert first.read_bytes() == before
+    with pytest.raises(ValueError, match="different reason"):
+        abandon_run(tmp_path, "other")
+
+
 def test_abandonment_requires_a_reason(tmp_path):
     with pytest.raises(ValueError, match="must not be blank"):
         abandon_run(tmp_path, "  ")

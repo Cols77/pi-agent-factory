@@ -89,6 +89,15 @@ def abandon_run(run_dir: Path, reason: str) -> Path:
     reason = reason.strip()
     if not reason:
         raise ValueError("abandon reason must not be blank")
+    path = run_dir / "abandoned.json"
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("existing abandonment marker is corrupt") from exc
+        if existing.get("reason") != reason:
+            raise ValueError("run is already abandoned with a different reason")
+        return path
     checkpoint_path = run_dir / "checkpoint.json"
     checkpoint_bytes = checkpoint_path.read_bytes() if checkpoint_path.exists() else b""
     marker = {
@@ -96,7 +105,6 @@ def abandon_run(run_dir: Path, reason: str) -> Path:
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "checkpoint_sha256": hashlib.sha256(checkpoint_bytes).hexdigest(),
     }
-    path = run_dir / "abandoned.json"
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(marker, indent=2), encoding="utf-8")
     tmp.replace(path)
