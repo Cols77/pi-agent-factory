@@ -19,7 +19,7 @@ _ID_RE = re.compile(r"SR-(\d+)")
 _TEMPLATE = """---
 id: {id}
 title: "{title}"
-statement: "TODO: EARS statement — When <trigger>, the <system> shall <response>."
+statement: "TODO: EARS statement -- When <trigger>, the <system> shall <response>."
 domain: {domain}
 upstream: []
 ---
@@ -91,7 +91,7 @@ def cmd_show(requirements_dir: Path, req_id: str) -> str:
         return (
             f"{req.id}  {req.title}\n"
             f"statement: {req.statement}\n"
-            f"binding: (proposed — not yet measurable)\n"
+            f"binding: (proposed -- not yet measurable)\n"
             f"source: {req.source or '(none)'}"
         )
     return (

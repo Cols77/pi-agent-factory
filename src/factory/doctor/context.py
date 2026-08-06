@@ -78,7 +78,9 @@ def gather_context(project_root: Path) -> dict:
 
 def format_context(ctx: dict) -> str:
     lines = [
-        f"Specs ({len(ctx['specs'])}) — read these files yourself; this command does not",
+        # ASCII only: this is printed to a console, and cp1252 cannot encode an
+        # em dash. Comments and docs may use one; CLI output may not.
+        f"Specs ({len(ctx['specs'])}) -- read these files yourself; this command does not",
         "summarise, rank or excerpt them:",
         *[f"  {p}" for p in ctx["specs"]],
         "",
@@ -96,7 +98,7 @@ def format_context(ctx: dict) -> str:
     lines.append("")
     config = ctx["config"]
     if not config["present"]:
-        lines.append("No .factory/factory.yaml — no harness is declared and no metric is")
+        lines.append("No .factory/factory.yaml -- no harness is declared and no metric is")
         lines.append("implemented. Requirements can still be proposed and accepted.")
         return "\n".join(lines)
     lines.append("Declared harnesses:")
