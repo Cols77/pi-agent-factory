@@ -7,13 +7,58 @@ import { mapDiffRows } from "./review-model.js";
 import type { DiffRowMeta } from "./review-model.js";
 import type { ReviewGuide } from "./review-guide.js";
 
+export interface ReviewTaskContext {
+  id: string;
+  path: string;
+  title: string;
+  status: string;
+  dod: string[];
+  html: string;
+}
+
 export interface ReviewPageData {
   taskId: string;
+  task: ReviewTaskContext | null;
   banner: string;
   implementing: boolean;
   guide: ReviewGuide | null;
   files: FileStat[];
   diffs: Record<string, { lines: string[]; meta: DiffRowMeta[] }>;
+}
+
+// The review handoff gives us an id, while task filenames deliberately carry a
+// human-readable suffix.  Resolve by the parsed, authoritative frontmatter id
+// instead of recreating a filename convention in a second surface.
+function readTaskContext(cwd: string, taskId: string): ReviewTaskContext | null {
+  let names: string[];
+  try {
+    names = readdirSync(join(cwd, "tasks"));
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".md")) continue;
+    try {
+      const raw = readFileSync(join(cwd, "tasks", name), "utf-8");
+      const task = parseTaskFrontmatter(raw);
+      if (task?.id !== taskId) continue;
+      return {
+        id: task.id,
+        path: `tasks/${name}`,
+        title: task.title,
+        status: task.status,
+        dod: task.dod,
+        // renderMarkdown escapes source before producing markup.  Passing this
+        // rendered result, rather than raw task text, keeps the browser review
+        // readable and matches the existing /review-plans reader.
+        html: renderMarkdown(raw).html,
+      };
+    } catch {
+      // A malformed or concurrently removed sibling must not prevent the human
+      // from reviewing the diff.  Continue looking for the requested task.
+    }
+  }
+  return null;
 }
 
 export function buildReviewPageData(
@@ -33,6 +78,7 @@ export function buildReviewPageData(
   }
   return {
     taskId: opts.taskId,
+    task: readTaskContext(cwd, opts.taskId),
     banner: opts.banner ?? "",
     implementing,
     guide: opts.guide ?? null,
@@ -43,7 +89,11 @@ export function buildReviewPageData(
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
+import { renderMarkdown } from "./md-render.js";
+import { parseTaskFrontmatter } from "./task-header.js";
 import type { ReviewDecisionPayload } from "./review-model.js";
 import { renderReviewHtml } from "./review-html.js"; // Task 3
 

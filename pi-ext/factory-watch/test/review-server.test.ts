@@ -1,4 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("../src/review-diff.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/review-diff.js")>()),
@@ -9,6 +12,22 @@ import { buildReviewPageData } from "../src/review-server.js";
 import type { FileStat } from "../src/review-diff.js";
 
 const FILES: FileStat[] = [{ path: "a.py", status: "M", added: 1, removed: 1 }];
+const dirs: string[] = [];
+
+function repoWithTask(taskId = "T-001"): string {
+  const root = mkdtempSync(join(tmpdir(), "review-server-"));
+  dirs.push(root);
+  mkdirSync(join(root, "tasks"));
+  writeFileSync(
+    join(root, "tasks", `${taskId}-example.md`),
+    `---\nid: ${taskId}\ntitle: Review task\nstatus: in_progress\ndod:\n  - Show the task in the browser\n---\n\n# Implementation context\n\nThe reviewer needs this context.\n`,
+  );
+  return root;
+}
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 describe("buildReviewPageData", () => {
   test("returns files, diff lines, and row meta per file", () => {
@@ -19,6 +38,23 @@ describe("buildReviewPageData", () => {
     // the "+new" row anchors to the new side
     const addIdx = data.diffs["a.py"]!.lines.findIndex((l) => l === "+new");
     expect(data.diffs["a.py"]!.meta[addIdx]!.side).toBe("new");
+  });
+
+  test("includes the task under review as rendered, structured context", () => {
+    const data = buildReviewPageData(repoWithTask(), "abc", FILES, { taskId: "T-001" });
+    expect(data.task).toMatchObject({
+      path: "tasks/T-001-example.md",
+      id: "T-001",
+      title: "Review task",
+      status: "in_progress",
+      dod: ["Show the task in the browser"],
+    });
+    expect(data.task?.html).toContain("Implementation context");
+  });
+
+  test("keeps the diff review usable when its task file is unavailable", () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-missing" });
+    expect(data.task).toBeNull();
   });
 });
 

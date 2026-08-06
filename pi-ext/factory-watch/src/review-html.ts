@@ -21,12 +21,22 @@ export function renderReviewHtml(): string {
   .banner { color: #c80; padding: 4px 8px; grid-column: 1 / -1; }
   .guide { grid-column: 1 / -1; padding: 4px 8px; border-bottom: 1px solid #8884; white-space: pre-wrap; font-size: 12px; opacity: .9; }
   .guide:empty { display: none; }
+  #task { grid-column: 1 / -1; overflow: auto; max-height: 35vh; border-bottom: 1px solid #8884; padding: 6px 8px; }
+  #task details { max-width: 100ch; }
+  #task summary { cursor: pointer; font-weight: bold; }
+  #task .meta { opacity: .75; font-size: 12px; margin: 3px 0; }
+  #task h1, #task h2, #task h3 { line-height: 1.2; }
+  #task pre { overflow: auto; padding: 6px; background: #8882; }
+  #task code { background: #8882; }
+  #task .dod { margin: 6px 0; }
+  #task .task-body { border-top: 1px solid #8884; margin-top: 8px; padding-top: 2px; }
   button { font: inherit; margin: 4px 4px 0 0; }
   .cmt { border: 1px solid #8884; padding: 4px; margin: 4px 0; }
 </style></head>
 <body>
   <div class="banner" id="banner"></div>
   <div class="guide" id="guide"></div>
+  <div id="task" hidden></div>
   <div id="tree"></div>
   <div id="diff"></div>
   <div id="side">
@@ -45,6 +55,42 @@ export function renderReviewHtml(): string {
   const reviewed = new Set();
   let active = data.files[0] && data.files[0].path;
   document.getElementById('banner').textContent = data.banner || '';
+
+  // The task is first-class review context, not merely an id in the guide.
+  // Its HTML originates exclusively in renderMarkdown(), which escapes source
+  // markdown before emitting it (the same trusted renderer as /review-plans).
+  function renderTask() {
+    const box = document.getElementById('task');
+    box.innerHTML = '';
+    if (!data.task) { box.hidden = true; return; }
+    box.hidden = false;
+    const details = document.createElement('details');
+    details.open = true;
+    const summary = document.createElement('summary');
+    summary.appendChild(document.createTextNode('Task under review · ' + data.task.id + ' — ' + data.task.title));
+    details.appendChild(summary);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.appendChild(document.createTextNode(data.task.path + ' · status: ' + data.task.status));
+    details.appendChild(meta);
+    const dod = document.createElement('div');
+    dod.className = 'dod';
+    dod.appendChild(document.createTextNode('Definition of done:'));
+    const list = document.createElement('ul');
+    data.task.dod.forEach((item) => {
+      const row = document.createElement('li');
+      row.appendChild(document.createTextNode(item));
+      list.appendChild(row);
+    });
+    dod.appendChild(list);
+    details.appendChild(dod);
+    const body = document.createElement('div');
+    body.className = 'task-body';
+    body.innerHTML = data.task.html;
+    details.appendChild(body);
+    box.appendChild(details);
+  }
+  renderTask();
 
   // Read-only review-focus guide (confidence / validation / verify checklist /
   // already-addressed), mirroring what the TUI overlay surfaces. Static for the

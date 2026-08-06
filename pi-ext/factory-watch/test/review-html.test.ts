@@ -32,6 +32,14 @@ describe("renderReviewHtml", () => {
     expect(html).toMatch(/hover.{0,20}\+.{0,20}comment/i);
   });
 
+  test("renders the task under review as a visible, initially-open context panel", () => {
+    expect(html).toContain('id="task"');
+    expect(html).toContain("Task under review");
+    expect(html).toContain("details.open = true");
+    expect(html).toContain("data.task");
+    expect(html).toContain("Definition of done");
+  });
+
   test("renders the review-focus guide and task id (parity with the TUI)", () => {
     // F1: the page must surface the guide (confidence/validation/verify/
     // addressed) and the task id, which are fetched from /api/review.
