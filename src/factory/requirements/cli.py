@@ -22,13 +22,6 @@ title: "{title}"
 statement: "TODO: EARS statement — When <trigger>, the <system> shall <response>."
 domain: {domain}
 upstream: []
-binding:
-  harness: TODO_harness
-  experiment: TODO_experiment
-  metric: TODO_metric
-  trials: 1
-  assert: "TODO"
-checksum: null
 ---
 
 ## Rationale
@@ -56,6 +49,11 @@ def cmd_new(requirements_dir: Path, title: str, domain: str) -> Path:
 def cmd_index(requirements_dir: Path) -> dict:
     out: list[dict] = []
     for req in load_register(requirements_dir):
+        if req.binding is None:
+            # Proposed: nothing to checksum, and rewriting the file would only
+            # churn its formatting.
+            out.append({"id": req.id, "checksum": None, "proposed": True})
+            continue
         checksum = content_checksum(req)
         post = frontmatter.load(str(req.path))
         post["checksum"] = checksum
@@ -71,6 +69,11 @@ def cmd_index(requirements_dir: Path) -> dict:
 def cmd_status(requirements_dir: Path, stale_only: bool = False) -> str:
     lines: list[str] = []
     for req in load_register(requirements_dir):
+        if req.binding is None:
+            # Never stale, so --stale must not list it.
+            if not stale_only:
+                lines.append(f"{req.id}  [proposed]  {req.title}")
+            continue
         current = is_checksum_current(req)
         if stale_only and current:
             continue
@@ -84,6 +87,13 @@ def cmd_show(requirements_dir: Path, req_id: str) -> str:
         return f"not found: {req_id}"
     req = parse_requirement(path)
     b = req.binding
+    if b is None:
+        return (
+            f"{req.id}  {req.title}\n"
+            f"statement: {req.statement}\n"
+            f"binding: (proposed — not yet measurable)\n"
+            f"source: {req.source or '(none)'}"
+        )
     return (
         f"{req.id}  {req.title}\n"
         f"statement: {req.statement}\n"

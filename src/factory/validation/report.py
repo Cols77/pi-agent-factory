@@ -38,6 +38,13 @@ def run_requirement_validation(
         if req is None:
             entries.append({"id": req_id, "error": "unknown requirement"})
             continue
+        if req.binding is None:
+            # Reached only when a task names a proposed requirement directly.
+            # An honest error beats an AttributeError from deep in the harness.
+            entries.append(
+                {"id": req.id, "error": "proposed requirement: no binding to validate"}
+            )
+            continue
         try:
             harness = harness_for(req.binding.harness)
             result = harness.run(req.binding, workdir)

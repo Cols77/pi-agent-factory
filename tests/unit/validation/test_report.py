@@ -131,3 +131,13 @@ def test_report_flags_trials_shortfall(tmp_path):
     assert entry["declared_trials"] == 5
     assert entry["trials"] == 2
     assert entry["passed"] is False  # metric passed but too few trials
+
+
+def test_a_proposed_requirement_reports_an_error_not_a_crash(proposed_req, tmp_path):
+    report = run_requirement_validation(
+        [proposed_req.id], [proposed_req], lambda name: None, tmp_path
+    )
+    entry = report["requirements"][0]
+    assert entry["id"] == proposed_req.id
+    assert "proposed" in entry["error"]
+    assert "passed" not in entry
