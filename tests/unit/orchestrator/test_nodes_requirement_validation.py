@@ -41,7 +41,34 @@ checksum: {ck}
 body
 """
 
-_CONFIG = "harnesses:\n  sim-testbench:\n    type: sim-testbench\n    traces_dir: traces\n"
+_CONFIG = (
+    "harnesses:\n"
+    "  sim-testbench:\n"
+    "    type: sim-testbench\n"
+    "    traces_dir: traces\n"
+    "    scorers: {module}.scorers\n"
+)
+
+# The metric lives in the target project now, so this fixture project declares one
+# like any real target would.
+_SCORER_MODULE = '''
+def _preempted(frames, window):
+    return any(f["active_directive"]["kind"] != "patrol" for f in frames)
+
+
+SCORERS = {"preemption_success_rate": _preempted}
+'''
+
+
+def _write_scorers(tmp_path) -> str:
+    # A package name derived from the test's own tmp_path: importlib caches in
+    # sys.modules, so a shared name would let one test read another's module.
+    module = f"scorerpkg_{tmp_path.name}".replace("-", "_")
+    pkg = tmp_path / "src" / module
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "scorers.py").write_text(_SCORER_MODULE, encoding="utf-8")
+    return module
 
 
 def _project(tmp_path, trials):
@@ -53,8 +80,11 @@ def _project(tmp_path, trials):
     stub.write_text(_SR.format(ck="null"), encoding="utf-8")
     ck = content_checksum(parse_requirement(stub))
     stub.write_text(_SR.format(ck=ck), encoding="utf-8")
+    module = _write_scorers(tmp_path)
     (tmp_path / ".factory").mkdir()
-    (tmp_path / ".factory" / "factory.yaml").write_text(_CONFIG, encoding="utf-8")
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        _CONFIG.format(module=module), encoding="utf-8"
+    )
     traces = tmp_path / "traces"
     traces.mkdir()
     (traces / "shark_warning.json").write_text(

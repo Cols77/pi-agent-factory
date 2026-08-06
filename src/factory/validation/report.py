@@ -15,10 +15,12 @@ from factory.validation.sim_harness import SimTestbenchHarness
 HarnessFor = Callable[[str], Harness]
 
 
-def default_harness_for(traces_dir: Path) -> HarnessFor:
+def default_harness_for(
+    traces_dir: Path, scorers: dict[str, Callable[..., bool]] | None = None
+) -> HarnessFor:
     def _factory(harness_name: str) -> Harness:
         if harness_name == "sim-testbench":
-            return SimTestbenchHarness(traces_dir)
+            return SimTestbenchHarness(traces_dir, scorers)
         raise ValueError(f"unknown harness: {harness_name}")
 
     return _factory
