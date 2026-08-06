@@ -23,12 +23,11 @@ statement: "TODO: EARS statement — When <trigger>, the <system> shall <respons
 domain: {domain}
 upstream: []
 binding:
-  harness: sim-testbench
+  harness: TODO_harness
   experiment: TODO_experiment
-  metric: preemption_success_rate
-  trials: 20
-  assert: ">= 0.90"
-  window: {{after_event: shark_detected, within_s: 5}}
+  metric: TODO_metric
+  trials: 1
+  assert: "TODO"
 checksum: null
 ---
 
