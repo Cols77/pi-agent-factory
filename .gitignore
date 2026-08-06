@@ -8,6 +8,13 @@ __pycache__/
 # Windows reserved device name that git readdir can pick up; breaks `git add -A`
 nul
 
+# Redirected test output. Three of these were committed by accident, one named
+# with a literal `%TEMP%` -- a Windows variable that bash does not expand, so the
+# redirect created a file in the repo root instead of the temp directory.
+test_output.txt
+*pytest_out.txt
+*pytest_err.txt
+
 # Factory run-time artifacts: transcript logs, live status/lock, regenerated
 # summaries. These are per-run scratch the orchestrator writes via `git add -A`
 # during commit_all; they bloat history and never belong in the repo. The
