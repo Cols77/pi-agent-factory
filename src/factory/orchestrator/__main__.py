@@ -10,6 +10,7 @@ from pathlib import Path
 
 from factory.config import GateConfigError, load_config, require_gates
 from factory.evidence.artifacts import LocalArtifactStore
+from factory.freshness.model import FreshnessSeverity
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
@@ -20,6 +21,7 @@ from factory.orchestrator.run_state import read_last_run
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FileStatusReporter
 from factory.paths import scope_guard_extension
+from factory.preflight.checks import run_preflight
 
 
 def _git_info(repo_root: Path) -> dict:
@@ -67,6 +69,23 @@ def main() -> None:
         else:
             print(format_task_board(tasks))
         return
+
+    preflight = run_preflight(repo_root, args.task)
+    if not preflight.ok:
+        for issue in preflight.issues:
+            print(
+                f"factory preflight {issue.severity.value}: {issue.code}: {issue.detail}",
+                file=sys.stderr,
+            )
+        code = (
+            3
+            if any(
+                issue.severity is FreshnessSeverity.INTEGRITY
+                for issue in preflight.issues
+            )
+            else 2
+        )
+        raise SystemExit(code)
 
     # The extension ships with the FACTORY. Deriving it from --repo meant every
     # cross-repo run launched pi with a path that does not exist there: pi
