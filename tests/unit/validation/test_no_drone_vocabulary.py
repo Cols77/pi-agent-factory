@@ -8,7 +8,10 @@ _SRC = Path(__file__).resolve().parents[3] / "src" / "factory"
 
 
 def test_the_factory_ships_no_drone_metric_module():
-    assert not (_SRC / "validation" / "metrics").exists()
+    # Assert on source, not on the directory: a stale __pycache__ keeps the
+    # directory alive in any checkout that compiled the old code, which would
+    # fail this guard for a reason that has nothing to do with what it guards.
+    assert sorted((_SRC / "validation" / "metrics").glob("*.py")) == []
 
 
 def test_no_factory_source_mentions_the_drone_trigger_label():
