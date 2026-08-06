@@ -14,6 +14,7 @@ from factory.freshness.model import FreshnessSeverity
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
+from factory.orchestrator.journal import RunCheckpoint
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
 from factory.orchestrator.pi_backend import PiAgentBackend
@@ -36,9 +37,68 @@ def _now_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
+def _repo_from_run_state_args(argv: list[str]) -> Path:
+    try:
+        index = argv.index("--repo")
+        return Path(argv[index + 1]).resolve()
+    except (ValueError, IndexError):
+        return Path(".").resolve()
+
+
+def _resume_run(repo_root: Path, checkpoint: RunCheckpoint) -> None:
+    """Execute a previously assessed checkpoint without silently starting a new run."""
+    transcript_dir = (
+        repo_root / "sessions" / ".factory-transcripts" / checkpoint.run_id
+    )
+    gates = ConfigGateRunner(
+        repo_root,
+        require_gates(load_config(repo_root), repo_root),
+        log_dir=transcript_dir,
+    )
+    backend = PiAgentBackend(
+        repo_root=repo_root,
+        extension_path=scope_guard_extension(),
+    )
+    lock_path = repo_root / "sessions" / ".factory-run.lock"
+    acquire_lock(lock_path, os.getpid(), checkpoint.run_id)
+    status = FileStatusReporter(
+        path=repo_root / "sessions" / ".factory-status.json",
+        session_id=checkpoint.run_id,
+    )
+    try:
+        path = run_next(
+            repo_root,
+            backend,
+            gates,
+            git_info=_git_info(repo_root),
+            session_id=checkpoint.run_id,
+            status=status,
+            task_id=checkpoint.task_id,
+            human_review=None,
+            transcript_dir=transcript_dir,
+            force=True,
+            artifact_store=LocalArtifactStore(
+                repo_root / ".factory" / "artifacts" / "objects"
+            ),
+            evidence_dir=repo_root / "evidence",
+            checkpoint_runs=True,
+            resume=checkpoint,
+        )
+        print(f"resumed session written: {path}", file=sys.stderr)
+    finally:
+        remove_lock(lock_path)
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "run-state":
-        raise SystemExit(run_state_main(sys.argv[2:]))
+        state_args = sys.argv[2:]
+        repo_root = _repo_from_run_state_args(state_args)
+        raise SystemExit(
+            run_state_main(
+                state_args,
+                resume_callback=lambda checkpoint: _resume_run(repo_root, checkpoint),
+            )
+        )
 
     parser = argparse.ArgumentParser(prog="factory.orchestrator")
     parser.add_argument("command", choices=["run", "list"])
