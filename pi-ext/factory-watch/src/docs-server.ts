@@ -4,7 +4,12 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { loadTaskEvidence } from "./evidence-client.js";
+import {
+  loadCurrentRun,
+  loadTaskEvidence,
+  runPreflight,
+  runReconcile,
+} from "./evidence-client.js";
 import { renderMarkdown } from "./md-render.js";
 import { layoutGraph, neighbourhood } from "./graph-layout.js";
 import { loadTraceGraph } from "./trace-cli.js";
@@ -197,6 +202,37 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   if (req.method === "GET" && url.pathname === "/api/evidence/task") {
     const result = loadTaskEvidence(cwd, url.searchParams.get("task") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/preflight") {
+    const result = runPreflight(cwd, url.searchParams.get("task") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/reconcile") {
+    const task = url.searchParams.get("task") ?? undefined;
+    const result = runReconcile(cwd, task);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/run-state") {
+    const result = loadCurrentRun(cwd);
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

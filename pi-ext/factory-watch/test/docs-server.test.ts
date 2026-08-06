@@ -145,6 +145,20 @@ describe("ensureDocsServer", () => {
     expect(body.runs[0]).toMatchObject({ run_id: "run-1", task_id: "T-001" });
   });
 
+  test("serves Python-owned preflight, reconciliation, and run state", async () => {
+    spawnSync
+      .mockReturnValueOnce({ status: 2, stdout: JSON.stringify({ ok: false, issues: [{ code: "stale" }] }), stderr: "" })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify({ items: [{ kind: "missing_blob" }] }), stderr: "" })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify({ checkpoint: null, assessment: null }), stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const preflight = await (await fetch(`${server.url}/api/preflight?task=T-001`)).json();
+    expect(preflight.issues[0].code).toBe("stale");
+    const reconciliation = await (await fetch(`${server.url}/api/reconcile?task=T-001`)).json();
+    expect(reconciliation.items[0].kind).toBe("missing_blob");
+    const runState = await (await fetch(`${server.url}/api/run-state`)).json();
+    expect(runState.checkpoint).toBeNull();
+  });
+
   test("reports evidence CLI failure without taking down document browsing", async () => {
     spawnSync.mockReturnValue({ status: 2, stdout: "", stderr: "evidence unavailable" });
     const server = await ensureDocsServer(repo());
