@@ -91,6 +91,15 @@ def test_interrupted_run_requires_explicit_recovery_before_new_work(tmp_path):
     assert "run-state inspect run-1" in issue.detail
 
 
+def test_corrupt_recovery_checkpoint_is_integrity_failure(tmp_path):
+    repo = _repo(tmp_path)
+    path = repo / "sessions" / ".factory-runs" / "by-session" / "broken" / "checkpoint.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("not-json", encoding="utf-8")
+    issue = codes(run_preflight(repo, "T-001"))["run_checkpoint_invalid"]
+    assert issue.severity is FreshnessSeverity.INTEGRITY
+
+
 def test_invalid_gate_config_is_integrity_failure(tmp_path):
     repo = _repo(tmp_path)
     (repo / ".factory" / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")

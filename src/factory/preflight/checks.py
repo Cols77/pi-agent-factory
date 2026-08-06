@@ -256,7 +256,19 @@ def run_preflight(
             )
         )
 
-    checkpoint = load_current_checkpoint(repo_root)
+    try:
+        checkpoint = load_current_checkpoint(repo_root)
+    except (OSError, TypeError, ValueError) as exc:
+        checkpoint = None
+        issues.append(
+            _issue(
+                "run_checkpoint_invalid",
+                FreshnessSeverity.INTEGRITY,
+                task_id or "run-state",
+                str(exc),
+                "run-checkpoint",
+            )
+        )
     if checkpoint is not None:
         try:
             assessment = assess_recovery(repo_root, checkpoint, SubprocessGitOps())
