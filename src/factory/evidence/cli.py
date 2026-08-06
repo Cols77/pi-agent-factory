@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from factory.evidence.manifests import list_run_manifests, load_run_manifest
+from factory.evidence.reconcile import reconcile
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -28,6 +29,11 @@ def _parser() -> argparse.ArgumentParser:
     listing = sub.add_parser("list")
     listing.add_argument("--repo", default=".")
     listing.add_argument("--json", action="store_true")
+
+    reconciliation = sub.add_parser("reconcile")
+    reconciliation.add_argument("--task", default=None)
+    reconciliation.add_argument("--repo", default=".")
+    reconciliation.add_argument("--json", action="store_true")
     return parser
 
 
@@ -47,6 +53,20 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repo = Path(args.repo).resolve()
     evidence_dir = repo / "evidence"
+
+    if args.command == "reconcile":
+        try:
+            items = reconcile(repo, args.task)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"could not reconcile evidence: {exc}", file=sys.stderr)
+            return 2
+        payload = {"items": [item.to_dict() for item in items]}
+        if args.json:
+            print(json.dumps(payload))
+        else:
+            for item in items:
+                print(f"{item.kind.value}  {item.subject}  {item.detail}")
+        return 1 if items else 0
 
     if args.command == "run":
         if not _RUN_ID.fullmatch(args.run_id):

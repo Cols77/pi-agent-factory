@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import json
+import subprocess
+
+import pytest
+
+from factory.evidence.cli import main
+from factory.evidence.manifests import write_run_manifest
+from factory.evidence.reconcile import ReconcileKind, reconcile
+from factory.orchestrator.journal import RunCheckpoint, RunJournal
+
+pytestmark = pytest.mark.unit
+
+
+def _repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    (repo / "tasks").mkdir()
+    (repo / "tasks" / "T-001-example.md").write_text(
+        "---\nid: T-001\ntitle: Example\nstatus: done\ndod:\n  - works\n---\nbody\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+    return repo
+
+
+def _manifest(repo, run_id="run-1"):
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "task_id": "T-001",
+        "started_at": "2026-08-07T12:00:00Z",
+        "ended_at": "2026-08-07T12:01:00Z",
+        "start_commit": head,
+        "result_commit": head,
+        "outcome": "completed",
+        "inputs": {
+            "task": {"path": "tasks/T-001-example.md", "sha256": "c" * 64},
+            "requirements": [],
+            "factory_config_sha256": "d" * 64,
+        },
+        "implementation": {
+            "changed_files": [],
+            "patch": {"sha256": "e" * 64, "size": 0, "media_type": "text/x-diff"},
+        },
+        "validation": [],
+        "reviews": [],
+        "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
+
+
+def _commit_all(repo):
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+
+
+def test_completed_task_without_manifest_is_never_given_inferred_provenance(tmp_path):
+    repo = _repo(tmp_path)
+    items = reconcile(repo)
+    missing = next(item for item in items if item.kind is ReconcileKind.MISSING_EVIDENCE)
+    assert missing.subject == "T-001"
+    assert "no validated evidence" in missing.detail
+
+
+def test_manifest_inventory_reports_missing_blob_and_is_deterministically_sorted(tmp_path):
+    repo = _repo(tmp_path)
+    write_run_manifest(repo / "evidence", _manifest(repo))
+    _commit_all(repo)
+    items = reconcile(repo)
+    assert [item.kind for item in items] == [ReconcileKind.MISSING_BLOB]
+    assert items[0].subject == "e" * 64
+
+
+def test_changed_recorded_file_reports_stale_validation(tmp_path):
+    repo = _repo(tmp_path)
+    manifest = _manifest(repo)
+    manifest["dependencies"] = [
+        {
+            "name": "task:T-001",
+            "kind": "file",
+            "digest": "sha256:" + "0" * 64,
+            "source": "tasks/T-001-example.md",
+        }
+    ]
+    write_run_manifest(repo / "evidence", manifest)
+    _commit_all(repo)
+    kinds = [item.kind for item in reconcile(repo)]
+    assert ReconcileKind.STALE_VALIDATION in kinds
+
+
+def test_unattributed_worktree_change_is_reported_without_task_assignment(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "unexpected.txt").write_text("external", encoding="utf-8")
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.UNATTRIBUTED_CHANGE)
+    assert item.subject == "working-tree"
+    assert item.repairable is False
+
+
+def test_interrupted_checkpoint_suppresses_unattributed_guess(tmp_path):
+    repo = _repo(tmp_path)
+    run_dir = repo / "sessions" / ".factory-runs" / "by-session" / "run-1"
+    RunJournal(run_dir).checkpoint(
+        RunCheckpoint(
+            1, "run-1", "T-001", "validation", 1, {}, "a" * 40, "a" * 40,
+            "f" * 64, None, [], {}, None, [], "process_exit"
+        )
+    )
+    items = reconcile(repo)
+    assert ReconcileKind.INTERRUPTED_RUN in {item.kind for item in items}
+    assert ReconcileKind.UNATTRIBUTED_CHANGE not in {item.kind for item in items}
+
+
+def test_legacy_review_is_repairable_only_with_explicit_identity(tmp_path):
+    repo = _repo(tmp_path)
+    path = repo / "sessions" / ".factory-transcripts" / "old" / "review-history.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"task_id": "T-001", "run_id": "r", "start_commit": "a"}), encoding="utf-8")
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.LEGACY_REVIEW)
+    assert item.repairable is True
+
+
+def test_reconcile_cli_emits_json_and_uses_pending_exit_code(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    assert main(["reconcile", "--repo", str(repo), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["items"][0]["kind"] == "missing_evidence"
+
+
+def test_reconcile_cli_returns_zero_for_clean_todo_repository(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    task = repo / "tasks" / "T-001-example.md"
+    task.write_text(task.read_text(encoding="utf-8").replace("status: done", "status: todo"), encoding="utf-8")
+    _commit_all(repo)
+    assert main(["reconcile", "--repo", str(repo), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"items": []}
