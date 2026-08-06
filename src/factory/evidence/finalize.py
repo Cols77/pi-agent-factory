@@ -16,6 +16,7 @@ from factory.orchestrator.git_ops import GitOps
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.types import TaskResult
 from factory.requirements.register import load_register
+from factory.trace.graph import build_graph
 
 
 def _digest(data: bytes) -> str:
@@ -76,6 +77,34 @@ def _validation_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dic
     return [{"report": _blob_dict(store.put(raw, "application/json")), **parsed}]
 
 
+def _trace_dependencies(repo_root: Path, task_id: str) -> list:
+    graph = build_graph(repo_root)
+    by_id = {node.id: node for node in graph.nodes}
+    selected: list = []
+    plan_ids = [
+        edge.dst
+        for edge in graph.edges
+        if edge.src == task_id and edge.kind == "source_plan"
+    ]
+    for plan_id in sorted(plan_ids):
+        plan = by_id.get(plan_id)
+        if plan is None:
+            continue
+        selected.append(
+            fingerprint_file(f"source-plan:{plan_id}", plan.path, repo_root)
+        )
+        for edge in sorted(
+            (item for item in graph.edges if item.src == plan_id and item.kind == "spec_ref"),
+            key=lambda item: item.dst,
+        ):
+            spec = by_id.get(edge.dst)
+            if spec is not None:
+                selected.append(
+                    fingerprint_file(f"source-spec:{edge.dst}", spec.path, repo_root)
+                )
+    return selected
+
+
 def finalize_run_evidence(
     *,
     repo_root: Path,
@@ -120,6 +149,15 @@ def finalize_run_evidence(
             for item in requirement_inputs
         ),
         fingerprint_file("factory-config", config_path, repo_root),
+        *_trace_dependencies(repo_root, task.id),
+        *(
+            fingerprint_tool(
+                f"validator:{req.id}",
+                f"factory.validation:{req.binding.harness}:v1",
+            )
+            for req in requirements.values()
+            if req.id in task.satisfies and req.binding is not None
+        ),
         fingerprint_git_tree(repo_root, ref=result.result_commit),
         fingerprint_tool("evidence-schema", f"v{MANIFEST_SCHEMA_VERSION}"),
     ]

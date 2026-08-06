@@ -25,12 +25,20 @@ def _repo(tmp_path):
     (repo / "requirements").mkdir()
     (repo / ".factory").mkdir()
     (repo / "src").mkdir()
+    (repo / "docs" / "superpowers" / "plans").mkdir(parents=True)
+    (repo / "docs" / "superpowers" / "specs").mkdir(parents=True)
+    (repo / "docs" / "superpowers" / "specs" / "design.md").write_text(
+        "# Design\n", encoding="utf-8"
+    )
+    (repo / "docs" / "superpowers" / "plans" / "plan.md").write_text(
+        "# Plan\n\nSpec: docs/superpowers/specs/design.md\n", encoding="utf-8"
+    )
     (repo / "tasks" / "T-001-example.md").write_text(
-        "---\nid: T-001\ntitle: Example\nstatus: todo\ndod:\n  - works\nsatisfies:\n  - SR-001\n---\nbody\n",
+        "---\nid: T-001\ntitle: Example\nstatus: todo\ndod:\n  - works\nsatisfies:\n  - SR-001\nsource_plan: plan.md\n---\nbody\n",
         encoding="utf-8",
     )
     (repo / "requirements" / "SR-001.md").write_text(
-        "---\nid: SR-001\ntitle: Requirement\nstatement: It works\ndomain: core\n---\nbody\n",
+        "---\nid: SR-001\ntitle: Requirement\nstatement: It works\ndomain: core\nbinding:\n  harness: sim-testbench\n  experiment: demo\n  metric: score\n  assert: '>= 1'\n---\nbody\n",
         encoding="utf-8",
     )
     (repo / ".factory" / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
@@ -114,7 +122,10 @@ def test_finalize_captures_implementation_reviews_validation_and_inputs(tmp_path
         "evidence-schema",
         "factory-config",
         "requirement:SR-001",
+        "source-plan:plan:plan.md",
+        "source-spec:spec:design.md",
         "task:T-001",
+        "validator:SR-001",
     ]
     assert manifest["reviews"][0]["decision"] == "reject"
     assert "diff" not in manifest["reviews"][0]
