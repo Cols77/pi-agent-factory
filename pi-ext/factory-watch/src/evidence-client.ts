@@ -28,6 +28,34 @@ export interface EvidenceReview {
   diff_error?: string | null;
 }
 
+export interface FreshnessIssue {
+  code: string;
+  severity: "integrity" | "blocking" | "warning";
+  subject: string;
+  dependency: string;
+  detail: string;
+  repair: string | null;
+}
+
+export interface ReconcileItem {
+  kind: string;
+  subject: string;
+  detail: string;
+  repairable: boolean;
+  source: string;
+}
+
+export interface RecoveryAssessment {
+  state: "resumable" | "inspect-only" | "conflict" | "complete";
+  reasons: string[];
+  actions: string[];
+}
+
+export interface RunState {
+  checkpoint: Record<string, unknown> | null;
+  assessment: RecoveryAssessment | null;
+}
+
 export interface EvidenceRun {
   schema_version: number;
   run_id: string;
@@ -44,17 +72,22 @@ export interface EvidenceRun {
   publication: { state: "local" | "queued" | "published" | "failed"; errors: string[] };
 }
 
-function runJson<T>(cwd: string, args: string[]): CliResult<T> {
+function runJson<T>(
+  cwd: string,
+  module: string,
+  args: string[],
+  acceptedStatuses: number[] = [0],
+): CliResult<T> {
   const result = spawnSync(
     "uv",
-    ["run", "python", "-m", "factory.evidence", ...args, "--repo", cwd, "--json"],
+    ["run", "python", "-m", module, ...args, "--repo", cwd, "--json"],
     { cwd, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.error) {
     return { ok: false, status: -1, error: result.error.message };
   }
   const status = result.status ?? -1;
-  if (status !== 0) {
+  if (!acceptedStatuses.includes(status)) {
     return {
       ok: false,
       status,
@@ -64,18 +97,49 @@ function runJson<T>(cwd: string, args: string[]): CliResult<T> {
   try {
     return { ok: true, value: JSON.parse(result.stdout) as T };
   } catch (err) {
-    return { ok: false, status, error: `could not parse factory evidence output: ${String(err)}` };
+    return { ok: false, status, error: `could not parse ${module} output: ${String(err)}` };
   }
 }
 
 export function loadTaskEvidence(cwd: string, taskId: string): CliResult<{ runs: EvidenceRun[] }> {
-  return runJson(cwd, ["task", taskId]);
+  return runJson(cwd, "factory.evidence", ["task", taskId]);
 }
 
 export function loadRunEvidence(cwd: string, runId: string): CliResult<EvidenceRun> {
-  return runJson(cwd, ["run", runId]);
+  return runJson(cwd, "factory.evidence", ["run", runId]);
 }
 
 export function listEvidence(cwd: string): CliResult<{ runs: EvidenceRun[] }> {
-  return runJson(cwd, ["list"]);
+  return runJson(cwd, "factory.evidence", ["list"]);
+}
+
+export function runPreflight(
+  cwd: string,
+  taskId: string,
+): CliResult<{ ok: boolean; issues: FreshnessIssue[] }> {
+  return runJson(cwd, "factory.preflight", ["--task", taskId], [0, 2, 3]);
+}
+
+export function runReconcile(
+  cwd: string,
+  taskId?: string,
+): CliResult<{ items: ReconcileItem[] }> {
+  const args = ["reconcile"];
+  if (taskId) args.push("--task", taskId);
+  return runJson(cwd, "factory.evidence", args, [0, 1]);
+}
+
+export function loadCurrentRun(cwd: string): CliResult<RunState> {
+  return runJson(cwd, "factory.orchestrator", ["run-state", "current"]);
+}
+
+export function requestRunAction(
+  cwd: string,
+  runId: string,
+  action: "resume" | "abandon",
+  reason?: string,
+): CliResult<RunState> {
+  const args = ["run-state", action, runId];
+  if (reason !== undefined) args.push("--reason", reason);
+  return runJson(cwd, "factory.orchestrator", args);
 }
