@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from factory.orchestrator.backends import GATE_NOT_APPLICABLE, AgentBackend, GateRunner
+from factory.orchestrator.continuation import build_continuation_context
 from factory.evidence.types import EvidenceContext
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
-from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, NodeOutcome
+from factory.orchestrator.types import (
+    AgentResult,
+    AgentRole,
+    InterruptionReason,
+    NodeEvent,
+    NodeOutcome,
+)
 from factory.validation.manifest_validator import validate_manifest
 from factory.validation.pipeline import validate_task_requirements
 from factory.validation.report import write_validation_report
@@ -179,6 +187,18 @@ def run_context_gatherer(
     return NodeOutcome.REJECT, None, NodeEvent("context-gather", "reject", max_attempts, extra)
 
 
+def _working_diff(repo_root: Path) -> str:
+    result = subprocess.run(
+        ["git", "diff", "--binary", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return result.stdout if result.returncode == 0 else "(working diff unavailable)"
+
+
 def run_dev(
     backend: AgentBackend,
     gates: GateRunner,
@@ -225,21 +245,53 @@ def run_dev(
                 session_id=captured_session_id,
             )
 
+        role_prompt = compose_prompt(
+            AgentRole.DEV,
+            task,
+            manifest,
+            kb_entries,
+            feedback,
+            skills_dir=repo_root / ".pi" / "skills",
+        )
         result = backend.run(
             AgentRole.DEV,
-            compose_prompt(
-                AgentRole.DEV,
-                task,
-                manifest,
-                kb_entries,
-                feedback,
-                skills_dir=repo_root / ".pi" / "skills",
-            ),
+            role_prompt,
             on_snippet=_on_snippet,
             on_session_id=_on_session_id,
         )
         if transcript_dir is not None:
             write_role_transcript(transcript_dir, "dev", attempt, result.raw)
+        # A provider context limit interrupts this attempt; it does not spend a
+        # fresh dev retry. Continue in a new Pi session from deterministic disk
+        # state, while retaining a small bound against repeated provider failure.
+        for continuation in range(1, 3):
+            if result.interruption is not InterruptionReason.CONTEXT_LIMIT:
+                break
+            continuation_prompt = role_prompt + "\n\n" + build_continuation_context(
+                task,
+                {
+                    "node": "dev",
+                    "attempt": attempt,
+                    "continuation": continuation,
+                    "prior_session_id": result.session_id,
+                },
+                result.raw,
+                _working_diff(repo_root),
+                {"unit": "not run after interruption"},
+            )
+            result = backend.run(
+                AgentRole.DEV,
+                continuation_prompt,
+                on_snippet=_on_snippet,
+                on_session_id=_on_session_id,
+            )
+            if transcript_dir is not None:
+                write_role_transcript(
+                    transcript_dir,
+                    "dev-continuation",
+                    attempt * 10 + continuation,
+                    result.raw,
+                )
         if gates.run("unit") == 0:
             extra = _note_backend_failure({"tests": "green"}, result)
             status.report(
