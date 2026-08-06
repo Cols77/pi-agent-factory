@@ -682,8 +682,8 @@ export default function factoryWatch(pi: PiApi): void {
     },
   });
 
-  pi.registerCommand("review-plans", {
-    description: "Browse specs, plans, requirements and tasks (--browser | --terminal | --stop)",
+  const docsCommand = {
+    description: "Browse system specs, plans, requirements, tasks, and evidence (--browser | --terminal | --stop)",
     handler: async (args: string, ctx: ExtCommandCtx) => {
       const parsedArgs = parseReviewPlansArgs(args);
 
@@ -712,7 +712,7 @@ export default function factoryWatch(pi: PiApi): void {
           // Non-blocking by design: open the tab and return, so the session stays
           // usable while the docs stay open beside it. Spec section 4.
           const server = await ensureDocsServer(ctx.cwd);
-          ctx.ui.notify(`docs open at ${server.url} (/review-plans --stop to close)`, "info");
+          ctx.ui.notify(`system evidence open at ${server.url} (/system --stop to close)`, "info");
           openInBrowser(server.url);
           return;
         } catch (err) {
@@ -761,5 +761,7 @@ export default function factoryWatch(pi: PiApi): void {
         return new ScrollableMarkdown(displayText, markdownTheme, tui, () => done(undefined));
       }, { overlay: true, overlayOptions: { width: "90%", maxHeight: "90%", anchor: "center" } });
     },
-  });
+  };
+  pi.registerCommand("review-plans", docsCommand);
+  pi.registerCommand("system", docsCommand);
 }

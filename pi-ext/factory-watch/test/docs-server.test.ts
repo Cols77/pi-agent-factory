@@ -277,6 +277,12 @@ describe("ensureDocsServer", () => {
     expect(second.port).toBe(first.port);
   });
 
+  test("refuses to reuse a server for a different repository root", async () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(EMPTY_GRAPH), stderr: "" });
+    await ensureDocsServer(repo());
+    await expect(ensureDocsServer(repo())).rejects.toThrow("refusing different root");
+  });
+
   test("binds loopback only", async () => {
     spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(EMPTY_GRAPH), stderr: "" });
     const server = await ensureDocsServer(repo());

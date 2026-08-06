@@ -50,14 +50,21 @@ sub-agent sessions, which load `scope-guard` instead).
   skips straight to force), or `SIGTERM` to the process group followed by
   `SIGKILL` after a few seconds if still alive on POSIX.
 - `/factory-tasks` — shows the task ledger, grouped by status, as a widget.
-- `/review-plans` — lists every file under `docs/superpowers/specs/`,
+- `/system` (alias: `/review-plans`) — opens the shared system/evidence navigator.
+  Browser mode shows traceability, task implementation manifests, validation and
+  review artifacts, evidence health, and interrupted-run recovery; terminal mode
+  lists every file under `docs/superpowers/specs/`,
   `docs/superpowers/plans/`, and `tasks/T-*.md` (newest first, labeled
   `[spec]`/`[plan]`/`[task]`; task labels show `id -- title (status)`),
   and opens the picked one in a scrollable, real-markdown-rendered view
   (`pi-tui`'s own `Markdown` component, not a raw-text dump). Task
   frontmatter is reformatted into a clean header instead of shown as raw
   YAML. Keys: Up/Down/PageUp/PageDown/Home/End to scroll, `q` or Escape
-  to close.
+  to close. Use `--browser`, `--terminal`, or `--stop` explicitly when desired.
+- Read-only agent tools `system_context`, `implementation_history`,
+  `validation_status`, and `evidence_health` query the same Python-owned model.
+  Missing data is returned as unknown; these tools cannot resume, repair, or
+  manufacture provenance.
 - `/plan <topic>` — starts a fresh session seeded with the real, full content
   of the vendored `brainstorming`/`writing-plans` skills (hard-loaded via
   Pi's own exported `loadSkills`/`stripFrontmatter`, not the soft

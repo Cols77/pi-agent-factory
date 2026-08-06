@@ -22,7 +22,7 @@ export interface RunningDocsServer {
   close(): void;
 }
 
-let running: { server: Server; handle: RunningDocsServer } | null = null;
+let running: { server: Server; handle: RunningDocsServer; cwd: string } | null = null;
 
 // Loopback binding is not on its own an authorization boundary -- any process on
 // the machine can reach the port -- so every served path is confined to the repo.
@@ -358,9 +358,17 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 }
 
 export function ensureDocsServer(cwd: string): Promise<RunningDocsServer> {
-  if (running !== null) return Promise.resolve(running.handle);
+  const normalizedCwd = resolve(cwd);
+  if (running !== null) {
+    if (running.cwd !== normalizedCwd) {
+      return Promise.reject(
+        new Error(`docs server already serves ${running.cwd}; refusing different root ${normalizedCwd}`),
+      );
+    }
+    return Promise.resolve(running.handle);
+  }
   return new Promise((resolveStart) => {
-    const server = createServer((req, res) => handle(cwd, req, res));
+    const server = createServer((req, res) => handle(normalizedCwd, req, res));
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as AddressInfo).port;
       const handleObj: RunningDocsServer = {
@@ -370,7 +378,7 @@ export function ensureDocsServer(cwd: string): Promise<RunningDocsServer> {
           stopDocsServer();
         },
       };
-      running = { server, handle: handleObj };
+      running = { server, handle: handleObj, cwd: normalizedCwd };
       resolveStart(handleObj);
     });
   });

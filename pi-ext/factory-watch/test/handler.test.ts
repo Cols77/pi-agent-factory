@@ -124,6 +124,9 @@ describe("factory-watch commands", () => {
     expect(commands.has("factory-run")).toBe(true);
     expect(commands.has("factory-watch")).toBe(true);
     expect(commands.has("plan")).toBe(true);
+    expect(commands.has("review-plans")).toBe(true);
+    expect(commands.has("system")).toBe(true);
+    expect(commands.get("system")).toBe(commands.get("review-plans"));
   });
 
   test("/factory notifies an error and does nothing else when no model is active", async () => {
