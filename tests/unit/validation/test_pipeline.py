@@ -124,3 +124,14 @@ def test_harness_lookup_is_by_instance_key_not_type(tmp_path):
     report, ok = validate_task_requirements(tmp_path, ["SR-001"])
     assert ok is True
     assert report["requirements"][0]["id"] == "SR-001"
+
+
+def test_a_proposed_requirement_is_never_selected(proposed_req, bound_req):
+    ids = select_requirement_ids([proposed_req, bound_req], satisfies=[], full_sweep=True)
+    assert ids == [bound_req.id]
+
+
+def test_a_proposed_requirement_named_by_a_task_is_still_not_run(proposed_req, bound_req):
+    # "a task's own SRs always run" cannot apply to one with nothing to run.
+    ids = select_requirement_ids([proposed_req, bound_req], satisfies=[proposed_req.id])
+    assert proposed_req.id not in ids

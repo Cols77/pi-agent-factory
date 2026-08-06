@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from factory.requirements.register import Binding
 from factory.validation.assertions import evaluate_assertion
 from factory.validation.harness import HarnessResult, TrialResult
-from factory.validation.metrics.preemption import trial_preempted
-
-# Per-trial scorers: (frames, window) -> bool. Rate = mean of the booleans.
-_TRIAL_SCORERS = {
-    "preemption_success_rate": trial_preempted,
-}
+from factory.validation.scorer_registry import load_scorers
 
 
 class UnknownMetricError(ValueError):
@@ -25,15 +21,23 @@ class SimTestbenchHarness:
     ``{"trials": [{"seed": int, "frames": [frame, ...]}, ...]}``.
     """
 
-    def __init__(self, traces_dir: Path) -> None:
+    def __init__(
+        self, traces_dir: Path, scorers: dict[str, Callable[..., bool]] | None = None
+    ) -> None:
         self._traces_dir = traces_dir
+        # Per-trial scorers: (frames, window) -> bool. Rate = mean of the booleans.
+        # An empty map means the target project has implemented no metrics yet.
+        self._scorers = scorers if scorers is not None else {}
 
     @classmethod
     def from_config(cls, params: dict, project_root: Path) -> "SimTestbenchHarness":
-        return cls(project_root / params["traces_dir"])
+        return cls(
+            project_root / params["traces_dir"],
+            load_scorers(params.get("scorers"), project_root),
+        )
 
     def run(self, binding: Binding, workdir: Path) -> HarnessResult:
-        scorer = _TRIAL_SCORERS.get(binding.metric)
+        scorer = self._scorers.get(binding.metric)
         if scorer is None:
             raise UnknownMetricError(f"no trial scorer for metric {binding.metric!r}")
         path = self._traces_dir / f"{binding.experiment}.json"

@@ -38,6 +38,7 @@ def graph_to_dict(graph: Graph) -> dict:
             "expected": graph.health.expected,
             "dangling": graph.health.dangling,
             "deferred": graph.health.deferred,
+            "proposed": graph.health.proposed,
             "classes": [asdict(c) for c in graph.health.classes],
         },
     }

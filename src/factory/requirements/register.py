@@ -6,7 +6,10 @@ from pathlib import Path
 
 import frontmatter
 
-_REQUIRED = ("id", "title", "statement", "domain", "binding")
+# `binding` is deliberately absent: a requirement may be agreed in substance
+# before its measurement is decided. The absence of a binding IS the proposed
+# state -- there is no status field that could disagree with the content.
+_REQUIRED = ("id", "title", "statement", "domain")
 
 
 @dataclass(frozen=True)
@@ -27,10 +30,11 @@ class Requirement:
     statement: str
     domain: str
     upstream: list[str]
-    binding: Binding
+    binding: Binding | None
     body: str
     path: Path
     checksum: str | None = None
+    source: str | None = None
 
 
 def _parse_binding(raw: dict) -> Binding:
@@ -55,16 +59,18 @@ def parse_requirement(path: Path) -> Requirement:
     if isinstance(upstream, str):
         upstream = [upstream]
     checksum = meta.get("checksum")
+    source = meta.get("source")
     return Requirement(
         id=str(meta["id"]),
         title=str(meta["title"]),
         statement=str(meta["statement"]),
         domain=str(meta["domain"]),
         upstream=[str(u) for u in upstream],  # type: ignore[union-attr]
-        binding=_parse_binding(meta["binding"]),  # type: ignore[arg-type]
+        binding=_parse_binding(meta["binding"]) if "binding" in meta else None,  # type: ignore[arg-type]
         body=post.content,
         path=path,
         checksum=str(checksum) if checksum else None,
+        source=str(source) if source else None,
     )
 
 
@@ -72,6 +78,8 @@ def content_checksum(req: Requirement) -> str:
     # cadence is intentionally excluded: it is scheduling (how often the SR runs),
     # not a metric input, so changing it must not stale the requirement.
     b = req.binding
+    if b is None:
+        raise ValueError(f"{req.id}: proposed requirement has no binding to checksum")
     canonical = "\n".join(
         [
             req.statement.strip(),
@@ -88,6 +96,10 @@ def content_checksum(req: Requirement) -> str:
 
 
 def is_checksum_current(req: Requirement) -> bool:
+    # A proposed requirement has no binding, so there is nothing for a checksum to
+    # go stale against. Returning False would print STALE forever.
+    if req.binding is None:
+        return True
     return req.checksum is not None and req.checksum == content_checksum(req)
 
 

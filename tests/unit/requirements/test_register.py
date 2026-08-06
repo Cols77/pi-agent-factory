@@ -31,10 +31,50 @@ Rationale here.
 """
 
 
+_PROPOSED = """---
+id: SR-009
+title: Investigate is abandoned when the zone clears
+statement: When the swim zone becomes empty during an investigate directive, the
+  navigation system shall abandon the investigation and resume patrol.
+domain: behavioral
+source: docs/superpowers/specs/2026-07-21-mission-agent-navigation-design.md
+---
+
+## Rationale
+Zone-clear must not strand the drone in investigate.
+"""
+
+
 def _write(dir_: Path, name: str, text: str) -> Path:
     p = dir_ / name
     p.write_text(text, encoding="utf-8")
     return p
+
+
+def test_a_requirement_with_no_binding_parses(tmp_path):
+    req = parse_requirement(_write(tmp_path, "SR-009.md", _PROPOSED))
+    assert req.binding is None
+    assert req.id == "SR-009"
+    assert req.source is not None
+    assert req.source.endswith("mission-agent-navigation-design.md")
+
+
+def test_a_proposed_requirement_is_never_stale(tmp_path):
+    # Nothing to be stale against. False would print STALE forever.
+    req = parse_requirement(_write(tmp_path, "SR-009.md", _PROPOSED))
+    assert is_checksum_current(req) is True
+
+
+def test_checksumming_a_proposed_requirement_is_refused(tmp_path):
+    req = parse_requirement(_write(tmp_path, "SR-009.md", _PROPOSED))
+    with pytest.raises(ValueError, match="no binding"):
+        content_checksum(req)
+
+
+def test_a_bound_requirement_carries_no_source_by_default(tmp_path):
+    req = parse_requirement(_write(tmp_path, "SR-001.md", _SR))
+    assert req.binding is not None
+    assert req.source is None
 
 
 def test_parse_requirement_reads_binding(tmp_path):

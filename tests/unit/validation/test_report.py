@@ -40,6 +40,14 @@ def _f(t, kind, sharks=()):
 GOOD = [_f(0, "patrol"), _f(15, "patrol", (0.45,)), _f(17, "override"), _f(40, "patrol")]
 
 
+def _preempted(frames, window):
+    """Local stand-in for the scorer the drone repo now owns."""
+    return any(f["active_directive"]["kind"] != "patrol" for f in frames)
+
+
+_SCORERS = {"preemption_success_rate": _preempted}
+
+
 def _setup(tmp_path):
     req_dir = tmp_path / "requirements"
     req_dir.mkdir()
@@ -59,7 +67,7 @@ def _setup(tmp_path):
 def test_run_and_report(tmp_path):
     req_dir, traces = _setup(tmp_path)
     reqs = load_register(req_dir)
-    report = run_requirement_validation(["SR-001"], reqs, default_harness_for(traces), tmp_path)
+    report = run_requirement_validation(["SR-001"], reqs, default_harness_for(traces, _SCORERS), tmp_path)
     entry = report["requirements"][0]
     assert entry["id"] == "SR-001"
     assert entry["value"] == 1.0
@@ -71,7 +79,7 @@ def test_run_and_report(tmp_path):
 def test_unknown_requirement(tmp_path):
     req_dir, traces = _setup(tmp_path)
     reqs = load_register(req_dir)
-    report = run_requirement_validation(["SR-404"], reqs, default_harness_for(traces), tmp_path)
+    report = run_requirement_validation(["SR-404"], reqs, default_harness_for(traces, _SCORERS), tmp_path)
     assert report["requirements"][0] == {"id": "SR-404", "error": "unknown requirement"}
 
 
@@ -87,7 +95,7 @@ def test_harness_failure_isolated(tmp_path):
     )
     reqs = load_register(req_dir)
     report = run_requirement_validation(
-        ["SR-002", "SR-001"], reqs, default_harness_for(traces), tmp_path
+        ["SR-002", "SR-001"], reqs, default_harness_for(traces, _SCORERS), tmp_path
     )
     by_id = {e["id"]: e for e in report["requirements"]}
     assert "error" in by_id["SR-002"]  # missing trace isolated to SR-002
@@ -118,8 +126,18 @@ def test_report_flags_trials_shortfall(tmp_path):
         encoding="utf-8",
     )
     reqs = load_register(req_dir)
-    report = run_requirement_validation(["SR-001"], reqs, default_harness_for(traces), tmp_path)
+    report = run_requirement_validation(["SR-001"], reqs, default_harness_for(traces, _SCORERS), tmp_path)
     entry = report["requirements"][0]
     assert entry["declared_trials"] == 5
     assert entry["trials"] == 2
     assert entry["passed"] is False  # metric passed but too few trials
+
+
+def test_a_proposed_requirement_reports_an_error_not_a_crash(proposed_req, tmp_path):
+    report = run_requirement_validation(
+        [proposed_req.id], [proposed_req], lambda name: None, tmp_path
+    )
+    entry = report["requirements"][0]
+    assert entry["id"] == proposed_req.id
+    assert "proposed" in entry["error"]
+    assert "passed" not in entry

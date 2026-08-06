@@ -53,6 +53,9 @@ export interface TraceHealth {
   expected: number;
   dangling: number;
   deferred: number;
+  // Requirements accepted in substance whose binding is undecided. Reported on
+  // its own line: they are out of the "SR validated" denominator, not deferred.
+  proposed: number;
   classes: TraceHealthClass[];
 }
 
@@ -80,12 +83,21 @@ export interface TraceCandidate {
   score: number;
 }
 
+export interface TracePendingGap {
+  node_id: string;
+  kind: string;
+  detail: string;
+}
+
 export interface TraceProposal {
   gap: TraceGap;
   node_title: string;
   node_excerpt: string;
   pending_total: number;
   candidates: TraceCandidate[];
+  // The whole pending set, so a hardcoded kind order never decides what the
+  // agent may consider. Visibility is not commit granularity.
+  pending: TracePendingGap[];
 }
 
 export interface TraceRunResult {
@@ -124,8 +136,10 @@ export function runTrace(cwd: string, sub: string[]): TraceRunResult {
 
 export function loadNextGap(
   cwd: string,
+  nodeId?: string,
 ): { ok: true; proposal: TraceProposal | null } | { ok: false; error: string } {
-  const result = runTrace(cwd, ["next", "--json"]);
+  const sub = nodeId ? ["next", "--json", "--node-id", nodeId] : ["next", "--json"];
+  const result = runTrace(cwd, sub);
   if (!result.ok) {
     return { ok: false, error: result.stderr || result.stdout || `exited ${result.status}` };
   }

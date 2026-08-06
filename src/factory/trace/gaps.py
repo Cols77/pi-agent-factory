@@ -13,6 +13,8 @@ GapKind = Literal[
     "plan_no_spec",
     "dangling_upstream",
     "sr_unsatisfied",
+    "sr_proposed",
+    "sr_unvalidatable",
     "sr_unvalidated",
     "sr_stale",
 ]
@@ -24,10 +26,12 @@ _KIND_ORDER: dict[str, int] = {
     "task_no_plan": 1,
     "plan_no_spec": 2,
     "sr_unsatisfied": 3,
-    "sr_unvalidated": 4,
-    "sr_stale": 5,
-    "dangling_upstream": 6,
-    "task_plan_missing": 7,
+    "sr_proposed": 4,
+    "sr_unvalidatable": 5,
+    "sr_unvalidated": 6,
+    "sr_stale": 7,
+    "dangling_upstream": 8,
+    "task_plan_missing": 9,
 }
 
 
@@ -55,9 +59,13 @@ def find_gaps(
     by_id = {n.id: n for n in nodes}
     gaps: list[Gap] = []
 
-    def add(node: Node, kind: GapKind, detail: str) -> None:
-        disposition, note = _disposition_of(node)
-        gaps.append(Gap(node.id, kind, f"{detail} ({note})" if note else detail, disposition))
+    def add(
+        node: Node, kind: GapKind, detail: str, disposition: Disposition | None = None
+    ) -> None:
+        derived, note = _disposition_of(node)
+        gaps.append(
+            Gap(node.id, kind, f"{detail} ({note})" if note else detail, disposition or derived)
+        )
 
     out = {n.id: [e for e in edges if e.src == n.id] for n in nodes}
     satisfied_srs = {e.dst for e in edges if e.kind == "satisfies"}
@@ -80,11 +88,22 @@ def find_gaps(
         elif node.kind == "sr":
             if node.id not in satisfied_srs:
                 add(node, "sr_unsatisfied", "no task declares satisfies for this SR")
-            status = validation.get(node.id)
-            if status is None or status.state == "never_validated":
-                add(node, "sr_unvalidated", "absent from validation report")
-            elif status.stale:
-                add(node, "sr_stale", "result predates a change to statement or binding")
+            if node.proposed:
+                # Accepted in substance, measurement undecided. Deferred rather
+                # than pending: the human accepted it knowing the binding was
+                # open, which is exactly "discussed, still open".
+                add(node, "sr_proposed", "binding not yet decided", disposition="deferred")
+            else:
+                status = validation.get(node.id)
+                if status is None or status.state == "never_validated":
+                    add(node, "sr_unvalidated", "absent from validation report")
+                elif status.state == "error":
+                    # Read from the report, never from config: keeping this out of
+                    # the trace path is what stops `trace status` importing target
+                    # code. Design section 8.1.
+                    add(node, "sr_unvalidatable", status.error or "validation could not run")
+                elif status.stale:
+                    add(node, "sr_stale", "result predates a change to statement or binding")
 
         for edge in node_edges:
             if edge.kind == "upstream" and edge.dst not in by_id:

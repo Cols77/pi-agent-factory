@@ -40,12 +40,24 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class PendingGap:
+    node_id: str
+    kind: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class Proposal:
     gap: Gap
     node_title: str
     node_excerpt: str
     pending_total: int
     candidates: list[Candidate]
+    pending: list[PendingGap]
+
+
+class UnknownGapError(ValueError):
+    pass
 
 
 def _terms(text: str) -> set[str]:
@@ -59,6 +71,20 @@ def _read(path: Path) -> str:
         return ""
 
 
+def _clip(text: str, limit: int, path: Path) -> str:
+    """Clip, and say so.
+
+    A clipped excerpt that looks complete is how a task's dod block silently
+    stops being part of the judgement.
+    """
+    if len(text) <= limit:
+        return text
+    return (
+        f"{text[:limit]}...[truncated at {limit} chars "
+        f"-- read {path.as_posix()} for the full text]"
+    )
+
+
 def _summary_of(node: Node) -> str:
     # An SR's statement is the thing a reader actually needs in order to judge a
     # match; for everything else the first prose line is the closest equivalent.
@@ -66,14 +92,14 @@ def _summary_of(node: Node) -> str:
         post = frontmatter.load(str(node.path))
         statement = post.metadata.get("statement")
         if statement:
-            return str(statement)[:_SUMMARY_CHARS]
+            return _clip(str(statement), _SUMMARY_CHARS, node.path)
         body = post.content
     except Exception:
         body = _read(node.path)
     for line in body.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
-            return stripped[:_SUMMARY_CHARS]
+            return _clip(stripped, _SUMMARY_CHARS, node.path)
     return node.title
 
 
@@ -104,20 +130,36 @@ def _candidates_for(gap: Gap, node: Node, nodes: list[Node]) -> list[Candidate]:
     return candidates
 
 
-def next_gap(root: Path) -> Proposal | None:
+def next_gap(root: Path, node_id: str | None = None) -> Proposal | None:
     graph = build_graph(root)
     by_id = {n.id: n for n in graph.nodes}
     pending = [g for g in graph.gaps if g.disposition == "pending"]
-    for gap in pending:
+    if not pending:
+        return None
+    listing = [PendingGap(g.node_id, g.kind, g.detail) for g in pending]
+
+    if node_id is not None:
+        chosen = next((g for g in pending if g.node_id == node_id), None)
+        if chosen is None:
+            raise UnknownGapError(f"no pending gap for {node_id!r}")
+        candidates = [chosen]
+    else:
+        # _KIND_ORDER then node id is a DEFAULT, not a queue. The whole pending
+        # set travels with the proposal so a constant never decides what the
+        # caller may consider -- the same reason _candidates_for never truncates.
+        candidates = pending
+
+    for gap in candidates:
         node = by_id.get(gap.node_id)
         if node is None:
             continue
         return Proposal(
             gap=gap,
             node_title=node.title,
-            node_excerpt=_read(node.path)[:_EXCERPT_CHARS],
+            node_excerpt=_clip(_read(node.path), _EXCERPT_CHARS, node.path),
             pending_total=len(pending),
             candidates=_candidates_for(gap, node, graph.nodes),
+            pending=listing,
         )
     return None
 

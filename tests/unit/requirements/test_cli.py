@@ -5,6 +5,43 @@ from factory.requirements.cli import cmd_index, cmd_new, cmd_show, cmd_status, m
 
 pytestmark = pytest.mark.unit
 
+# A requirement whose measurement is already decided. `cmd_new` no longer produces
+# one of these -- it mints proposed requirements -- so checksum and staleness
+# behaviour is exercised against an explicitly bound fixture.
+_BOUND = """---
+id: SR-001
+title: Bound requirement
+statement: "When X happens, the system shall do Y."
+domain: behavioral
+upstream: []
+binding:
+  harness: demo-harness
+  experiment: demo_experiment
+  metric: demo_rate
+  trials: 1
+  assert: ">= 0.90"
+checksum: null
+---
+Rationale.
+"""
+
+_PROPOSED = """---
+id: SR-009
+title: Proposed requirement
+statement: "When the zone clears, the system shall resume patrol."
+domain: behavioral
+upstream: []
+source: docs/superpowers/specs/a.md
+---
+Rationale.
+"""
+
+
+def _write(tmp_path, name: str, text: str):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
 
 def test_new_allocates_sequential_ids(tmp_path):
     p1 = cmd_new(tmp_path, "First req", "behavioral")
@@ -14,8 +51,17 @@ def test_new_allocates_sequential_ids(tmp_path):
     assert "First req" in p1.read_text(encoding="utf-8")
 
 
+def test_new_mints_a_proposed_requirement(tmp_path):
+    text = cmd_new(tmp_path, "Zone clear abandons investigate", "behavioral").read_text(
+        encoding="utf-8"
+    )
+    assert "binding:" not in text
+    assert "preemption_success_rate" not in text
+    assert "sim-testbench" not in text
+
+
 def test_index_stamps_checksums_and_writes_index(tmp_path):
-    cmd_new(tmp_path, "First", "behavioral")
+    _write(tmp_path, "SR-001.md", _BOUND)
     result = cmd_index(tmp_path)
     assert result["requirements"][0]["id"] == "SR-001"
     assert result["requirements"][0]["checksum"].startswith("sha256:")
@@ -23,22 +69,47 @@ def test_index_stamps_checksums_and_writes_index(tmp_path):
     assert json.loads((tmp_path / "index.json").read_text(encoding="utf-8")) == result
 
 
+def test_index_leaves_a_proposed_requirement_untouched(tmp_path):
+    path = _write(tmp_path, "SR-009.md", _PROPOSED)
+    before = path.read_text(encoding="utf-8")
+    result = cmd_index(tmp_path)
+    assert path.read_text(encoding="utf-8") == before
+    assert result["requirements"] == [{"id": "SR-009", "checksum": None, "proposed": True}]
+
+
 def test_status_flags_stale_after_edit(tmp_path):
-    path = cmd_new(tmp_path, "First", "behavioral")
+    path = _write(tmp_path, "SR-001.md", _BOUND)
     cmd_index(tmp_path)
     assert "current" in cmd_status(tmp_path)
     # Mutate the STATEMENT so the stored checksum no longer matches.
-    # (content_checksum covers statement+binding, not the title.)
-    text = path.read_text(encoding="utf-8").replace("shall <response>", "shall RESPOND NOW")
+    text = path.read_text(encoding="utf-8").replace("shall do Y", "shall do Y NOW")
     path.write_text(text, encoding="utf-8")
     assert "STALE" in cmd_status(tmp_path)
     assert "SR-001" in cmd_status(tmp_path, stale_only=True)
 
 
+def test_status_says_proposed_not_current(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    assert "[proposed]" in cmd_status(tmp_path)
+    assert "current" not in cmd_status(tmp_path)
+
+
+def test_status_stale_only_hides_proposed(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    assert cmd_status(tmp_path, stale_only=True) == "no requirements"
+
+
 def test_show(tmp_path):
-    cmd_new(tmp_path, "First", "behavioral")
+    _write(tmp_path, "SR-001.md", _BOUND)
     assert "SR-001" in cmd_show(tmp_path, "SR-001")
     assert "not found" in cmd_show(tmp_path, "SR-999")
+
+
+def test_show_reports_no_binding(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    out = cmd_show(tmp_path, "SR-009")
+    assert "not yet measurable" in out
+    assert "docs/superpowers/specs/a.md" in out
 
 
 def test_main_status_exit_code(tmp_path, capsys):

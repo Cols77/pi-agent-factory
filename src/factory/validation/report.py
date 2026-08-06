@@ -15,10 +15,12 @@ from factory.validation.sim_harness import SimTestbenchHarness
 HarnessFor = Callable[[str], Harness]
 
 
-def default_harness_for(traces_dir: Path) -> HarnessFor:
+def default_harness_for(
+    traces_dir: Path, scorers: dict[str, Callable[..., bool]] | None = None
+) -> HarnessFor:
     def _factory(harness_name: str) -> Harness:
         if harness_name == "sim-testbench":
-            return SimTestbenchHarness(traces_dir)
+            return SimTestbenchHarness(traces_dir, scorers)
         raise ValueError(f"unknown harness: {harness_name}")
 
     return _factory
@@ -35,6 +37,13 @@ def run_requirement_validation(
         req = get_requirement(reqs, req_id)
         if req is None:
             entries.append({"id": req_id, "error": "unknown requirement"})
+            continue
+        if req.binding is None:
+            # Reached only when a task names a proposed requirement directly.
+            # An honest error beats an AttributeError from deep in the harness.
+            entries.append(
+                {"id": req.id, "error": "proposed requirement: no binding to validate"}
+            )
             continue
         try:
             harness = harness_for(req.binding.harness)

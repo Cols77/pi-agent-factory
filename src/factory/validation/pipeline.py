@@ -11,12 +11,17 @@ from factory.validation.report import run_requirement_validation
 def select_requirement_ids(
     reqs: list[Requirement], satisfies: list[str], *, full_sweep: bool = False
 ) -> list[str]:
+    # A proposed requirement has no binding, so there is nothing to run -- not even
+    # when a task names it directly.
+    runnable = {r.id for r in reqs if r.binding is not None}
     ids: list[str] = []
     for r in reqs:
+        if r.binding is None:
+            continue
         if full_sweep or r.binding.cadence == "every_iteration":
             ids.append(r.id)
     for sid in satisfies:  # a task's own SRs always run, even if periodic
-        if sid not in ids:
+        if sid in runnable and sid not in ids:
             ids.append(sid)
     return ids
 

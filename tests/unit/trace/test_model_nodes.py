@@ -69,3 +69,35 @@ def test_reads_exempt_and_deferred_dispositions(tmp_path):
 
 def test_missing_directories_yield_no_nodes(tmp_path):
     assert load_nodes(tmp_path) == []
+
+
+def test_a_requirement_without_a_binding_is_proposed(tmp_path):
+    _write(
+        tmp_path / "requirements" / "SR-009.md",
+        "---\nid: SR-009\ntitle: Zone clear\nstatement: s\ndomain: behavioral\n---\n\nbody\n",
+    )
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["SR-009"].proposed is True
+
+
+def test_a_bound_requirement_is_not_proposed(tmp_path):
+    _write(
+        tmp_path / "requirements" / "SR-001.md",
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: behavioral\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n\nbody\n",
+    )
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["SR-001"].proposed is False
+
+
+def test_a_task_is_never_proposed(tmp_path):
+    _write(tmp_path / "tasks" / "T-001.md", "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\n---\n")
+    assert all(n.proposed is False for n in load_nodes(tmp_path) if n.kind == "task")
+
+
+def test_a_malformed_requirement_still_degrades_to_a_filename_node(tmp_path):
+    # proposed adds a second frontmatter read; the degrade contract must survive it.
+    _write(tmp_path / "requirements" / "SR-bad.md", "---\nnot: valid: yaml: at all\n")
+    nodes = {n.path.name: n for n in load_nodes(tmp_path)}
+    assert nodes["SR-bad.md"].id == "SR-bad.md"
+    assert nodes["SR-bad.md"].proposed is False

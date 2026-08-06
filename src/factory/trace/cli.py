@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from factory.trace.graph import build_graph, graph_to_dict
-from factory.trace.propose import next_gap, proposal_to_dict
+from factory.trace.propose import UnknownGapError, next_gap, proposal_to_dict
 from factory.trace.write import (
     link_satisfies,
     link_source_plan,
@@ -30,6 +30,7 @@ def cmd_status(root: Path) -> str:
         lines.append(f"  {cls.name:<14} {cls.satisfied}/{cls.expected}{suffix}")
     lines.append(f"  dangling refs  {health.dangling}")
     lines.append(f"  deferred       {health.deferred}")
+    lines.append(f"  proposed       {health.proposed}")
     pending = [g for g in graph.gaps if g.disposition == "pending"]
     lines.append("")
     lines.append(f"gaps: {len(graph.gaps)} ({len(pending)} pending)")
@@ -89,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     p_next = sub.add_parser("next")
     _add_root(p_next)
     p_next.add_argument("--json", action="store_true")
+    p_next.add_argument("--node-id", dest="node_id", default=None)
 
     p_check = sub.add_parser("check")
     _add_root(p_check)
@@ -110,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "graph":
         print(json.dumps(cmd_graph(args.project_root), indent=2))
     elif args.cmd == "next":
-        proposal = next_gap(args.project_root)
+        try:
+            proposal = next_gap(args.project_root, args.node_id)
+        except UnknownGapError as exc:
+            print(str(exc))
+            return 1
         if proposal is None:
             print(json.dumps({"gap": None}) if args.json else "no pending gaps")
             return 0

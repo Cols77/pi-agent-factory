@@ -34,6 +34,7 @@ const PROPOSAL = {
   candidates: [
     { id: "SR-001", title: "Preempt", summary: "shall preempt patrol", shared_terms: [], score: 0 },
   ],
+  pending: [{ node_id: "T-047", kind: "task_no_sr", detail: "task declares no satisfies" }],
 };
 
 const traceArgs = (...sub: string[]) => ["run", "python", "-m", "factory.trace", ...sub];
@@ -169,5 +170,50 @@ describe("tool result shape", () => {
     expect(raw.content[0]).toMatchObject({ type: "text" });
     expect(typeof raw.content[0]!.text).toBe("string");
     expect("details" in raw).toBe(true);
+  });
+});
+
+const PROPOSAL_WITH_PENDING = {
+  ...PROPOSAL,
+  pending: [
+    { node_id: "T-047", kind: "task_no_sr", detail: "task declares no satisfies" },
+    { node_id: "T-048", kind: "task_no_plan", detail: "task declares no source_plan" },
+  ],
+};
+
+describe("trace_next gap selection", () => {
+  test("omits --node-id when none is given", async () => {
+    spawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(PROPOSAL_WITH_PENDING),
+      stderr: "",
+    });
+    await run(traceNextTool, {});
+    expect(spawnSync).toHaveBeenCalledWith("uv", traceArgs("next", "--json"), expect.anything());
+  });
+
+  test("forwards --node-id when given", async () => {
+    spawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(PROPOSAL_WITH_PENDING),
+      stderr: "",
+    });
+    await run(traceNextTool, { node_id: "T-048" });
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      traceArgs("next", "--json", "--node-id", "T-048"),
+      expect.anything(),
+    );
+  });
+
+  test("renders every pending gap, not only the focused one", async () => {
+    spawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(PROPOSAL_WITH_PENDING),
+      stderr: "",
+    });
+    const result = await run(traceNextTool, {});
+    expect(result.content).toContain("T-047");
+    expect(result.content).toContain("T-048");
   });
 });
