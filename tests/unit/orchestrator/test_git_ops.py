@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import json
+import os
 import subprocess
+
 import pytest
 from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
 
@@ -145,6 +149,53 @@ def test_binary_diff_and_changed_files_between_capture_committed_range(tmp_path)
 
     assert b"+two" in SubprocessGitOps().binary_diff(repo, start, end)
     assert SubprocessGitOps().changed_files_between(repo, start, end) == ["a.txt"]
+
+
+def test_worktree_fingerprint_covers_tracked_and_untracked_bytes_not_mtime(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "new.bin").write_bytes(b"\x00\x01")
+    first = ops.worktree_fingerprint(repo, start)
+
+    os.utime(repo / "a.txt", (1_700_000_000, 1_700_000_000))
+    os.utime(repo / "new.bin", (1_700_000_000, 1_700_000_000))
+    assert ops.worktree_fingerprint(repo, start) == first
+
+    (repo / "new.bin").write_bytes(b"\x00\x02")
+    assert ops.worktree_fingerprint(repo, start) != first
+
+
+def test_write_patch_captures_tracked_diff_and_untracked_sidecar(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "new.bin").write_bytes(b"\x00\x01")
+    patch = repo / "sessions" / "checkpoint.patch"
+
+    assert ops.write_patch(repo, start, patch) == patch
+    assert b"+two" in patch.read_bytes()
+    sidecar = json.loads(
+        patch.with_suffix(".patch.untracked.json").read_text(encoding="utf-8")
+    )
+    assert sidecar["files"][0]["path"] == "new.bin"
+    assert base64.b64decode(sidecar["files"][0]["data"]) == b"\x00\x01"
+
+
+def test_check_patch_distinguishes_clean_and_conflicting_worktrees(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    patch = tmp_path / "checkpoint.patch"
+    ops.write_patch(repo, start, patch)
+    subprocess.run(["git", "reset", "--hard", start], cwd=repo, check=True)
+    assert ops.check_patch(repo, patch) is True
+
+    (repo / "a.txt").write_text("conflicting\n", encoding="utf-8")
+    assert ops.check_patch(repo, patch) is False
 
 
 def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):

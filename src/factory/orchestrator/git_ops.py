@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +21,9 @@ class GitOps(Protocol):
     def binary_diff(
         self, repo_root: Path, start_commit: str, end_commit: str | None = None
     ) -> bytes: ...
+    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str: ...
+    def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path: ...
+    def check_patch(self, repo_root: Path, path: Path) -> bool: ...
 
 
 class SubprocessGitOps:
@@ -102,6 +109,60 @@ class SubprocessGitOps:
         result = subprocess.run(args, cwd=repo_root, capture_output=True, check=True)
         return result.stdout
 
+    def _untracked_files(self, repo_root: Path) -> list[str]:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        )
+        return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
+
+    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+        digest = hashlib.sha256()
+        patch = self.binary_diff(repo_root, start_commit)
+        digest.update(len(patch).to_bytes(8, "big"))
+        digest.update(patch)
+        for relative in self._untracked_files(repo_root):
+            name = relative.encode("utf-8", errors="surrogateescape")
+            data = (repo_root / relative).read_bytes()
+            digest.update(len(name).to_bytes(8, "big"))
+            digest.update(name)
+            digest.update(len(data).to_bytes(8, "big"))
+            digest.update(data)
+        return digest.hexdigest()
+
+    def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path:
+        # Enumerate before creating the checkpoint itself, which may live inside
+        # a repository whose test fixture has not configured ignore rules.
+        untracked_files = self._untracked_files(repo_root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_bytes(self.binary_diff(repo_root, start_commit))
+        tmp.replace(path)
+        untracked = [
+            {
+                "path": relative,
+                "data": base64.b64encode((repo_root / relative).read_bytes()).decode("ascii"),
+            }
+            for relative in untracked_files
+        ]
+        sidecar = path.with_suffix(path.suffix + ".untracked.json")
+        sidecar_tmp = sidecar.with_name(sidecar.name + ".tmp")
+        sidecar_tmp.write_text(json.dumps({"files": untracked}, indent=2), encoding="utf-8")
+        sidecar_tmp.replace(sidecar)
+        return path
+
+    def check_patch(self, repo_root: Path, path: Path) -> bool:
+        if not path.exists():
+            return False
+        result = subprocess.run(
+            ["git", "apply", "--check", "--binary", str(path.resolve())],
+            cwd=repo_root,
+            capture_output=True,
+        )
+        return result.returncode == 0
+
 
 class FakeGitOps:
     def __init__(
@@ -113,6 +174,7 @@ class FakeGitOps:
         self.commit_messages: list[str] = []
         self.committed_paths: list[list[Path]] = []
         self._changed_files_result = changed_files_result or []
+        self.fingerprint = "f" * 64
 
     def head_commit(self, repo_root: Path) -> str:
         return self.head
@@ -140,3 +202,14 @@ class FakeGitOps:
         self, repo_root: Path, start_commit: str, end_commit: str | None = None
     ) -> bytes:
         return b""
+
+    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+        return self.fingerprint
+
+    def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+        return path
+
+    def check_patch(self, repo_root: Path, path: Path) -> bool:
+        return path.exists()
