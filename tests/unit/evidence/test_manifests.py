@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from factory.evidence.manifests import (
@@ -13,7 +15,7 @@ pytestmark = pytest.mark.unit
 
 def manifest(run_id: str = "run-1", task_id: str = "T-001", ended: str = "2026-08-07T12:01:00Z") -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "task_id": task_id,
         "started_at": "2026-08-07T12:00:00Z",
@@ -26,6 +28,7 @@ def manifest(run_id: str = "run-1", task_id: str = "T-001", ended: str = "2026-0
             "requirements": [],
             "factory_config_sha256": "d" * 64,
         },
+        "dependencies": [],
         "implementation": {
             "changed_files": ["src/a.py"],
             "patch": {"sha256": "e" * 64, "size": 12, "media_type": "text/x-diff"},
@@ -64,6 +67,20 @@ def test_list_filters_by_task_sorts_newest_first_and_skips_corrupt_files(tmp_pat
         "run-new",
         "run-old",
     ]
+
+
+def test_loader_migrates_v1_known_inputs_without_inventing_provenance(tmp_path):
+    legacy = manifest()
+    legacy["schema_version"] = 1
+    del legacy["dependencies"]
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    loaded = load_run_manifest(path)
+    assert loaded["schema_version"] == 2
+    assert [item["name"] for item in loaded["dependencies"]] == [
+        "factory-config", "task:T-001"
+    ]
+    assert all(item["kind"] == "file" for item in loaded["dependencies"])
 
 
 def test_loader_rejects_non_object_json(tmp_path):

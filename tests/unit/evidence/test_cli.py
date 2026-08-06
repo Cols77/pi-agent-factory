@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unit
 
 def manifest(run_id: str = "run-1", task_id: str = "T-001", ended: str = "2026-08-07T12:01:00Z") -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "task_id": task_id,
         "started_at": "2026-08-07T12:00:00Z",
@@ -25,6 +25,7 @@ def manifest(run_id: str = "run-1", task_id: str = "T-001", ended: str = "2026-0
             "requirements": [],
             "factory_config_sha256": "d" * 64,
         },
+        "dependencies": [],
         "implementation": {
             "changed_files": ["src/a.py"],
             "patch": {"sha256": "e" * 64, "size": 12, "media_type": "text/x-diff"},

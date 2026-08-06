@@ -34,7 +34,7 @@ def _manifest(repo, run_id="run-1"):
         ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
     ).stdout.strip()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": run_id,
         "task_id": "T-001",
         "started_at": "2026-08-07T12:00:00Z",
@@ -47,6 +47,7 @@ def _manifest(repo, run_id="run-1"):
             "requirements": [],
             "factory_config_sha256": "d" * 64,
         },
+        "dependencies": [],
         "implementation": {
             "changed_files": [],
             "patch": {"sha256": "e" * 64, "size": 0, "media_type": "text/x-diff"},
