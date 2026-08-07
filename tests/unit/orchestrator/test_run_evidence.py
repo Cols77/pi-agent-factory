@@ -51,8 +51,6 @@ def test_run_next_writes_manifest_and_separate_exact_path_evidence_commit(tmp_pa
         )
 
     monkeypatch.setattr("factory.orchestrator.runner.run_task", fake_run_task)
-    monkeypatch.setattr("factory.orchestrator.runner.compose_prompt", lambda *a, **k: "prompt")
-
     session_path = run_next(
         repo,
         backend,
