@@ -39,7 +39,7 @@
   },
   "$defs": {
     "topScopeRef": {
-      "description": "The top-level scope kinds a briefing/matrix can be requested for (design SS2 item 6, SS5.1) -- deliberately narrower than matrixRow.subject's four kinds below.",
+      "description": "The top-level scope kinds a briefing/matrix can be requested for (design SS2 item 6, SS5.1) -- a different, wider set than matrixRow.subject below.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "ref"],
@@ -49,12 +49,12 @@
       }
     },
     "matrixSubjectRef": {
-      "description": "Matches system_matrix_row.schema.json's scopeRef exactly -- kept in sync deliberately, not by cross-file $ref (schema_validator.py loads a single file with no resolver, so inlining is forced; see test_matrix_row_rejection_also_rejected_by_envelope for a drift guard).",
+      "description": "Matches system_matrix_row.schema.json's scopeRef exactly -- kept in sync deliberately, not by cross-file $ref (schema_validator.py loads a single file with no resolver, so inlining is forced; see test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope for a drift guard). `kind` is `sr` only: the matrix is a validation matrix (design SS7.3, amended at commit 561c89a) -- task status belongs to the brief, decisions belong to the timeline.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "ref"],
       "properties": {
-        "kind": {"enum": ["sr", "task", "validation", "decision"]},
+        "kind": {"enum": ["sr"]},
         "ref": {"type": "string", "minLength": 1}
       }
     },

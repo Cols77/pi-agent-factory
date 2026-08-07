@@ -547,12 +547,17 @@ def test_full_envelope_validates_against_response_schema(tmp_path):
 
 
 def test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope(tmp_path):
+    # "task" is the new boundary (design amendment at commit 561c89a, fix
+    # round 2): the matrix is a validation matrix, subject.kind is `sr`
+    # only. "task" used to be a legal matrixRow.subject.kind under the old
+    # four-kind enum, so this exercises the ruling, not just any illegal
+    # string.
     write_sr(tmp_path / "requirements", "SR-001")
     write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}])
     scope = SystemScopeRef(kind="sr", ref="sr:SR-001")
 
     matrix = query_matrix(tmp_path, scope)
-    matrix["rows"][0]["subject"]["kind"] = "banana"  # illegal in both schemas
+    matrix["rows"][0]["subject"]["kind"] = "task"
 
     assert validate(matrix["rows"][0], MATRIX_ROW_SCHEMA) != []
 
@@ -563,6 +568,21 @@ def test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope(tmp_path
         "freshness": {"state": "fresh", "details": []},
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []
+
+
+def test_matrix_row_subject_kind_enum_is_sr_only(tmp_path):
+    # Locks in the design amendment directly: sr is legal, task/validation/
+    # decision are not -- in both the record-level and envelope schemas.
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}])
+    result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    row = result["rows"][0]
+    assert row["subject"]["kind"] == "sr"
+    assert validate(row, MATRIX_ROW_SCHEMA) == []
+
+    for illegal_kind in ("task", "validation", "decision"):
+        mutated = dict(row, subject={**row["subject"], "kind": illegal_kind})
+        assert validate(mutated, MATRIX_ROW_SCHEMA) != []
 
 
 def test_envelope_top_level_scope_kind_enum_matches_bundle_and_sr_only(tmp_path):
