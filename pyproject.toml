@@ -25,6 +25,7 @@ build-backend = "setuptools.build_meta"
 testpaths = ["tests"]
 markers = [
   "unit: fast deterministic tests",
+  "integration: slower tests that touch the filesystem or subprocesses",
 ]
 addopts = "-m unit"
 
