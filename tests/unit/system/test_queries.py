@@ -207,10 +207,11 @@ def test_proposed_sr_binding_claim_is_missing_in_brief(tmp_path):
 
 # ---------------------------------------------------------------------------
 # A corrupt validation report is degraded, never asserted as the recorded
-# fact "never validated" (finding 1). `validation_status.load_validation`
-# swallows read/parse failures into `{}`, indistinguishable at the dict
-# level from "no report was ever written" -- queries.py must probe file
-# existence to tell them apart.
+# fact "never validated" (finding 1) -- but a report that parses fine and
+# simply has nothing (yet) to say is genuinely "never validated", not
+# degraded (fix round 3). `_validation_report_is_corrupt` distinguishes them
+# by attempting its own JSON parse rather than inferring corruption from
+# `load_validation`'s collapsed `{}` return value.
 # ---------------------------------------------------------------------------
 
 
@@ -267,6 +268,53 @@ def test_missing_validation_report_file_is_still_na_not_degraded(tmp_path):
     validation_claims = [c for c in brief["claims"] if c["text"].endswith("never validated")]
     assert validation_claims[0]["freshness"]["state"] == "n/a"
     assert matrix["rows"][0]["freshness"]["state"] == "n/a"
+
+
+def test_valid_but_empty_validation_report_is_never_validated_not_degraded_in_brief(tmp_path):
+    # A report that parses fine but has an empty `requirements` array is
+    # exactly what factory.validation.pipeline.validate_task_requirements
+    # writes before anything has run -- a legitimate state, not corruption
+    # (fix round 3: _validation_report_is_corrupt previously false-positived
+    # on this by inferring corruption from load_validation's collapsed `{}`
+    # instead of attempting its own parse).
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_validation_report(tmp_path, [])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    validation_claims = [c for c in result["claims"] if c["text"].endswith("never validated")]
+    assert len(validation_claims) == 1
+    assert validation_claims[0]["kind"] == "missing"
+    assert validation_claims[0]["freshness"]["state"] == "n/a"
+    assert not any("unreadable" in c["text"] for c in result["claims"])
+
+
+def test_valid_but_empty_validation_report_is_never_run_not_degraded_in_matrix(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_validation_report(tmp_path, [])
+
+    result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    row = result["rows"][0]
+    assert row["status"] == "never-run"
+    assert row["freshness"]["state"] == "n/a"
+    assert row["summary"] == "never validated"
+
+
+def test_valid_report_with_only_other_srs_is_never_validated_not_degraded(tmp_path):
+    # A non-empty, well-formed report that simply never mentions this SR is
+    # also not corruption -- distinct from the "zero entries at all" case,
+    # covered separately so both shapes of "legitimately says nothing about
+    # this SR" are pinned.
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    write_validation_report(tmp_path, [{"id": "SR-002", "passed": True, "stale": False, "artifacts": []}])
+
+    result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    row = result["rows"][0]
+    assert row["status"] == "never-run"
+    assert row["freshness"]["state"] == "n/a"
 
 
 # ---------------------------------------------------------------------------

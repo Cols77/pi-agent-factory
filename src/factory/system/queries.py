@@ -23,6 +23,7 @@ Nothing here infers provenance or fuzzy-matches a scope ref: `bundle:` and
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -211,21 +212,31 @@ def _resolve_task_member(
     return _MemberResolution(member_claim=member_claim, extra_claims=[impl_claim], resolved=True)
 
 
-def _validation_report_is_corrupt(repo_root: Path, statuses: dict[str, SrStatus]) -> bool:
-    """True when the validation report exists on disk but `load_validation`
-    came back with nothing at all.
+def _validation_report_is_corrupt(repo_root: Path) -> bool:
+    """True only when the validation report file exists but fails to parse
+    as JSON -- never merely because it parsed to zero usable entries.
 
     `validation_status.load_validation` swallows read/parse failures into
-    `{}` -- its own comment: "a missing or unreadable report means nothing
-    has been validated". That makes a genuinely absent report
-    indistinguishable, at the dict level, from a corrupt one. Probing
-    existence recovers the distinction: a report that exists yet yields zero
-    entries for the whole repo cannot be trusted to mean "never validated"
-    -- it may simply be unreadable. Design SS3.1: "if a claim cannot be tied
-    to recorded artifacts, it is shown as missing or degraded, never
-    guessed."
+    `{}`, which made a genuinely corrupt file indistinguishable from a file
+    that parsed fine and legitimately says "nothing has been validated yet"
+    (an empty `requirements` array is exactly what
+    `factory.validation.pipeline.validate_task_requirements` writes before
+    anything has run -- not corruption). The fix is to attempt the parse
+    ourselves, mirroring `load_validation`'s own try/except, rather than
+    inferring corruption from its collapsed return value: a report that
+    parses is never corrupt, no matter how few (or how invalid) its entries
+    are. Design SS3.1: "if a claim cannot be tied to recorded artifacts, it
+    is shown as missing or degraded, never guessed" -- this cuts both ways,
+    so we must not guess corruption either.
     """
-    return not statuses and validation_status.report_path(repo_root).exists()
+    path = validation_status.report_path(repo_root)
+    if not path.exists():
+        return False
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    return False
 
 
 def _sr_validation_claim(
@@ -348,7 +359,7 @@ def _sr_brief_claims(repo_root: Path, req: Requirement) -> list[SystemClaim]:
         )
     statuses = validation_status.load_validation(repo_root)
     report_citation = _validation_report_citation(repo_root)
-    report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+    report_corrupt = _validation_report_is_corrupt(repo_root)
     claims.append(_sr_validation_claim(req, statuses.get(req.id), report_citation, report_corrupt))
     return claims
 
@@ -378,7 +389,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         reqs = register.load_register(_requirements_dir(repo_root))
         statuses = validation_status.load_validation(repo_root)
         report_citation = _validation_report_citation(repo_root)
-        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+        report_corrupt = _validation_report_is_corrupt(repo_root)
 
         degraded = bool(bundle.unresolved)
         for member in bundle.members:
@@ -501,7 +512,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         bundle = _load_bundle_or_raise(repo_root, bundle_id)
         reqs = register.load_register(_requirements_dir(repo_root))
         statuses = validation_status.load_validation(repo_root)
-        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+        report_corrupt = _validation_report_is_corrupt(repo_root)
 
         rows: list[ValidationMatrixRow] = []
         for member in bundle.members:
@@ -523,7 +534,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
         statuses = validation_status.load_validation(repo_root)
-        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+        report_corrupt = _validation_report_is_corrupt(repo_root)
         row = _sr_matrix_row(req, statuses.get(req.id), report_corrupt)
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
