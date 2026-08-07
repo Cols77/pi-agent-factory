@@ -18,6 +18,7 @@
 - Claim class and freshness are orthogonal, coupled only by `missing ⟺ n/a` (design §3.2).
 - Freshness is content-based, never mtime-based.
 - Browser/PIF code must not duplicate query, freshness, or provenance logic — extend `system-context-tools.ts`, never fork a parallel client.
+- The subprocess shim is shared: `trace-cli.ts` and `system-cli.ts` both use one extracted `cli-runner.ts` helper. Refactoring `trace-cli.ts` onto it is explicitly in scope (user decision, 2026-08-07) and is the one sanctioned exception to the no-unrelated-changes constraint below. Its existing tests must stay green and unmodified in behavior.
 - Python is invoked as `uv run python -m factory.system ...`. There is no `factory` console script.
 - No inferred timeline actors or rationale: absent actor/action/timestamp is marked unknown/not-recorded/missing, never guessed.
 - No model-based synthesis: the guide is fixed scaffolding plus verbatim spans.
@@ -39,6 +40,16 @@ uv run pytest tests/integration -q --collect-only
 ```
 
 Every integration command in this plan therefore passes `-m 'unit or integration'`. Task 0 registers the marker. Do not "fix" a red integration run by dropping the marker selector.
+
+**rtk filter hazard.** This environment routes commands through the `rtk` token-optimizing proxy, and its pytest filter has been observed reporting "No tests collected" for a run that actually collected 6 tests. Any command whose result depends on collection counts, deselection, or red/green state must be run as `rtk proxy uv run pytest ...` so the real pytest summary is visible. Verified on 2026-08-07:
+
+```
+rtk proxy uv run pytest tests/integration --collect-only -q
+→ no tests collected (6 deselected)
+
+rtk proxy uv run pytest tests/integration -m 'unit or integration' --collect-only -q
+→ 6 tests collected
+```
 
 ---
 
@@ -65,20 +76,23 @@ Every integration command in this plan therefore passes `-m 'unit or integration
 - `tests/unit/system/test_cli.py`
 - `tests/integration/system/test_navigator_projection.py`
 - `tests/integration/system/test_guide_export.py`
+- `pi-ext/factory-watch/src/cli-runner.ts`
 - `pi-ext/factory-watch/src/system-cli.ts`
 - `pi-ext/factory-watch/src/system-page.ts`
+- `pi-ext/factory-watch/test/cli-runner.test.ts`
 - `pi-ext/factory-watch/test/system-cli.test.ts`
 - `pi-ext/factory-watch/test/system-page.test.ts`
 
 **Modify:**
 - `pyproject.toml` (register the `integration` marker)
+- `pi-ext/factory-watch/src/trace-cli.ts` (refactor onto the shared `cli-runner.ts`)
 - `pi-ext/factory-watch/src/system-context-tools.ts` (extend with navigator queries)
 - `pi-ext/factory-watch/test/system-context-tools.test.ts`
 - `pi-ext/factory-watch/src/docs-server.ts`
 - `pi-ext/factory-watch/src/index.ts`
 - `pi-ext/factory-watch/src/process-control.ts`
 
-> `system-cli.ts` is the subprocess shim only (spawnSync + JSON, mirroring `trace-cli.ts`). It is not a second tool-registration surface — registration stays in `system-context-tools.ts`.
+> `system-cli.ts` is a subprocess shim only, built on the shared `cli-runner.ts`. It is not a second tool-registration surface — registration stays in `system-context-tools.ts`.
 
 > **Sizing note:** `docs-html.ts` is 31.1K and `index.ts` is 31.7K. The `/system` page shell goes in the new `system-page.ts`; only wiring lands in those two files. Do not graft the navigator UI into `docs-html.ts`.
 
@@ -260,12 +274,14 @@ git commit -m "feat(system): add navigator decision timeline"
 ## Task 4: Browser and PIF projections
 
 **Files:**
-- Create `pi-ext/factory-watch/src/system-cli.ts`, `src/system-page.ts`
+- Create `pi-ext/factory-watch/src/cli-runner.ts`, `src/system-cli.ts`, `src/system-page.ts`
+- Modify `pi-ext/factory-watch/src/trace-cli.ts` (refactor onto the shared helper)
 - Modify `pi-ext/factory-watch/src/system-context-tools.ts` and its test
 - Modify `pi-ext/factory-watch/src/docs-server.ts`, `src/index.ts`
-- Create `pi-ext/factory-watch/test/system-cli.test.ts`, `test/system-page.test.ts`
+- Create `pi-ext/factory-watch/test/cli-runner.test.ts`, `test/system-cli.test.ts`, `test/system-page.test.ts`
 
 **Interfaces:**
+- `runJsonCli<T>(cwd: string, bin: string, args: string[]): CliResult<T>` in `cli-runner.ts`
 - `buildSystemCommand(sub: string[]): { bin: string; args: string[] }`
 - `loadSystemBriefing(...)`, `loadSystemMatrix(...)`, `loadSystemTimeline(...)`
 - browser routes for `/system` and `/api/system/*`
@@ -284,9 +300,16 @@ Cover:
 Run: `npm --prefix pi-ext/factory-watch test -- --run system-cli system-page`
 Expected: fail because the shim and page do not exist.
 
-- [ ] **Step 3: Implement the subprocess shim**
+- [ ] **Step 3: Extract the shared shim and build on it**
 
-`system-cli.ts` is a thin `spawnSync` + JSON shim returning `CliResult<T>`, shaped like `trace-cli.ts`. No freshness, ranking, or provenance logic in TypeScript.
+Extract the `spawnSync` + JSON + `CliResult<T>` logic currently inside `trace-cli.ts` into a new `cli-runner.ts` exporting `runJsonCli<T>`. Refactor `trace-cli.ts` to call it, and build `system-cli.ts` on it too. This is a user decision (2026-08-07) taken over the alternative of duplicating the shim.
+
+Constraints on the refactor:
+- `trace-cli.ts`'s existing tests must pass **unmodified** — if a test needs changing, the refactor changed behavior and is wrong;
+- the refactor is behavior-preserving: no new options, no changed error shapes, no changed command construction;
+- `cli-runner.ts` holds process/JSON mechanics only — no freshness, ranking, or provenance logic in TypeScript.
+
+Write `test/cli-runner.test.ts` covering the helper directly: non-zero exit, unparseable stdout, and the success path.
 
 - [ ] **Step 4: Extend the existing tool surface**
 
@@ -379,6 +402,7 @@ git commit -m "feat(system): ground navigator prose, add export, finish rollout"
 - Task 0 fixes the gate before any step depends on it.
 - Timeline is split out because its ordering and unknown-actor rules are the highest-risk logic.
 - The PIF surface is extended, not forked; no third registration surface is created.
+- The subprocess shim is extracted once and shared by `trace-cli.ts` and `system-cli.ts`, so the duplication a reviewer would flag never lands.
 - The navigator UI lands in `system-page.ts`, not in the 31K `docs-html.ts`.
 - Export is the only write path, and exported guides cannot re-enter as evidence.
 - Approved: the user signed off on the revised design in writing on 2026-08-07, clearing implementation.
