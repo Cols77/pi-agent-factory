@@ -56,6 +56,19 @@ def write_bundle(bundles_dir: Path, bundle_id: str, label: str, members: list[st
     return path
 
 
+def write_bundle_raw(bundles_dir: Path, filename_stem: str, payload: dict | str) -> Path:
+    """Write a bundle file whose filename is independent of `payload["id"]`.
+
+    Lets tests construct an id/filename mismatch (or plain-invalid JSON, if
+    `payload` is a raw string) without `write_bundle`'s filename==id coupling.
+    """
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    path = bundles_dir / f"{filename_stem}.json"
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def write_sr(
     requirements_dir: Path,
     sr_id: str,
@@ -98,6 +111,15 @@ def write_validation_report(repo_root: Path, entries: list[dict]) -> Path:
     path = repo_root / "validation" / "validation-report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"requirements": entries}), encoding="utf-8")
+    return path
+
+
+def write_corrupt_validation_report(repo_root: Path) -> Path:
+    """A validation report that exists on disk but `load_validation` cannot
+    parse -- distinct from no report at all (see queries._validation_report_is_corrupt)."""
+    path = repo_root / "validation" / "validation-report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not valid json at all", encoding="utf-8")
     return path
 
 

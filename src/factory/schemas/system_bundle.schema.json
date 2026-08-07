@@ -6,7 +6,11 @@
   "additionalProperties": false,
   "required": ["id", "label", "members"],
   "properties": {
-    "id": {"type": "string", "minLength": 1},
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must exactly equal the bundle file's filename stem (bundle files are named <id>.json). A mismatch is loaded as BundleIdMismatchError, not silently accepted -- scope resolution for bundle:<id> is exact only."
+    },
     "label": {"type": "string", "minLength": 1},
     "members": {
       "type": "array",

@@ -30,6 +30,7 @@ from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
 from factory.system import bundles
+from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import (
     BundleDeclaration,
     ClaimClass,
@@ -123,8 +124,26 @@ def _sha256_file(path: Path) -> str | None:
 def _load_bundle_or_raise(repo_root: Path, bundle_id: str) -> BundleDeclaration:
     try:
         return bundles.load_bundle(_bundles_dir(repo_root), bundle_id)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, BundleIdMismatchError) as exc:
+        # Both mean the exact scope ref does not resolve -- whether because
+        # no file exists, or because the file that filename-matches declares
+        # a different id (design SS5.1: exact resolution only). The
+        # id-mismatch case is still visible elsewhere: list_bundle_errors
+        # surfaces it instead of letting it disappear (finding 4/5).
         raise ScopeNotFoundError(str(exc)) from exc
+
+
+def list_bundle_errors(repo_root: Path) -> list[dict]:
+    """Bundle files that exist but failed to load, and why (design SS8).
+
+    The companion to `list_scopes`: a malformed or misnamed bundle never
+    becomes a scope, but it must not vanish without a trace either. The CLI
+    `scope` command surfaces this alongside the resolvable scopes.
+    """
+    return [
+        {"path": str(err.path), "bundle_id": err.bundle_id, "error": err.error}
+        for err in bundles.list_bundle_errors(_bundles_dir(repo_root))
+    ]
 
 
 def _load_requirement_or_raise(repo_root: Path, sr_id: str) -> Requirement:
@@ -192,13 +211,51 @@ def _resolve_task_member(
     return _MemberResolution(member_claim=member_claim, extra_claims=[impl_claim], resolved=True)
 
 
-def _sr_validation_claim(req: Requirement, status: SrStatus | None, report_citation: SystemCitation | None) -> SystemClaim:
+def _validation_report_is_corrupt(repo_root: Path, statuses: dict[str, SrStatus]) -> bool:
+    """True when the validation report exists on disk but `load_validation`
+    came back with nothing at all.
+
+    `validation_status.load_validation` swallows read/parse failures into
+    `{}` -- its own comment: "a missing or unreadable report means nothing
+    has been validated". That makes a genuinely absent report
+    indistinguishable, at the dict level, from a corrupt one. Probing
+    existence recovers the distinction: a report that exists yet yields zero
+    entries for the whole repo cannot be trusted to mean "never validated"
+    -- it may simply be unreadable. Design SS3.1: "if a claim cannot be tied
+    to recorded artifacts, it is shown as missing or degraded, never
+    guessed."
+    """
+    return not statuses and validation_status.report_path(repo_root).exists()
+
+
+def _sr_validation_claim(
+    req: Requirement,
+    status: SrStatus | None,
+    report_citation: SystemCitation | None,
+    report_corrupt: bool,
+) -> SystemClaim:
     if req.binding is None:
         return _missing(
             f"{req.id}: proposed requirement has no binding to validate",
             "proposed requirement has no binding",
         )
     if status is None:
+        if report_corrupt:
+            # The report file exists but yielded nothing readable -- this is
+            # not the recorded fact "never validated"; it is a claim that
+            # cannot be tied to a readable artifact, so it degrades rather
+            # than being guessed as an absence (design SS3.1).
+            citations = [report_citation] if report_citation is not None else []
+            return SystemClaim(
+                kind=ClaimClass.DERIVED,
+                text=f"{req.id}: validation report is unreadable (corrupt or unparseable)",
+                freshness=Freshness(
+                    state=FreshnessState.DEGRADED,
+                    reason="validation report exists but could not be read",
+                    dependencies=[],
+                ),
+                citations=citations,
+            )
         return _missing(f"{req.id}: never validated", "no validation report entry recorded")
     freshness_state = FreshnessState.STALE if status.stale else FreshnessState.FRESH
     reason = (
@@ -223,6 +280,7 @@ def _resolve_sr_member(
     reqs: list[Requirement],
     statuses: dict[str, SrStatus],
     report_citation: SystemCitation | None,
+    report_corrupt: bool,
 ) -> _MemberResolution:
     req = register.get_requirement(reqs, identifier)
     if req is None:
@@ -239,7 +297,7 @@ def _resolve_sr_member(
         freshness=_fresh(),
         citations=[citation],
     )
-    validation_claim = _sr_validation_claim(req, statuses.get(req.id), report_citation)
+    validation_claim = _sr_validation_claim(req, statuses.get(req.id), report_citation, report_corrupt)
     return _MemberResolution(member_claim=member_claim, extra_claims=[validation_claim], resolved=True)
 
 
@@ -290,7 +348,8 @@ def _sr_brief_claims(repo_root: Path, req: Requirement) -> list[SystemClaim]:
         )
     statuses = validation_status.load_validation(repo_root)
     report_citation = _validation_report_citation(repo_root)
-    claims.append(_sr_validation_claim(req, statuses.get(req.id), report_citation))
+    report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+    claims.append(_sr_validation_claim(req, statuses.get(req.id), report_citation, report_corrupt))
     return claims
 
 
@@ -319,6 +378,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         reqs = register.load_register(_requirements_dir(repo_root))
         statuses = validation_status.load_validation(repo_root)
         report_citation = _validation_report_citation(repo_root)
+        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
 
         degraded = bool(bundle.unresolved)
         for member in bundle.members:
@@ -329,7 +389,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 resolution = _resolve_task_member(repo_root, member, identifier, tasks)
             elif member.kind == "sr":
                 resolution = _resolve_sr_member(
-                    repo_root, member, identifier, reqs, statuses, report_citation
+                    repo_root, member, identifier, reqs, statuses, report_citation, report_corrupt
                 )
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
@@ -357,17 +417,37 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
 
 
-def _sr_matrix_row(req: Requirement, status: SrStatus | None) -> ValidationMatrixRow:
+def _sr_matrix_row(req: Requirement, status: SrStatus | None, report_corrupt: bool) -> ValidationMatrixRow:
     subject = SystemScopeRef(kind="sr", ref=f"sr:{req.id}")
     if req.binding is None:
+        # No recorded basis to be current about (there is nothing to
+        # validate against), so freshness is n/a, not fresh -- "fresh"
+        # against zero evidence would be an unfounded assertion, and the
+        # brief's handling of this identical condition already uses n/a.
         return ValidationMatrixRow(
             subject=subject,
             status=MatrixStatus.BLOCKED,
             evidence=[],
-            freshness=_fresh("proposed requirement has no binding to validate"),
+            freshness=Freshness(
+                state=FreshnessState.NA,
+                reason="proposed requirement has no binding to validate",
+                dependencies=[],
+            ),
             summary="proposed requirement: no binding to validate",
         )
     if status is None:
+        if report_corrupt:
+            return ValidationMatrixRow(
+                subject=subject,
+                status=MatrixStatus.NEVER_RUN,
+                evidence=[],
+                freshness=Freshness(
+                    state=FreshnessState.DEGRADED,
+                    reason="validation report exists but could not be read",
+                    dependencies=[],
+                ),
+                summary="validation report unreadable",
+            )
         return ValidationMatrixRow(
             subject=subject,
             status=MatrixStatus.NEVER_RUN,
@@ -421,6 +501,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         bundle = _load_bundle_or_raise(repo_root, bundle_id)
         reqs = register.load_register(_requirements_dir(repo_root))
         statuses = validation_status.load_validation(repo_root)
+        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
 
         rows: list[ValidationMatrixRow] = []
         for member in bundle.members:
@@ -431,7 +512,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
             if req is None:
                 rows.append(_sr_missing_matrix_row(member.ref))
                 continue
-            rows.append(_sr_matrix_row(req, statuses.get(req.id)))
+            rows.append(_sr_matrix_row(req, statuses.get(req.id), report_corrupt))
 
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
@@ -442,7 +523,8 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
         statuses = validation_status.load_validation(repo_root)
-        row = _sr_matrix_row(req, statuses.get(req.id))
+        report_corrupt = _validation_report_is_corrupt(repo_root, statuses)
+        row = _sr_matrix_row(req, statuses.get(req.id), report_corrupt)
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
             "rows": [to_dict(row)],

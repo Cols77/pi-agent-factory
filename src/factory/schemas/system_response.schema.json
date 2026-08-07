@@ -7,13 +7,13 @@
   "additionalProperties": false,
   "required": ["scope", "brief", "matrix", "freshness"],
   "properties": {
-    "scope": {"$ref": "#/$defs/scopeRef"},
+    "scope": {"$ref": "#/$defs/topScopeRef"},
     "brief": {
       "type": "object",
       "additionalProperties": false,
       "required": ["scope", "claims"],
       "properties": {
-        "scope": {"$ref": "#/$defs/scopeRef"},
+        "scope": {"$ref": "#/$defs/topScopeRef"},
         "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
         "degraded": {"type": "boolean"}
       }
@@ -23,7 +23,7 @@
       "additionalProperties": false,
       "required": ["scope", "rows"],
       "properties": {
-        "scope": {"$ref": "#/$defs/scopeRef"},
+        "scope": {"$ref": "#/$defs/topScopeRef"},
         "rows": {"type": "array", "items": {"$ref": "#/$defs/matrixRow"}}
       }
     },
@@ -38,12 +38,23 @@
     }
   },
   "$defs": {
-    "scopeRef": {
+    "topScopeRef": {
+      "description": "The top-level scope kinds a briefing/matrix can be requested for (design SS2 item 6, SS5.1) -- deliberately narrower than matrixRow.subject's four kinds below.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "ref"],
       "properties": {
-        "kind": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["bundle", "sr"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "matrixSubjectRef": {
+      "description": "Matches system_matrix_row.schema.json's scopeRef exactly -- kept in sync deliberately, not by cross-file $ref (schema_validator.py loads a single file with no resolver, so inlining is forced; see test_matrix_row_rejection_also_rejected_by_envelope for a drift guard).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["sr", "task", "validation", "decision"]},
         "ref": {"type": "string", "minLength": 1}
       }
     },
@@ -126,7 +137,7 @@
       "additionalProperties": false,
       "required": ["subject", "status", "evidence", "freshness", "summary"],
       "properties": {
-        "subject": {"$ref": "#/$defs/scopeRef"},
+        "subject": {"$ref": "#/$defs/matrixSubjectRef"},
         "status": {"enum": ["passed", "failed", "error", "blocked", "never-run"]},
         "evidence": {"type": "array", "items": {"type": "string"}},
         "freshness": {"$ref": "#/$defs/freshness"},

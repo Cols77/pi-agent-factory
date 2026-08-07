@@ -17,6 +17,7 @@ from pathlib import Path
 from factory.system.models import to_dict
 from factory.system.queries import (
     ScopeError,
+    list_bundle_errors,
     list_scopes,
     parse_scope_ref,
     query_brief,
@@ -39,7 +40,13 @@ def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
 
 
 def cmd_scope(repo_root: Path) -> dict:
-    return {"scopes": [to_dict(s) for s in list_scopes(repo_root)]}
+    # A bundle that fails to load is not a scope, but it must still be
+    # visible -- an operator who typos a bundle file gets feedback here
+    # instead of the file just disappearing from the listing (design SS8).
+    return {
+        "scopes": [to_dict(s) for s in list_scopes(repo_root)],
+        "errors": list_bundle_errors(repo_root),
+    }
 
 
 def _render_brief(result: dict) -> str:
@@ -61,9 +68,10 @@ def _render_matrix(result: dict) -> str:
 
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
-    if not scopes:
-        return "no scopes declared"
-    return "\n".join(s["ref"] for s in scopes)
+    lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
+    for err in result["errors"]:
+        lines.append(f"  ! bundle load failed: {err['bundle_id']} ({err['path']}): {err['error']}")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:

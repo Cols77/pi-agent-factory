@@ -12,7 +12,7 @@ import pytest
 
 from factory.system.cli import main
 
-from ._fixtures import write_bundle, write_sr, write_validation_report
+from ._fixtures import write_bundle, write_bundle_raw, write_sr, write_validation_report
 
 pytestmark = pytest.mark.unit
 
@@ -62,6 +62,31 @@ def test_scope_on_empty_repo_prints_something_sane(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert json.loads(out)["scopes"] == []
+
+
+def test_scope_reports_bundle_load_errors_instead_of_erasing_them(tmp_path, capsys):
+    # Finding 5: an operator who typos a bundle file gets feedback from
+    # `factory.system scope`, not silence.
+    write_bundle(tmp_path / "bundles", "good", "Good", [])
+    write_bundle_raw(tmp_path / "bundles", "foo", {"id": "bar", "label": "X", "members": []})
+
+    rc = main(["scope", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {s["ref"] for s in payload["scopes"]} == {"bundle:good"}
+    assert len(payload["errors"]) == 1
+    assert payload["errors"][0]["bundle_id"] == "foo"
+
+
+def test_scope_without_json_flag_renders_errors_too(tmp_path, capsys):
+    write_bundle_raw(tmp_path / "bundles", "foo", {"id": "bar", "label": "X", "members": []})
+
+    rc = main(["scope", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "foo" in out
 
 
 def test_unknown_scope_exits_nonzero_with_structured_stderr(tmp_path, capsys):

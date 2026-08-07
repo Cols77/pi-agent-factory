@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from factory.system.models import (
@@ -32,6 +33,19 @@ _SCHEMA = SCHEMA_DIR / "system_bundle.schema.json"
 _MEMBER_KINDS = ("spec", "plan", "task", "sr")
 
 
+class BundleIdMismatchError(ValueError):
+    """A bundle file's declared `id` does not match its filename stem.
+
+    Bundle files must be named `<id>.json` -- this is what lets a
+    `bundle:<id>` scope ref resolve exactly rather than by filesystem
+    happenstance (design SS5.1). Deliberately a `ValueError`, not a
+    `FileNotFoundError`: the file exists and is otherwise schema-legal, so
+    treating it as "not found" would let it vanish from `list_bundles`
+    without a trace. It is a `ValueError` subclass so the existing
+    schema/parse-failure handling in `list_bundles` still catches it.
+    """
+
+
 def _parse_member_ref(raw_ref: str) -> SystemScopeRef | None:
     """Parse a raw member ref string, or return None if it does not resolve.
 
@@ -49,13 +63,18 @@ def _parse_member_ref(raw_ref: str) -> SystemScopeRef | None:
 def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
     """Load and validate a single declared bundle by id.
 
-    Raises `FileNotFoundError` if the bundle file does not exist -- or if it
-    exists but its declared `id` field does not exactly match `bundle_id`
-    (e.g. only the case differs, which some filesystems resolve as the same
-    file). Scope resolution is exact only, never fuzzy (design SS5.1). Raises
+    Raises `FileNotFoundError` if the bundle file does not exist. Raises
     `ValueError` if it fails schema validation (e.g. carries a narrative
-    field, or duplicate members). A member ref that is merely unresolvable
-    does NOT raise -- it is reported `missing` in `unresolved` instead.
+    field, or duplicate members). Raises `BundleIdMismatchError` (a
+    `ValueError` subclass) if the file exists, is schema-legal, but its
+    declared `id` does not exactly equal `bundle_id` -- e.g. only the case
+    differs, which some filesystems resolve to the same file, or the file is
+    simply misnamed. Either way the bundle is not reachable under the
+    requested id (design SS5.1: scope resolution is exact only, never
+    fuzzy), but it is a distinct, visible failure rather than a silent
+    "not found" -- callers that list bundles (`list_bundle_errors`) surface
+    it instead of erasing it. A member ref that is merely unresolvable does
+    NOT raise -- it is reported `missing` in `unresolved` instead.
     """
     path = bundles_dir / f"{bundle_id}.json"
     if not path.exists():
@@ -69,9 +88,10 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
         raise ValueError(f"invalid bundle {bundle_id!r}: {'; '.join(errors)}")
 
     if str(raw["id"]) != bundle_id:
-        # A case-insensitive filesystem can resolve "Evidence-Lifecycle.json"
-        # to "evidence-lifecycle.json" -- exact-id verification closes that.
-        raise FileNotFoundError(f"bundle not found: {bundle_id!r} ({path})")
+        raise BundleIdMismatchError(
+            f"bundle file {path} declares id={raw['id']!r}, but its filename "
+            f"requires id={bundle_id!r} (bundle files must be named <id>.json)"
+        )
 
     members: list[SystemScopeRef] = []
     unresolved: list[SystemClaim] = []
@@ -107,22 +127,58 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
     )
 
 
+@dataclass(frozen=True)
+class BundleLoadError:
+    """A bundle file that exists but failed to load, and why.
+
+    Reported by `list_bundle_errors` so a malformed or misnamed bundle is
+    visible to an operator (e.g. via `factory.system scope`) instead of
+    silently vanishing -- design SS8: a failure degrades only the affected
+    scope, but it must still be reported.
+    """
+
+    path: Path
+    bundle_id: str
+    error: str
+
+
+def _load_all(bundles_dir: Path) -> tuple[list[BundleDeclaration], list[BundleLoadError]]:
+    if not bundles_dir.exists():
+        return [], []
+    successes: list[BundleDeclaration] = []
+    failures: list[BundleLoadError] = []
+    for path in sorted(bundles_dir.glob("*.json")):
+        try:
+            successes.append(load_bundle(bundles_dir, path.stem))
+        except (OSError, ValueError) as exc:
+            # json.JSONDecodeError is a ValueError subclass, already covered.
+            failures.append(BundleLoadError(path=path, bundle_id=path.stem, error=str(exc)))
+    return successes, failures
+
+
 def list_bundles(bundles_dir: Path) -> list[BundleDeclaration]:
     """List every declared bundle in `bundles_dir`.
 
     An absent directory is a legitimate state, not an error: this returns an
     empty list and never creates the directory as a side effect of reading.
 
-    A single malformed bundle file (invalid JSON or a schema violation) must
-    not abort the whole listing -- design SS8: failures degrade only the
-    affected scope. That bundle is skipped; every other bundle still loads.
+    A single malformed bundle file (invalid JSON, a schema violation, or an
+    id/filename mismatch) must not abort the whole listing -- design SS8:
+    failures degrade only the affected scope. That bundle is skipped here;
+    every other bundle still loads. The skipped file is not erased, though:
+    see `list_bundle_errors` for the second channel that reports it.
     """
-    if not bundles_dir.exists():
-        return []
-    bundles: list[BundleDeclaration] = []
-    for path in sorted(bundles_dir.glob("*.json")):
-        try:
-            bundles.append(load_bundle(bundles_dir, path.stem))
-        except (OSError, ValueError, json.JSONDecodeError):
-            continue
-    return bundles
+    successes, _ = _load_all(bundles_dir)
+    return successes
+
+
+def list_bundle_errors(bundles_dir: Path) -> list[BundleLoadError]:
+    """Every bundle file in `bundles_dir` that failed to load, and why.
+
+    The companion to `list_bundles`: that function only returns what loaded
+    cleanly, so a broken file would otherwise leave no trace at all. Callers
+    (`factory.system scope`) surface these so an operator who typos a bundle
+    file gets feedback instead of silence.
+    """
+    _, failures = _load_all(bundles_dir)
+    return failures

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from factory.system.bundles import list_bundles, load_bundle
+from factory.system.bundles import BundleIdMismatchError, list_bundle_errors, list_bundles, load_bundle
 from factory.system.models import ClaimClass, CitationKind, FreshnessState
 
 pytestmark = pytest.mark.unit
@@ -235,3 +235,88 @@ def test_empty_members_list_is_legal(tmp_path):
     assert bundle.members == []
     assert bundle.unresolved == []
     assert bundle.degraded is False
+
+
+# ---------------------------------------------------------------------------
+# A bundle file's declared `id` must exactly equal its filename stem
+# (findings 4/5) -- a distinct, visible failure, not "not found"
+# ---------------------------------------------------------------------------
+
+
+def test_load_bundle_raises_id_mismatch_when_id_does_not_match_filename(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    # File is "foo.json" but the payload declares id "bar" -- schema-legal
+    # on its own, but not reachable as either "foo" or "bar".
+    _write_bundle(bundles_dir, "foo", {"id": "bar", "label": "X", "members": []})
+
+    with pytest.raises(BundleIdMismatchError):
+        load_bundle(bundles_dir, "foo")
+
+
+def test_bundle_id_mismatch_error_is_a_value_error(tmp_path):
+    # Deliberately a ValueError subclass -- NOT a FileNotFoundError -- so it
+    # is never mistaken for "the file does not exist" and is still caught by
+    # list_bundles' generic (OSError, ValueError) handling.
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "foo", {"id": "bar", "label": "X", "members": []})
+
+    with pytest.raises(ValueError):
+        load_bundle(bundles_dir, "foo")
+
+
+def test_list_bundles_still_skips_an_id_mismatched_file(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "foo", {"id": "bar", "label": "X", "members": []})
+    _write_bundle(bundles_dir, "good", {"id": "good", "label": "Good", "members": []})
+
+    bundles = list_bundles(bundles_dir)
+
+    assert [b.id for b in bundles] == ["good"]
+
+
+def test_list_bundle_errors_reports_id_mismatch(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "foo", {"id": "bar", "label": "X", "members": []})
+
+    errors = list_bundle_errors(bundles_dir)
+
+    assert len(errors) == 1
+    assert errors[0].bundle_id == "foo"
+    assert "bar" in errors[0].error
+
+
+def test_list_bundle_errors_reports_malformed_json(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    (bundles_dir).mkdir(parents=True, exist_ok=True)
+    (bundles_dir / "broken.json").write_text("{not json", encoding="utf-8")
+
+    errors = list_bundle_errors(bundles_dir)
+
+    assert len(errors) == 1
+    assert errors[0].bundle_id == "broken"
+
+
+def test_list_bundle_errors_reports_schema_violation(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(
+        bundles_dir,
+        "narrated",
+        {"id": "narrated", "label": "Narrated", "members": [], "status": "not allowed"},
+    )
+
+    errors = list_bundle_errors(bundles_dir)
+
+    assert len(errors) == 1
+    assert errors[0].bundle_id == "narrated"
+
+
+def test_list_bundle_errors_empty_when_all_bundles_load_cleanly(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "good", {"id": "good", "label": "Good", "members": []})
+
+    assert list_bundle_errors(bundles_dir) == []
+
+
+def test_list_bundle_errors_on_absent_dir_is_empty(tmp_path):
+    bundles_dir = tmp_path / "does-not-exist"
+    assert list_bundle_errors(bundles_dir) == []

@@ -11,10 +11,12 @@ import json
 
 import pytest
 
+from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import ClaimClass, FreshnessState, MatrixStatus, SystemScopeRef
 from factory.system.queries import (
     ScopeKindError,
     ScopeNotFoundError,
+    list_bundle_errors,
     list_scopes,
     parse_scope_ref,
     query_brief,
@@ -24,6 +26,8 @@ from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 from ._fixtures import (
     write_bundle,
+    write_bundle_raw,
+    write_corrupt_validation_report,
     write_decision_artifact,
     write_plan,
     write_spec,
@@ -183,6 +187,11 @@ def test_proposed_sr_has_no_binding_is_blocked_in_matrix(tmp_path):
 
     row = result["rows"][0]
     assert row["status"] == "blocked"
+    # "Fresh" against zero evidence would be an unfounded assertion, and it
+    # would contradict the brief's `missing`/`n/a` claim for the identical
+    # condition (finding 2) -- there is no recorded basis to be current
+    # about, so freshness is n/a, not fresh.
+    assert row["freshness"]["state"] == "n/a"
 
 
 def test_proposed_sr_binding_claim_is_missing_in_brief(tmp_path):
@@ -194,6 +203,70 @@ def test_proposed_sr_binding_claim_is_missing_in_brief(tmp_path):
     assert missing  # at least the "no binding" claim
     for claim in missing:
         assert claim["freshness"]["state"] == "n/a"
+
+
+# ---------------------------------------------------------------------------
+# A corrupt validation report is degraded, never asserted as the recorded
+# fact "never validated" (finding 1). `validation_status.load_validation`
+# swallows read/parse failures into `{}`, indistinguishable at the dict
+# level from "no report was ever written" -- queries.py must probe file
+# existence to tell them apart.
+# ---------------------------------------------------------------------------
+
+
+def test_corrupt_validation_report_is_degraded_not_missing_in_brief(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_corrupt_validation_report(tmp_path)
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    validation_claims = [c for c in result["claims"] if "SR-001" in c["text"] and "unreadable" in c["text"]]
+    assert len(validation_claims) == 1
+    claim = validation_claims[0]
+    # Not `missing` -- that would assert "never validated", a guess this
+    # code cannot make about a report it could not read.
+    assert claim["kind"] != "missing"
+    assert claim["freshness"]["state"] == "degraded"
+    # None of the claims may claim the unfounded "never validated" text.
+    assert not any(c["text"].endswith("never validated") for c in result["claims"])
+
+
+def test_corrupt_validation_report_is_degraded_not_never_run_freshness_in_matrix(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_corrupt_validation_report(tmp_path)
+
+    result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    row = result["rows"][0]
+    # `status` may still be "never-run" -- there is no recorded pass/fail
+    # outcome -- but freshness must say "degraded", not "n/a", because a
+    # report genuinely exists and could not be read.
+    assert row["status"] == "never-run"
+    assert row["freshness"]["state"] == "degraded"
+
+
+def test_corrupt_validation_report_claim_still_validates_against_claim_schema(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_corrupt_validation_report(tmp_path)
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    for claim in result["claims"]:
+        assert validate(claim, CLAIM_SCHEMA) == []
+
+
+def test_missing_validation_report_file_is_still_na_not_degraded(tmp_path):
+    # No file at all (as opposed to a corrupt one) is genuinely "never
+    # validated" -- the degraded path must not fire just because the dict
+    # came back empty.
+    write_sr(tmp_path / "requirements", "SR-001")
+
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    matrix = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    validation_claims = [c for c in brief["claims"] if c["text"].endswith("never validated")]
+    assert validation_claims[0]["freshness"]["state"] == "n/a"
+    assert matrix["rows"][0]["freshness"]["state"] == "n/a"
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +416,68 @@ def test_list_scopes_on_empty_repo_is_empty(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# A bundle whose declared id does not match its filename is a distinct,
+# visible failure -- not "not found" (which would erase it from
+# list_bundles with no trace), and not silently swallowed (findings 4/5).
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_id_filename_mismatch_is_reported_not_silently_dropped(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    # File is "foo.json" but declares id "bar" -- schema-legal, but
+    # unreachable under either name without a diagnostic.
+    write_bundle_raw(bundles_dir, "foo", {"id": "bar", "label": "Mismatched", "members": []})
+    write_bundle(bundles_dir, "good", "Good bundle", [])
+
+    scopes = list_scopes(tmp_path)
+    errors = list_bundle_errors(tmp_path)
+
+    # It never becomes a usable scope under either name.
+    assert SystemScopeRef(kind="bundle", ref="bundle:foo") not in scopes
+    assert SystemScopeRef(kind="bundle", ref="bundle:bar") not in scopes
+    assert SystemScopeRef(kind="bundle", ref="bundle:good") in scopes
+
+    # But it is reported, not erased.
+    assert len(errors) == 1
+    assert errors[0]["bundle_id"] == "foo"
+    assert "bar" in errors[0]["error"]
+
+
+def test_malformed_bundle_json_is_reported_via_list_bundle_errors(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    write_bundle(bundles_dir, "good", "Good bundle", [])
+    write_bundle_raw(bundles_dir, "broken", "{not json at all")
+
+    errors = list_bundle_errors(tmp_path)
+
+    assert len(errors) == 1
+    assert errors[0]["bundle_id"] == "broken"
+
+
+def test_list_bundle_errors_empty_when_everything_loads(tmp_path):
+    write_bundle(tmp_path / "bundles", "good", "Good bundle", [])
+    assert list_bundle_errors(tmp_path) == []
+
+
+def test_list_bundle_errors_on_absent_dir_is_empty(tmp_path):
+    assert list_bundle_errors(tmp_path) == []
+
+
+def test_bundle_load_raises_bundle_id_mismatch_error_directly(tmp_path):
+    # Confirms the underlying exception type queries.py's
+    # _load_bundle_or_raise depends on to convert this into
+    # ScopeNotFoundError (test_query_brief_does_not_fuzzy_match_bundle_id_case
+    # exercises that conversion end to end).
+    from factory.system.bundles import load_bundle
+
+    bundles_dir = tmp_path / "bundles"
+    write_bundle_raw(bundles_dir, "foo", {"id": "bar", "label": "X", "members": []})
+
+    with pytest.raises(BundleIdMismatchError):
+        load_bundle(bundles_dir, "foo")
+
+
+# ---------------------------------------------------------------------------
 # A decision artifact in the repo does not confuse brief/matrix (Task 3's
 # job, not this one) -- present as realistic scaffolding only.
 # ---------------------------------------------------------------------------
@@ -401,6 +536,47 @@ def test_full_envelope_validates_against_response_schema(tmp_path):
     assert validate(envelope, RESPONSE_SCHEMA) == []
     # round-trips through JSON cleanly (no dataclasses/enums leaking through)
     json.dumps(envelope)
+
+
+# ---------------------------------------------------------------------------
+# The envelope schema's inlined matrixRow/scopeRef kind enums must not drift
+# from the record-level schemas (finding 3). `schema_validator.py` has no
+# cross-file $ref resolver, so the duplication itself is forced -- but a row
+# the record-level schema rejects must be rejected by the envelope too.
+# ---------------------------------------------------------------------------
+
+
+def test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}])
+    scope = SystemScopeRef(kind="sr", ref="sr:SR-001")
+
+    matrix = query_matrix(tmp_path, scope)
+    matrix["rows"][0]["subject"]["kind"] = "banana"  # illegal in both schemas
+
+    assert validate(matrix["rows"][0], MATRIX_ROW_SCHEMA) != []
+
+    envelope = {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "brief": query_brief(tmp_path, scope),
+        "matrix": matrix,
+        "freshness": {"state": "fresh", "details": []},
+    }
+    assert validate(envelope, RESPONSE_SCHEMA) != []
+
+
+def test_envelope_top_level_scope_kind_enum_matches_bundle_and_sr_only(tmp_path):
+    # The envelope's top-level `scope`/`brief.scope`/`matrix.scope` use a
+    # narrower kind enum (bundle|sr) than matrixRow.subject (sr|task|
+    # validation|decision) -- they must not share one loosely-typed def.
+    write_sr(tmp_path / "requirements", "SR-001")
+    envelope = {
+        "scope": {"kind": "task", "ref": "task:T-001"},  # illegal top-level kind
+        "brief": query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
+        "matrix": query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
+        "freshness": {"state": "fresh", "details": []},
+    }
+    assert validate(envelope, RESPONSE_SCHEMA) != []
 
 
 # ---------------------------------------------------------------------------
