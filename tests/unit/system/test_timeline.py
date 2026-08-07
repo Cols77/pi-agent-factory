@@ -197,6 +197,50 @@ def test_sequence_only_events_within_one_manifest_sort_by_array_position(tmp_pat
     assert [e["action"] for e in result["events"]] == ["approved", "rejected", "approved"]
 
 
+def test_sequence_only_events_across_manifests_order_by_manifest_ended_at_then_position(tmp_path):
+    # Array position is only meaningful *within* one manifest -- nothing
+    # recorded says run-a's 1st review happened before or after run-b's 1st
+    # review. Events must group by manifest (ordered by the manifest's own
+    # recorded `ended_at`), never interleave by raw sequence number across
+    # manifests. run-b's `ended_at` is earlier than run-a's, and run-b was
+    # written to disk *after* run-a, so neither insertion order nor sequence
+    # number alone would produce the correct result here.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_run_manifest(
+        tmp_path,
+        run_id="run-a",
+        task_id="T-001",
+        ended_at="2026-08-08T15:00:00Z",
+        reviews=[
+            review_record(task_id="T-001", decision="approve", reviewed_at=None),
+            review_record(task_id="T-001", decision="approve", reviewed_at=None),
+            review_record(task_id="T-001", decision="approve", reviewed_at=None),
+        ],
+    )
+    write_run_manifest(
+        tmp_path,
+        run_id="run-b",
+        task_id="T-001",
+        ended_at="2026-08-08T09:00:00Z",
+        reviews=[
+            review_record(task_id="T-001", decision="reject", reviewed_at=None),
+            review_record(task_id="T-001", decision="reject", reviewed_at=None),
+        ],
+    )
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    # All of run-b (earlier ended_at) before all of run-a (later ended_at) --
+    # never run-a[0], run-b[0], run-a[1], run-b[1], run-a[2], which is what a
+    # bare-sequence-number sort (ignoring which manifest owns each position)
+    # would produce.
+    actions = [e["action"] for e in result["events"]]
+    assert actions == ["rejected", "rejected", "approved", "approved", "approved"]
+    sequences = [e["sequence"] for e in result["events"]]
+    assert sequences == [1, 2, 1, 2, 3]
+
+
 # ---------------------------------------------------------------------------
 # Absent actor/action is unknown/not-recorded; the event is marked degraded
 # ---------------------------------------------------------------------------
@@ -397,7 +441,16 @@ def test_manifest_with_empty_reviews_array_is_empty_not_degraded(tmp_path):
     assert result["degraded"] is False
 
 
-def test_corrupt_manifest_is_skipped_and_does_not_crash_any_scope(tmp_path):
+def test_corrupt_manifest_is_skipped_but_still_degrades_the_timeline(tmp_path):
+    # `list_run_manifests` silently skips a manifest it cannot parse -- fine
+    # for "don't crash", wrong for "don't hide" (design SS8): a scope whose
+    # decisions genuinely could not be read must not report the same clean
+    # "degraded: false" a scope with truly nothing recorded would report.
+    # The corrupt file's own task_id cannot be read (that's the failure),
+    # so this cannot be attributed to one specific scope -- see the
+    # module-level comment above `_unreadable_manifest_count` in
+    # queries.py; the signal is necessarily repo-wide while any manifest
+    # anywhere is unreadable.
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_task(tmp_path / "tasks", "T-002", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
@@ -408,16 +461,29 @@ def test_corrupt_manifest_is_skipped_and_does_not_crash_any_scope(tmp_path):
     scope_a = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
     scope_b = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b2"))
 
+    # Events stay correct either way -- the corrupt manifest never becomes a
+    # phantom event, and never affects which real events are returned.
     assert scope_a["events"] == []
-    assert scope_a["degraded"] is False  # nothing recorded for T-001
-    assert len(scope_b["events"]) == 1  # the corrupt manifest does not affect this scope
-    assert scope_b["degraded"] is True  # T-002's own event is degraded (actor not-recorded), as always
+    assert len(scope_b["events"]) == 1
+    assert scope_b["events"][0]["subject"]["ref"] == "task:T-002"
+
+    # Both are flagged degraded -- for T-002 this is also (redundantly) true
+    # via its own event's freshness, but for T-001 (zero events) this is the
+    # *only* signal that something could not be read, and it is exactly the
+    # case the old `any(event freshness degraded)`-only definition missed.
+    assert scope_a["degraded"] is True
+    assert scope_b["degraded"] is True
 
 
-def test_schema_invalid_manifest_is_skipped_and_does_not_crash(tmp_path):
+def test_schema_invalid_manifest_degrades_the_timeline_instead_of_reporting_clean(tmp_path):
     # Valid JSON, but fails `evidence_manifest.schema.json` (missing every
-    # required field) -- `list_run_manifests` already skips this; confirms
-    # the timeline query doesn't choke on it either.
+    # required field) -- `list_run_manifests` already skips this. Before the
+    # fix, this scope reported `degraded: false` -- indistinguishable from
+    # "no decisions were ever recorded" -- even though evidence for this
+    # exact scope may have existed and simply failed to load. That is the
+    # asserting-something-the-evidence-does-not-support failure mode this
+    # whole design exists to prevent, just in the "everything is fine"
+    # direction instead of the "nothing is here" direction.
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
     write_raw_manifest_json(tmp_path, run_id="run-bad", payload={"not": "a valid manifest"})
@@ -425,7 +491,7 @@ def test_schema_invalid_manifest_is_skipped_and_does_not_crash(tmp_path):
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
 
     assert result["events"] == []
-    assert result["degraded"] is False
+    assert result["degraded"] is True
 
 
 def test_review_entry_with_no_task_id_is_ignored_not_guessed(tmp_path):
@@ -441,6 +507,41 @@ def test_review_entry_with_no_task_id_is_ignored_not_guessed(tmp_path):
 
     assert result["events"] == []
     assert result["degraded"] is False
+
+
+def test_unreadable_manifest_degrades_the_affected_scope_while_other_scopes_events_stay_intact(tmp_path):
+    """Brief Step 4: "a missing manifest or missing blob degrades only that
+    scope." T-001's manifest is unreadable; a completely unrelated scope
+    (SR-002/T-003) has its own clean, correctly-recorded decision.
+
+    Attribution honesty note: an unreadable manifest's own `task_id` field
+    is exactly what failed to load, so this module cannot say *which*
+    scope's evidence is missing without reading the very file that could
+    not be read (that would be a parallel parser). `degraded` is therefore
+    a repo-wide signal while any manifest anywhere is unreadable, not a
+    scope-local one -- both the directly-affected scope and the unrelated
+    scope report `degraded: true` here. What *does* stay correctly scoped,
+    and is what this test pins, is each scope's `events` list: the
+    unrelated scope's real, correctly-ordered event is never displaced,
+    duplicated, or lost because of the other scope's unreadable manifest.
+    """
+    write_sr(tmp_path / "requirements", "SR-002")
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_task(tmp_path / "tasks", "T-003", status="done", satisfies=["SR-002"])
+    write_bundle(tmp_path / "bundles", "affected", "Affected", ["task:T-001"])
+    write_raw_manifest_json(tmp_path, run_id="run-bad", payload={"not": "a valid manifest"})
+    write_decision_artifact(tmp_path, task_id="T-003", run_id="run-clean", reviewed_at="2026-08-08T10:00:00Z")
+
+    affected = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:affected"))
+    unrelated = query_timeline(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-002"))
+
+    assert affected["events"] == []
+    assert affected["degraded"] is True
+
+    assert len(unrelated["events"]) == 1
+    assert unrelated["events"][0]["subject"]["ref"] == "task:T-003"
+    assert unrelated["events"][0]["action"] == "approved"
+    assert unrelated["events"][0]["at"] == "2026-08-08T10:00:00Z"
 
 
 def test_unknown_scope_kind_raises():

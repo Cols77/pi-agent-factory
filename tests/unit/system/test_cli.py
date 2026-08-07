@@ -75,7 +75,19 @@ def test_timeline_without_json_flag_prints_human_readable_text(tmp_path, capsys)
     assert rc == 0
     with pytest.raises(json.JSONDecodeError):
         json.loads(out)
-    assert "task:T-001" in out
+
+    # Exact text, not a substring -- a substring check ("task:T-001" in out)
+    # would pass just as well with the old, false "records were dropped"
+    # wording still present. Nothing was dropped here; the warning line must
+    # say so accurately.
+    expected_lines = [
+        "scope: bundle:b1",
+        "  ! degraded: some entries are missing a recorded actor, and/or some "
+        "evidence could not be read -- see each event's freshness for detail",
+        "  [2026-08-08T12:00:00Z] not-recorded approved task:T-001 (degraded)",
+    ]
+    assert out == "\n".join(expected_lines) + "\n"
+    assert "dropped" not in out
 
 
 def test_timeline_on_empty_repo_reports_no_recorded_decisions(tmp_path, capsys):

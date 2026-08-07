@@ -593,6 +593,19 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # returning `None` (kept `DecisionTimelineEvent.__post_init__`'s own
 # at-or-sequence check as the enforcement backstop regardless).
 #
+# Array position is, however, only meaningful *within* one manifest -- two
+# different manifests' "1st review" are not comparable to each other by
+# position alone; nothing records that one run's first review happened
+# before or after another run's first review. So sequence-only events are
+# ordered first by their *manifest's* recorded `ended_at` (required by
+# `evidence_manifest.schema.json`, and already the field `list_run_manifests`
+# itself sorts on) and only *then* by position within that manifest. This
+# was a real bug in an earlier version of this file: the sort key put
+# `sequence` ahead of `citation.path`, so sequence-only events from different
+# manifests interleaved by raw position number -- asserting an order nothing
+# recorded. `test_sequence_only_events_across_manifests_order_by_manifest_
+# ended_at_then_position` in `test_timeline.py` pins the fix.
+#
 # `evidence_manifest.schema.json` requires `reviews` on any manifest that
 # validates at all (`schema.json`'s top-level `required` list), and
 # `list_run_manifests` already skips -- individually, silently, matching the
@@ -601,6 +614,22 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # this module always has a `reviews` list already (possibly empty, never
 # absent): there is no "absent vs. empty" ambiguity left for this module to
 # resolve, because the loader it reuses already resolved it upstream.
+#
+# A manifest that fails to load is *silently* skipped by `list_run_manifests`
+# -- correct for "don't crash", wrong for "don't hide" (design SS8: corrupt
+# evidence must degrade a scope, not vanish). `_unreadable_manifest_count`
+# compares the raw `evidence/runs/*.json` glob count against how many
+# `list_run_manifests` actually returned, and `query_timeline` folds a
+# nonzero count into `degraded`. This is a *count* comparison, not a second
+# parser: no code here re-reads a manifest's content, so it cannot attribute
+# an unreadable manifest to a specific task -- a corrupt/invalid manifest's
+# own `task_id` field is exactly the thing that failed to load. The signal is
+# therefore necessarily repo-wide (every scope's `query_timeline` call sees
+# the same nonzero count while any manifest anywhere is unreadable), not
+# scoped to the affected task alone; see the note above
+# `_unreadable_manifest_count` and the "Concerns" section of the task report
+# for the tension this creates with design SS8's "degrades only the affected
+# scope" wording.
 #
 # Two other candidate sources were deliberately excluded, not overlooked:
 #   - `validation/validation-report.json` entries (`factory.trace.
@@ -630,26 +659,34 @@ def _evidence_dir(repo_root: Path) -> Path:
     return repo_root / "evidence"
 
 
-def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, int]]:
+def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, int, str]]:
     """Read signed review decisions from the `reviews` array of every real
     run manifest (design SS4.3), via `factory.evidence.manifests.
     list_run_manifests` -- never a parallel directory glob.
 
-    Yields `(review_record, citation, sequence)` where `citation` points at
-    the owning manifest file (with an `anchor` naming which array entry) and
-    `sequence` is that entry's 1-based position in `manifest["reviews"]`. A
-    manifest file that fails to parse or fails schema validation is already
-    skipped by `list_run_manifests` -- it degrades only itself, never the
-    whole scan (design SS8), and never raises out of this function.
+    Yields `(review_record, citation, sequence, manifest_ended_at)` where
+    `citation` points at the owning manifest file (with an `anchor` naming
+    which array entry), `sequence` is that entry's 1-based position in
+    `manifest["reviews"]`, and `manifest_ended_at` is the owning manifest's
+    own recorded `ended_at` (required by `evidence_manifest.schema.json`, so
+    always a real date-time string here) -- used to order sequence-only
+    events across *different* manifests without comparing raw positions
+    across documents (see the module-level comment above). A manifest file
+    that fails to parse or fails schema validation is already skipped by
+    `list_run_manifests` -- it degrades only itself, never the whole scan
+    (design SS8), and never raises out of this function.
     """
     evidence_dir = _evidence_dir(repo_root)
     if not (evidence_dir / "runs").is_dir():
         return []
-    records: list[tuple[dict, SystemCitation, int]] = []
+    records: list[tuple[dict, SystemCitation, int, str]] = []
     for manifest in evidence_manifests.list_run_manifests(evidence_dir):
         run_id = manifest.get("run_id")
         if not isinstance(run_id, str) or not run_id:
             continue  # cannot even locate the manifest file to cite -- unusable
+        ended_at = manifest.get("ended_at")
+        if not isinstance(ended_at, str) or not ended_at:
+            continue  # schema guarantees this in practice; defensive only
         manifest_path = evidence_dir / "runs" / f"{run_id}.json"
         manifest_sha256 = _sha256_file(manifest_path)
         reviews = manifest.get("reviews")
@@ -664,8 +701,29 @@ def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, 
                 sha256=manifest_sha256,
                 anchor=f"reviews[{index}]",
             )
-            records.append((review, citation, index + 1))
+            records.append((review, citation, index + 1, ended_at))
     return records
+
+
+def _unreadable_manifest_count(repo_root: Path) -> int:
+    """How many `evidence/runs/*.json` files exist but did not come back
+    from `list_run_manifests` (unparseable JSON or schema-invalid content).
+
+    A count comparison against the same glob `list_run_manifests` itself
+    uses -- not a second parser: nothing here re-reads a manifest's content,
+    so this cannot say *which* task an unreadable manifest belonged to (that
+    is exactly the information that failed to load). Design SS8: corrupt
+    evidence must degrade a scope's timeline, not silently vanish; see the
+    module-level comment above for the repo-wide-signal tradeoff this
+    creates.
+    """
+    evidence_dir = _evidence_dir(repo_root)
+    runs_dir = evidence_dir / "runs"
+    if not runs_dir.is_dir():
+        return 0
+    total = len(list(runs_dir.glob("*.json")))
+    loaded = len(evidence_manifests.list_run_manifests(evidence_dir))
+    return max(total - loaded, 0)
 
 
 def _decision_event_from_record(
@@ -718,17 +776,30 @@ def _decision_event_from_record(
     )
 
 
-def _timeline_sort_key(event: DecisionTimelineEvent) -> tuple:
+def _timeline_sort_key(event: DecisionTimelineEvent, manifest_ended_at: str) -> tuple:
     """Deterministic ordering key (design SS4.3): events with a recorded
     timestamp sort chronologically among themselves and before events that
     only have a recorded sequence number (there is no honest way to compare
     a timestamp to a bare sequence number, so the two groups are never
-    interleaved by guesswork). Within either group, `citation.path` plus
-    `citation.anchor` is the final, fully-deterministic tie-break.
+    interleaved by guesswork).
+
+    Within the sequence-only group, `manifest_ended_at` (the *owning
+    manifest's* recorded completion time) is the primary key, and array
+    position is only compared *within* that same manifest -- position
+    numbers from different manifests are never compared to each other,
+    because nothing recorded says which manifest's "1st review" came first.
+    `citation.path` plus `citation.anchor` is the final, fully-deterministic
+    tie-break in both groups.
     """
     if event.at is not None:
         return (0, event.at, event.citation.path, event.citation.anchor or "")
-    return (1, "", f"{event.sequence:020d}", event.citation.path, event.citation.anchor or "")
+    return (
+        1,
+        manifest_ended_at,
+        f"{event.sequence:020d}",
+        event.citation.path,
+        event.citation.anchor or "",
+    )
 
 
 def _bundle_task_ids(bundle: BundleDeclaration) -> set[str]:
@@ -747,9 +818,13 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
     is chronologically ordered per `_timeline_sort_key`. `degraded` is true
     when at least one included event itself carries degraded freshness (this
     artifact type never names an actor -- see `_decision_event_from_record`
-    -- so it is true whenever `events` is non-empty); an empty `events` list
-    means no recorded decisions exist yet for this scope, which is a
-    legitimate state, not a degradation.
+    -- so it is true whenever `events` is non-empty) **or** when one or more
+    `evidence/runs/*.json` manifests exist but could not be read
+    (`_unreadable_manifest_count`) -- design SS8: corrupt evidence must
+    degrade a scope, not silently disappear as an empty, clean-looking
+    timeline. An empty `events` list with zero unreadable manifests means no
+    recorded decisions exist yet for this scope, which is a legitimate
+    state, not a degradation.
     """
     if scope.kind == "bundle":
         bundle_id = _scope_identifier(scope)
@@ -762,19 +837,25 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
     else:
         raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
 
-    events: list[DecisionTimelineEvent] = []
-    for record, citation, sequence in _iter_decision_records(repo_root):
+    scored: list[tuple[DecisionTimelineEvent, str]] = []
+    for record, citation, sequence, manifest_ended_at in _iter_decision_records(repo_root):
         task_id = record.get("task_id")
         if not isinstance(task_id, str) or task_id not in task_ids:
             continue
-        events.append(_decision_event_from_record(record, citation, sequence))
+        event = _decision_event_from_record(record, citation, sequence)
+        scored.append((event, manifest_ended_at))
 
-    events.sort(key=_timeline_sort_key)
+    scored.sort(key=lambda pair: _timeline_sort_key(pair[0], pair[1]))
+    events = [event for event, _ in scored]
+
+    degraded = any(e.freshness.state is FreshnessState.DEGRADED for e in events) or (
+        _unreadable_manifest_count(repo_root) > 0
+    )
 
     return {
         "scope": {"kind": scope.kind, "ref": scope.ref},
         "events": [to_dict(e) for e in events],
-        "degraded": any(e.freshness.state is FreshnessState.DEGRADED for e in events),
+        "degraded": degraded,
     }
 
 

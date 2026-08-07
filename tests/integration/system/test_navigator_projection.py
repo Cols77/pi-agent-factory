@@ -371,12 +371,21 @@ def test_incomplete_decision_record_affects_only_the_broken_bundles_timeline(rep
     assert validate(good_envelope, RESPONSE_SCHEMA) == []
 
 
-def test_unattributable_corrupt_manifest_degrades_no_scope(repo):
+def test_unattributable_corrupt_manifest_leaves_events_correct_in_every_scope(repo):
     # run-003.json is unparseable and names no task_id at all (it can't even
     # be read as JSON) -- it must not be guessed into belonging to
     # bundle:good, bundle:broken, or any other scope. Silently attributing
     # it to the wrong scope would be worse than dropping it: it would be
     # evidence pointed at the wrong place, not merely absent evidence.
+    #
+    # `degraded` itself is a different story: `queries._unreadable_manifest_
+    # count` cannot attribute an unreadable manifest to a task without
+    # reading the very field that failed to read, so it is a repo-wide
+    # signal for as long as *any* manifest anywhere is unreadable -- both
+    # scopes below correctly report `degraded: true` because of it (on top
+    # of `bundle:good`/`bundle:broken` already being `true` via their own
+    # events' freshness regardless). What stays precisely scoped is each
+    # query's `events` list.
     good_scope = SystemScopeRef(kind="bundle", ref="bundle:good")
     broken_scope = SystemScopeRef(kind="bundle", ref="bundle:broken")
 
@@ -387,6 +396,8 @@ def test_unattributable_corrupt_manifest_degrades_no_scope(repo):
     # only) -- nothing extra, nothing missing, because of the corrupt file.
     assert len(good_timeline["events"]) == 1
     assert len(broken_timeline["events"]) == 2
+    assert good_timeline["degraded"] is True
+    assert broken_timeline["degraded"] is True
 
 
 def test_sr_scope_also_projects_cleanly_in_the_same_repo(repo):

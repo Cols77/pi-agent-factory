@@ -142,15 +142,24 @@ def review_record(
     decision: str = "approve",
     reviewed_at: str | None = "2026-08-08T12:00:00Z",
     start_commit: str = "a" * 40,
+    diff_error: str | None = None,
+    guide: dict | None = None,
 ) -> dict:
     """One entry as `factory.evidence.finalize._review_evidence` leaves it in
     `manifest["reviews"]` -- version/reviewed_at/task_id/start_commit/
-    decision/annotations/reviewed_files/patch (a published blob ref; the
-    standalone transcript file's `diff` field is popped in favor of this by
-    `finalize.py`, never `manifest["reviews"]` shape). This is the shape
-    `query_timeline` (design SS4.3) actually reads.
+    decision/annotations/reviewed_files/patch/diff_error (a published blob
+    ref for `patch`; the standalone transcript file's `diff` field itself is
+    popped in favor of `patch` by `finalize.py`, but `diff_error` is never
+    popped -- it survives into `manifest["reviews"]` verbatim, per
+    `human_review.py`'s `_archive` and `finalize.py:56` -- so it is included
+    here too, faithfully, even though `query_timeline` does not read it).
+    `guide` mirrors `finalize.py`'s conditional `guide` blob ref: present
+    only when a review guide was actually captured for this entry, matching
+    `_review_evidence`'s own conditional `record["guide"] = ...` (never
+    added when there was no `review_guide`/no guide file at all). This is
+    the shape `query_timeline` (design SS4.3) actually reads.
     """
-    return {
+    record = {
         "version": 1,
         "reviewed_at": reviewed_at,
         "task_id": task_id,
@@ -158,6 +167,7 @@ def review_record(
         "decision": decision,
         "annotations": [],
         "reviewed_files": [],
+        "diff_error": diff_error,
         "patch": {
             "sha256": "f" * 64,
             "size": 10,
@@ -167,6 +177,9 @@ def review_record(
             "uri": None,
         },
     }
+    if guide is not None:
+        record["guide"] = guide
+    return record
 
 
 def write_run_manifest(
