@@ -560,21 +560,23 @@ def run_next(
         manifest = load_run_manifest(manifest_path)
         publication = manifest.get("publication", {})
         if publication.get("state") != "published":
+            required = bool(getattr(artifact_store, "publication_required", False))
             result.events.append(
                 NodeEvent(
                     "publication",
-                    "fail",
+                    "fail" if required else "warning",
                     1,
                     {
                         "state": publication.get("state"),
                         "errors": publication.get("errors", []),
+                        "required": required,
                     },
                 )
             )
-            result.outcome = "escalated"
-            result.dod_met = False
-            manifest["outcome"] = result.outcome
-            if evidence_dir is not None:
+            if required:
+                result.outcome = "escalated"
+                result.dod_met = False
+                manifest["outcome"] = result.outcome
                 write_run_manifest(evidence_dir, manifest)
 
     # Only mark done on success. Rejected/escalated tasks go back to todo

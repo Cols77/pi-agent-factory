@@ -100,7 +100,11 @@ def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_pat
         FakeGateRunner(),
         session_id="run-1",
         task_id="T-001",
-        artifact_store=LocalArtifactStore(repo / ".factory" / "artifacts" / "objects", blocked),
+        artifact_store=LocalArtifactStore(
+            repo / ".factory" / "artifacts" / "objects",
+            blocked,
+            publication_required=True,
+        ),
         evidence_dir=repo / "evidence",
     )
 
@@ -110,6 +114,37 @@ def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_pat
     assert manifest["publication"]["state"] == "queued"
     assert manifest["publication"]["errors"]
     assert load_tasks(repo / "tasks")[0].status == "todo"
+
+
+def test_optional_publication_failure_keeps_completed_outcome(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    blocked = repo / "published"
+    blocked.write_text("blocked", encoding="utf-8")
+    backend = FakeAgentBackend(
+        {AgentRole.SESSION_REVIEW: [AgentResult(True, {}, raw="session complete")]}
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_task",
+        lambda *a, **k: TaskResult("T-001", "Example", "completed", 1, [], True),
+    )
+    monkeypatch.setattr("factory.orchestrator.runner.compose_prompt", lambda *a, **k: "prompt")
+
+    run_next(
+        repo,
+        backend,
+        FakeGateRunner(),
+        session_id="run-1",
+        task_id="T-001",
+        artifact_store=LocalArtifactStore(
+            repo / ".factory" / "artifacts" / "objects", blocked
+        ),
+        evidence_dir=repo / "evidence",
+    )
+
+    manifest = load_run_manifest(repo / "evidence" / "runs" / "run-1.json")
+    assert manifest["outcome"] == "completed"
+    assert manifest["publication"]["state"] == "queued"
+    assert load_tasks(repo / "tasks")[0].status == "done"
 
 
 def test_run_next_requires_store_and_evidence_dir_together(tmp_path, monkeypatch):

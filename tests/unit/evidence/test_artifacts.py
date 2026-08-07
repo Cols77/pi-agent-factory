@@ -41,6 +41,27 @@ def test_publish_copies_and_verifies_object(tmp_path):
     assert (tmp_path / "published" / ref.sha256[:2] / ref.sha256).read_bytes() == b"hello"
 
 
+def test_required_publication_needs_a_real_target(tmp_path):
+    with pytest.raises(ValueError, match="needs a publication target"):
+        LocalArtifactStore(tmp_path / "objects", publication_required=True)
+
+
+def test_optional_publish_failure_survives_queue_write_failure(tmp_path, monkeypatch):
+    blocked = tmp_path / "published"
+    blocked.write_text("not a directory", encoding="utf-8")
+    store = LocalArtifactStore(tmp_path / "objects", blocked)
+    ref = store.put(b"hello", "text/plain")
+
+    def fail_record(*args, **kwargs):
+        raise OSError("queue unavailable")
+
+    monkeypatch.setattr(store, "_write_publication_record", fail_record)
+    result = store.publish(ref.sha256)
+    assert result.state == "queued"
+    assert "queue write failed" in (result.error or "")
+    assert store.get(ref.sha256) == b"hello"
+
+
 def test_publish_without_destination_stays_local(tmp_path):
     store = LocalArtifactStore(tmp_path / "objects")
     ref = store.put(b"hello", "text/plain")

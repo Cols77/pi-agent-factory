@@ -561,6 +561,18 @@ def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem
         identified = isinstance(value, dict) and all(
             value.get(key) for key in ("task_id", "run_id", "start_commit")
         )
+        if identified and isinstance(value, dict):
+            manifest_path = evidence_runs / f"{value['run_id']}.json"
+            try:
+                legacy_manifest = load_run_manifest(manifest_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                legacy_manifest = None
+            source = path.relative_to(repo_root).as_posix()
+            if legacy_manifest is not None and any(
+                isinstance(review, dict) and review.get("source") == source
+                for review in legacy_manifest.get("reviews", [])
+            ):
+                continue
         subject = str(value.get("task_id")) if isinstance(value, dict) else path.parent.name
         if task_id is None or subject == task_id:
             items.append(

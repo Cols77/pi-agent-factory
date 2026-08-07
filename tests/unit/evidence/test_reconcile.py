@@ -211,6 +211,7 @@ def test_legacy_review_migration_requires_explicit_provenance_and_updates_manife
     assert actions[0]["kind"] == "migrate_legacy_review"
     loaded = load_run_manifest(manifest_path)
     assert loaded["reviews"][0]["source"] == item.source
+    assert all(candidate.kind is not ReconcileKind.LEGACY_REVIEW for candidate in reconcile(repo))
 
 
 def test_legacy_review_refuses_when_start_commit_is_missing(tmp_path):

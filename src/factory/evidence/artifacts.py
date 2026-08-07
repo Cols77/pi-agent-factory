@@ -38,9 +38,18 @@ class ArtifactStore(Protocol):
 class LocalArtifactStore:
     """Content-addressed artifact storage with optional filesystem publication."""
 
-    def __init__(self, root: Path, publish_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        publish_root: Path | None = None,
+        *,
+        publication_required: bool = False,
+    ) -> None:
+        if publication_required and publish_root is None:
+            raise ValueError("required publication needs a publication target")
         self.root = root
         self.publish_root = publish_root
+        self.publication_required = publication_required
 
     def path_for(self, digest: str, root: Path | None = None) -> Path:
         base = self.root if root is None else root
@@ -74,6 +83,22 @@ class LocalArtifactStore:
         tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
         tmp.replace(path)
+
+    def _record_publication_safely(
+        self,
+        sha256: str,
+        *,
+        state: str,
+        errors: list[str] | None = None,
+        uri: str | None = None,
+    ) -> str | None:
+        try:
+            self._write_publication_record(
+                sha256, state=state, errors=errors, uri=uri
+            )
+        except OSError as exc:
+            return f"publication queue write failed: {exc}"
+        return None
 
     def publication_record(self, sha256: str) -> dict | None:
         path = self.publication_record_path(sha256)
@@ -119,20 +144,28 @@ class LocalArtifactStore:
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == sha256:
                 uri = target.resolve().as_uri()
-                self._write_publication_record(sha256, state="published", uri=uri)
+                self._record_publication_safely(sha256, state="published", uri=uri)
                 return PublicationResult("published", uri=uri)
             tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
             tmp.write_bytes(data)
             tmp.replace(target)
             if hashlib.sha256(target.read_bytes()).hexdigest() != sha256:
                 error = "destination hash mismatch"
-                self._write_publication_record(sha256, state="failed", errors=[error])
+                queue_error = self._record_publication_safely(
+                    sha256, state="failed", errors=[error]
+                )
+                if queue_error is not None:
+                    error = f"{error}; {queue_error}"
                 return PublicationResult("failed", error=error)
             uri = target.resolve().as_uri()
-            self._write_publication_record(sha256, state="published", uri=uri)
+            self._record_publication_safely(sha256, state="published", uri=uri)
             return PublicationResult("published", uri=uri)
         except OSError as exc:
             error = str(exc)
             state = "queued" if not target.exists() else "failed"
-            self._write_publication_record(sha256, state=state, errors=[error])
+            queue_error = self._record_publication_safely(
+                sha256, state=state, errors=[error]
+            )
+            if queue_error is not None:
+                error = f"{error}; {queue_error}"
             return PublicationResult(state, error=error)
