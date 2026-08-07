@@ -16,6 +16,7 @@
 
 - Recorded, derived, synthesized, and missing claims must stay distinct; freshness is preserved per claim.
 - Claim class and freshness are orthogonal, coupled only by `missing ⟺ n/a` (design §3.2).
+- Matrix row subject kind is `sr` only (user ruling, 2026-08-07; design §7.3). Task status belongs to the brief and decisions to the timeline.
 - Freshness is content-based, never mtime-based.
 - Browser/PIF code must not duplicate query, freshness, or provenance logic — extend `system-context-tools.ts`, never fork a parallel client.
 - The subprocess shim is shared: `trace-cli.ts` and `system-cli.ts` both use one extracted `cli-runner.ts` helper. Refactoring `trace-cli.ts` onto it is explicitly in scope (user decision, 2026-08-07) and is the one sanctioned exception to the no-unrelated-changes constraint below. Its existing tests must stay green and unmodified in behavior.

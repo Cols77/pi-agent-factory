@@ -305,7 +305,7 @@ Command registration is an explicit implementation step with its own test, not a
 
 ```jsonc
 {
-  "subject": { "kind": "sr|task|validation|decision", "ref": "..." },
+  "subject": { "kind": "sr", "ref": "..." },
   "status": "passed|failed|error|blocked|never-run",
   "evidence": ["..."],
   "freshness": { "state": "fresh|stale|degraded|n/a", "...": "..." },
@@ -313,7 +313,9 @@ Command registration is an explicit implementation step with its own test, not a
 }
 ```
 
-`status` carries the recorded outcome only. Staleness and absence live on the `freshness` object, not in the status enum — the previous shape had `stale` and `missing` in both places, which let one row assert two different things about the same fact.
+`status` carries the recorded outcome only. Staleness and absence live on the `freshness` object, not in the status enum — an earlier shape had `stale` and `missing` in both places, which let one row assert two different things about the same fact.
+
+**Subject kind is `sr` only** (user ruling, 2026-08-07). An earlier draft allowed `sr|task|validation|decision`, but the status vocabulary above describes validation outcomes and nothing else: a task is `todo`/`doing`/`done` and a decision is `approve`/`reject`, and neither maps onto `passed|failed|error|blocked|never-run` without inventing a correspondence. Inventing one would violate the no-guessing rule this document exists to enforce. This is a **validation** matrix, as §1 names it. Task status is already carried by the brief (§4.1) and decisions are already carried by the timeline (§4.3); emitting them here would duplicate those surfaces under a vocabulary that does not fit them.
 
 ### 7.4 Timeline event shape
 
