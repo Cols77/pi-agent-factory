@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/system_bundle.schema.json",
+  "title": "System navigator declared bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "label", "members"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "label": {"type": "string", "minLength": 1},
+    "members": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

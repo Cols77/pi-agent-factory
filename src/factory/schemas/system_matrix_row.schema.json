@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/system_matrix_row.schema.json",
+  "title": "System navigator validation matrix row",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["subject", "status", "evidence", "freshness", "summary"],
+  "properties": {
+    "subject": {"$ref": "#/$defs/scopeRef"},
+    "status": {"enum": ["passed", "failed", "error", "blocked", "never-run"]},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "freshness": {"$ref": "#/$defs/freshness"},
+    "summary": {"type": "string"}
+  },
+  "$defs": {
+    "scopeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["sr", "task", "validation", "decision"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "freshnessDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expected", "actual"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "expected": {"type": ["string", "null"]},
+        "actual": {"type": ["string", "null"]}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "dependencies"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
+        "reason": {"type": ["string", "null"]},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/freshnessDependency"}}
+      }
+    }
+  }
+}

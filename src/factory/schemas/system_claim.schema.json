@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/system_claim.schema.json",
+  "title": "System navigator claim",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "text", "citations", "spans", "freshness"],
+  "properties": {
+    "kind": {"enum": ["recorded", "derived", "synthesized", "missing"]},
+    "text": {"type": "string"},
+    "citations": {"type": "array", "items": {"$ref": "#/$defs/citation"}},
+    "spans": {"type": "array", "items": {"$ref": "#/$defs/span"}},
+    "freshness": {"$ref": "#/$defs/freshness"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]},
+      "then": {"properties": {"freshness": {"properties": {"state": {"const": "n/a"}}}}}
+    },
+    {
+      "if": {
+        "not": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]}
+      },
+      "then": {
+        "properties": {"freshness": {"properties": {"state": {"not": {"const": "n/a"}}}}}
+      }
+    },
+    {
+      "if": {
+        "not": {"properties": {"kind": {"const": "synthesized"}}, "required": ["kind"]}
+      },
+      "then": {"properties": {"spans": {"maxItems": 0}}}
+    }
+  ],
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "anchor"],
+      "properties": {
+        "kind": {
+          "enum": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle"]
+        },
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "anchor": {"type": ["string", "null"]}
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "citation_index"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "citation_index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "freshnessDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expected", "actual"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "expected": {"type": ["string", "null"]},
+        "actual": {"type": ["string", "null"]}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "dependencies"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
+        "reason": {"type": ["string", "null"]},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/freshnessDependency"}}
+      }
+    }
+  }
+}

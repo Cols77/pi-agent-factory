@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/system_timeline_event.schema.json",
+  "title": "System navigator decision timeline event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["at", "sequence", "actor", "action", "subject", "citation", "freshness"],
+  "properties": {
+    "at": {"type": ["string", "null"], "format": "date-time"},
+    "sequence": {"type": ["integer", "null"], "minimum": 0},
+    "actor": {
+      "enum": ["human", "dev", "review", "validation", "orchestrator", "unknown", "not-recorded"]
+    },
+    "action": {
+      "enum": ["approved", "rejected", "validated", "repaired", "published", "stopped", "not-recorded"]
+    },
+    "subject": {"$ref": "#/$defs/scopeRef"},
+    "citation": {"$ref": "#/$defs/citation"},
+    "freshness": {"$ref": "#/$defs/freshness"}
+  },
+  "anyOf": [
+    {"properties": {"at": {"type": "string"}}, "required": ["at"]},
+    {"properties": {"sequence": {"type": "integer"}}, "required": ["sequence"]}
+  ],
+  "$defs": {
+    "scopeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["task", "sr", "run", "manifest"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "anchor"],
+      "properties": {
+        "kind": {
+          "enum": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle"]
+        },
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "anchor": {"type": ["string", "null"]}
+      }
+    },
+    "freshnessDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expected", "actual"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "expected": {"type": ["string", "null"]},
+        "actual": {"type": ["string", "null"]}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "dependencies"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
+        "reason": {"type": ["string", "null"]},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/freshnessDependency"}}
+      }
+    }
+  }
+}
