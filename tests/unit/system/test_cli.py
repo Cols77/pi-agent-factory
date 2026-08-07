@@ -1,8 +1,7 @@
-"""Tests for factory.system.cli: brief/matrix/timeline/scope subcommands.
+"""Tests for factory.system.cli: brief/matrix/timeline/guide/scope subcommands.
 
-`guide` is registered in a later task and must not be stubbed here. JSON is
-emitted only on `--json`; structured errors go to stderr with a non-zero
-exit code.
+JSON is emitted only on `--json`; structured errors go to stderr with a
+non-zero exit code.
 """
 from __future__ import annotations
 
@@ -199,10 +198,48 @@ def test_error_output_is_structured_json_even_without_json_flag(tmp_path, capsys
     assert "error" in parsed
 
 
-def test_no_guide_subcommand_registered(tmp_path, capsys):
-    # guide is Task 5's job; timeline is this task's and is registered above.
-    with pytest.raises(SystemExit):
-        main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path)])
+def test_guide_json_flag_prints_valid_json(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001", statement="When X happens, the system shall Y.")
+    rc = main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["scope"]["ref"] == "sr:SR-001"
+    assert len(payload["sections"]) == 4
+
+
+def test_guide_without_json_flag_prints_human_readable_text(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001", statement="When X happens, the system shall Y.")
+    rc = main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
+    assert "sr:SR-001" in out
+
+
+def test_guide_without_export_flag_writes_nothing(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    before = {p for p in tmp_path.rglob("*") if p.is_file()}
+    rc = main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path), "--json"])
+    after = {p for p in tmp_path.rglob("*") if p.is_file()}
+    assert rc == 0
+    assert before == after
+
+
+def test_guide_with_export_flag_writes_the_requested_file(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    dest = tmp_path / "out" / "guide.json"
+    rc = main(
+        [
+            "guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path), "--json",
+            "--export", str(dest),
+        ]
+    )
+    assert rc == 0
+    assert dest.is_file()
+    exported = json.loads(dest.read_text(encoding="utf-8"))
+    assert exported["artifact"] == "system_guide_export"
 
 
 def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):

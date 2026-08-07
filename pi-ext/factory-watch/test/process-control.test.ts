@@ -1,6 +1,12 @@
 // test/process-control.test.ts
 import { describe, expect, test } from "vitest";
-import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "../src/process-control.js";
+import {
+  buildListCommand,
+  buildListJsonCommand,
+  buildRunCommand,
+  buildSystemNavigatorUrl,
+  buildWindowsKillArgs,
+} from "../src/process-control.js";
 
 describe("buildRunCommand", () => {
   test("builds the orchestrator invocation with the given provider/model", () => {
@@ -56,5 +62,20 @@ describe("buildListJsonCommand", () => {
     const cmd = buildListJsonCommand();
     expect(cmd.bin).toBe("uv");
     expect(cmd.args).toEqual(["run", "python", "-m", "factory.orchestrator", "list", "--json"]);
+  });
+});
+
+describe("buildSystemNavigatorUrl", () => {
+  test("targets the /system route on the given server origin", () => {
+    expect(buildSystemNavigatorUrl("http://127.0.0.1:54321")).toBe("http://127.0.0.1:54321/system");
+  });
+
+  test("always lands on /system regardless of the base URL's own path or query", () => {
+    expect(buildSystemNavigatorUrl("http://127.0.0.1:54321/?task=T-042&run=run-7")).toBe(
+      "http://127.0.0.1:54321/system",
+    );
+    expect(buildSystemNavigatorUrl("http://127.0.0.1:54321/some/other/path")).toBe(
+      "http://127.0.0.1:54321/system",
+    );
   });
 });

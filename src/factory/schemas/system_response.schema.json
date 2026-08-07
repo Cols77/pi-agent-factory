@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factory.local/schemas/system_response.schema.json",
   "title": "System navigator response envelope",
-  "description": "Design SS7.1 top-level shape. Task 3 adds `timeline`; Task 5 adds `guide` -- this version defines `scope`, `brief`, `matrix`, `timeline`, and `freshness`.",
+  "description": "Design SS7.1 composed projection shape: the browser assembles this from the separate brief/matrix/timeline/guide calls -- no single CLI invocation emits it. This version defines `scope`, `brief`, `matrix`, `timeline`, and `guide`. A top-level `freshness` field previously appeared here, but no producer (CLI subcommand or browser composition) ever emitted it -- only test fixtures populated it, which the design SS7.1 amendment (commit 2b771a8) calls out as fiction that must be dropped rather than carried. It was removed rather than given an invented producer: computing an aggregate freshness client-side would be browser-side freshness logic, which design section 13 rules out as a non-goal.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scope", "brief", "matrix", "timeline", "freshness"],
+  "required": ["scope", "brief", "matrix", "timeline", "guide"],
   "properties": {
     "scope": {"$ref": "#/$defs/topScopeRef"},
     "brief": {
@@ -38,13 +38,14 @@
         "degraded_reasons": {"type": "array", "items": {"type": "string"}}
       }
     },
-    "freshness": {
+    "guide": {
+      "description": "Matches `SystemGuide` (design SS5.3): a scope plus an ordered list of claim sections. Each section is a full claim -- either synthesized prose with verified verbatim spans (when every supporting dependency is fresh) or recorded bullets (design SS4.4's collapse predicate).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "details"],
+      "required": ["scope", "sections"],
       "properties": {
-        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
-        "details": {"type": "array", "items": {"type": "string"}}
+        "scope": {"$ref": "#/$defs/topScopeRef"},
+        "sections": {"type": "array", "items": {"$ref": "#/$defs/claim"}}
       }
     }
   },

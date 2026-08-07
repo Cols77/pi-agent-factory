@@ -1,11 +1,13 @@
-"""`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, and `scope`.
-
-`guide` (Task 5) is registered by a later task -- it is not stubbed here
-(design SS5.1).
+"""`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, `guide`, and
+`scope`.
 
 JSON is emitted on stdout only when `--json` is passed; a human-readable
 rendering is printed otherwise. Errors always go to stderr as a structured
 JSON object, with a non-zero exit code, regardless of `--json`.
+
+`guide` additionally accepts `--export <path>`, the single write path this
+package has (design SS4.5). Without it, the guide is computed and printed,
+never written -- guides are otherwise ephemeral.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from factory.system.guide import export_guide
 from factory.system.models import to_dict
 from factory.system.queries import (
     ScopeError,
@@ -21,6 +24,7 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_guide,
     query_matrix,
     query_timeline,
 )
@@ -43,6 +47,14 @@ def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
 def cmd_timeline(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_timeline(repo_root, scope)
+
+
+def cmd_guide(repo_root: Path, scope_raw: str, export_raw: str | None) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    result = query_guide(repo_root, scope)
+    if export_raw is not None:
+        export_guide(repo_root, scope, Path(export_raw))
+    return result
 
 
 def cmd_scope(repo_root: Path) -> dict:
@@ -89,6 +101,15 @@ def _render_timeline(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_guide(result: dict) -> str:
+    lines = [f"scope: {result['scope']['ref']}"]
+    for section in result["sections"]:
+        lines.append(f"  [{section['kind']}] ({section['freshness']['state']})")
+        for line in section["text"].split("\n"):
+            lines.append(f"    {line}")
+    return "\n".join(lines)
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -116,6 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     p_timeline = sub.add_parser("timeline", parents=[common])
     p_timeline.add_argument("--scope", required=True)
 
+    p_guide = sub.add_parser("guide", parents=[common])
+    p_guide.add_argument("--scope", required=True)
+    p_guide.add_argument("--export", default=None)
+
     sub.add_parser("scope", parents=[common])
 
     args = parser.parse_args(argv)
@@ -130,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "timeline":
             result = cmd_timeline(args.repo_root, args.scope)
             rendered = _render_timeline(result)
+        elif args.cmd == "guide":
+            result = cmd_guide(args.repo_root, args.scope, args.export)
+            rendered = _render_guide(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

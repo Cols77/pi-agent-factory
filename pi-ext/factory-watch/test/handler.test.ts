@@ -137,7 +137,11 @@ describe("factory-watch commands", () => {
     expect(commands.has("plan")).toBe(true);
     expect(commands.has("review-plans")).toBe(true);
     expect(commands.has("system")).toBe(true);
-    expect(commands.get("system")).toBe(commands.get("review-plans"));
+  });
+
+  test("system is repointed: it is a distinct command from review-plans, not an alias (design SS6.4, user ruling 2026-08-08)", () => {
+    const { commands } = capture();
+    expect(commands.get("system")).not.toBe(commands.get("review-plans"));
   });
 
   test("/factory notifies an error and does nothing else when no model is active", async () => {
@@ -470,53 +474,38 @@ describe("factory-watch commands", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no docs server running"), "info");
   });
 
-  test("/system opens the docs server with focused task/run query params when browser is selected", async () => {
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: JSON.stringify({
-        checkpoint: { task_id: "T-042", run_id: "run-7" },
-        assessment: { state: "resumable", reasons: [], actions: [] },
-      }),
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
+  test("/system opens directly on the /system route, with no surface picker (design SS6.4, repointed)", async () => {
     const { commands } = capture();
     const ctx = fakeCtx({ cwd: REPO_ROOT });
-    vi.mocked(ctx.ui.select).mockResolvedValueOnce("Browser");
 
     await commands.get("system")!.handler("", ctx);
 
+    // Unlike /review-plans, /system never asks "Open docs in Browser/Terminal".
+    expect(ctx.ui.select).not.toHaveBeenCalled();
     expect(openInBrowser).toHaveBeenCalledTimes(1);
     const [url] = vi.mocked(openInBrowser).mock.calls[0]!;
-    expect(url).toContain("task=T-042");
-    expect(url).toContain("run=run-7");
-    expect(url.indexOf("task=T-042")).toBeLessThan(url.indexOf("run=run-7"));
+    expect(new URL(url).pathname).toBe("/system");
+    // No checkpoint-focus query params -- a bundle/SR scope has no
+    // checkpoint to focus on; the navigator opens on its own scope picker.
+    expect(new URL(url).search).toBe("");
   });
 
-  test("/system browser fallback stays bounded when browser launch fails", async () => {
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: JSON.stringify({
-        checkpoint: { task_id: "T-042", run_id: "run-7" },
-        assessment: { state: "resumable", reasons: [], actions: [] },
-      }),
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
+  test("/system reports an error and does not fall back to a terminal view when the browser fails to open", async () => {
     vi.mocked(openInBrowser).mockImplementationOnce(() => {
       throw new Error("open failed");
     });
     const { commands } = capture();
     const ctx = fakeCtx({ cwd: REPO_ROOT });
-    vi.mocked(ctx.ui.select)
-      .mockResolvedValueOnce("Browser")
-      .mockResolvedValueOnce(undefined);
 
     await commands.get("system")!.handler("", ctx);
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("browser docs failed"),
-      "warning",
+      expect.stringContaining("system navigator failed to open"),
+      "error",
     );
-    expect(ctx.ui.select).toHaveBeenCalledTimes(2);
+    // No ScrollableMarkdown/terminal fallback exists for the navigator.
+    expect(ctx.ui.select).not.toHaveBeenCalled();
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
   });
 
   test("/factory-watch browser preference opens checkpoint-focused docs without volatile status", async () => {

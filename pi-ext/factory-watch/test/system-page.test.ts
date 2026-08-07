@@ -65,6 +65,26 @@ const TIMELINE = {
   degraded_reasons: ["1 event(s) do not have a recorded actor"],
 };
 
+const GUIDE = {
+  scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" },
+  sections: [
+    {
+      kind: "synthesized",
+      text: 'This guide covers the declared bundle "Evidence lifecycle".',
+      citations: [{ kind: "bundle", path: "bundles/evidence-lifecycle.json", sha256: "a".repeat(64), anchor: null }],
+      spans: [{ text: "Evidence lifecycle", citation_index: 0 }],
+      freshness: { state: "fresh", reason: null, dependencies: [] },
+    },
+    {
+      kind: "recorded",
+      text: "- task:T-001",
+      citations: [],
+      spans: [],
+      freshness: { state: "degraded", reason: null, dependencies: [] },
+    },
+  ],
+};
+
 function mockSystemCli(): void {
   spawnSync.mockImplementation((_bin: string, args: string[]) => {
     const sub = args[4];
@@ -72,6 +92,7 @@ function mockSystemCli(): void {
     if (sub === "brief") return { status: 0, stdout: JSON.stringify(BRIEF), stderr: "" };
     if (sub === "matrix") return { status: 0, stdout: JSON.stringify(MATRIX), stderr: "" };
     if (sub === "timeline") return { status: 0, stdout: JSON.stringify(TIMELINE), stderr: "" };
+    if (sub === "guide") return { status: 0, stdout: JSON.stringify(GUIDE), stderr: "" };
     return { status: 1, stdout: "", stderr: `unexpected sub: ${String(sub)}` };
   });
 }
@@ -95,8 +116,12 @@ describe("renderSystemPageHtml", () => {
     expect(html).not.toMatch(/href="https?:/);
   });
 
-  test("offers a scope picker and brief/matrix/timeline tabs", () => {
-    for (const id of ["picker", "scopeList", "scopeErrors", "content", "tabBrief", "tabMatrix", "tabTimeline", "panelBrief", "panelMatrix", "panelTimeline"]) {
+  test("offers a scope picker and brief/matrix/timeline/guide tabs", () => {
+    for (const id of [
+      "picker", "scopeList", "scopeErrors", "content",
+      "tabBrief", "tabMatrix", "tabTimeline", "tabGuide",
+      "panelBrief", "panelMatrix", "panelTimeline", "panelGuide",
+    ]) {
       expect(html).toContain(`id="${id}"`);
     }
   });
@@ -106,6 +131,17 @@ describe("renderSystemPageHtml", () => {
     expect(html).toContain("/api/system/brief?scope=");
     expect(html).toContain("/api/system/matrix?scope=");
     expect(html).toContain("/api/system/timeline?scope=");
+    expect(html).toContain("/api/system/guide?scope=");
+    // The browser never has an export affordance -- export is CLI-only,
+    // explicit, user-initiated (design SS4.5).
+    expect(html).not.toContain("--export");
+  });
+
+  test("the guide tab falls back to a plain notice, never synthesizes prose client-side, if its own fetch fails", () => {
+    expect(html).toContain("renderGuideFallback");
+    // A failed guide fetch must not be folded into the shared failure gate
+    // that hides brief/matrix/timeline too -- only these three participate.
+    expect(html).toContain("[briefRes, matrixRes, timelineRes].find((r) => !r.ok)");
   });
 
   test("renders every claim kind distinctly, from the payload's own kind field", () => {
@@ -183,7 +219,7 @@ describe("GET /system and /api/system/*", () => {
     expect(body).toEqual(SCOPE_LIST);
   });
 
-  test("serves brief/matrix/timeline JSON for a scope", async () => {
+  test("serves brief/matrix/timeline/guide JSON for a scope", async () => {
     mockSystemCli();
     const server = await ensureDocsServer(repo());
     const brief = await (await fetch(`${server.url}/api/system/brief?scope=bundle:evidence-lifecycle`)).json();
@@ -192,6 +228,24 @@ describe("GET /system and /api/system/*", () => {
     expect(matrix).toEqual(MATRIX);
     const timeline = await (await fetch(`${server.url}/api/system/timeline?scope=bundle:evidence-lifecycle`)).json();
     expect(timeline).toEqual(TIMELINE);
+    const guide = await (await fetch(`${server.url}/api/system/guide?scope=bundle:evidence-lifecycle`)).json();
+    expect(guide).toEqual(GUIDE);
+  });
+
+  test("reports a Python guide failure as json, distinctly from a hard 404", async () => {
+    spawnSync.mockImplementation((_bin: string, args: string[]) => {
+      const sub = args[4];
+      if (sub === "scope") return { status: 0, stdout: JSON.stringify(SCOPE_LIST), stderr: "" };
+      if (sub === "guide") {
+        return { status: 1, stdout: "", stderr: JSON.stringify({ error: "synthesis failed", kind: "RuntimeError" }) };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected sub: ${String(sub)}` };
+    });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/guide?scope=bundle:evidence-lifecycle`);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toContain("synthesis failed");
   });
 
   test("reports a Python CLI failure as json instead of crashing", async () => {
@@ -211,7 +265,7 @@ describe("GET /system and /api/system/*", () => {
     mockSystemCli();
     const server = await ensureDocsServer(repo());
     expect((await fetch(`${server.url}/api/system/../secret`)).status).toBe(404);
-    expect((await fetch(`${server.url}/api/system/guide?scope=bundle:x`)).status).toBe(404);
+    expect((await fetch(`${server.url}/api/system/export`)).status).toBe(404);
     expect((await fetch(`${server.url}/system/../../etc/passwd`)).status).toBe(404);
   });
 

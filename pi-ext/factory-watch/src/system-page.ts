@@ -1,7 +1,11 @@
-// The `/system` navigator shell: scope picker plus brief/matrix/timeline
-// tabs. This file owns every bit of navigator UI (design section 6, task 4
-// brief) -- docs-server.ts and index.ts get wiring only, never markup or
-// rendering rules.
+// The `/system` navigator shell: scope picker plus brief/matrix/timeline/
+// guide tabs. This file owns every bit of navigator UI (design section 6) --
+// docs-server.ts and index.ts get wiring only, never markup or rendering
+// rules. The guide tab renders exactly what Python already decided
+// (synthesized prose with verified verbatim spans, or recorded bullets --
+// design section 4.4's collapse predicate) and falls back to a plain notice
+// pointing at the other three tabs if the guide fetch itself fails (design
+// section 8) -- it never guesses at freshness or assembles prose here.
 //
 // The one rule this whole file exists to obey: Python computes, this only
 // renders. No freshness, ordering, or provenance logic lives here -- every
@@ -68,10 +72,12 @@ export function renderSystemPageHtml(): string {
         <button id="tabBrief" class="tab" aria-selected="true">Brief</button>
         <button id="tabMatrix" class="tab" aria-selected="false">Matrix</button>
         <button id="tabTimeline" class="tab" aria-selected="false">Timeline</button>
+        <button id="tabGuide" class="tab" aria-selected="false">Guide</button>
       </div>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
       <div id="panelTimeline" class="panel" hidden></div>
+      <div id="panelGuide" class="panel" hidden></div>
     </div>
   </main>
 <script>
@@ -264,6 +270,39 @@ export function renderSystemPageHtml(): string {
     timeline.events.forEach((event) => panel.appendChild(renderTimelineEvent(event)));
   }
 
+  // A guide section is exactly a SystemClaim -- synthesized prose with
+  // verbatim spans (when every supporting dependency is fresh) or recorded
+  // bullets otherwise (design section 4.4). Reuses renderClaim verbatim:
+  // there is no second rendering rule for a guide section vs. a brief claim.
+  function renderGuide(guide) {
+    const panel = document.getElementById('panelGuide');
+    clear(panel);
+    if (!guide.sections.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.appendChild(document.createTextNode('No guide sections recorded for this scope.'));
+      panel.appendChild(empty);
+      return;
+    }
+    guide.sections.forEach((section) => panel.appendChild(renderClaim(section)));
+  }
+
+  // design section 8: "If synthesis fails, the browser falls back to the
+  // brief + matrix + timeline views with no prose guide." Brief/matrix/
+  // timeline are unaffected by a guide failure (loadScope only fails the
+  // whole scope when brief/matrix/timeline themselves fail) -- this just
+  // tells the reader where to look instead of leaving the tab blank.
+  function renderGuideFallback() {
+    const panel = document.getElementById('panelGuide');
+    clear(panel);
+    const note = document.createElement('p');
+    note.className = 'empty';
+    note.appendChild(document.createTextNode(
+      'Guide synthesis is unavailable for this scope. See the Brief, Matrix, and Timeline tabs for the same recorded facts.'
+    ));
+    panel.appendChild(note);
+  }
+
   function scopeHref(ref) {
     return '/system?scope=' + encodeURIComponent(ref);
   }
@@ -312,7 +351,7 @@ export function renderSystemPageHtml(): string {
   }
 
   function showTab(name) {
-    ['Brief', 'Matrix', 'Timeline'].forEach((tab) => {
+    ['Brief', 'Matrix', 'Timeline', 'Guide'].forEach((tab) => {
       document.getElementById('tab' + tab).setAttribute('aria-selected', String(tab === name));
       document.getElementById('panel' + tab).hidden = tab !== name;
     });
@@ -320,13 +359,18 @@ export function renderSystemPageHtml(): string {
   document.getElementById('tabBrief').onclick = () => showTab('Brief');
   document.getElementById('tabMatrix').onclick = () => showTab('Matrix');
   document.getElementById('tabTimeline').onclick = () => showTab('Timeline');
+  document.getElementById('tabGuide').onclick = () => showTab('Guide');
 
   async function loadScope(scopeRef) {
     const scopeParam = encodeURIComponent(scopeRef);
-    const [briefRes, matrixRes, timelineRes] = await Promise.all([
+    // The guide fetch is intentionally not in the failure gate below: a
+    // failed/unavailable guide degrades only its own tab (design section 8),
+    // it must never take down the brief/matrix/timeline views too.
+    const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
       fetch('/api/system/brief?scope=' + scopeParam),
       fetch('/api/system/matrix?scope=' + scopeParam),
       fetch('/api/system/timeline?scope=' + scopeParam),
+      fetch('/api/system/guide?scope=' + scopeParam),
     ]);
     const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
     if (failed) {
@@ -345,6 +389,11 @@ export function renderSystemPageHtml(): string {
     renderBrief(brief);
     renderMatrix(matrix);
     renderTimeline(timeline);
+    if (guideRes.ok) {
+      renderGuide(await guideRes.json());
+    } else {
+      renderGuideFallback();
+    }
   }
 
   await loadScopes();

@@ -52,7 +52,7 @@ import pytest
 
 from factory.evidence.manifests import write_run_manifest
 from factory.system.models import SystemScopeRef
-from factory.system.queries import query_brief, query_matrix, query_timeline
+from factory.system.queries import query_brief, query_guide, query_matrix, query_timeline
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 pytestmark = pytest.mark.integration
@@ -163,7 +163,7 @@ def _envelope(repo_root: Path, scope: SystemScopeRef) -> dict:
         "brief": query_brief(repo_root, scope),
         "matrix": query_matrix(repo_root, scope),
         "timeline": query_timeline(repo_root, scope),
-        "freshness": {"state": "fresh", "details": []},
+        "guide": query_guide(repo_root, scope),
     }
 
 

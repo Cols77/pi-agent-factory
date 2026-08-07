@@ -136,6 +136,16 @@ export interface SystemScopeList {
   errors: BundleLoadError[];
 }
 
+// Matches `SystemGuide` (design SS5.3): a scope plus an ordered list of
+// claim sections. Each section is a full `SystemClaim` -- either
+// synthesized prose with verified verbatim spans, or recorded bullets
+// (design SS4.4's collapse predicate). This file never decides which; it
+// only renders whichever `kind` Python already chose.
+export interface SystemGuide {
+  scope: SystemScopeRef;
+  sections: SystemClaim[];
+}
+
 // Mirrors trace-cli.ts:75's buildTraceCommand exactly -- there is no
 // `factory` console script in this repo (design SS5.1, SS2 item 12); every
 // subpackage is invoked as `uv run python -m factory.<x>`.
@@ -161,4 +171,9 @@ export function loadSystemMatrix(cwd: string, scope: string): CliResult<SystemMa
 export function loadSystemTimeline(cwd: string, scope: string): CliResult<SystemTimeline> {
   const cmd = buildSystemCommand(["timeline", "--scope", scope, "--json"]);
   return runJsonCli<SystemTimeline>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemGuide(cwd: string, scope: string): CliResult<SystemGuide> {
+  const cmd = buildSystemCommand(["guide", "--scope", scope, "--json"]);
+  return runJsonCli<SystemGuide>(cwd, cmd.bin, cmd.args);
 }

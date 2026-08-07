@@ -20,6 +20,7 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_guide,
     query_matrix,
     query_timeline,
 )
@@ -581,7 +582,7 @@ def test_full_envelope_validates_against_response_schema(tmp_path):
         "brief": query_brief(tmp_path, scope),
         "matrix": query_matrix(tmp_path, scope),
         "timeline": query_timeline(tmp_path, scope),
-        "freshness": {"state": "fresh", "details": []},
+        "guide": query_guide(tmp_path, scope),
     }
 
     assert validate(envelope, RESPONSE_SCHEMA) == []
@@ -617,7 +618,7 @@ def test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope(tmp_path
         "brief": query_brief(tmp_path, scope),
         "matrix": matrix,
         "timeline": query_timeline(tmp_path, scope),
-        "freshness": {"state": "fresh", "details": []},
+        "guide": query_guide(tmp_path, scope),
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []
 
@@ -647,7 +648,7 @@ def test_envelope_top_level_scope_kind_enum_matches_bundle_and_sr_only(tmp_path)
         "brief": query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
         "matrix": query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
         "timeline": query_timeline(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
-        "freshness": {"state": "fresh", "details": []},
+        "guide": query_guide(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []
 
@@ -675,7 +676,7 @@ def test_timeline_event_rejected_by_event_schema_is_also_rejected_by_envelope(tm
         "brief": query_brief(tmp_path, scope),
         "matrix": query_matrix(tmp_path, scope),
         "timeline": timeline,
-        "freshness": {"state": "fresh", "details": []},
+        "guide": query_guide(tmp_path, scope),
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []
 

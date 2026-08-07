@@ -6,6 +6,7 @@ vi.mock("node:child_process", () => ({ spawnSync }));
 import {
   buildSystemCommand,
   loadSystemBriefing,
+  loadSystemGuide,
   loadSystemMatrix,
   loadSystemScopes,
   loadSystemTimeline,
@@ -39,6 +40,26 @@ const MATRIX = {
       evidence: ["validation/validation-report.json"],
       freshness: { state: "fresh", reason: null, dependencies: [] },
       summary: "metric=x assert=y value=1",
+    },
+  ],
+};
+
+const GUIDE = {
+  scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" },
+  sections: [
+    {
+      kind: "synthesized",
+      text: 'This guide covers the declared bundle "Evidence lifecycle".',
+      citations: [{ kind: "bundle", path: "bundles/evidence-lifecycle.json", sha256: "a".repeat(64), anchor: null }],
+      spans: [{ text: "Evidence lifecycle", citation_index: 0 }],
+      freshness: { state: "fresh", reason: null, dependencies: [] },
+    },
+    {
+      kind: "recorded",
+      text: "- task:T-001",
+      citations: [],
+      spans: [],
+      freshness: { state: "degraded", reason: null, dependencies: [] },
     },
   ],
 };
@@ -158,5 +179,36 @@ describe("loadSystemTimeline", () => {
       ["run", "python", "-m", "factory.system", "timeline", "--scope", "sr:SR-001", "--json"],
       expect.objectContaining({ cwd: "/repo" }),
     );
+  });
+});
+
+describe("loadSystemGuide", () => {
+  test("parses guide sections, whichever kind Python chose for each", () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(GUIDE), stderr: "" });
+    const result = loadSystemGuide("/repo", "bundle:evidence-lifecycle");
+    expect(result).toEqual({ ok: true, value: GUIDE });
+  });
+
+  test("invokes guide --scope <ref> --json (never --export -- that is CLI-only, never invoked from the browser)", () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: "{}", stderr: "" });
+    loadSystemGuide("/repo", "bundle:evidence-lifecycle");
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      ["run", "python", "-m", "factory.system", "guide", "--scope", "bundle:evidence-lifecycle", "--json"],
+      expect.objectContaining({ cwd: "/repo" }),
+    );
+  });
+
+  test("surfaces the structured Python error on a bad scope ref", () => {
+    spawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: JSON.stringify({ error: "invalid scope ref: 'task:T-001' (expected bundle:<id> or sr:<id>)", kind: "ScopeKindError" }),
+    });
+    const result = loadSystemGuide("/repo", "task:T-001");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("invalid scope ref");
+    }
   });
 });

@@ -8,6 +8,7 @@ import {
 import { loadTraceGraph } from "./trace-cli.js";
 import {
   loadSystemBriefing,
+  loadSystemGuide,
   loadSystemMatrix,
   loadSystemScopes,
   loadSystemTimeline,
@@ -24,6 +25,7 @@ interface Dependencies {
   briefing: typeof loadSystemBriefing;
   matrix: typeof loadSystemMatrix;
   timeline: typeof loadSystemTimeline;
+  guide: typeof loadSystemGuide;
 }
 
 const defaultDependencies: Dependencies = {
@@ -35,6 +37,7 @@ const defaultDependencies: Dependencies = {
   briefing: loadSystemBriefing,
   matrix: loadSystemMatrix,
   timeline: loadSystemTimeline,
+  guide: loadSystemGuide,
 };
 
 const MAX_OUTPUT_BYTES = 50 * 1024;
@@ -261,6 +264,29 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     },
   };
 
+  const systemGuide = {
+    name: "system_guide",
+    label: "System navigator: grounded guide",
+    description:
+      "Return the Python-computed grounded prose guide for a declared scope. Each section is " +
+      "either synthesized prose with verbatim quoted spans (only when every supporting " +
+      "dependency is fresh) or recorded bullets otherwise -- this tool renders whichever kind " +
+      "Python already chose; it never synthesizes, reorders, or re-derives freshness itself.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. bundle:evidence-lifecycle or sr:SR-001" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.guide(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
   return [
     systemContext,
     implementationHistory,
@@ -270,6 +296,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     systemBriefing,
     systemMatrix,
     systemTimeline,
+    systemGuide,
   ];
 }
 

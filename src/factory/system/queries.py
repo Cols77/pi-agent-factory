@@ -181,6 +181,22 @@ def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identi
     if not path.is_file():
         claim = _missing(member.ref, "bundle member does not exist in repo")
         return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+    # Non-readmission rule (design SS4.5): an exported guide is an output
+    # artifact, never evidence. `path.is_file()` above cannot tell an
+    # exported guide apart from a real spec/plan file on its own, so this
+    # explicitly refuses to cite one -- without it, a synthesized guide could
+    # become a "recorded" spec/plan member of a later bundle, and the whole
+    # claim-class discipline would leak in one hop. Import is deferred
+    # (function-local) because `factory.system.guide` imports several
+    # `query_*` functions from this module at its own module level -- a
+    # module-level import here would be circular.
+    from factory.system import guide as _guide
+
+    if _guide.is_exported_guide(path):
+        claim = _missing(
+            member.ref, "cannot cite an exported guide as evidence (design SS4.5 non-readmission rule)"
+        )
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
     citation = SystemCitation(
         kind=CitationKind.TRACE,
         path=str(path),
@@ -906,3 +922,19 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     for req in register.load_register(_requirements_dir(repo_root)):
         scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes
+
+
+def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Thin entry point for the grounded guide (design SS4.4, SS5.1, Task 5).
+
+    All synthesis logic lives in `factory.system.guide` -- this only
+    delegates, mirroring `query_brief`/`query_matrix`/`query_timeline`'s
+    place in the CLI surface so `cli.py` can import all four `query_*`
+    functions from this one module. The import is deferred (function-local,
+    not module-level) because `factory.system.guide` itself imports
+    `query_brief`/`query_matrix`/`query_timeline` from this module -- a
+    module-level import here would be a circular import.
+    """
+    from factory.system import guide as _guide
+
+    return _guide.query_guide(repo_root, scope)

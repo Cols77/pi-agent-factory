@@ -17,6 +17,7 @@ import { loadTraceGraph } from "./trace-cli.js";
 import { renderDocsHtml } from "./docs-html.js";
 import {
   loadSystemBriefing,
+  loadSystemGuide,
   loadSystemMatrix,
   loadSystemScopes,
   loadSystemTimeline,
@@ -250,8 +251,8 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these four exact paths exist -- anything else (including
-  // `guide`, which is task 5's job) falls through to the 404 below.
+  // and only these five exact paths exist -- anything else falls through to
+  // the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
     if (!result.ok) {
@@ -284,6 +285,19 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   if (req.method === "GET" && url.pathname === "/api/system/timeline") {
     const result = loadSystemTimeline(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Read-only, computed per request -- the browser has no export affordance
+  // (design SS4.5: export is a CLI-only, explicit, user-initiated write;
+  // `loadSystemGuide` never passes `--export`).
+  if (req.method === "GET" && url.pathname === "/api/system/guide") {
+    const result = loadSystemGuide(cwd, url.searchParams.get("scope") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

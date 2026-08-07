@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { loadSystemBriefing, loadSystemScopes } from "../src/system-cli.js";
+import { loadSystemBriefing, loadSystemGuide, loadSystemScopes } from "../src/system-cli.js";
 
 // No child_process mock: this drives the real `uv run python -m factory.system`
 // against this repo, which is the only thing that proves the shim and the CLI
@@ -30,6 +30,15 @@ describe("system-cli against the real CLI", () => {
 
   test("brief --scope on a well-formed but nonexistent sr surfaces ScopeNotFoundError", () => {
     const result = loadSystemBriefing(REPO_ROOT, "sr:SR-DOES-NOT-EXIST");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("sr not found");
+      expect(result.error).toContain("ScopeNotFoundError");
+    }
+  }, 60_000);
+
+  test("guide --scope on a well-formed but nonexistent sr surfaces ScopeNotFoundError", () => {
+    const result = loadSystemGuide(REPO_ROOT, "sr:SR-DOES-NOT-EXIST");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("sr not found");

@@ -5,7 +5,13 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
-import { buildListCommand, buildListJsonCommand, buildRunCommand, buildWindowsKillArgs } from "./process-control.js";
+import {
+  buildListCommand,
+  buildListJsonCommand,
+  buildRunCommand,
+  buildSystemNavigatorUrl,
+  buildWindowsKillArgs,
+} from "./process-control.js";
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
@@ -81,12 +87,14 @@ function browserFocusUrl(cwd: string, baseUrl: string): string {
   return buildBrowserUrl(baseUrl, { taskId, runId });
 }
 
-// Shared by /system (docs browsing) and /factory-watch (run watching): open the
-// existing docs server (singleton, confined to ctx.cwd), focused on the current
-// checkpoint run-state. Throws on failure (e.g. a singleton root mismatch, or the
-// browser launcher throwing) so each caller can fall back to its own terminal
-// surface. Non-blocking by design: open the tab and return, so the session stays
-// usable while the docs stay open beside it.
+// Shared by /review-plans (docs browsing) and /factory-watch (run watching):
+// open the existing docs server (singleton, confined to ctx.cwd), focused on
+// the current checkpoint run-state. Throws on failure (e.g. a singleton root
+// mismatch, or the browser launcher throwing) so each caller can fall back
+// to its own terminal surface. Non-blocking by design: open the tab and
+// return, so the session stays usable while the docs stay open beside it.
+// `/system` (the navigator) does not use this: it has no checkpoint to
+// focus on and no terminal fallback (see the `system` command below).
 async function openDocsServerFocused(ctx: ExtCommandCtx, label: string): Promise<void> {
   const server = await ensureDocsServer(ctx.cwd);
   const focusedUrl = browserFocusUrl(ctx.cwd, server.url);
@@ -803,5 +811,39 @@ export default function factoryWatch(pi: PiApi): void {
     },
   };
   pi.registerCommand("review-plans", docsCommand);
-  pi.registerCommand("system", docsCommand);
+
+  // The `system` command is repointed (user ruling, 2026-08-08; design
+  // section 6.4): it now opens the docs browser directly on the `/system`
+  // route -- the navigator -- instead of aliasing the generic docs-browser
+  // command above. `/system` is still opt-in (this is an explicit command
+  // invocation, not the default browser landing page, and `ensureDocsServer`
+  // still serves "/" as the ordinary docs shell). Unlike /review-plans,
+  // there is no terminal-view equivalent for the navigator to fall back to,
+  // so this never prompts for a surface and never falls back to
+  // ScrollableMarkdown -- a browser-launch failure is reported and left
+  // there.
+  const systemCommand = {
+    description: "Open the system navigator (/system) directly in the browser (--stop to close)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const parsedArgs = parseReviewPlansArgs(args);
+
+      if (parsedArgs.stop) {
+        ctx.ui.notify(
+          stopDocsServer() ? "docs server stopped" : "no docs server running",
+          "info",
+        );
+        return;
+      }
+
+      try {
+        const server = await ensureDocsServer(ctx.cwd);
+        const url = buildSystemNavigatorUrl(server.url);
+        ctx.ui.notify(`system navigator open at ${url} (/system --stop to close)`, "info");
+        openInBrowser(url);
+      } catch (err) {
+        ctx.ui.notify(`system navigator failed to open: ${String(err)}`, "error");
+      }
+    },
+  };
+  pi.registerCommand("system", systemCommand);
 }

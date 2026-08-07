@@ -60,6 +60,21 @@ function dependencies(overrides: Record<string, unknown> = {}) {
         degraded_reasons: [],
       },
     }),
+    guide: () => ({
+      ok: true as const,
+      value: {
+        scope: { kind: "bundle" as const, ref: "bundle:evidence-lifecycle" },
+        sections: [
+          {
+            kind: "synthesized" as const,
+            text: 'This guide covers the declared bundle "Evidence lifecycle".',
+            citations: [],
+            spans: [{ text: "Evidence lifecycle", citation_index: 0 }],
+            freshness: { state: "fresh" as const, reason: null, dependencies: [] },
+          },
+        ],
+      },
+    }),
     ...overrides,
   };
 }
@@ -85,6 +100,7 @@ describe("system context tools", () => {
       "system_briefing",
       "system_matrix",
       "system_timeline",
+      "system_guide",
     ]);
   });
 
@@ -180,5 +196,24 @@ describe("system context tools", () => {
     const value = parsed(await execute(tools[7]!, { scope: "sr:SR-001" }));
     expect(value.degraded).toBe(true);
     expect(value.degraded_reasons).toHaveLength(1);
+  });
+
+  test("system_guide passes the Python-owned sections straight through, whichever kind each is", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[8]!, { scope: "bundle:evidence-lifecycle" }));
+    expect(value.sections[0]).toMatchObject({
+      kind: "synthesized",
+      spans: [{ text: "Evidence lifecycle", citation_index: 0 }],
+    });
+  });
+
+  test("system_guide on an unresolvable scope remains explicitly unknown", async () => {
+    const deps = dependencies({
+      guide: () => ({ ok: false as const, error: "invalid scope ref: 'task:T-001'" }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[8]!, { scope: "task:T-001" }));
+    expect(value.status).toBe("unknown");
+    expect(value.instruction).toContain("Do not infer");
   });
 });
