@@ -40,7 +40,7 @@ title: "{title}"
 status: {status}
 dod:
   - done
----
+{satisfies}---
 body
 """
 
@@ -84,10 +84,21 @@ def write_sr(
     return path
 
 
-def write_task(tasks_dir: Path, task_id: str, *, title: str = "Task title", status: str = "todo") -> Path:
+def write_task(
+    tasks_dir: Path,
+    task_id: str,
+    *,
+    title: str = "Task title",
+    status: str = "todo",
+    satisfies: list[str] | None = None,
+) -> Path:
     tasks_dir.mkdir(parents=True, exist_ok=True)
     path = tasks_dir / f"{task_id}-slug.md"
-    path.write_text(_TASK.format(id=task_id, title=title, status=status), encoding="utf-8")
+    satisfies_block = f"satisfies: {json.dumps(satisfies)}\n" if satisfies else ""
+    path.write_text(
+        _TASK.format(id=task_id, title=title, status=status, satisfies=satisfies_block),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -123,27 +134,58 @@ def write_corrupt_validation_report(repo_root: Path) -> Path:
     return path
 
 
-def write_decision_artifact(repo_root: Path, *, task_id: str = "T-001") -> Path:
-    """A signed-review decision record -- realistic repo scaffolding.
-
-    Not consumed by brief/matrix (that is Task 3's timeline); present so
-    query/CLI tests exercise a repo shape that includes one, without either
-    query choking on or misreading it.
+def write_decision_artifact(
+    repo_root: Path,
+    *,
+    task_id: str = "T-001",
+    run_id: str = "run-001",
+    sequence: int = 1,
+    reviewed_at: str | None = "2026-08-08T12:00:00Z",
+    decision: str = "approve",
+) -> Path:
+    """A signed-review decision record (design SS4.3) -- the archive shape
+    `factory.orchestrator.human_review.FileHumanReviewGate._archive` writes:
+    `evidence/runs/<run_id>/reviews/review-<sequence:03>.json`. This is
+    Task 3's timeline source; the filename's `<sequence>` counter is a
+    genuinely recorded ordering signal independent of `reviewed_at` (see
+    `FileHumanReviewGate._archive`'s own `sequence = 1; while ...:
+    sequence += 1` loop) -- never a guess.
     """
-    path = repo_root / "evidence" / "runs" / "run-001" / "reviews" / "review-001.json"
+    path = (
+        repo_root
+        / "evidence"
+        / "runs"
+        / run_id
+        / "reviews"
+        / f"review-{sequence:03d}.json"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
                 "version": 1,
-                "reviewed_at": "2026-08-08T12:00:00Z",
+                "reviewed_at": reviewed_at,
                 "task_id": task_id,
                 "start_commit": "abc123",
-                "decision": "approve",
+                "decision": decision,
                 "annotations": [],
                 "reviewed_files": [],
             }
         ),
         encoding="utf-8",
     )
+    return path
+
+
+def write_decision_artifact_raw(
+    repo_root: Path, *, run_id: str = "run-001", filename: str, payload: dict | str
+) -> Path:
+    """Write a decision-artifact file whose filename/content is fully caller
+    controlled -- for corrupt-JSON and non-numbered-filename edge cases that
+    `write_decision_artifact` cannot express.
+    """
+    path = repo_root / "evidence" / "runs" / run_id / "reviews" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    path.write_text(text, encoding="utf-8")
     return path

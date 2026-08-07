@@ -1,4 +1,4 @@
-"""System navigator query layer: brief, matrix, and scope listing.
+"""System navigator query layer: brief, matrix, timeline, and scope listing.
 
 Composes existing loaders -- never re-parses an artifact a loader already
 owns:
@@ -8,9 +8,15 @@ owns:
 - `factory.requirements.register` for SR content and binding, via the
   existing `SR-*.md` glob register (never a hardcoded path);
 - `factory.orchestrator.ledger` for task implementation status (the task
-  ledger, never plan checkbox state -- design SS3.4);
+  ledger, never plan checkbox state -- design SS3.4) and, for the timeline,
+  the `satisfies` link from task to SR;
 - `factory.trace.validation_status` for validation report outcomes and
   staleness.
+
+`query_timeline` reads signed review decision records directly (no existing
+loader covers that shape) -- see the comment above `_iter_decision_records`
+for exactly which artifacts back timeline events and why others were
+deliberately excluded rather than guessed at.
 
 A bundle member naming a spec/plan/task/SR that does not exist is resolved
 here (real existence, not the syntactic-only check Task 1 could do) and
@@ -24,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,12 +43,15 @@ from factory.system.models import (
     BundleDeclaration,
     ClaimClass,
     CitationKind,
+    DecisionTimelineEvent,
     Freshness,
     FreshnessState,
     MatrixStatus,
     SystemCitation,
     SystemClaim,
     SystemScopeRef,
+    TimelineAction,
+    TimelineActor,
     ValidationMatrixRow,
     to_dict,
 )
@@ -542,6 +552,191 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         }
 
     raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
+
+
+# ---------------------------------------------------------------------------
+# Decision timeline (design SS4.3, SS7.4)
+#
+# The only recorded-artifact type in this repo that carries both an explicit
+# decision and an explicit, *authored* ordering signal is the signed review
+# decision record `factory.orchestrator.human_review.FileHumanReviewGate`
+# archives at `evidence/runs/<run_id>/reviews/review-<NNN>.json`: it has a
+# `reviewed_at` timestamp (which can be null/missing) and, independently, an
+# explicit sequence counter baked into its own filename by the archiving
+# code itself (`sequence = 1; while ...: sequence += 1` in
+# `human_review.py`) -- a genuinely recorded ordering signal, not a guess.
+#
+# Two other candidate sources were deliberately excluded, not overlooked:
+#   - `validation/validation-report.json` entries (`factory.trace.
+#     validation_status`) carry no timestamp and no sequence number at all
+#     (confirmed by reading `factory/validation/report.py` and
+#     `validation_status.py`) -- there is nothing recorded to order by, so
+#     no `validated` timeline event is ever synthesized from them.
+#   - The task ledger (`factory.orchestrator.ledger.Task`) carries no
+#     timestamp either, and its `todo/done/rejected/escalated` vocabulary has
+#     no non-arbitrary mapping onto `TimelineAction` (the same reasoning
+#     Task 2 already applied to keep `MatrixStatus` from absorbing task/
+#     decision vocabularies -- see task-2-report.md finding on matrix scope).
+#
+# This module never touches a `spec:`/`plan:` trace-node id (the carried-
+# forward `spec:<path>` vs. `spec:<basename>` namespace collision from
+# `trace/model.py:94-97` does not apply here): timeline events are always
+# `task`-subject, keyed off the review record's own `task_id` field.
+# ---------------------------------------------------------------------------
+
+_DECISION_ACTION_MAP = {
+    "approve": TimelineAction.APPROVED,
+    "reject": TimelineAction.REJECTED,
+}
+
+# Matches the exact filename shape `FileHumanReviewGate._archive` writes
+# (`review-{sequence:03}.json`) -- deliberately anchored so an unrelated
+# `review-*.json`-shaped file that isn't actually numbered yields no
+# sequence, rather than a misparsed one.
+_REVIEW_SEQUENCE_RE = re.compile(r"^review-(\d+)$")
+
+
+def _iter_decision_records(repo_root: Path) -> list[tuple[dict, Path, int | None]]:
+    """Scan `evidence/runs/*/reviews/review-*.json` for signed review
+    decisions (design SS4.3).
+
+    An absent `evidence/runs` directory is a legitimate state (no runs have
+    finished yet), not an error -- mirrors `bundles.list_bundles`. A file
+    that fails to parse as JSON, or does not parse to an object, is skipped
+    individually: it degrades only its own record, never the whole scan
+    (design SS8), and never raises out of this function.
+    """
+    runs_dir = repo_root / "evidence" / "runs"
+    if not runs_dir.is_dir():
+        return []
+    records: list[tuple[dict, Path, int | None]] = []
+    for review_path in sorted(runs_dir.glob("*/reviews/review-*.json")):
+        try:
+            raw = json.loads(review_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        match = _REVIEW_SEQUENCE_RE.match(review_path.stem)
+        sequence = int(match.group(1)) if match else None
+        records.append((raw, review_path, sequence))
+    return records
+
+
+def _decision_event_from_record(
+    record: dict, path: Path, sequence: int | None
+) -> DecisionTimelineEvent | None:
+    """Build one `DecisionTimelineEvent` from a parsed review-decision record.
+
+    Returns `None` -- rather than inventing an ordering -- when the record
+    carries neither a recorded timestamp nor a recorded sequence number;
+    `DecisionTimelineEvent.__post_init__` would reject such a construction
+    outright, and design SS4.3 forbids inferring ordering from anything else.
+    Callers surface the drop via the query result's `degraded` flag instead
+    of silently losing it.
+    """
+    at_raw = record.get("reviewed_at")
+    at = at_raw if isinstance(at_raw, str) and at_raw else None
+    if at is None and sequence is None:
+        return None
+
+    reasons: list[str] = []
+
+    decision = record.get("decision")
+    action = (
+        _DECISION_ACTION_MAP.get(decision, TimelineAction.NOT_RECORDED)
+        if isinstance(decision, str)
+        else TimelineAction.NOT_RECORDED
+    )
+    if action is TimelineAction.NOT_RECORDED:
+        reasons.append("review decision record does not carry a recognized decision value")
+
+    # This artifact shape never names a reviewer identity (design SS4.3: "not
+    # stated by a source record" -- there is no field for one at all here,
+    # so this is not a guess, it is the recorded absence of one).
+    actor = TimelineActor.NOT_RECORDED
+    reasons.append("review decision record does not name an actor")
+
+    if at is None:
+        reasons.append(
+            "reviewed_at not recorded; ordering falls back to the recorded review sequence number"
+        )
+
+    task_id = record.get("task_id")
+    subject = SystemScopeRef(kind="task", ref=f"task:{task_id}")
+
+    return DecisionTimelineEvent(
+        actor=actor,
+        action=action,
+        subject=subject,
+        citation=SystemCitation(kind=CitationKind.DECISION, path=str(path), sha256=_sha256_file(path)),
+        freshness=Freshness(state=FreshnessState.DEGRADED, reason="; ".join(reasons), dependencies=[]),
+        at=at,
+        sequence=sequence,
+    )
+
+
+def _timeline_sort_key(event: DecisionTimelineEvent) -> tuple:
+    """Deterministic ordering key (design SS4.3): events with a recorded
+    timestamp sort chronologically among themselves and before events that
+    only have a recorded sequence number (there is no honest way to compare
+    a timestamp to a bare sequence number, so the two groups are never
+    interleaved by guesswork). Within either group, `citation.path` is the
+    final, fully-deterministic tie-break.
+    """
+    if event.at is not None:
+        return (0, event.at, event.citation.path)
+    return (1, "", f"{event.sequence:020d}", event.citation.path)
+
+
+def _bundle_task_ids(bundle: BundleDeclaration) -> set[str]:
+    return {member.ref.split(":", 1)[1] for member in bundle.members if member.kind == "task"}
+
+
+def _sr_task_ids(repo_root: Path, sr_id: str) -> set[str]:
+    tasks = ledger.load_tasks(_tasks_dir(repo_root))
+    return {task.id for task in tasks if sr_id in task.satisfies}
+
+
+def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Assemble the decision timeline for `scope` (design SS4.3, SS5.2, SS7.4).
+
+    Returns `{"scope": {...}, "events": [...], "degraded": bool}`. `events`
+    is chronologically ordered per `_timeline_sort_key`. `degraded` is true
+    only when a candidate decision record for this scope existed but could
+    not be represented as an event at all (no recorded timestamp or sequence
+    number) -- never when there are simply no recorded decisions yet, which
+    is a legitimate empty state, not a degradation.
+    """
+    if scope.kind == "bundle":
+        bundle_id = _scope_identifier(scope)
+        bundle = _load_bundle_or_raise(repo_root, bundle_id)
+        task_ids = _bundle_task_ids(bundle)
+    elif scope.kind == "sr":
+        sr_id = _scope_identifier(scope)
+        _load_requirement_or_raise(repo_root, sr_id)  # exact-resolution check only
+        task_ids = _sr_task_ids(repo_root, sr_id)
+    else:
+        raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
+
+    events: list[DecisionTimelineEvent] = []
+    dropped = 0
+    for record, path, sequence in _iter_decision_records(repo_root):
+        if record.get("task_id") not in task_ids:
+            continue
+        event = _decision_event_from_record(record, path, sequence)
+        if event is None:
+            dropped += 1
+            continue
+        events.append(event)
+
+    events.sort(key=_timeline_sort_key)
+
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "events": [to_dict(e) for e in events],
+        "degraded": dropped > 0,
+    }
 
 
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:

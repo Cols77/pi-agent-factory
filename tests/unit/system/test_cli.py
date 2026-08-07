@@ -1,8 +1,8 @@
-"""Tests for factory.system.cli: brief/matrix/scope subcommands only.
+"""Tests for factory.system.cli: brief/matrix/timeline/scope subcommands.
 
-`timeline` and `guide` are registered in later tasks and must not be stubbed
-here. JSON is emitted only on `--json`; structured errors go to stderr with
-a non-zero exit code.
+`guide` is registered in a later task and must not be stubbed here. JSON is
+emitted only on `--json`; structured errors go to stderr with a non-zero
+exit code.
 """
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ import pytest
 
 from factory.system.cli import main
 
-from ._fixtures import write_bundle, write_bundle_raw, write_sr, write_validation_report
+from ._fixtures import (
+    write_bundle,
+    write_bundle_raw,
+    write_decision_artifact,
+    write_sr,
+    write_task,
+    write_validation_report,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -44,6 +51,40 @@ def test_matrix_json_flag_prints_valid_json(tmp_path, capsys):
     assert rc == 0
     payload = json.loads(out)
     assert payload["rows"][0]["status"] == "passed"
+
+
+def test_timeline_json_flag_prints_valid_json(tmp_path, capsys):
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_decision_artifact(tmp_path, task_id="T-001")
+    rc = main(["timeline", "--scope", "bundle:b1", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["scope"]["ref"] == "bundle:b1"
+    assert len(payload["events"]) == 1
+    assert payload["events"][0]["actor"] == "not-recorded"
+
+
+def test_timeline_without_json_flag_prints_human_readable_text(tmp_path, capsys):
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_decision_artifact(tmp_path, task_id="T-001")
+    rc = main(["timeline", "--scope", "bundle:b1", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
+    assert "task:T-001" in out
+
+
+def test_timeline_on_empty_repo_reports_no_recorded_decisions(tmp_path, capsys):
+    write_task(tmp_path / "tasks", "T-001", status="todo")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    rc = main(["timeline", "--scope", "bundle:b1", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "no recorded decisions" in out
 
 
 def test_scope_json_flag_lists_declared_scopes(tmp_path, capsys):
@@ -116,9 +157,8 @@ def test_error_output_is_structured_json_even_without_json_flag(tmp_path, capsys
     assert "error" in parsed
 
 
-def test_no_timeline_or_guide_subcommands_registered(tmp_path, capsys):
-    with pytest.raises(SystemExit):
-        main(["timeline", "--scope", "sr:SR-001", "--repo-root", str(tmp_path)])
+def test_no_guide_subcommand_registered(tmp_path, capsys):
+    # guide is Task 5's job; timeline is this task's and is registered above.
     with pytest.raises(SystemExit):
         main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path)])
 

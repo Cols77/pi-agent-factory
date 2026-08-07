@@ -21,6 +21,7 @@ from factory.system.queries import (
     parse_scope_ref,
     query_brief,
     query_matrix,
+    query_timeline,
 )
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
@@ -41,6 +42,7 @@ pytestmark = pytest.mark.unit
 RESPONSE_SCHEMA = SCHEMA_DIR / "system_response.schema.json"
 CLAIM_SCHEMA = SCHEMA_DIR / "system_claim.schema.json"
 MATRIX_ROW_SCHEMA = SCHEMA_DIR / "system_matrix_row.schema.json"
+TIMELINE_EVENT_SCHEMA = SCHEMA_DIR / "system_timeline_event.schema.json"
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +580,7 @@ def test_full_envelope_validates_against_response_schema(tmp_path):
         "scope": {"kind": scope.kind, "ref": scope.ref},
         "brief": query_brief(tmp_path, scope),
         "matrix": query_matrix(tmp_path, scope),
+        "timeline": query_timeline(tmp_path, scope),
         "freshness": {"state": "fresh", "details": []},
     }
 
@@ -613,6 +616,7 @@ def test_matrix_row_rejected_by_row_schema_is_also_rejected_by_envelope(tmp_path
         "scope": {"kind": scope.kind, "ref": scope.ref},
         "brief": query_brief(tmp_path, scope),
         "matrix": matrix,
+        "timeline": query_timeline(tmp_path, scope),
         "freshness": {"state": "fresh", "details": []},
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []
@@ -642,6 +646,35 @@ def test_envelope_top_level_scope_kind_enum_matches_bundle_and_sr_only(tmp_path)
         "scope": {"kind": "task", "ref": "task:T-001"},  # illegal top-level kind
         "brief": query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
         "matrix": query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
+        "timeline": query_timeline(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001")),
+        "freshness": {"state": "fresh", "details": []},
+    }
+    assert validate(envelope, RESPONSE_SCHEMA) != []
+
+
+def test_timeline_event_rejected_by_event_schema_is_also_rejected_by_envelope(tmp_path):
+    # Same drift-guard shape as test_matrix_row_rejected_by_row_schema_is_
+    # also_rejected_by_envelope above, for the timeline's own inlined defs
+    # (system_response.schema.json's timelineEvent/timelineSubjectRef vs.
+    # system_timeline_event.schema.json) -- Task 2's report flagged this
+    # exact kind of drift as a review-round loss, so both directions get a
+    # test rather than just eyeballing that the two files match.
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_task(tmp_path / "tasks", "T-001", status="done", satisfies=["SR-001"])
+    write_decision_artifact(tmp_path, task_id="T-001")
+    scope = SystemScopeRef(kind="sr", ref="sr:SR-001")
+
+    timeline = query_timeline(tmp_path, scope)
+    assert timeline["events"], "fixture must actually produce an event to mutate"
+    timeline["events"][0]["subject"]["kind"] = "validation"  # not in task|sr|run|manifest
+
+    assert validate(timeline["events"][0], TIMELINE_EVENT_SCHEMA) != []
+
+    envelope = {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "brief": query_brief(tmp_path, scope),
+        "matrix": query_matrix(tmp_path, scope),
+        "timeline": timeline,
         "freshness": {"state": "fresh", "details": []},
     }
     assert validate(envelope, RESPONSE_SCHEMA) != []

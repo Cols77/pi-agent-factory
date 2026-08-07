@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factory.local/schemas/system_response.schema.json",
   "title": "System navigator response envelope",
-  "description": "Design SS7.1 top-level shape. Tasks 3 and 5 extend this file with `timeline` and `guide` properties -- this version only defines `scope`, `brief`, `matrix`, and `freshness`.",
+  "description": "Design SS7.1 top-level shape. Task 3 adds `timeline`; Task 5 adds `guide` -- this version defines `scope`, `brief`, `matrix`, `timeline`, and `freshness`.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scope", "brief", "matrix", "freshness"],
+  "required": ["scope", "brief", "matrix", "timeline", "freshness"],
   "properties": {
     "scope": {"$ref": "#/$defs/topScopeRef"},
     "brief": {
@@ -25,6 +25,16 @@
       "properties": {
         "scope": {"$ref": "#/$defs/topScopeRef"},
         "rows": {"type": "array", "items": {"$ref": "#/$defs/matrixRow"}}
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "events", "degraded"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/topScopeRef"},
+        "events": {"type": "array", "items": {"$ref": "#/$defs/timelineEvent"}},
+        "degraded": {"type": "boolean"}
       }
     },
     "freshness": {
@@ -143,6 +153,39 @@
         "freshness": {"$ref": "#/$defs/freshness"},
         "summary": {"type": "string"}
       }
+    },
+    "timelineSubjectRef": {
+      "description": "Matches system_timeline_event.schema.json's scopeRef exactly -- kept in sync deliberately, not by cross-file $ref (see matrixSubjectRef's comment above for why; test_timeline_event_rejected_by_event_schema_is_also_rejected_by_envelope is the drift guard for this def). A different, wider `kind` set than matrixSubjectRef -- a timeline event's subject is what the decision was about (a task, sr, run, or manifest), not a validation outcome.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["task", "sr", "run", "manifest"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "timelineEvent": {
+      "description": "Matches system_timeline_event.schema.json exactly (design SS7.4) -- same drift-guard rationale as matrixRow/timelineSubjectRef above.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "sequence", "actor", "action", "subject", "citation", "freshness"],
+      "properties": {
+        "at": {"type": ["string", "null"], "format": "date-time"},
+        "sequence": {"type": ["integer", "null"], "minimum": 0},
+        "actor": {
+          "enum": ["human", "dev", "review", "validation", "orchestrator", "unknown", "not-recorded"]
+        },
+        "action": {
+          "enum": ["approved", "rejected", "validated", "repaired", "published", "stopped", "not-recorded"]
+        },
+        "subject": {"$ref": "#/$defs/timelineSubjectRef"},
+        "citation": {"$ref": "#/$defs/citation"},
+        "freshness": {"$ref": "#/$defs/freshness"}
+      },
+      "anyOf": [
+        {"properties": {"at": {"type": "string"}}, "required": ["at"]},
+        {"properties": {"sequence": {"type": "integer"}}, "required": ["sequence"]}
+      ]
     }
   }
 }

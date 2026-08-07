@@ -1,7 +1,7 @@
-"""`python -m factory.system` CLI: `brief`, `matrix`, and `scope` only.
+"""`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, and `scope`.
 
-`timeline` (Task 3) and `guide` (Task 5) are registered by later tasks --
-they are not stubbed here (design SS5.1).
+`guide` (Task 5) is registered by a later task -- it is not stubbed here
+(design SS5.1).
 
 JSON is emitted on stdout only when `--json` is passed; a human-readable
 rendering is printed otherwise. Errors always go to stderr as a structured
@@ -22,6 +22,7 @@ from factory.system.queries import (
     parse_scope_ref,
     query_brief,
     query_matrix,
+    query_timeline,
 )
 
 
@@ -37,6 +38,11 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_matrix(repo_root, scope)
+
+
+def cmd_timeline(repo_root: Path, scope_raw: str) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    return query_timeline(repo_root, scope)
 
 
 def cmd_scope(repo_root: Path) -> dict:
@@ -66,6 +72,21 @@ def _render_matrix(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_timeline(result: dict) -> str:
+    lines = [f"scope: {result['scope']['ref']}"]
+    if result["degraded"]:
+        lines.append("  ! one or more decision records could not be ordered and were dropped")
+    for event in result["events"]:
+        when = event["at"] or f"sequence={event['sequence']}"
+        lines.append(
+            f"  [{when}] {event['actor']} {event['action']} {event['subject']['ref']} "
+            f"({event['freshness']['state']})"
+        )
+    if not result["events"]:
+        lines.append("  no recorded decisions")
+    return "\n".join(lines)
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -90,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
     p_matrix = sub.add_parser("matrix", parents=[common])
     p_matrix.add_argument("--scope", required=True)
 
+    p_timeline = sub.add_parser("timeline", parents=[common])
+    p_timeline.add_argument("--scope", required=True)
+
     sub.add_parser("scope", parents=[common])
 
     args = parser.parse_args(argv)
@@ -101,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "matrix":
             result = cmd_matrix(args.repo_root, args.scope)
             rendered = _render_matrix(result)
+        elif args.cmd == "timeline":
+            result = cmd_timeline(args.repo_root, args.scope)
+            rendered = _render_timeline(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)
