@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
-import { openInBrowser } from "../src/review-surface.js";
+import { openInBrowser, writeSurfacePref } from "../src/review-surface.js";
 import { computeImplementingFiles, computeReviewFiles } from "../src/review-diff.js";
 import { runReviewLoop } from "../src/review-overlay.js";
 import { readReviewGuide } from "../src/review-guide.js";
@@ -517,6 +517,95 @@ describe("factory-watch commands", () => {
       "warning",
     );
     expect(ctx.ui.select).toHaveBeenCalledTimes(2);
+  });
+
+  test("/factory-watch browser preference opens checkpoint-focused docs without volatile status", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "factory-watch-browser-"));
+    writeSurfacePref(cwd, "browser", "docs");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        checkpoint: { task_id: "T 042/?", run_id: "run#7" },
+        assessment: { state: "resumable", reasons: [], actions: [] },
+      }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    expect(openInBrowser).toHaveBeenCalledTimes(1);
+    const [url] = vi.mocked(openInBrowser).mock.calls[0]!;
+    expect(url).toContain("task=T+042%2F%3F");
+    expect(url).toContain("run=run%237");
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+  });
+
+  test("/factory-watch browser preference opens an unfocused page when no run is active", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "factory-watch-no-run-"));
+    writeSurfacePref(cwd, "browser", "docs");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ checkpoint: null, assessment: null }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    const [url] = vi.mocked(openInBrowser).mock.calls[0]!;
+    expect(url).not.toContain("task=");
+    expect(url).not.toContain("run=");
+  });
+
+  test("/factory-watch browser launch failure falls back to terminal mission control", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "factory-watch-fallback-"));
+    writeSurfacePref(cwd, "browser", "docs");
+    const record: StatusRecord = {
+      session_id: "sess-1", task_id: "T-001", current_node: "dev", current_state: "running",
+      pipeline: [], started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    };
+    writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ checkpoint: null, assessment: null }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    vi.mocked(openInBrowser).mockImplementationOnce(() => { throw new Error("open failed"); });
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+    vi.mocked(ctx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("falling back to terminal"), "warning",
+    );
+    expect(ctx.ui.custom).toHaveBeenCalled();
+  });
+
+  test("/factory-watch browser mode rejects reuse across repository roots", async () => {
+    const first = mkdtempSync(join(tmpdir(), "factory-watch-root-a-"));
+    const second = mkdtempSync(join(tmpdir(), "factory-watch-root-b-"));
+    writeSurfacePref(first, "browser", "docs");
+    writeSurfacePref(second, "browser", "docs");
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ checkpoint: null, assessment: null }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const { commands } = capture();
+    await commands.get("factory-watch")!.handler("", fakeCtx({ cwd: first }));
+    const secondCtx = fakeCtx({ cwd: second });
+
+    await commands.get("factory-watch")!.handler("", secondCtx);
+
+    expect(secondCtx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("falling back to terminal"), "warning",
+    );
+    expect(secondCtx.ui.notify).toHaveBeenCalledWith("no factory run to watch", "info");
   });
 
   test("/factory-watch re-enters the mission control loop against the current status file, without spawning the orchestrator", async () => {

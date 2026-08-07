@@ -81,6 +81,19 @@ function browserFocusUrl(cwd: string, baseUrl: string): string {
   return buildBrowserUrl(baseUrl, { taskId, runId });
 }
 
+// Shared by /system (docs browsing) and /factory-watch (run watching): open the
+// existing docs server (singleton, confined to ctx.cwd), focused on the current
+// checkpoint run-state. Throws on failure (e.g. a singleton root mismatch, or the
+// browser launcher throwing) so each caller can fall back to its own terminal
+// surface. Non-blocking by design: open the tab and return, so the session stays
+// usable while the docs stay open beside it.
+async function openDocsServerFocused(ctx: ExtCommandCtx, label: string): Promise<void> {
+  const server = await ensureDocsServer(ctx.cwd);
+  const focusedUrl = browserFocusUrl(ctx.cwd, server.url);
+  ctx.ui.notify(`${label} open at ${focusedUrl} (/system --stop to close)`, "info");
+  openInBrowser(focusedUrl);
+}
+
 function readFileIfExists(path: string): string | null {
   try {
     return readFileSync(path, "utf-8");
@@ -585,6 +598,21 @@ export default function factoryWatch(pi: PiApi): void {
   pi.registerCommand("factory-watch", {
     description: "Open mission control for the current factory run",
     handler: async (_args: string, ctx: ExtCommandCtx) => {
+      // When the browser docs preference is selected, watch the current run in
+      // the existing docs server (focused on the checkpoint run-state) instead
+      // of dropping into the terminal mission-control loop. The volatile status
+      // file is NOT consulted for the browser path: the checkpoint survives a
+      // reboot that clears sessions/.factory-status.json, so browser watching
+      // keeps working after a reboot. Terminal mode keeps its status-file gate.
+      if (readSurfacePref(ctx.cwd, "docs") === "browser") {
+        try {
+          await openDocsServerFocused(ctx, "factory run");
+          return;
+        } catch (err) {
+          ctx.ui.notify(`browser docs failed (${String(err)}); falling back to terminal`, "warning");
+        }
+      }
+
       const statusPath = join(ctx.cwd, STATUS_FILE);
       if (readFileIfExists(statusPath) === null) {
         ctx.ui.notify("no factory run to watch", "info");
@@ -723,11 +751,9 @@ export default function factoryWatch(pi: PiApi): void {
       if (surface === "browser") {
         try {
           // Non-blocking by design: open the tab and return, so the session stays
-          // usable while the docs stay open beside it. Spec section 4.
-          const server = await ensureDocsServer(ctx.cwd);
-          const focusedUrl = browserFocusUrl(ctx.cwd, server.url);
-          ctx.ui.notify(`system evidence open at ${focusedUrl} (/system --stop to close)`, "info");
-          openInBrowser(focusedUrl);
+          // usable while the docs stay open beside it. Spec section 4. Shared with
+          // /factory-watch so both commands open the same focused docs server.
+          await openDocsServerFocused(ctx, "system evidence");
           return;
         } catch (err) {
           ctx.ui.notify(
