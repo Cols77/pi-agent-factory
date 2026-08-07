@@ -159,6 +159,37 @@ describe("ensureDocsServer", () => {
     expect(runState.checkpoint).toBeNull();
   });
 
+  test("smokes refreshed run and evidence transitions through the live server APIs", async () => {
+    const root = repo();
+    const { manifest } = writeDurableEvidence(root);
+    const firstRunState = {
+      checkpoint: { run_id: "run-1", task_id: "T-001" },
+      assessment: { state: "resumable", reasons: ["dead pid"], actions: ["Inspect evidence"] },
+    };
+    const secondRunState = { checkpoint: null, assessment: null };
+    const secondManifest = {
+      ...manifest,
+      run_id: "run-2",
+      ended_at: "2026-08-07T12:05:00Z",
+      start_commit: "def456",
+      result_commit: "fedcba",
+    };
+    spawnSync
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(firstRunState), stderr: "" })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify({ runs: [manifest] }), stderr: "" })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(secondRunState), stderr: "" })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify({ runs: [manifest, secondManifest] }), stderr: "" });
+    const server = await ensureDocsServer(root);
+    const initialRunState = await (await fetch(`${server.url}/api/run-state`)).json();
+    expect(initialRunState.checkpoint.run_id).toBe("run-1");
+    const initialEvidence = await (await fetch(`${server.url}/api/evidence/task?task=T-001`)).json();
+    expect(initialEvidence.runs).toHaveLength(1);
+    const refreshedRunState = await (await fetch(`${server.url}/api/run-state`)).json();
+    expect(refreshedRunState.checkpoint).toBeNull();
+    const refreshedEvidence = await (await fetch(`${server.url}/api/evidence/task?task=T-001`)).json();
+    expect(refreshedEvidence.runs).toHaveLength(2);
+  });
+
   test("routes explicit run actions only through the Python client", async () => {
     spawnSync.mockReturnValue({
       status: 0,

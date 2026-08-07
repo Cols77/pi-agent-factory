@@ -6,6 +6,11 @@ export type Surface = "terminal" | "browser";
 
 export type SurfaceKey = "review" | "docs";
 
+export interface BrowserFocus {
+  taskId?: string;
+  runId?: string;
+}
+
 export function surfacePrefPath(cwd: string): string {
   return join(cwd, "sessions", ".factory-review-surface.json");
 }
@@ -47,6 +52,15 @@ export function parseReviewPlansArgs(args: string): {
   if (/(^|\s)--browser(\s|$)/.test(args)) return { surface: "browser", stop };
   if (/(^|\s)--terminal(\s|$)/.test(args)) return { surface: "terminal", stop };
   return { surface: null, stop };
+}
+
+export function buildBrowserUrl(baseUrl: string, focus: BrowserFocus = {}): string {
+  const url = new URL(baseUrl);
+  const taskId = focus.taskId?.trim();
+  const runId = focus.runId?.trim();
+  if (taskId) url.searchParams.set("task", taskId);
+  if (runId) url.searchParams.set("run", runId);
+  return url.toString();
 }
 
 export function openInBrowser(url: string, platform: NodeJS.Platform = process.platform): void {

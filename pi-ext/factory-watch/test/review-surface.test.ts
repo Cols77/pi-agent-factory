@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildBrowserUrl,
   parseReviewPlansArgs,
   readSurfacePref,
   writeSurfacePref,
@@ -44,6 +45,19 @@ describe("parseReviewPlansArgs", () => {
     expect(parseReviewPlansArgs("--browser").surface).toBe("browser");
     expect(parseReviewPlansArgs("--terminal").surface).toBe("terminal");
     expect(parseReviewPlansArgs("--stop").stop).toBe(true);
+  });
+});
+
+describe("buildBrowserUrl", () => {
+  test("keeps the base server URL deterministic when no focus is supplied", () => {
+    expect(buildBrowserUrl("http://127.0.0.1:4321")).toBe("http://127.0.0.1:4321/");
+  });
+
+  test("adds task/run focus in a deterministic and safely encoded order", () => {
+    expect(buildBrowserUrl("http://127.0.0.1:4321", {
+      taskId: "T 001/?",
+      runId: "run#2",
+    })).toBe("http://127.0.0.1:4321/?task=T+001%2F%3F&run=run%232");
   });
 });
 

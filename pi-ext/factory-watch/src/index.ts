@@ -40,12 +40,14 @@ import { buildDecision } from "./review-model.js";
 import type { ReviewDecisionPayload } from "./review-model.js";
 import { buildReviewPageData, startReviewServer } from "./review-server.js";
 import {
+  buildBrowserUrl,
   openInBrowser,
   parseReviewPlansArgs,
   readSurfacePref,
   writeSurfacePref,
 } from "./review-surface.js";
 import { ensureDocsServer, stopDocsServer } from "./docs-server.js";
+import { loadCurrentRun } from "./evidence-client.js";
 import type { Surface } from "./review-surface.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
@@ -66,6 +68,17 @@ function parseAutoFlag(args: string): { auto: boolean; rest: string } {
   const auto = /(^|\s)--auto(\s|$)/.test(args);
   const rest = args.replace("--auto", "").trim();
   return { auto, rest };
+}
+
+function browserFocusUrl(cwd: string, baseUrl: string): string {
+  const current = loadCurrentRun(cwd);
+  if (!current.ok || current.value.checkpoint === null) {
+    return baseUrl;
+  }
+  const checkpoint = current.value.checkpoint as Record<string, unknown>;
+  const taskId = typeof checkpoint.task_id === "string" ? checkpoint.task_id : undefined;
+  const runId = typeof checkpoint.run_id === "string" ? checkpoint.run_id : undefined;
+  return buildBrowserUrl(baseUrl, { taskId, runId });
 }
 
 function readFileIfExists(path: string): string | null {
@@ -712,8 +725,9 @@ export default function factoryWatch(pi: PiApi): void {
           // Non-blocking by design: open the tab and return, so the session stays
           // usable while the docs stay open beside it. Spec section 4.
           const server = await ensureDocsServer(ctx.cwd);
-          ctx.ui.notify(`system evidence open at ${server.url} (/system --stop to close)`, "info");
-          openInBrowser(server.url);
+          const focusedUrl = browserFocusUrl(ctx.cwd, server.url);
+          ctx.ui.notify(`system evidence open at ${focusedUrl} (/system --stop to close)`, "info");
+          openInBrowser(focusedUrl);
           return;
         } catch (err) {
           ctx.ui.notify(

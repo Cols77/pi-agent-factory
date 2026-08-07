@@ -7,11 +7,13 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
+import { openInBrowser } from "../src/review-surface.js";
 import { computeImplementingFiles, computeReviewFiles } from "../src/review-diff.js";
 import { runReviewLoop } from "../src/review-overlay.js";
 import { readReviewGuide } from "../src/review-guide.js";
 import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.js";
 import { resolveSessionPath } from "../src/session-path.js";
+import { stopDocsServer } from "../src/docs-server.js";
 import type { PipelineEntry, StatusRecord } from "../src/status-format.js";
 import type { CommandDef, ExtCommandCtx, PiApi, ReplacedSessionCtx, UiApi } from "../src/pi-types.js";
 
@@ -38,6 +40,10 @@ vi.mock("node:fs", async (importOriginal) => {
 vi.mock("../src/terminal-window.js", () => ({
   spawnTerminalWindow: vi.fn(),
 }));
+vi.mock("../src/review-surface.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review-surface.js")>();
+  return { ...actual, openInBrowser: vi.fn() };
+});
 vi.mock("../src/review-diff.js", () => ({
   computeReviewFiles: vi.fn(),
   computeImplementingFiles: vi.fn(),
@@ -96,6 +102,7 @@ describe("factory-watch commands", () => {
     // without this, an earlier test's pop-out ("o" in the transcript view)
     // could leak into later /factory-run assertions.
     vi.mocked(spawnTerminalWindow).mockReset();
+    vi.mocked(openInBrowser).mockReset();
     // spawn, unlike spawnSync/spawnTerminalWindow, has a real default
     // implementation baked into the vi.mock factory above (it returns a
     // fresh EventEmitter child per call) that several tests below rely on
@@ -114,6 +121,10 @@ describe("factory-watch commands", () => {
     vi.mocked(readReviewGuide).mockReset();
     vi.mocked(writeReviewDecision).mockReset();
     vi.mocked(resolveSessionPath).mockReset();
+  });
+
+  afterEach(() => {
+    stopDocsServer();
   });
 
   test("registers factory, factory-stop, factory-tasks, factory-run, factory-watch, and plan", () => {
@@ -450,6 +461,62 @@ describe("factory-watch commands", () => {
     await commands.get("factory-watch")!.handler("", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no factory run to watch"), "info");
     expect(ctx.ui.custom).not.toHaveBeenCalled();
+  });
+
+  test("/system --stop reports when no docs server is running", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("system")!.handler("--stop", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("no docs server running"), "info");
+  });
+
+  test("/system opens the docs server with focused task/run query params when browser is selected", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        checkpoint: { task_id: "T-042", run_id: "run-7" },
+        assessment: { state: "resumable", reasons: [], actions: [] },
+      }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd: REPO_ROOT });
+    vi.mocked(ctx.ui.select).mockResolvedValueOnce("Browser");
+
+    await commands.get("system")!.handler("", ctx);
+
+    expect(openInBrowser).toHaveBeenCalledTimes(1);
+    const [url] = vi.mocked(openInBrowser).mock.calls[0]!;
+    expect(url).toContain("task=T-042");
+    expect(url).toContain("run=run-7");
+    expect(url.indexOf("task=T-042")).toBeLessThan(url.indexOf("run=run-7"));
+  });
+
+  test("/system browser fallback stays bounded when browser launch fails", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        checkpoint: { task_id: "T-042", run_id: "run-7" },
+        assessment: { state: "resumable", reasons: [], actions: [] },
+      }),
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    vi.mocked(openInBrowser).mockImplementationOnce(() => {
+      throw new Error("open failed");
+    });
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd: REPO_ROOT });
+    vi.mocked(ctx.ui.select)
+      .mockResolvedValueOnce("Browser")
+      .mockResolvedValueOnce(undefined);
+
+    await commands.get("system")!.handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("browser docs failed"),
+      "warning",
+    );
+    expect(ctx.ui.select).toHaveBeenCalledTimes(2);
   });
 
   test("/factory-watch re-enters the mission control loop against the current status file, without spawning the orchestrator", async () => {

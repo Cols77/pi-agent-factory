@@ -156,6 +156,10 @@ export function renderDocsHtml(): string {
   let active = null;
   let filter = '';
   let runPoll = null;
+  const focusQuery = new URLSearchParams(window.location.search);
+  const initialTaskFocus = focusQuery.get('task');
+  const initialRunFocus = focusQuery.get('run');
+  let focusRunScrollPending = initialRunFocus !== null;
 
   const res = await fetch('/api/graph');
   if (!res.ok) {
@@ -499,6 +503,13 @@ export function renderDocsHtml(): string {
     heading.className = 'group'; heading.appendChild(provenance('recorded')); box.appendChild(heading);
     for (const run of data.runs) {
       const details = document.createElement('details'); details.className = 'evidence-run';
+      if (initialRunFocus && run.run_id === initialRunFocus) {
+        details.open = true;
+        if (focusRunScrollPending) {
+          focusRunScrollPending = false;
+          queueMicrotask(() => details.scrollIntoView({ block: 'center' }));
+        }
+      }
       const summary = text(document.createElement('summary'),
         (run.ended_at || run.run_id) + ' · ' + run.outcome + ' · evidence ' + run.publication.state);
       details.appendChild(summary);
@@ -675,8 +686,16 @@ export function renderDocsHtml(): string {
     if (runPoll !== null) clearInterval(runPoll);
   });
   renderHealth();
-  renderList();
-  renderMap();
+  if (initialTaskFocus && graph) {
+    const focusNode = graph.nodes.find((item) => item.id === initialTaskFocus && item.kind === 'task');
+    if (focusNode) {
+      await openDoc(focusNode.id);
+    } else {
+      await renderMap();
+    }
+  } else {
+    await renderMap();
+  }
   renderRunState();
 })();
 </script>

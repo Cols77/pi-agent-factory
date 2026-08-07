@@ -91,6 +91,15 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("pagehide");
   });
 
+  test("honours task/run focus query params without relaxing repo confinement", () => {
+    expect(html).toContain("new URLSearchParams(window.location.search)");
+    expect(html).toContain("initialTaskFocus");
+    expect(html).toContain("initialRunFocus");
+    expect(html).toContain("details.open = true");
+    expect(html).toContain("scrollIntoView({ block: 'center' })");
+    expect(html).toContain("openDoc(focusNode.id)");
+  });
+
   test("carries a legend for all five validation states", () => {
     for (const label of ["pass", "fail", "error", "never validated", "stale"]) {
       expect(html.toLowerCase()).toContain(label);
