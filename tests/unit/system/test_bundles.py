@@ -195,6 +195,37 @@ def test_bundle_is_its_own_citation(tmp_path):
     assert bundle.citation.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# One malformed bundle file does not abort the whole listing (design SS8:
+# failures degrade only the affected scope)
+# ---------------------------------------------------------------------------
+
+
+def test_list_bundles_skips_one_malformed_file_without_aborting(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "alpha", {"id": "alpha", "label": "Alpha", "members": []})
+    _write_bundle(bundles_dir, "beta", {"id": "beta", "label": "Beta", "members": ["task:T-001"]})
+    (bundles_dir / "broken.json").write_text("{not json", encoding="utf-8")
+
+    bundles = list_bundles(bundles_dir)
+
+    assert sorted(b.id for b in bundles) == ["alpha", "beta"]
+
+
+def test_list_bundles_skips_a_file_that_fails_schema_validation(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(bundles_dir, "alpha", {"id": "alpha", "label": "Alpha", "members": []})
+    _write_bundle(
+        bundles_dir,
+        "narrated",
+        {"id": "narrated", "label": "Narrated", "members": [], "status": "not allowed"},
+    )
+
+    bundles = list_bundles(bundles_dir)
+
+    assert [b.id for b in bundles] == ["alpha"]
+
+
 def test_empty_members_list_is_legal(tmp_path):
     bundles_dir = tmp_path / "bundles"
     _write_bundle(bundles_dir, "empty", {"id": "empty", "label": "Empty bundle", "members": []})

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/system_response.schema.json",
+  "title": "System navigator response envelope",
+  "description": "Design SS7.1 top-level shape. Tasks 3 and 5 extend this file with `timeline` and `guide` properties -- this version only defines `scope`, `brief`, `matrix`, and `freshness`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope", "brief", "matrix", "freshness"],
+  "properties": {
+    "scope": {"$ref": "#/$defs/scopeRef"},
+    "brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "claims"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/scopeRef"},
+        "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+        "degraded": {"type": "boolean"}
+      }
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "rows"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/scopeRef"},
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/matrixRow"}}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "details"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
+        "details": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "scopeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "anchor"],
+      "properties": {
+        "kind": {
+          "enum": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle"]
+        },
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "anchor": {"type": ["string", "null"]}
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "citation_index"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "citation_index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "freshnessDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expected", "actual"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "expected": {"type": ["string", "null"]},
+        "actual": {"type": ["string", "null"]}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "dependencies"],
+      "properties": {
+        "state": {"enum": ["fresh", "stale", "degraded", "n/a"]},
+        "reason": {"type": ["string", "null"]},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/freshnessDependency"}}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "citations", "spans", "freshness"],
+      "properties": {
+        "kind": {"enum": ["recorded", "derived", "synthesized", "missing"]},
+        "text": {"type": "string"},
+        "citations": {"type": "array", "items": {"$ref": "#/$defs/citation"}},
+        "spans": {"type": "array", "items": {"$ref": "#/$defs/span"}},
+        "freshness": {"$ref": "#/$defs/freshness"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]},
+          "then": {"properties": {"freshness": {"properties": {"state": {"const": "n/a"}}}}}
+        },
+        {
+          "if": {
+            "not": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]}
+          },
+          "then": {
+            "properties": {"freshness": {"properties": {"state": {"not": {"const": "n/a"}}}}}
+          }
+        },
+        {
+          "if": {
+            "not": {"properties": {"kind": {"const": "synthesized"}}, "required": ["kind"]}
+          },
+          "then": {"properties": {"spans": {"maxItems": 0}}}
+        }
+      ]
+    },
+    "matrixRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "status", "evidence", "freshness", "summary"],
+      "properties": {
+        "subject": {"$ref": "#/$defs/scopeRef"},
+        "status": {"enum": ["passed", "failed", "error", "blocked", "never-run"]},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "freshness": {"$ref": "#/$defs/freshness"},
+        "summary": {"type": "string"}
+      }
+    }
+  }
+}

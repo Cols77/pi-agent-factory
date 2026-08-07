@@ -49,7 +49,10 @@ def _parse_member_ref(raw_ref: str) -> SystemScopeRef | None:
 def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
     """Load and validate a single declared bundle by id.
 
-    Raises `FileNotFoundError` if the bundle file does not exist, and
+    Raises `FileNotFoundError` if the bundle file does not exist -- or if it
+    exists but its declared `id` field does not exactly match `bundle_id`
+    (e.g. only the case differs, which some filesystems resolve as the same
+    file). Scope resolution is exact only, never fuzzy (design SS5.1). Raises
     `ValueError` if it fails schema validation (e.g. carries a narrative
     field, or duplicate members). A member ref that is merely unresolvable
     does NOT raise -- it is reported `missing` in `unresolved` instead.
@@ -64,6 +67,11 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
     errors = validate(raw, _SCHEMA)
     if errors:
         raise ValueError(f"invalid bundle {bundle_id!r}: {'; '.join(errors)}")
+
+    if str(raw["id"]) != bundle_id:
+        # A case-insensitive filesystem can resolve "Evidence-Lifecycle.json"
+        # to "evidence-lifecycle.json" -- exact-id verification closes that.
+        raise FileNotFoundError(f"bundle not found: {bundle_id!r} ({path})")
 
     members: list[SystemScopeRef] = []
     unresolved: list[SystemClaim] = []
@@ -104,7 +112,17 @@ def list_bundles(bundles_dir: Path) -> list[BundleDeclaration]:
 
     An absent directory is a legitimate state, not an error: this returns an
     empty list and never creates the directory as a side effect of reading.
+
+    A single malformed bundle file (invalid JSON or a schema violation) must
+    not abort the whole listing -- design SS8: failures degrade only the
+    affected scope. That bundle is skipped; every other bundle still loads.
     """
     if not bundles_dir.exists():
         return []
-    return [load_bundle(bundles_dir, p.stem) for p in sorted(bundles_dir.glob("*.json"))]
+    bundles: list[BundleDeclaration] = []
+    for path in sorted(bundles_dir.glob("*.json")):
+        try:
+            bundles.append(load_bundle(bundles_dir, path.stem))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+    return bundles
