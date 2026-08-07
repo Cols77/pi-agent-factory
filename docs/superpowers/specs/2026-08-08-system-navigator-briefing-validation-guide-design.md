@@ -264,9 +264,13 @@ The subprocess shim for `factory.system` follows the existing `trace-cli.ts` sha
 
 Command registration is an explicit implementation step with its own test, not a side effect of adding routes.
 
+**The `system` command is repointed (user ruling, 2026-08-08).** `index.ts:806` already registered `system` as an alias for the docs-browser command. That name now opens the docs browser directly on the `/system` route, so the command means what it says and the direct-entry requirement is met without inventing a second name. This changes behavior for anyone who used `system` as a generic docs-browser alias; `review-plans` remains registered and unchanged for that purpose.
+
 ## 7. Schemas and interfaces
 
-### 7.1 Top-level response shape
+### 7.1 Composed projection shape
+
+> This envelope is the **composed** view the browser assembles from the separate `brief`, `matrix`, `timeline`, and `guide` calls (§5.1). No single CLI invocation emits it — each subcommand returns its own payload. Every field the envelope marks required must have a real producer; a required field that only test fixtures ever populate is fiction and must be dropped rather than carried.
 
 ```jsonc
 {
