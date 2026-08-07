@@ -1,0 +1,301 @@
+# Design: System Navigator — Feature/SR Briefing, Validation Matrix, Decision Timeline, and Grounded Guide
+
+**Date:** 2026-08-08
+**Status:** Draft for written review
+**Author:** Colin AUBE (with AI assistance)
+**Builds on:**
+- `2026-08-07-factory-evidence-lifecycle-and-recovery-design.md`
+- `2026-08-03-review-plans-browser-and-trace-health-design.md`
+- `2026-07-30-system-requirement-validation-design.md`
+- `2026-07-27-review-focus-guide-design.md`
+- `2026-07-27-in-session-mission-control-design.md`
+- `2026-07-29-review-ux-dual-surface-design.md`
+
+## 1. Context
+
+The evidence-lifecycle work gives the factory durable manifests, freshness checks, reconciliation, recovery, and a shared Python-backed evidence model. What it does **not** yet give the human is a grounded place to ask:
+
+- What is this feature or SR, exactly?
+- What has been implemented and validated?
+- Which decisions led here?
+- What is fresh, stale, missing, or only partially supported?
+- What can I trust in prose versus what is merely a projection?
+
+`/review-plans` can read documents and the browser can show trace graphs, but neither produces a single, evidence-grounded system brief. The new `/system` navigator fills that gap.
+
+This design is intentionally read-only. It does not create new evidence; it assembles a projection over recorded artifacts, derived aggregates, and synthesized text.
+
+## 2. Decisions locked during brainstorming
+
+1. **One model, many projections.** Python owns the data model and query logic. TypeScript only renders JSON results.
+2. **No inferred provenance.** If a claim cannot be tied to recorded artifacts, it is shown as missing or degraded, never guessed.
+3. **Recorded / derived / synthesized stay distinct.** Every rendered field is labeled with its claim class.
+4. **Synthesis must cite evidence.** Any natural-language paragraph must carry citations and a freshness state.
+5. **Freshness is explicit.** A stale or partially missing dependency downgrades the claim; the browser never silently smooths it over.
+6. **Feature and SR are scopes, not new sources of truth.** They are ways to slice the same repository evidence.
+
+## 3. Information model
+
+### 3.1 Claim classes
+
+| class | meaning | rendering rule |
+|---|---|---|
+| recorded | directly emitted by a canonical artifact or evidence file | show verbatim or lightly formatted, with citation |
+| derived | deterministically computed from recorded inputs | show formula/result plus cited inputs |
+| synthesized | generated explanation built from recorded + derived data | show only with citations and freshness |
+| missing | required information was not recorded | show as missing, never fill in prose |
+
+### 3.2 Freshness states
+
+| state | meaning |
+|---|---|
+| fresh | cited inputs match the current recorded dependencies |
+| stale | a cited input changed since the claim was recorded |
+| degraded | the claim is only partially supportable; some supporting facts are missing or quarantined |
+| missing | no recorded basis exists for the claim |
+
+Rules:
+- synthesis may only use recorded or derived inputs;
+- if any supporting dependency is stale, the synthesized text stays visible but is marked stale;
+- if supporting data is incomplete, the claim degrades to a shorter, more conservative statement;
+- if nothing recorded supports the statement, it is missing, not synthesized.
+
+## 4. User journeys
+
+### 4.1 Feature briefing
+
+1. User opens `/system` and selects a feature scope (spec, plan, or task root).
+2. The browser requests Python JSON for the briefing, matrix, timeline, and guide.
+3. The brief shows:
+   - scope identity and recorded source files;
+   - current implementation coverage;
+   - validation coverage and freshness;
+   - decision history;
+   - a grounded prose summary.
+4. Clicking a row jumps to the source artifact or manifest that backed it.
+
+### 4.2 SR briefing
+
+1. User selects an SR scope.
+2. The brief shows the requirement statement, upstream links, binding, validation entries, stale status, and recent decisions.
+3. If the SR has no binding or no validation, the view says so explicitly.
+4. If the validation report is stale or missing, the guide degrades rather than inventing pass/fail confidence.
+
+### 4.3 Decision timeline
+
+1. User opens the timeline tab for a feature or SR.
+2. The browser lists recorded decisions in chronological order.
+3. Each entry carries a citation and the claim class.
+4. If timestamps are absent or incomplete, ordering falls back to recorded sequence numbers with a visible warning.
+
+### 4.4 Grounded natural-language guide
+
+1. User opens the guide tab.
+2. The browser renders a concise narrative split into short paragraphs.
+3. Each paragraph carries citations and a freshness badge.
+4. When evidence is thin, the prose becomes shorter and more conservative instead of speculative.
+
+## 5. Python-owned query/model extensions
+
+Add a small `factory.system` Python package that composes existing loaders from:
+
+- trace graph / artifact relationships;
+- requirements register;
+- evidence manifests and run journals;
+- validation reports;
+- review-guide and decision artifacts;
+- task ledger and status data.
+
+### 5.1 CLI surface
+
+```text
+factory system brief --scope <ref> --json
+factory system matrix --scope <ref> --json
+factory system timeline --scope <ref> --json
+factory system guide --scope <ref> --json
+factory system scope --json
+```
+
+Scope references are exact, not fuzzy:
+- `spec:<path>`
+- `plan:<path>`
+- `task:<id>`
+- `sr:<id>`
+
+### 5.2 Query responsibilities
+
+- **brief** — one-page summary for the selected scope.
+- **matrix** — implementation/validation/decision matrix for the selected scope.
+- **timeline** — chronological decisions and state changes.
+- **guide** — grounded prose assembled from the other queries.
+- **scope** — list valid, declared scopes the browser can open.
+
+### 5.3 Model extensions
+
+The Python model should expose stable dataclasses such as:
+
+- `SystemScopeRef`
+- `SystemCitation`
+- `SystemClaim`
+- `ValidationMatrixRow`
+- `DecisionTimelineEvent`
+- `SystemGuide`
+- `FreshnessState`
+
+Each record must carry enough metadata to explain where it came from and whether it is current.
+
+## 6. Browser and PIF projections
+
+### 6.1 Browser routes
+
+- `GET /system` — landing page and scope picker.
+- `GET /system?scope=<ref>` — default briefing view.
+- `GET /api/system/brief?scope=<ref>`
+- `GET /api/system/matrix?scope=<ref>`
+- `GET /api/system/timeline?scope=<ref>`
+- `GET /api/system/guide?scope=<ref>`
+
+The browser does not recompute freshness, ordering, or citations. It renders Python JSON and nothing more.
+
+### 6.2 PIF tools
+
+The read-only PIF tools remain thin wrappers over the same Python queries:
+
+- `system_context`
+- `implementation_history`
+- `validation_status`
+- `evidence_health`
+
+The new system navigator should be able to reuse those tools, but it must not depend on any TypeScript-side reasoning.
+
+### 6.3 Rendering rules
+
+- recorded rows get a neutral badge;
+- derived rows show their inputs and algorithm label;
+- synthesized prose shows citations inline or in a footnote rail;
+- missing rows render plainly and do not get hidden;
+- stale/degraded claims are visible and color-coded, but also text-labeled.
+
+## 7. Schemas and interfaces
+
+### 7.1 Top-level response shape
+
+```jsonc
+{
+  "scope": { "kind": "task", "ref": "task:T-042", "label": "..." },
+  "brief": { /* SystemClaim[] */ },
+  "matrix": { /* ValidationMatrixRow[] */ },
+  "timeline": { /* DecisionTimelineEvent[] */ },
+  "guide": { /* SystemGuide */ },
+  "freshness": { "state": "fresh|stale|degraded|missing", "details": [] }
+}
+```
+
+### 7.2 Shared record fields
+
+```jsonc
+{
+  "kind": "recorded|derived|synthesized|missing",
+  "text": "...",
+  "citations": [
+    { "kind": "manifest|task|requirement|validation|review|decision|trace", "path": "...", "sha256": "...", "anchor": "..." }
+  ],
+  "freshness": {
+    "state": "fresh|stale|degraded|missing",
+    "reason": "...",
+    "dependencies": [{ "name": "...", "expected": "...", "actual": "..." }]
+  }
+}
+```
+
+### 7.3 Matrix row shape
+
+```jsonc
+{
+  "subject": { "kind": "sr|task|validation|decision", "ref": "..." },
+  "status": "passed|failed|error|blocked|stale|missing|never-run",
+  "evidence": ["..."],
+  "freshness": { ... },
+  "summary": "..."
+}
+```
+
+### 7.4 Timeline event shape
+
+```jsonc
+{
+  "at": "2026-08-08T12:00:00Z",
+  "actor": "human|dev|review|validation|orchestrator",
+  "action": "approved|rejected|validated|repaired|published|stopped",
+  "subject": { "kind": "task|sr|run|manifest", "ref": "..." },
+  "citation": { ... },
+  "freshness": { ... }
+}
+```
+
+## 8. Failure handling
+
+- Missing task, manifest, or validation files degrade only the affected scope.
+- Corrupt evidence manifests are quarantined from the navigator and reported as missing/degraded.
+- A stale derived index is rebuilt automatically.
+- A stale or partially missing timeline keeps its recorded events and marks the gaps.
+- If synthesis fails, the browser falls back to the brief + matrix + timeline views with no prose guide.
+- If a scope cannot be resolved exactly, the browser reports that fact and shows the scope picker again.
+
+## 9. Security
+
+- All paths stay confined to the current repo root.
+- The browser serves only recorded references or derived views of them; it never serves arbitrary object hashes.
+- Generated prose must be HTML-escaped before rendering.
+- Secrets in logs, transcripts, or blobs are not echoed into synthesized text unless an upstream redaction step already made them safe.
+- The guide must not cite an unseen artifact by guessing its path.
+
+## 10. Testing strategy
+
+### Python unit tests
+
+- scope resolution from exact refs
+- brief/matrix/timeline/guide shape validation
+- freshness propagation for stale, degraded, and missing inputs
+- citation retention and ordering
+- fallback behavior when a source artifact is absent or corrupt
+- no fuzzy matching, no inferred provenance
+
+### Python integration tests
+
+- temp repo with a spec, SR, task, validation report, and decision artifacts
+- stale validation after a content change
+- missing manifest or missing blob degrades only that scope
+- guide synthesis falls back cleanly when one cited source is quarantined
+
+### TypeScript tests
+
+- `/system` route selection and scope picker
+- render labels for recorded/derived/synthesized/missing claims
+- stale/degraded badges and inline citations
+- failure fallback when the Python CLI returns structured errors
+
+## 11. Rollout
+
+1. Land the Python `factory.system` model and CLI.
+2. Wire the browser routes and PIF wrappers to those JSON payloads.
+3. Add the grounded prose guide and freshness labels.
+4. Add `/system` as the default navigator only after approval.
+5. Keep `/review-plans` and existing evidence views intact during rollout.
+
+## 12. Open approval questions
+
+1. What is the exact root scope for a “feature” briefing: spec, plan, task, or a declared bundle?
+2. Should the grounded guide be allowed to paraphrase recorded text, or only summarize with citations?
+3. When supporting evidence is stale, do we show the synthesized paragraph with a warning, or collapse to recorded bullets only?
+4. Should `/system` become the default browser entry point, or remain an explicit opt-in?
+5. Do we want to persist generated guide snapshots as evidence, or keep them purely derived and ephemeral?
+
+## 13. Non-goals
+
+- No editing UI.
+- No new provenance inference.
+- No browser-side freshness logic.
+- No remote backend, auth, or cloud storage.
+- No auto-approval or auto-resolution of conflicts.
+- No replacement for `/review-plans` or the trace/requirements tools.
