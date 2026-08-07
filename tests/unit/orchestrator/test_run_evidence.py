@@ -90,8 +90,6 @@ def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_pat
         "factory.orchestrator.runner.run_task",
         lambda *a, **k: TaskResult("T-001", "Example", "completed", 1, [], True),
     )
-    monkeypatch.setattr("factory.orchestrator.runner.compose_prompt", lambda *a, **k: "prompt")
-
     session_path = run_next(
         repo,
         backend,
@@ -125,8 +123,6 @@ def test_optional_publication_failure_keeps_completed_outcome(tmp_path, monkeypa
         "factory.orchestrator.runner.run_task",
         lambda *a, **k: TaskResult("T-001", "Example", "completed", 1, [], True),
     )
-    monkeypatch.setattr("factory.orchestrator.runner.compose_prompt", lambda *a, **k: "prompt")
-
     run_next(
         repo,
         backend,
