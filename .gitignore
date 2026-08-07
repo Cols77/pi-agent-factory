@@ -28,3 +28,7 @@ sessions/.factory-runs/
 
 # Content-addressed evidence blobs; compact evidence/runs manifests stay tracked.
 .factory/artifacts/
+
+# Subagent-driven-development scratch: ledgers, briefs, review packages.
+# Per-plan working state; the git history is the durable record.
+.superpowers/
