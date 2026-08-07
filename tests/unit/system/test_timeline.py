@@ -241,6 +241,55 @@ def test_sequence_only_events_across_manifests_order_by_manifest_ended_at_then_p
     assert sequences == [1, 2, 1, 2, 3]
 
 
+def test_sequence_only_events_across_manifests_with_identical_ended_at_still_never_interleave(tmp_path):
+    # `manifest_ended_at` alone is not enough to disambiguate: two runs can
+    # legitimately complete in the same second (plausible in bulk runs).
+    # Ordering by (ended_at, sequence, path) instead of (ended_at, path,
+    # sequence) would let raw position numbers from different manifests
+    # compare to each other again the moment ended_at ties -- exactly the
+    # original cross-manifest interleaving bug, just gated behind a tie
+    # instead of always reachable. `citation.path` (unique per manifest)
+    # must outrank `sequence` so this can never happen, tie or not.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_run_manifest(
+        tmp_path,
+        run_id="run-a",
+        task_id="T-001",
+        ended_at="2026-08-08T12:00:00Z",
+        reviews=[
+            review_record(task_id="T-001", decision="approve", reviewed_at=None),
+            review_record(task_id="T-001", decision="approve", reviewed_at=None),
+        ],
+    )
+    write_run_manifest(
+        tmp_path,
+        run_id="run-b",
+        task_id="T-001",
+        ended_at="2026-08-08T12:00:00Z",  # identical to run-a's
+        reviews=[
+            review_record(task_id="T-001", decision="reject", reviewed_at=None),
+            review_record(task_id="T-001", decision="reject", reviewed_at=None),
+        ],
+    )
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    # All four events grouped by their owning manifest -- either
+    # [approve, approve, reject, reject] or [reject, reject, approve,
+    # approve] (path ordering between run-a.json/run-b.json is
+    # deterministic but not the point under test); what must never appear
+    # is an interleaved [approve, reject, approve, reject].
+    actions = [e["action"] for e in result["events"]]
+    assert actions in (
+        ["approved", "approved", "rejected", "rejected"],
+        ["rejected", "rejected", "approved", "approved"],
+    )
+    # Sequence numbers within each manifest-group are still in order.
+    assert [e["sequence"] for e in result["events"][:2]] == [1, 2]
+    assert [e["sequence"] for e in result["events"][2:]] == [1, 2]
+
+
 # ---------------------------------------------------------------------------
 # Absent actor/action is unknown/not-recorded; the event is marked degraded
 # ---------------------------------------------------------------------------
@@ -439,6 +488,7 @@ def test_manifest_with_empty_reviews_array_is_empty_not_degraded(tmp_path):
 
     assert result["events"] == []
     assert result["degraded"] is False
+    assert result["degraded_reasons"] == []
 
 
 def test_corrupt_manifest_is_skipped_but_still_degrades_the_timeline(tmp_path):
@@ -471,8 +521,18 @@ def test_corrupt_manifest_is_skipped_but_still_degrades_the_timeline(tmp_path):
     # via its own event's freshness, but for T-001 (zero events) this is the
     # *only* signal that something could not be read, and it is exactly the
     # case the old `any(event freshness degraded)`-only definition missed.
+    # `degraded_reasons` distinguishes the two causes precisely: T-001's
+    # scope has *only* the unreadable-manifest reason (zero events, so no
+    # actor-related reason can apply), while T-002's scope has *both* --
+    # its own event's missing actor, plus the same repo-wide unreadable
+    # count. Neither list invents a reason it did not count.
     assert scope_a["degraded"] is True
+    assert scope_a["degraded_reasons"] == ["1 run manifest(s) under evidence/runs could not be read"]
     assert scope_b["degraded"] is True
+    assert scope_b["degraded_reasons"] == [
+        "1 event(s) do not have a recorded actor",
+        "1 run manifest(s) under evidence/runs could not be read",
+    ]
 
 
 def test_schema_invalid_manifest_degrades_the_timeline_instead_of_reporting_clean(tmp_path):
@@ -492,6 +552,27 @@ def test_schema_invalid_manifest_degrades_the_timeline_instead_of_reporting_clea
 
     assert result["events"] == []
     assert result["degraded"] is True
+    assert result["degraded_reasons"] == ["1 run manifest(s) under evidence/runs could not be read"]
+
+
+def test_degraded_reasons_counts_unrecognized_action_and_sequence_fallback_separately(tmp_path):
+    # Two distinct, independently-counted causes on the *same* event: an
+    # unrecognized `decision` value (action not-recorded) and a missing
+    # `reviewed_at` (sequence fallback) -- plus the always-present
+    # missing-actor cause. Each reason's count must reflect exactly what was
+    # counted, not be conflated into a single generic message.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_decision_artifact(tmp_path, task_id="T-001", decision="defer", reviewed_at=None)
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert result["degraded_reasons"] == [
+        "1 event(s) do not have a recorded actor",
+        "1 event(s) do not have a recognized recorded action",
+        "1 event(s) have no recorded timestamp and fall back to their manifest's "
+        "recorded reviews-array position",
+    ]
 
 
 def test_review_entry_with_no_task_id_is_ignored_not_guessed(tmp_path):
@@ -507,6 +588,7 @@ def test_review_entry_with_no_task_id_is_ignored_not_guessed(tmp_path):
 
     assert result["events"] == []
     assert result["degraded"] is False
+    assert result["degraded_reasons"] == []
 
 
 def test_unreadable_manifest_degrades_the_affected_scope_while_other_scopes_events_stay_intact(tmp_path):
@@ -537,11 +619,19 @@ def test_unreadable_manifest_degrades_the_affected_scope_while_other_scopes_even
 
     assert affected["events"] == []
     assert affected["degraded"] is True
+    assert affected["degraded_reasons"] == ["1 run manifest(s) under evidence/runs could not be read"]
 
     assert len(unrelated["events"]) == 1
     assert unrelated["events"][0]["subject"]["ref"] == "task:T-003"
     assert unrelated["events"][0]["action"] == "approved"
     assert unrelated["events"][0]["at"] == "2026-08-08T10:00:00Z"
+    # The unrelated scope's *own* reason (missing actor) plus the same
+    # repo-wide unreadable-manifest reason -- not a fabricated third reason
+    # implying T-003's own evidence was unreadable, which it was not.
+    assert unrelated["degraded_reasons"] == [
+        "1 event(s) do not have a recorded actor",
+        "1 run manifest(s) under evidence/runs could not be read",
+    ]
 
 
 def test_unknown_scope_kind_raises():

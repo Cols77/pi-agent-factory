@@ -398,6 +398,12 @@ def test_unattributable_corrupt_manifest_leaves_events_correct_in_every_scope(re
     assert len(broken_timeline["events"]) == 2
     assert good_timeline["degraded"] is True
     assert broken_timeline["degraded"] is True
+    # `degraded_reasons` names the unreadable-manifest cause explicitly,
+    # not a generic "something is wrong" -- a caller can tell this apart
+    # from "this artifact type never records an actor" (the other cause
+    # also present here via each scope's own events).
+    assert "1 run manifest(s) under evidence/runs could not be read" in good_timeline["degraded_reasons"]
+    assert "1 run manifest(s) under evidence/runs could not be read" in broken_timeline["degraded_reasons"]
 
 
 def test_sr_scope_also_projects_cleanly_in_the_same_repo(repo):

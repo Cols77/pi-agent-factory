@@ -16,6 +16,7 @@ from ._fixtures import (
     write_bundle,
     write_bundle_raw,
     write_decision_artifact,
+    write_raw_manifest_json,
     write_sr,
     write_task,
     write_validation_report,
@@ -64,6 +65,7 @@ def test_timeline_json_flag_prints_valid_json(tmp_path, capsys):
     assert payload["scope"]["ref"] == "bundle:b1"
     assert len(payload["events"]) == 1
     assert payload["events"][0]["actor"] == "not-recorded"
+    assert payload["degraded_reasons"] == ["1 event(s) do not have a recorded actor"]
 
 
 def test_timeline_without_json_flag_prints_human_readable_text(tmp_path, capsys):
@@ -78,16 +80,44 @@ def test_timeline_without_json_flag_prints_human_readable_text(tmp_path, capsys)
 
     # Exact text, not a substring -- a substring check ("task:T-001" in out)
     # would pass just as well with the old, false "records were dropped"
-    # wording still present. Nothing was dropped here; the warning line must
-    # say so accurately.
+    # wording still present. Nothing was dropped here; the warning must list
+    # the actual counted reason(s), not direct the reader to "each event's
+    # freshness" (which may not exist at all -- see the empty-timeline test
+    # below).
     expected_lines = [
         "scope: bundle:b1",
-        "  ! degraded: some entries are missing a recorded actor, and/or some "
-        "evidence could not be read -- see each event's freshness for detail",
+        "  ! degraded:",
+        "    - 1 event(s) do not have a recorded actor",
         "  [2026-08-08T12:00:00Z] not-recorded approved task:T-001 (degraded)",
     ]
     assert out == "\n".join(expected_lines) + "\n"
     assert "dropped" not in out
+    assert "each event's freshness" not in out
+
+
+def test_timeline_without_json_flag_on_empty_but_degraded_timeline_prints_reasons_not_event_pointer(
+    tmp_path, capsys
+):
+    # The combination finding 3 (round 2) newly made reachable: zero events
+    # (nothing to point a reader at) but degraded via an unreadable
+    # manifest. The renderer must print the reason itself, not direct the
+    # reader to per-event detail that does not exist.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_raw_manifest_json(tmp_path, run_id="run-bad", payload={"not": "a valid manifest"})
+
+    rc = main(["timeline", "--scope", "bundle:b1", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    expected_lines = [
+        "scope: bundle:b1",
+        "  ! degraded:",
+        "    - 1 run manifest(s) under evidence/runs could not be read",
+        "  no recorded decisions",
+    ]
+    assert out == "\n".join(expected_lines) + "\n"
+    assert "each event's freshness" not in out
 
 
 def test_timeline_on_empty_repo_reports_no_recorded_decisions(tmp_path, capsys):

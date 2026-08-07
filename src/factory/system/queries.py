@@ -784,20 +784,23 @@ def _timeline_sort_key(event: DecisionTimelineEvent, manifest_ended_at: str) -> 
     interleaved by guesswork).
 
     Within the sequence-only group, `manifest_ended_at` (the *owning
-    manifest's* recorded completion time) is the primary key, and array
-    position is only compared *within* that same manifest -- position
-    numbers from different manifests are never compared to each other,
-    because nothing recorded says which manifest's "1st review" came first.
-    `citation.path` plus `citation.anchor` is the final, fully-deterministic
-    tie-break in both groups.
+    manifest's* recorded completion time) orders by which manifest completed
+    first, then `citation.path` (the owning manifest's own file path, unique
+    per manifest) groups every event from the same manifest together *before*
+    `sequence` is ever compared -- so array position from two different
+    manifests is never compared to each other, unconditionally, even when
+    both manifests share the same `ended_at` (plausible for same-second
+    completions in bulk runs: `ended_at` alone would tie, and comparing raw
+    `sequence` next would reproduce the original cross-manifest interleaving
+    bug). `citation.anchor` is the final tie-break for full determinism.
     """
     if event.at is not None:
         return (0, event.at, event.citation.path, event.citation.anchor or "")
     return (
         1,
         manifest_ended_at,
-        f"{event.sequence:020d}",
         event.citation.path,
+        f"{event.sequence:020d}",
         event.citation.anchor or "",
     )
 
@@ -811,20 +814,52 @@ def _sr_task_ids(repo_root: Path, sr_id: str) -> set[str]:
     return {task.id for task in tasks if sr_id in task.satisfies}
 
 
+def _timeline_degraded_reasons(events: list[DecisionTimelineEvent], unreadable_manifests: int) -> list[str]:
+    """Distinct, counted reasons `query_timeline`'s `degraded` is true.
+
+    A bare `degraded: bool` cannot tell a caller "this artifact shape never
+    names an actor, routine" from "an evidence file is corrupt and needs
+    attention" -- both make `degraded` true, for very different reasons.
+    Each string here corresponds to something actually counted over `events`
+    or the manifest scan, never an invented or generic explanation; an empty
+    list means not degraded.
+    """
+    reasons: list[str] = []
+    no_actor = sum(1 for e in events if e.actor is TimelineActor.NOT_RECORDED)
+    if no_actor:
+        reasons.append(f"{no_actor} event(s) do not have a recorded actor")
+    no_action = sum(1 for e in events if e.action is TimelineAction.NOT_RECORDED)
+    if no_action:
+        reasons.append(f"{no_action} event(s) do not have a recognized recorded action")
+    sequence_fallback = sum(1 for e in events if e.at is None)
+    if sequence_fallback:
+        reasons.append(
+            f"{sequence_fallback} event(s) have no recorded timestamp and fall back to "
+            "their manifest's recorded reviews-array position"
+        )
+    if unreadable_manifests:
+        reasons.append(
+            f"{unreadable_manifests} run manifest(s) under evidence/runs could not be read"
+        )
+    return reasons
+
+
 def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Assemble the decision timeline for `scope` (design SS4.3, SS5.2, SS7.4).
 
-    Returns `{"scope": {...}, "events": [...], "degraded": bool}`. `events`
-    is chronologically ordered per `_timeline_sort_key`. `degraded` is true
-    when at least one included event itself carries degraded freshness (this
-    artifact type never names an actor -- see `_decision_event_from_record`
-    -- so it is true whenever `events` is non-empty) **or** when one or more
+    Returns `{"scope": {...}, "events": [...], "degraded": bool,
+    "degraded_reasons": [...]}`. `events` is chronologically ordered per
+    `_timeline_sort_key`. `degraded` is true exactly when `degraded_reasons`
+    is non-empty (`_timeline_degraded_reasons`) -- either because at least
+    one included event itself carries degraded freshness (this artifact type
+    never names an actor -- see `_decision_event_from_record` -- so this is
+    true whenever `events` is non-empty), or because one or more
     `evidence/runs/*.json` manifests exist but could not be read
     (`_unreadable_manifest_count`) -- design SS8: corrupt evidence must
     degrade a scope, not silently disappear as an empty, clean-looking
     timeline. An empty `events` list with zero unreadable manifests means no
     recorded decisions exist yet for this scope, which is a legitimate
-    state, not a degradation.
+    state, not a degradation (`degraded_reasons` stays empty).
     """
     if scope.kind == "bundle":
         bundle_id = _scope_identifier(scope)
@@ -848,14 +883,13 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
     scored.sort(key=lambda pair: _timeline_sort_key(pair[0], pair[1]))
     events = [event for event, _ in scored]
 
-    degraded = any(e.freshness.state is FreshnessState.DEGRADED for e in events) or (
-        _unreadable_manifest_count(repo_root) > 0
-    )
+    degraded_reasons = _timeline_degraded_reasons(events, _unreadable_manifest_count(repo_root))
 
     return {
         "scope": {"kind": scope.kind, "ref": scope.ref},
         "events": [to_dict(e) for e in events],
-        "degraded": degraded,
+        "degraded": bool(degraded_reasons),
+        "degraded_reasons": degraded_reasons,
     }
 
 

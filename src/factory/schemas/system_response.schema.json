@@ -30,11 +30,12 @@
     "timeline": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scope", "events", "degraded"],
+      "required": ["scope", "events", "degraded", "degraded_reasons"],
       "properties": {
         "scope": {"$ref": "#/$defs/topScopeRef"},
         "events": {"type": "array", "items": {"$ref": "#/$defs/timelineEvent"}},
-        "degraded": {"type": "boolean"}
+        "degraded": {"type": "boolean"},
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
       }
     },
     "freshness": {

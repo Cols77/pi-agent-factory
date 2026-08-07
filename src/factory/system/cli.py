@@ -75,10 +75,9 @@ def _render_matrix(result: dict) -> str:
 def _render_timeline(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
     if result["degraded"]:
-        lines.append(
-            "  ! degraded: some entries are missing a recorded actor, and/or some "
-            "evidence could not be read -- see each event's freshness for detail"
-        )
+        lines.append("  ! degraded:")
+        for reason in result["degraded_reasons"]:
+            lines.append(f"    - {reason}")
     for event in result["events"]:
         when = event["at"] or f"sequence={event['sequence']}"
         lines.append(
