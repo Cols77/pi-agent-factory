@@ -64,9 +64,10 @@ rtk proxy uv run pytest tests/integration -m 'unit or integration' --collect-onl
 - `src/factory/system/cli.py`
 - `src/factory/system/__main__.py`
 - `src/factory/schemas/system_bundle.schema.json`
-- `src/factory/schemas/system_briefing.schema.json`
-- `src/factory/schemas/system_matrix.schema.json`
-- `src/factory/schemas/system_timeline.schema.json`
+- `src/factory/schemas/system_claim.schema.json`
+- `src/factory/schemas/system_matrix_row.schema.json`
+- `src/factory/schemas/system_timeline_event.schema.json`
+- `src/factory/schemas/system_response.schema.json`
 - `src/factory/schemas/system_guide.schema.json`
 - `tests/unit/system/test_models.py`
 - `tests/unit/system/test_bundles.py`
@@ -93,6 +94,8 @@ rtk proxy uv run pytest tests/integration -m 'unit or integration' --collect-onl
 - `pi-ext/factory-watch/src/process-control.ts`
 
 > `system-cli.ts` is a subprocess shim only, built on the shared `cli-runner.ts`. It is not a second tool-registration surface — registration stays in `system-context-tools.ts`.
+
+> **Schema granularity (user ruling, 2026-08-07).** Task 1's schemas are **record-level**, named for the types design §7.2/§7.3/§7.4 actually define: `system_claim`, `system_matrix_row`, `system_timeline_event`. The earlier File Structure named these at collection level (`system_briefing`, `system_matrix`, `system_timeline`), which described a different thing — the §7.1 top-level envelope. That envelope is a separate schema, `system_response.schema.json`, created in Task 2 and extended as timeline and guide land. Record schemas validate one record; the response schema validates the whole payload.
 
 > **Sizing note:** `docs-html.ts` is 31.1K and `index.ts` is 31.7K. The `/system` page shell goes in the new `system-page.ts`; only wiring lands in those two files. Do not graft the navigator UI into `docs-html.ts`.
 
@@ -181,6 +184,7 @@ git commit -m "feat(system): define navigator model, schemas, and bundle declara
 
 **Files:**
 - Create `src/factory/system/queries.py`, `cli.py`, `__main__.py`
+- Create `src/factory/schemas/system_response.schema.json` (the §7.1 top-level envelope; brief and matrix members now, timeline and guide added in Tasks 3 and 5)
 - Create `tests/unit/system/test_queries.py`, `tests/unit/system/test_cli.py`
 
 **Interfaces:**
