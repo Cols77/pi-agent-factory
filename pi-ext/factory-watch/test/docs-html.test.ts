@@ -100,6 +100,11 @@ describe("renderDocsHtml", () => {
     expect(html).toContain("openDoc(focusNode.id)");
   });
 
+  test("offers an explicit, opt-in link to the system navigator (never auto-navigated)", () => {
+    expect(html).toContain('id="systemLink"');
+    expect(html).toContain('href="/system"');
+  });
+
   test("carries a legend for all five validation states", () => {
     for (const label of ["pass", "fail", "error", "never validated", "stale"]) {
       expect(html.toLowerCase()).toContain(label);

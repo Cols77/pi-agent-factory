@@ -15,6 +15,13 @@ import { renderMarkdown } from "./md-render.js";
 import { layoutGraph, neighbourhood } from "./graph-layout.js";
 import { loadTraceGraph } from "./trace-cli.js";
 import { renderDocsHtml } from "./docs-html.js";
+import {
+  loadSystemBriefing,
+  loadSystemMatrix,
+  loadSystemScopes,
+  loadSystemTimeline,
+} from "./system-cli.js";
+import { renderSystemPageHtml } from "./system-page.js";
 
 export interface RunningDocsServer {
   url: string;
@@ -197,6 +204,17 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
     return;
   }
 
+  // /system is opt-in (design section 6.4, section 10 non-goals): it is a
+  // second, explicitly-navigated page, never the default served on "/". Both
+  // "/system" and "/system?scope=<ref>" serve the identical static shell --
+  // the scope query param is read and acted on client-side only, exactly
+  // like the "/" page's task/run focus params.
+  if (req.method === "GET" && url.pathname === "/system") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(renderSystemPageHtml());
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/graph") {
     const result = loadTraceGraph(cwd);
     if (!result.ok) {
@@ -227,6 +245,50 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
             Number.isFinite(hops) ? hops : 1,
           );
     json(res, 200, layoutGraph(scoped.nodes, scoped.edges));
+    return;
+  }
+
+  // /api/system/* projects factory.system's JSON straight through (design
+  // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
+  // and only these four exact paths exist -- anything else (including
+  // `guide`, which is task 5's job) falls through to the 404 below.
+  if (req.method === "GET" && url.pathname === "/api/system/scope") {
+    const result = loadSystemScopes(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/system/brief") {
+    const result = loadSystemBriefing(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/system/matrix") {
+    const result = loadSystemMatrix(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/system/timeline") {
+    const result = loadSystemTimeline(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
     return;
   }
 

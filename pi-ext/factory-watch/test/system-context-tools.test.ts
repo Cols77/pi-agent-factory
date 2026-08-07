@@ -33,6 +33,33 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     }),
     preflight: () => ({ ok: true as const, value: { ok: true, issues: [] } }),
     reconcile: () => ({ ok: true as const, value: { items: [] } }),
+    scopes: () => ({ ok: true as const, value: { scopes: [], errors: [] } }),
+    briefing: () => ({
+      ok: true as const,
+      value: {
+        scope: { kind: "bundle" as const, ref: "bundle:evidence-lifecycle" },
+        claims: [{
+          kind: "recorded" as const,
+          text: "Evidence lifecycle",
+          citations: [],
+          spans: [],
+          freshness: { state: "fresh" as const, reason: null, dependencies: [] },
+        }],
+      },
+    }),
+    matrix: () => ({
+      ok: true as const,
+      value: { scope: { kind: "sr" as const, ref: "sr:SR-001" }, rows: [] },
+    }),
+    timeline: () => ({
+      ok: true as const,
+      value: {
+        scope: { kind: "sr" as const, ref: "sr:SR-001" },
+        events: [],
+        degraded: false,
+        degraded_reasons: [],
+      },
+    }),
     ...overrides,
   };
 }
@@ -46,7 +73,7 @@ function parsed(result: { content: Array<{ text: string }> }) {
 }
 
 describe("system context tools", () => {
-  test("registers four read-only evidence tools", () => {
+  test("registers the read-only evidence and navigator tools", () => {
     const names: string[] = [];
     registerSystemContextTools({ registerTool: (tool) => names.push(tool.name) });
     expect(names).toEqual([
@@ -54,6 +81,10 @@ describe("system context tools", () => {
       "implementation_history",
       "validation_status",
       "evidence_health",
+      "system_scopes",
+      "system_briefing",
+      "system_matrix",
+      "system_timeline",
     ]);
   });
 
@@ -87,5 +118,67 @@ describe("system context tools", () => {
     const value = parsed(await execute(tools[2]!, { id: "SR-001" }));
     expect(value.node.id).toBe("SR-001");
     expect(value.validation).toEqual({ state: "passed", stale: false });
+  });
+
+  test("system_scopes passes the Python-owned scope list straight through, including the honest empty state", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[4]!, {}));
+    expect(value).toEqual({ scopes: [], errors: [] });
+  });
+
+  test("system_scopes surfaces a non-empty scope list without filtering it", async () => {
+    const deps = dependencies({
+      scopes: () => ({
+        ok: true as const,
+        value: {
+          scopes: [{ kind: "bundle", ref: "bundle:evidence-lifecycle" }],
+          errors: [{ path: "bundles/bad.yaml", bundle_id: "bad", error: "missing label" }],
+        },
+      }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[4]!, {}));
+    expect(value.scopes).toEqual([{ kind: "bundle", ref: "bundle:evidence-lifecycle" }]);
+    expect(value.errors).toHaveLength(1);
+  });
+
+  test("system_briefing passes the Python-owned claim set straight through", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[5]!, { scope: "bundle:evidence-lifecycle" }));
+    expect(value.claims[0]).toMatchObject({ kind: "recorded", text: "Evidence lifecycle" });
+  });
+
+  test("system_briefing on an unresolvable scope remains explicitly unknown", async () => {
+    const deps = dependencies({
+      briefing: () => ({ ok: false as const, error: "invalid scope ref: 'task:T-001'" }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[5]!, { scope: "task:T-001" }));
+    expect(value.status).toBe("unknown");
+    expect(value.instruction).toContain("Do not infer");
+  });
+
+  test("system_matrix passes the Python-owned validation rows straight through", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[6]!, { scope: "sr:SR-001" }));
+    expect(value).toEqual({ scope: { kind: "sr", ref: "sr:SR-001" }, rows: [] });
+  });
+
+  test("system_timeline passes the Python-owned degraded flag straight through", async () => {
+    const deps = dependencies({
+      timeline: () => ({
+        ok: true as const,
+        value: {
+          scope: { kind: "sr", ref: "sr:SR-001" },
+          events: [],
+          degraded: true,
+          degraded_reasons: ["1 run manifest(s) under evidence/runs could not be read"],
+        },
+      }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[7]!, { scope: "sr:SR-001" }));
+    expect(value.degraded).toBe(true);
+    expect(value.degraded_reasons).toHaveLength(1);
   });
 });

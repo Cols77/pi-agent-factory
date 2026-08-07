@@ -84,6 +84,11 @@ export function renderDocsHtml(): string {
     background: transparent; color: inherit; cursor: pointer;
   }
   button:hover { background: var(--hover); }
+  #systemLink {
+    font: inherit; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px;
+    color: inherit; text-decoration: none;
+  }
+  #systemLink:hover { background: var(--hover); }
   :focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
 
   #map { padding: 8px 16px 32px; }
@@ -126,6 +131,7 @@ export function renderDocsHtml(): string {
     <div id="bar">
       <button id="showMap">Map</button>
       <button id="toggleTrace">Trace</button>
+      <a id="systemLink" href="/system">System</a>
       <span id="crumb"></span>
     </div>
     <div id="recovery"></div>

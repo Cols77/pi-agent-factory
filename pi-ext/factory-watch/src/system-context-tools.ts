@@ -6,6 +6,12 @@ import {
   runReconcile,
 } from "./evidence-client.js";
 import { loadTraceGraph } from "./trace-cli.js";
+import {
+  loadSystemBriefing,
+  loadSystemMatrix,
+  loadSystemScopes,
+  loadSystemTimeline,
+} from "./system-cli.js";
 
 interface ToolCtx { cwd: string }
 
@@ -14,6 +20,10 @@ interface Dependencies {
   taskEvidence: typeof loadTaskEvidence;
   preflight: typeof runPreflight;
   reconcile: typeof runReconcile;
+  scopes: typeof loadSystemScopes;
+  briefing: typeof loadSystemBriefing;
+  matrix: typeof loadSystemMatrix;
+  timeline: typeof loadSystemTimeline;
 }
 
 const defaultDependencies: Dependencies = {
@@ -21,6 +31,10 @@ const defaultDependencies: Dependencies = {
   taskEvidence: loadTaskEvidence,
   preflight: runPreflight,
   reconcile: runReconcile,
+  scopes: loadSystemScopes,
+  briefing: loadSystemBriefing,
+  matrix: loadSystemMatrix,
+  timeline: loadSystemTimeline,
 };
 
 const MAX_OUTPUT_BYTES = 50 * 1024;
@@ -161,7 +175,102 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     },
   };
 
-  return [systemContext, implementationHistory, validationStatus, evidenceHealth];
+  const systemScopes = {
+    name: "system_scopes",
+    label: "System navigator: scopes",
+    description:
+      "Return every declared scope (bundle or SR) the system navigator can open, plus any " +
+      "declared bundle files that failed to load. An empty scope list is a legitimate repo " +
+      "state (no bundles or requirements directory yet), not an error -- do not treat it as one.",
+    parameters: Type.Object({}),
+    async execute(
+      _callId: string,
+      _params: Record<string, never>,
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.scopes(ctx.cwd);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
+  const systemBriefing = {
+    name: "system_briefing",
+    label: "System navigator: briefing",
+    description:
+      "Return the Python-computed one-page briefing (recorded/derived/synthesized/missing " +
+      "claims, each carrying citations and a freshness state) for a declared scope. This tool " +
+      "renders Python's answer; it never re-derives freshness, ordering, or provenance.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. bundle:evidence-lifecycle or sr:SR-001" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.briefing(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
+  const systemMatrix = {
+    name: "system_matrix",
+    label: "System navigator: validation matrix",
+    description:
+      "Return the Python-computed validation matrix (one row per SR relevant to the scope) " +
+      "for a declared scope. `status` is the recorded validation outcome only; staleness and " +
+      "absence live on each row's `freshness`, never guessed here.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. bundle:evidence-lifecycle or sr:SR-001" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.matrix(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
+  const systemTimeline = {
+    name: "system_timeline",
+    label: "System navigator: decision timeline",
+    description:
+      "Return the Python-computed decision timeline for a declared scope, already ordered by " +
+      "recorded timestamp or recorded sequence number. `degraded`/`degraded_reasons` reflect " +
+      "recorded gaps (e.g. no actor recorded); this tool never reorders or fills them in.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. bundle:evidence-lifecycle or sr:SR-001" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.timeline(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
+  return [
+    systemContext,
+    implementationHistory,
+    validationStatus,
+    evidenceHealth,
+    systemScopes,
+    systemBriefing,
+    systemMatrix,
+    systemTimeline,
+  ];
 }
 
 export function registerSystemContextTools(pi: Pick<PiApi, "registerTool">): void {

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { runJsonCli } from "./cli-runner.js";
 
 export type TraceNodeKind = "br" | "sr" | "spec" | "plan" | "task";
 export type TraceEdgeKind = "source_plan" | "satisfies" | "upstream" | "spec_ref";
@@ -171,23 +172,9 @@ export function runTraceCheck(cwd: string): TraceCheckResult {
 
 export function loadTraceGraph(cwd: string): TraceResult<TraceGraph> {
   const cmd = buildTraceCommand(["graph", "--json"]);
-  const result = spawnSync(cmd.bin, cmd.args, {
-    cwd,
-    encoding: "utf-8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.error) {
-    return { ok: false, error: String(result.error.message ?? result.error) };
+  const result = runJsonCli<TraceGraph>(cwd, cmd.bin, cmd.args);
+  if (!result.ok) {
+    return { ok: false, error: result.error };
   }
-  if (result.status !== 0) {
-    return {
-      ok: false,
-      error: `factory trace exited ${result.status}: ${(result.stderr ?? "").trim()}`,
-    };
-  }
-  try {
-    return { ok: true, graph: JSON.parse(result.stdout) as TraceGraph };
-  } catch (err) {
-    return { ok: false, error: `could not parse factory trace output: ${String(err)}` };
-  }
+  return { ok: true, graph: result.value };
 }
