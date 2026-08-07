@@ -20,20 +20,23 @@ Delivered:
 - shared Python-backed evidence, preflight, reconciliation, and run-state APIs
   consumed by the browser and read-only PIF system-context tools;
 - the `/system` navigator, durable implementation/validation/review views, and
-  guarded interrupted-run recovery controls.
+  guarded interrupted-run recovery controls;
+- retryable optional/required publication, bounded explicit-provenance repairs,
+  real process-kill/resume coverage, and fresh-session continuation for every
+  model-backed pipeline role;
+- deterministic active task/run browser focus shared by `/system`,
+  `/review-plans`, and browser-preferred `/factory-watch`.
 
-Verified after implementation with 659 Python tests, Pyright, Ruff, 552
-TypeScript tests, and TypeScript typechecking.
+Verified after follow-up integration with 668 committed-tree non-gate Python
+regressions, the real subprocess kill/resume integration test, Pyright, Ruff,
+565 TypeScript tests, and TypeScript typechecking. The complete working tree,
+including preserved concurrent orchestrator work, passes 676 Python tests.
 
-Known follow-ups (not silently treated as complete):
+Known follow-up (not silently treated as complete):
 
-- publication queue retry and explicit legacy-review migration repairs
-  (reasoned interrupted-run abandonment and the severity-aware reconciliation
-  gate are implemented);
-- process-kill/reboot integration coverage and continuation support for
-  context-limited roles other than development;
-- richer browser focus URLs and the later feature/SR briefing, validation matrix,
-  decision timeline, and grounded natural-language guide.
+- the feature/SR briefing, validation matrix, decision timeline, and grounded
+  guide now have a separate draft design and provisional plan dated 2026-08-08;
+  implementation remains blocked on its written approval questions.
 
 ## 1. Context
 
