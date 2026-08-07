@@ -1,5 +1,7 @@
 # System Navigator — Implementation Plan
 
+> **Status:** Draft for written review. **This implementation plan is provisional.** No implementation begins until the design (`2026-08-08-system-navigator-briefing-validation-guide-design.md`) receives written approval and the open approval questions in its §12 are answered. The task ordering below is contingent on that approval; no code is produced before approval.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use the relevant implementation workflow. Steps below are intentionally TDD-sized and ordered for low-risk delivery.
 
 **Goal:** Build the `/system` navigator that presents feature/SR briefings, a validation matrix, a decision timeline, and a grounded natural-language guide over recorded evidence.
@@ -12,9 +14,11 @@
 
 ## Global Constraints
 
-- Recorded, derived, synthesized, and missing claims must stay distinct.
+- Recorded, derived, synthesized, and missing claims must stay distinct; freshness is preserved per claim.
 - Freshness is content-based, never mtime-based.
 - Browser/PIF code must not duplicate query, freshness, or provenance logic.
+- No inferred timeline actors or rationale: absent actor/action/timestamp is marked unknown/not-recorded/missing, never guessed.
+- No model-based synthesis: the guide is deterministic template assembly unless separately approved and evidence-cited.
 - Missing or corrupt evidence degrades one scope, not the whole navigator.
 - `/review-plans` and existing evidence surfaces remain compatible during rollout.
 - No unrelated docs or runtime behavior changes outside the navigator path.
@@ -123,6 +127,7 @@ Fixtures should include a spec/plan/task/SR slice plus one validation report and
 - stale evidence downgrades a row but does not crash the query
 - missing evidence becomes `missing`, not guessed
 - timeline order is deterministic
+- timeline actor/action/timestamp absence is marked missing/degraded, not guessed
 
 - [ ] **Step 2: Verify import/path failures first**
 
@@ -214,6 +219,8 @@ git commit -m "feat(factory-watch): add system navigator projections"
 
 ## Task 4: Grounded natural-language guide and rollout
 
+> Synthesis is deterministic template assembly over recorded/derived inputs — it does not invoke a language model and never invents connective rationale. Model-based synthesis is out of scope unless separately approved and evidence-cited.
+
 **Files:**
 - Modify `src/factory/system/queries.py`
 - Modify `pi-ext/factory-watch/src/system-page.ts`
@@ -232,6 +239,7 @@ Assert:
 - a stale dependency marks the paragraph stale
 - missing support degrades the prose rather than fabricating confidence
 - the browser falls back to brief + matrix + timeline when synthesis fails
+- guide synthesis is deterministic template assembly, not a model call
 
 - [ ] **Step 2: Verify failure-first behavior**
 
@@ -240,7 +248,7 @@ Expected: red until synthesis/degradation logic exists.
 
 - [ ] **Step 3: Implement grounded prose assembly**
 
-Keep synthesis conservative: short paragraphs, explicit citations, explicit freshness labels.
+Keep synthesis conservative and deterministic: short paragraphs, explicit citations, explicit freshness labels, template-driven assembly only (no model invocation, no invented rationale).
 
 - [ ] **Step 4: Wire rollout behavior**
 
@@ -266,3 +274,4 @@ git commit -m "feat(system): ground navigator prose and finish rollout"
 - No step asks the browser to infer provenance or freshness.
 - Each task is independently testable and commit-sized.
 - The default-entry-point decision remains explicitly open.
+- This is a provisional plan; no implementation begins until written approval of the design and answers to its open approval questions.
