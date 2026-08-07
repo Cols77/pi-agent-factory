@@ -114,6 +114,19 @@ def test_resume_conflict_and_inspect_only_exit_codes(tmp_path, capsys):
     ) == 4
 
 
+def test_resume_refuses_incompatible_repository_state_without_callback(tmp_path, capsys):
+    write(tmp_path, checkpoint(head_commit="b" * 40))
+    resumed: list[str] = []
+    assert main(
+        ["resume", "run-1", "--repo", str(tmp_path), "--json"],
+        git_ops=FakeGitOps(head="a" * 40),
+        resume_callback=lambda cp: resumed.append(cp.run_id),
+    ) == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["assessment"]["state"] == "conflict"
+    assert resumed == []
+
+
 def test_missing_and_invalid_run_ids_are_operational_errors(tmp_path, capsys):
     assert main(["inspect", "../escape", "--repo", str(tmp_path), "--json"]) == 2
     assert "invalid run id" in json.loads(capsys.readouterr().out)["error"]

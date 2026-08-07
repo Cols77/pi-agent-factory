@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
 import subprocess
 from pathlib import Path
 
@@ -58,6 +60,51 @@ def _summarize_review(findings: list) -> str:
     return "requested: " + "; ".join(str(f)[:60] for f in findings[:3])
 
 
+def _event_results(events: list[NodeEvent] | None) -> dict[str, str]:
+    if not events:
+        return {}
+    return {event.node: event.result for event in events}
+
+
+def _run_with_context_limit_continuation(
+    backend: AgentBackend,
+    role: AgentRole,
+    prompt: str,
+    task: Task,
+    repo_root: Path,
+    *,
+    node: str,
+    attempt: int,
+    checkpoint: Mapping[str, object],
+    gate_results: Mapping[str, object],
+    transcript_dir: Path | None = None,
+    on_snippet: Callable[[str], None] | None = None,
+    on_session_id: Callable[[str], None] | None = None,
+    max_continuations: int = 2,
+) -> AgentResult:
+    result = backend.run(role, prompt, on_snippet=on_snippet, on_session_id=on_session_id)
+    if transcript_dir is not None:
+        write_role_transcript(transcript_dir, node, attempt, result.raw)
+    for continuation in range(1, max_continuations + 1):
+        if result.interruption is not InterruptionReason.CONTEXT_LIMIT:
+            break
+        continuation_prompt = prompt + "\n\n" + build_continuation_context(
+            task,
+            {
+                **checkpoint,
+                "continuation": continuation,
+                "prior_session_id": result.session_id,
+            },
+            result.raw,
+            _working_diff(repo_root),
+            gate_results,
+        )
+        result = backend.run(role, continuation_prompt, on_snippet=on_snippet, on_session_id=on_session_id)
+        if transcript_dir is not None:
+            write_role_transcript(transcript_dir, f"{node}-continuation", attempt * 10 + continuation, result.raw)
+    return result
+
+
 def run_context_gatherer(
     backend: AgentBackend,
     task: Task,
@@ -106,19 +153,31 @@ def run_context_gatherer(
             )
 
         feedback = "\n".join(errors) if errors else None
-        result = backend.run(
+        role_prompt = compose_prompt(
             AgentRole.CONTEXT_GATHERER,
-            compose_prompt(
-                AgentRole.CONTEXT_GATHERER,
-                task,
-                skills_dir=repo_root / ".pi" / "skills",
-                feedback=feedback,
-            ),
+            task,
+            skills_dir=repo_root / ".pi" / "skills",
+            feedback=feedback,
+        )
+        result = _run_with_context_limit_continuation(
+            backend,
+            AgentRole.CONTEXT_GATHERER,
+            role_prompt,
+            task,
+            repo_root,
+            node="context-gather",
+            attempt=attempt,
+            checkpoint={
+                "node": "context-gather",
+                "attempt": attempt,
+                "remaining": {"context-gather": max(0, max_attempts - attempt)},
+                "completed": [],
+            },
+            gate_results={"manifest_validation": "not run after interruption"},
+            transcript_dir=transcript_dir,
             on_snippet=_on_snippet,
             on_session_id=_on_session_id,
         )
-        if transcript_dir is not None:
-            write_role_transcript(transcript_dir, "context-gather", attempt, result.raw)
         manifest = result.output
         if manifest.get("already_done"):
             reason = manifest.get("already_done_reason") or "task deliverables already exist"
@@ -210,6 +269,7 @@ def run_dev(
     feedback: str | None = None,
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
+    events: list[NodeEvent] | None = None,
 ) -> tuple[NodeOutcome, NodeEvent]:
     result: AgentResult | None = None
     captured_session_id: str | None = None
@@ -273,6 +333,8 @@ def run_dev(
                     "node": "dev",
                     "attempt": attempt,
                     "continuation": continuation,
+                    "remaining": {"dev": max(0, max_iters - attempt)},
+                    "completed": [asdict(event) for event in events] if events else [],
                     "prior_session_id": result.session_id,
                 },
                 result.raw,
@@ -453,7 +515,8 @@ def run_review(
             session_id=captured_session_id,
         )
 
-    result = backend.run(
+    result = _run_with_context_limit_continuation(
+        backend,
         AgentRole.REVIEW,
         compose_prompt(
             AgentRole.REVIEW,
@@ -464,11 +527,21 @@ def run_review(
             # human to run suites the validation node executed before it started.
             events=events,
         ),
+        task,
+        repo_root,
+        node="review",
+        attempt=1,
+        checkpoint={
+            "node": "review",
+            "attempt": 1,
+            "remaining": {"review": 1},
+            "completed": [asdict(event) for event in events] if events else [],
+        },
+        gate_results=_event_results(events),
+        transcript_dir=transcript_dir,
         on_snippet=_on_snippet,
         on_session_id=_on_session_id,
     )
-    if transcript_dir is not None:
-        write_role_transcript(transcript_dir, "review", 1, result.raw)
     out = result.output
     findings = list(out.get("findings", []))
     dod_met = bool(out.get("dod_met"))
@@ -508,4 +581,67 @@ def run_review(
         NodeOutcome.CHANGES,
         NodeEvent("review", "changes-requested", 1, extra),
         findings,
+    )
+
+
+def run_session_review(
+    backend: AgentBackend,
+    task: Task,
+    repo_root: Path,
+    *,
+    events: list[NodeEvent] | None = None,
+    existing_kb_titles: list[tuple[str, str]] | None = None,
+    transcript_dir: Path | None = None,
+    status: StatusReporter = NullStatusReporter(),
+) -> AgentResult:
+    captured_session_id: str | None = None
+
+    def _on_session_id(sid: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = sid
+        status.report(
+            task_id=task.id,
+            node="session-review",
+            node_state="running",
+            attempt=1,
+            max_attempts=1,
+            session_id=sid,
+        )
+
+    def _on_snippet(text: str) -> None:
+        status.report(
+            task_id=task.id,
+            node="session-review",
+            node_state="running",
+            attempt=1,
+            max_attempts=1,
+            snippet=text,
+            session_id=captured_session_id,
+        )
+
+    prompt = compose_prompt(
+        AgentRole.SESSION_REVIEW,
+        task,
+        events=events,
+        existing_kb_titles=existing_kb_titles,
+        skills_dir=repo_root / ".pi" / "skills",
+    )
+    return _run_with_context_limit_continuation(
+        backend,
+        AgentRole.SESSION_REVIEW,
+        prompt,
+        task,
+        repo_root,
+        node="session-review",
+        attempt=1,
+        checkpoint={
+            "node": "session-review",
+            "attempt": 1,
+            "remaining": {"session-review": 1},
+            "completed": [asdict(event) for event in events] if events else [],
+        },
+        gate_results=_event_results(events),
+        transcript_dir=transcript_dir,
+        on_snippet=_on_snippet,
+        on_session_id=_on_session_id,
     )

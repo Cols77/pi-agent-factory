@@ -34,6 +34,26 @@ def test_continuation_contains_exact_task_checkpoint_diff_and_gates(tmp_path):
     assert "Do not repeat completed work" in prompt
 
 
+def test_continuation_includes_completed_work_and_remaining_budget(tmp_path):
+    task = Task("T-001", "Continue safely", "todo", ["x"], "body", tmp_path / "T-001.md")
+    prompt = build_continuation_context(
+        task,
+        {
+            "node": "review",
+            "attempt": 2,
+            "completed": [{"node": "context-gather", "result": "pass"}],
+            "remaining": {"review": 1},
+        },
+        "partial output",
+        "diff --git a/a.py b/a.py\n+change",
+        {"validation": "pass"},
+    )
+    assert "## Completed work already recorded" in prompt
+    assert "## Remaining budget" in prompt
+    assert '"context-gather"' in prompt
+    assert '"review": 1' in prompt
+
+
 def test_continuation_bounds_untrusted_bulk_output(tmp_path):
     task = Task("T-1", "t", "todo", ["x"], "body", tmp_path / "t.md")
     prompt = build_continuation_context(task, {}, "x" * 30_000, "y" * 30_000, {})

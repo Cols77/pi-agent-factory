@@ -26,9 +26,9 @@ from factory.orchestrator.nodes import (
     run_context_gatherer,
     run_dev,
     run_review,
+    run_session_review,
     run_validation,
 )
-from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.journal import RunCheckpoint
 from factory.orchestrator.review_guide import (
     read_requirements_report,
@@ -37,8 +37,7 @@ from factory.orchestrator.review_guide import (
 )
 from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
-from factory.orchestrator.transcripts import write_role_transcript
-from factory.orchestrator.types import AgentRole, NodeEvent, NodeOutcome, TaskResult
+from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
 from factory.preflight.checks import run_completion_preflight
 from factory.validation.kb_validator import parse_entry
 
@@ -174,6 +173,7 @@ def run_task(
                     feedback,
                     transcript_dir=transcript_dir,
                     status=status,
+                    events=events,
                 )
                 events.append(d_ev)
                 if execution is not None:
@@ -593,35 +593,19 @@ def run_next(
     record = build_record(sid, model_backend, [result], git_info or {})
     path = write_session(repo_root / "sessions", record)
 
-    captured_session_id: str | None = None
     status.report(
         task_id=task.id, node="session-review", node_state="running", attempt=1, max_attempts=1
     )
-    session_review_prompt = compose_prompt(
-        AgentRole.SESSION_REVIEW,
+
+    session_review_result = run_session_review(
+        backend,
         task,
+        repo_root,
         events=result.events,
         existing_kb_titles=list_kb_titles(repo_root / "kb"),
-        skills_dir=repo_root / ".pi" / "skills",
+        transcript_dir=transcript_dir,
+        status=status,
     )
-
-    def _on_session_id(sid: str) -> None:
-        nonlocal captured_session_id
-        captured_session_id = sid
-        status.report(
-            task_id=task.id,
-            node="session-review",
-            node_state="running",
-            attempt=1,
-            max_attempts=1,
-            session_id=sid,
-        )
-
-    session_review_result = backend.run(
-        AgentRole.SESSION_REVIEW, session_review_prompt, on_session_id=_on_session_id
-    )
-    if transcript_dir is not None:
-        write_role_transcript(transcript_dir, "session-review", 1, session_review_result.raw)
     if execution is not None:
         execution.record(
             node="session-review",

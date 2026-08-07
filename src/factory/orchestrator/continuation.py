@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
 from factory.orchestrator.ledger import Task
 
@@ -13,35 +14,50 @@ def _bounded(value: str, limit: int = 20_000) -> str:
 
 def build_continuation_context(
     task: Task,
-    checkpoint: dict,
+    checkpoint: Mapping[str, object],
     prior_output: str,
     diff: str,
-    gate_results: dict[str, object],
+    gate_results: Mapping[str, object],
 ) -> str:
     """Build deterministic context for a fresh agent after context exhaustion."""
-    return "\n".join(
-        [
-            "# Factory continuation after explicit context-limit interruption",
+    completed = checkpoint.get("completed")
+    remaining = checkpoint.get("remaining")
+    lines = [
+        "# Factory continuation after explicit context-limit interruption",
+        "",
+        "This is a fresh agent session for the same factory attempt.",
+        "Inspect the repository and recorded state before acting. Do not repeat completed work.",
+        "Do not claim provenance, decisions, or validation that are absent below.",
+        "",
+        f"## Task {task.id}: {task.title}",
+        task.body,
+        "",
+        "## Deterministic checkpoint",
+        json.dumps(checkpoint, indent=2, sort_keys=True),
+    ]
+    if completed:
+        lines.extend([
             "",
-            "This is a fresh agent session for the same factory attempt.",
-            "Inspect the repository and recorded state before acting. Do not repeat completed work.",
-            "Do not claim provenance, decisions, or validation that are absent below.",
+            "## Completed work already recorded",
+            json.dumps(completed, indent=2, sort_keys=True),
+        ])
+    if remaining is not None:
+        lines.extend([
             "",
-            f"## Task {task.id}: {task.title}",
-            task.body,
-            "",
-            "## Deterministic checkpoint",
-            json.dumps(checkpoint, indent=2, sort_keys=True),
-            "",
-            "## Current working-tree diff",
-            _bounded(diff) or "(no tracked diff)",
-            "",
-            "## Recorded gate results",
-            json.dumps(gate_results, indent=2, sort_keys=True),
-            "",
-            "## Prior interrupted output",
-            _bounded(prior_output),
-            "",
-            "Continue only the remaining work and emit the role's required structured result.",
-        ]
-    )
+            "## Remaining budget",
+            json.dumps(remaining, indent=2, sort_keys=True),
+        ])
+    lines.extend([
+        "",
+        "## Current working-tree diff",
+        _bounded(diff) or "(no tracked diff)",
+        "",
+        "## Recorded gate results",
+        json.dumps(gate_results, indent=2, sort_keys=True),
+        "",
+        "## Prior interrupted output",
+        _bounded(prior_output),
+        "",
+        "Continue only the remaining work and emit the role's required structured result.",
+    ])
+    return "\n".join(lines)
