@@ -179,3 +179,103 @@ def test_finalize_refuses_a_declared_requirement_that_is_missing(tmp_path):
             started_at="2026-08-07T12:00:00Z",
             ended_at="2026-08-07T12:01:00Z",
         )
+
+
+def test_finalize_marks_publication_local_without_target_and_published_with_target(tmp_path):
+    repo = _repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "src" / "a.py").write_text("after = True\n", encoding="utf-8")
+    assert ops.commit_all(repo, "implementation") is True
+    result_commit = ops.head_commit(repo)
+    task = load_tasks(repo / "tasks")[0]
+    result = TaskResult(
+        "T-001",
+        "Example",
+        "completed",
+        1,
+        [NodeEvent("dev", "pass")],
+        True,
+        start_commit=start,
+        result_commit=result_commit,
+    )
+    transcript = _transcript(repo)
+
+    local_manifest = load_run_manifest(
+        finalize_run_evidence(
+            repo_root=repo,
+            run_id="run-local",
+            task=task,
+            result=result,
+            transcript_dir=transcript,
+            store=LocalArtifactStore(repo / ".factory" / "artifacts" / "objects"),
+            evidence_dir=repo / "evidence",
+            git_ops=ops,
+            started_at="2026-08-07T12:00:00Z",
+            ended_at="2026-08-07T12:01:00Z",
+        )
+    )
+    published_dir = repo / "published"
+    published_dir.mkdir()
+    published_manifest = load_run_manifest(
+        finalize_run_evidence(
+            repo_root=repo,
+            run_id="run-published",
+            task=task,
+            result=result,
+            transcript_dir=transcript,
+            store=LocalArtifactStore(repo / ".factory" / "artifacts" / "objects", published_dir),
+            evidence_dir=repo / "evidence",
+            git_ops=ops,
+            started_at="2026-08-07T12:00:00Z",
+            ended_at="2026-08-07T12:01:00Z",
+        )
+    )
+
+    assert local_manifest["publication"]["state"] == "local"
+    assert published_manifest["publication"]["state"] == "published"
+    assert published_manifest["implementation"]["patch"]["publication"] == "published"
+    assert (published_dir / published_manifest["implementation"]["patch"]["sha256"][:2]).exists()
+
+
+def test_finalize_queues_publication_when_target_is_unusable(tmp_path):
+    repo = _repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "src" / "a.py").write_text("after = True\n", encoding="utf-8")
+    assert ops.commit_all(repo, "implementation") is True
+    result_commit = ops.head_commit(repo)
+    task = load_tasks(repo / "tasks")[0]
+    result = TaskResult(
+        "T-001",
+        "Example",
+        "completed",
+        1,
+        [NodeEvent("dev", "pass")],
+        True,
+        start_commit=start,
+        result_commit=result_commit,
+    )
+    blocked = repo / "published"
+    blocked.write_text("blocked", encoding="utf-8")
+    store = LocalArtifactStore(repo / ".factory" / "artifacts" / "objects", blocked)
+
+    manifest = load_run_manifest(
+        finalize_run_evidence(
+            repo_root=repo,
+            run_id="run-queued",
+            task=task,
+            result=result,
+            transcript_dir=_transcript(repo),
+            store=store,
+            evidence_dir=repo / "evidence",
+            git_ops=ops,
+            started_at="2026-08-07T12:00:00Z",
+            ended_at="2026-08-07T12:01:00Z",
+        )
+    )
+
+    assert manifest["publication"]["state"] == "queued"
+    assert manifest["implementation"]["patch"]["publication"] == "queued"
+    assert manifest["publication"]["errors"]
+    assert store.publication_record(manifest["implementation"]["patch"]["sha256"])["state"] == "queued"

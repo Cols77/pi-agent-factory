@@ -7,6 +7,7 @@ import pytest
 from factory.evidence.artifacts import LocalArtifactStore
 from factory.evidence.manifests import load_run_manifest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, TaskResult
 
@@ -68,6 +69,7 @@ def test_run_next_writes_manifest_and_separate_exact_path_evidence_commit(tmp_pa
     assert manifest["start_commit"] == code_commit
     assert manifest["result_commit"] == code_commit
     assert manifest["outcome"] == "completed"
+    assert manifest["publication"]["state"] == "local"
     assert _head(repo) != code_commit
     committed = subprocess.run(
         ["git", "show", "--name-only", "--format=", "HEAD"],
@@ -79,9 +81,42 @@ def test_run_next_writes_manifest_and_separate_exact_path_evidence_commit(tmp_pa
     assert committed == ["evidence/runs/run-1.json", "tasks/T-001-example.md"]
 
 
+def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    blocked = repo / "published"
+    blocked.write_text("blocked", encoding="utf-8")
+    backend = FakeAgentBackend(
+        {AgentRole.SESSION_REVIEW: [AgentResult(True, {}, raw="session complete")]}
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_task",
+        lambda *a, **k: TaskResult("T-001", "Example", "completed", 1, [], True),
+    )
+    monkeypatch.setattr("factory.orchestrator.runner.compose_prompt", lambda *a, **k: "prompt")
+
+    session_path = run_next(
+        repo,
+        backend,
+        FakeGateRunner(),
+        session_id="run-1",
+        task_id="T-001",
+        artifact_store=LocalArtifactStore(repo / ".factory" / "artifacts" / "objects", blocked),
+        evidence_dir=repo / "evidence",
+    )
+
+    assert session_path is not None
+    manifest = load_run_manifest(repo / "evidence" / "runs" / "run-1.json")
+    assert manifest["outcome"] == "escalated"
+    assert manifest["publication"]["state"] == "queued"
+    assert manifest["publication"]["errors"]
+    assert load_tasks(repo / "tasks")[0].status == "todo"
+
+
 def test_run_next_requires_store_and_evidence_dir_together(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
-    backend = FakeAgentBackend({})
+    backend = FakeAgentBackend(
+        {AgentRole.SESSION_REVIEW: [AgentResult(True, {}, raw="session complete")]}
+    )
     monkeypatch.setattr(
         "factory.orchestrator.runner.run_task",
         lambda *a, **k: TaskResult("T-001", "Example", "completed", 1, [], True),

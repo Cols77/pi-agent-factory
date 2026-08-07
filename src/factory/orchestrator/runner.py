@@ -6,6 +6,7 @@ from pathlib import Path
 
 from factory.evidence.artifacts import ArtifactStore
 from factory.evidence.finalize import finalize_run_evidence
+from factory.evidence.manifests import load_run_manifest, write_run_manifest
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
@@ -520,12 +521,9 @@ def run_next(
                     remaining={},
                     data={"issues": issue_data},
                 )
-    # Only mark done on success. Rejected/escalated tasks go back to todo
-    # so they can be retried (possibly with a different agent or after fixes).
-    set_status(task, "done" if result.outcome == "completed" else "todo")
-
     if (artifact_store is None) != (evidence_dir is None):
         raise ValueError("artifact_store and evidence_dir must be configured together")
+    manifest_path: Path | None = None
     if artifact_store is not None and evidence_dir is not None:
         runtime_dir = transcript_dir or (
             repo_root / "sessions" / ".factory-transcripts" / sid
@@ -542,11 +540,6 @@ def run_next(
             started_at=started_at,
             ended_at=_utc_now(),
         )
-        git_ops.commit_paths(
-            repo_root,
-            [task.path, manifest_path],
-            f"evidence: record {task.id} run {sid}",
-        )
         if execution is not None:
             execution.artifacts.append(manifest_path.relative_to(repo_root).as_posix())
             execution.record(
@@ -557,6 +550,43 @@ def run_next(
                 remaining={},
                 data={"manifest": manifest_path.relative_to(repo_root).as_posix()},
             )
+
+    if (
+        artifact_store is not None
+        and evidence_dir is not None
+        and getattr(artifact_store, "publish_root", None) is not None
+        and manifest_path is not None
+    ):
+        manifest = load_run_manifest(manifest_path)
+        publication = manifest.get("publication", {})
+        if publication.get("state") != "published":
+            result.events.append(
+                NodeEvent(
+                    "publication",
+                    "fail",
+                    1,
+                    {
+                        "state": publication.get("state"),
+                        "errors": publication.get("errors", []),
+                    },
+                )
+            )
+            result.outcome = "escalated"
+            result.dod_met = False
+            manifest["outcome"] = result.outcome
+            if evidence_dir is not None:
+                write_run_manifest(evidence_dir, manifest)
+
+    # Only mark done on success. Rejected/escalated tasks go back to todo
+    # so they can be retried (possibly with a different agent or after fixes).
+    set_status(task, "done" if result.outcome == "completed" else "todo")
+
+    if artifact_store is not None and evidence_dir is not None and manifest_path is not None:
+        git_ops.commit_paths(
+            repo_root,
+            [task.path, manifest_path],
+            f"evidence: record {task.id} run {sid}",
+        )
 
     record = build_record(sid, model_backend, [result], git_info or {})
     path = write_session(repo_root / "sessions", record)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,43 @@ class LocalArtifactStore:
         base = self.root if root is None else root
         return base / digest[:2] / digest
 
+    def publication_queue_root(self) -> Path:
+        return self.root.parent / "publish-queue"
+
+    def publication_record_path(self, sha256: str) -> Path:
+        return self.publication_queue_root() / f"{sha256}.json"
+
+    def _write_publication_record(
+        self,
+        sha256: str,
+        *,
+        state: str,
+        errors: list[str] | None = None,
+        uri: str | None = None,
+    ) -> None:
+        if self.publish_root is None:
+            return
+        record = {
+            "sha256": sha256,
+            "state": state,
+            "errors": errors or [],
+            "uri": uri,
+            "publish_root": str(self.publish_root.resolve()),
+        }
+        path = self.publication_record_path(sha256)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        tmp.replace(path)
+
+    def publication_record(self, sha256: str) -> dict | None:
+        path = self.publication_record_path(sha256)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
     def put(self, data: bytes, media_type: str) -> BlobRef:
         digest = hashlib.sha256(data).hexdigest()
         path = self.path_for(digest)
@@ -77,10 +115,24 @@ class LocalArtifactStore:
         if self.publish_root is None:
             return PublicationResult("local")
         target = self.path_for(sha256, self.publish_root)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        tmp.write_bytes(data)
-        tmp.replace(target)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != sha256:
-            return PublicationResult("failed", error="destination hash mismatch")
-        return PublicationResult("published", uri=target.resolve().as_uri())
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == sha256:
+                uri = target.resolve().as_uri()
+                self._write_publication_record(sha256, state="published", uri=uri)
+                return PublicationResult("published", uri=uri)
+            tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+            tmp.write_bytes(data)
+            tmp.replace(target)
+            if hashlib.sha256(target.read_bytes()).hexdigest() != sha256:
+                error = "destination hash mismatch"
+                self._write_publication_record(sha256, state="failed", errors=[error])
+                return PublicationResult("failed", error=error)
+            uri = target.resolve().as_uri()
+            self._write_publication_record(sha256, state="published", uri=uri)
+            return PublicationResult("published", uri=uri)
+        except OSError as exc:
+            error = str(exc)
+            state = "queued" if not target.exists() else "failed"
+            self._write_publication_record(sha256, state=state, errors=[error])
+            return PublicationResult(state, error=error)

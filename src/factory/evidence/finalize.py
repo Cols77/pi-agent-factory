@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from factory.evidence.artifacts import ArtifactStore, BlobRef
@@ -31,6 +31,12 @@ def _blob_dict(ref: BlobRef) -> dict:
     return asdict(ref)
 
 
+def _publish_blob(store: ArtifactStore, data: bytes, media_type: str) -> BlobRef:
+    ref = store.put(data, media_type)
+    publication = store.publish(ref.sha256)
+    return replace(ref, publication=publication.state, uri=publication.uri)
+
+
 def _load_json(path: Path) -> dict | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -39,8 +45,9 @@ def _load_json(path: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
+def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> tuple[list[dict], list[BlobRef]]:
     reviews: list[dict] = []
+    blobs: list[BlobRef] = []
     reviews_dir = transcript_dir / "reviews"
     for path in sorted(reviews_dir.glob("review-*.json")):
         record = _load_json(path)
@@ -48,11 +55,15 @@ def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
             continue
         diff = record.pop("diff", "")
         if isinstance(diff, str):
-            record["patch"] = _blob_dict(store.put(diff.encode("utf-8"), "text/x-diff"))
+            ref = _publish_blob(store, diff.encode("utf-8"), "text/x-diff")
+            blobs.append(ref)
+            record["patch"] = _blob_dict(ref)
         guide = record.pop("review_guide", None)
         if isinstance(guide, dict):
             guide_bytes = json.dumps(guide, indent=2).encode("utf-8")
-            record["guide"] = _blob_dict(store.put(guide_bytes, "application/json"))
+            ref = _publish_blob(store, guide_bytes, "application/json")
+            blobs.append(ref)
+            record["guide"] = _blob_dict(ref)
         reviews.append(record)
 
     guide_path = transcript_dir / "review-guide.json"
@@ -61,20 +72,23 @@ def _review_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
     except OSError:
         guide_data = b""
     if guide_data and reviews and "guide" not in reviews[-1]:
-        reviews[-1]["guide"] = _blob_dict(store.put(guide_data, "application/json"))
-    return reviews
+        ref = _publish_blob(store, guide_data, "application/json")
+        blobs.append(ref)
+        reviews[-1]["guide"] = _blob_dict(ref)
+    return reviews, blobs
 
 
-def _validation_evidence(transcript_dir: Path, store: ArtifactStore) -> list[dict]:
+def _validation_evidence(transcript_dir: Path, store: ArtifactStore) -> tuple[list[dict], list[BlobRef]]:
     path = transcript_dir / "validation-report.json"
     try:
         raw = path.read_bytes()
     except OSError:
-        return []
+        return [], []
     parsed = _load_json(path)
     if parsed is None:
-        return []
-    return [{"report": _blob_dict(store.put(raw, "application/json")), **parsed}]
+        return [], []
+    ref = _publish_blob(store, raw, "application/json")
+    return ([{"report": _blob_dict(ref), **parsed}], [ref])
 
 
 def _trace_dependencies(repo_root: Path, task_id: str) -> list:
@@ -173,7 +187,25 @@ def finalize_run_evidence(
         )
     task_relative = _relative(repo_root, task.path)
     changed_files = sorted({path for path in changed_files if path != task_relative})
-    patch_ref = store.put(patch, "text/x-diff")
+    patch_ref = _publish_blob(store, patch, "text/x-diff")
+    reviews, review_blobs = _review_evidence(transcript_dir, store)
+    validation, validation_blobs = _validation_evidence(transcript_dir, store)
+    publication_refs = [patch_ref, *review_blobs, *validation_blobs]
+    publication_state = "local"
+    publication_errors: list[str] = []
+    if getattr(store, "publish_root", None) is not None:
+        states = {ref.publication for ref in publication_refs}
+        if states == {"published"}:
+            publication_state = "published"
+        elif "failed" in states:
+            publication_state = "failed"
+        elif "queued" in states:
+            publication_state = "queued"
+        publication_errors = [
+            f"{ref.sha256}: publication={ref.publication}"
+            for ref in publication_refs
+            if ref.publication not in {"local", "published"}
+        ]
 
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -194,9 +226,9 @@ def finalize_run_evidence(
             "changed_files": changed_files,
             "patch": _blob_dict(patch_ref),
         },
-        "validation": _validation_evidence(transcript_dir, store),
-        "reviews": _review_evidence(transcript_dir, store),
+        "validation": validation,
+        "reviews": reviews,
         "decisions": [],
-        "publication": {"state": "local", "errors": []},
+        "publication": {"state": publication_state, "errors": publication_errors},
     }
     return write_run_manifest(evidence_dir, manifest)

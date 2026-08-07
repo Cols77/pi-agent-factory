@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
+from factory.evidence.artifacts import LocalArtifactStore
 from factory.evidence.cli import main
-from factory.evidence.manifests import write_run_manifest
-from factory.evidence.reconcile import ReconcileKind, reconcile
+from factory.evidence.manifests import load_run_manifest, write_run_manifest
+from factory.evidence.reconcile import ReconcileKind, reconcile, repair_reconciliation
 from factory.orchestrator.journal import RunCheckpoint, RunJournal
 
 pytestmark = pytest.mark.unit
@@ -127,6 +129,98 @@ def test_legacy_review_is_repairable_only_with_explicit_identity(tmp_path):
     path.write_text(json.dumps({"task_id": "T-001", "run_id": "r", "start_commit": "a"}), encoding="utf-8")
     item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.LEGACY_REVIEW)
     assert item.repairable is True
+
+
+def test_publication_retry_is_durable_and_idempotent(tmp_path):
+    repo = _repo(tmp_path)
+    store = LocalArtifactStore(repo / ".factory" / "artifacts" / "objects", repo / "published")
+    ref = store.put(b"hello", "text/plain")
+    (repo / "published").write_text("blocked", encoding="utf-8")
+
+    first = store.publish(ref.sha256)
+    assert first.state == "queued"
+    items = reconcile(repo)
+    publication = next(item for item in items if item.kind is ReconcileKind.PUBLICATION_FAILED)
+    assert publication.subject == ref.sha256
+    assert publication.repairable is True
+
+    (repo / "published").unlink()
+    (repo / "published").mkdir()
+    actions = repair_reconciliation(repo, items, reason=None)
+    assert actions[0]["kind"] == "retry_publication"
+    assert store.publication_record(ref.sha256)["state"] == "published"
+    assert not any(item.kind is ReconcileKind.PUBLICATION_FAILED for item in reconcile(repo))
+
+
+def test_publication_retry_refuses_when_no_target_is_recorded(tmp_path):
+    repo = _repo(tmp_path)
+    store = LocalArtifactStore(repo / ".factory" / "artifacts" / "objects")
+    ref = store.put(b"hello", "text/plain")
+    queue_dir = repo / ".factory" / "artifacts" / "publish-queue"
+    queue_dir.mkdir(parents=True)
+    (queue_dir / f"{ref.sha256}.json").write_text(
+        json.dumps({"sha256": ref.sha256, "state": "queued", "errors": []}),
+        encoding="utf-8",
+    )
+
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.PUBLICATION_FAILED)
+    assert item.repairable is False
+    assert item.blocking is False
+    assert "no real configured publication target" in item.detail
+    assert repair_reconciliation(repo, [item], reason=None) == []
+
+
+def test_disposable_index_rebuild_is_bounded_to_real_kb_index(tmp_path):
+    repo = _repo(tmp_path)
+    kb_dir = repo / "kb"
+    kb_dir.mkdir()
+    source = Path(__file__).resolve().parents[3] / "kb" / "kb-0001-example-entry.md"
+    (kb_dir / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    (kb_dir / "index.json").write_text("{}", encoding="utf-8")
+
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.DISPOSABLE_INDEX)
+    assert item.repairable is True
+    actions = repair_reconciliation(repo, [item], reason=None)
+    assert actions[0]["kind"] == "rebuild_disposable_index"
+    assert json.loads((kb_dir / "index.json").read_text(encoding="utf-8"))["kb-0001"]["status"] == "active"
+
+
+def test_legacy_review_migration_requires_explicit_provenance_and_updates_manifest(tmp_path):
+    repo = _repo(tmp_path)
+    manifest_path = write_run_manifest(repo / "evidence", _manifest(repo))
+    legacy = repo / "sessions" / ".factory-transcripts" / "run-1" / "review-history.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(
+        json.dumps(
+            {
+                "task_id": "T-001",
+                "run_id": "run-1",
+                "start_commit": subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+                ).stdout.strip(),
+                "decision": "approve",
+                "annotations": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.LEGACY_REVIEW)
+    assert item.repairable is True
+    actions = repair_reconciliation(repo, [item], reason=None)
+    assert actions[0]["kind"] == "migrate_legacy_review"
+    loaded = load_run_manifest(manifest_path)
+    assert loaded["reviews"][0]["source"] == item.source
+
+
+def test_legacy_review_refuses_when_start_commit_is_missing(tmp_path):
+    repo = _repo(tmp_path)
+    legacy = repo / "sessions" / ".factory-transcripts" / "run-1" / "review-history.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({"task_id": "T-001", "run_id": "run-1"}), encoding="utf-8")
+    item = next(item for item in reconcile(repo) if item.kind is ReconcileKind.LEGACY_REVIEW)
+    assert item.repairable is False
+    assert repair_reconciliation(repo, [item], reason=None) == []
 
 
 def test_reconcile_cli_emits_json_and_uses_pending_exit_code(tmp_path, capsys):
