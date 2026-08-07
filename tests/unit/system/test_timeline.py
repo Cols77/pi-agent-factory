@@ -6,13 +6,19 @@ assert something the evidence does not support. Every test here pins one of
 those rules against real files in a temp repo -- nothing is asserted from a
 mock or a hand-built dataclass standing in for a query result.
 
-Recorded source: signed review decision records at
-`evidence/runs/<run_id>/reviews/review-<NNN>.json` (the shape
-`factory.orchestrator.human_review.FileHumanReviewGate._archive` writes).
-See the comment block above `_iter_decision_records` in `queries.py` for why
-this is the only source used, and why validation-report entries and task
-ledger status are deliberately excluded (no recorded timestamp or sequence
-number backs either one in this repo).
+Recorded source: the `reviews` array inside each durable run evidence
+manifest, `evidence/runs/<run_id>.json` -- a flat file, written and read
+through the real `factory.evidence.manifests` loader/writer (see the comment
+block above `_iter_decision_records` in `queries.py` for the full chain:
+`human_review.py` writes per-run transcript scratch that `.gitignore`
+excludes from the repo; `finalize.py` folds it into the durable manifest's
+`reviews` array; that array is what this module actually reads).
+
+An earlier version of this file (and of `queries.py`) assumed a directory
+layout, `evidence/runs/<run_id>/reviews/review-*.json`, that no producer in
+this repo ever writes. Several tests below exist specifically to prevent
+that regressing silently -- see the "Regression: real manifest layout"
+section.
 """
 from __future__ import annotations
 
@@ -23,9 +29,11 @@ from factory.system.models import SystemScopeRef
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 from ._fixtures import (
+    review_record,
     write_bundle,
     write_decision_artifact,
-    write_decision_artifact_raw,
+    write_raw_manifest_json,
+    write_run_manifest,
     write_sr,
     write_task,
 )
@@ -36,6 +44,53 @@ TIMELINE_EVENT_SCHEMA = SCHEMA_DIR / "system_timeline_event.schema.json"
 
 
 # ---------------------------------------------------------------------------
+# Regression: real manifest layout, not the old (wrong) directory glob
+# ---------------------------------------------------------------------------
+
+
+def test_events_come_back_from_a_real_manifest_built_the_real_way(tmp_path):
+    # Builds the manifest through the real `factory.evidence.manifests`
+    # writer (schema-validated) -- proves the query actually reads
+    # `evidence/runs/<run_id>.json`'s `reviews` array end to end.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_run_manifest(
+        tmp_path,
+        run_id="run-001",
+        task_id="T-001",
+        reviews=[review_record(task_id="T-001", decision="approve", reviewed_at="2026-08-08T12:00:00Z")],
+    )
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert len(result["events"]) == 1
+    assert result["events"][0]["action"] == "approved"
+    assert result["events"][0]["at"] == "2026-08-08T12:00:00Z"
+
+
+def test_a_directory_shaped_like_the_old_wrong_layout_produces_no_events(tmp_path):
+    # `evidence/runs/<run_id>/reviews/review-*.json` is not a layout any
+    # producer in this repo writes (evidence/runs/<run_id> is always a
+    # *file*, per `factory.evidence.manifests.write_run_manifest`). If a
+    # stray directory happens to exist in that shape, it must be inert --
+    # proves the query no longer globs it.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    stray = tmp_path / "evidence" / "runs" / "run-001" / "reviews" / "review-001.json"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_text(
+        '{"version": 1, "reviewed_at": "2026-08-08T12:00:00Z", "task_id": "T-001", '
+        '"start_commit": "abc123", "decision": "approve", "annotations": [], "reviewed_files": []}',
+        encoding="utf-8",
+    )
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert result["events"] == []
+    assert result["degraded"] is False
+
+
+# ---------------------------------------------------------------------------
 # Ordering is deterministic from recorded timestamps
 # ---------------------------------------------------------------------------
 
@@ -43,18 +98,12 @@ TIMELINE_EVENT_SCHEMA = SCHEMA_DIR / "system_timeline_event.schema.json"
 def test_ordering_is_deterministic_from_recorded_timestamps(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    # Written out of chronological order, and with run/sequence numbering
-    # that would sort the *other* way if ordering were accidentally keyed
-    # off the filename glob instead of the recorded timestamp.
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-b", sequence=1, reviewed_at="2026-08-08T15:00:00Z", decision="approve"
-    )
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=1, reviewed_at="2026-08-08T09:00:00Z", decision="reject"
-    )
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-c", sequence=1, reviewed_at="2026-08-08T12:00:00Z", decision="approve"
-    )
+    # Written out of chronological order, and with run-id naming that would
+    # sort the *other* way if ordering were accidentally keyed off manifest
+    # listing order instead of the recorded `reviewed_at`.
+    write_decision_artifact(tmp_path, task_id="T-001", run_id="run-b", reviewed_at="2026-08-08T15:00:00Z", decision="approve")
+    write_decision_artifact(tmp_path, task_id="T-001", run_id="run-a", reviewed_at="2026-08-08T09:00:00Z", decision="reject")
+    write_decision_artifact(tmp_path, task_id="T-001", run_id="run-c", reviewed_at="2026-08-08T12:00:00Z", decision="approve")
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
 
@@ -80,15 +129,18 @@ def test_ordering_is_stable_and_repeatable_across_calls(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Missing timestamps fall back to recorded sequence numbers, with a warning
+# Missing timestamps fall back to a recorded sequence number, with a warning
 # ---------------------------------------------------------------------------
 
 
-def test_missing_timestamp_falls_back_to_recorded_sequence_number(tmp_path):
+def test_missing_timestamp_falls_back_to_recorded_position_in_reviews_array(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=1, reviewed_at=None, decision="approve"
+    write_run_manifest(
+        tmp_path,
+        run_id="run-a",
+        task_id="T-001",
+        reviews=[review_record(task_id="T-001", reviewed_at=None, decision="approve")],
     )
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
@@ -99,17 +151,23 @@ def test_missing_timestamp_falls_back_to_recorded_sequence_number(tmp_path):
     assert event["sequence"] == 1
     # The fallback is visible, not silent.
     assert event["freshness"]["state"] == "degraded"
-    assert "sequence" in event["freshness"]["reason"]
+    assert "reviews array" in event["freshness"]["reason"]
 
 
 def test_events_with_timestamps_sort_before_sequence_only_fallback_events(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=1, reviewed_at=None, decision="approve"
+    write_run_manifest(
+        tmp_path,
+        run_id="run-a",
+        task_id="T-001",
+        reviews=[review_record(task_id="T-001", reviewed_at=None, decision="approve")],
     )
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-b", sequence=1, reviewed_at="2026-08-08T09:00:00Z", decision="reject"
+    write_run_manifest(
+        tmp_path,
+        run_id="run-b",
+        task_id="T-001",
+        reviews=[review_record(task_id="T-001", reviewed_at="2026-08-08T09:00:00Z", decision="reject")],
     )
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
@@ -117,50 +175,26 @@ def test_events_with_timestamps_sort_before_sequence_only_fallback_events(tmp_pa
     assert [e["at"] for e in result["events"]] == ["2026-08-08T09:00:00Z", None]
 
 
-def test_sequence_only_events_sort_by_sequence_among_themselves(tmp_path):
+def test_sequence_only_events_within_one_manifest_sort_by_array_position(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=3, reviewed_at=None, decision="approve"
-    )
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=1, reviewed_at=None, decision="reject"
-    )
-    write_decision_artifact(
-        tmp_path, task_id="T-001", run_id="run-a", sequence=2, reviewed_at=None, decision="approve"
-    )
-
-    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
-
-    assert [e["sequence"] for e in result["events"]] == [1, 2, 3]
-
-
-def test_record_with_neither_timestamp_nor_sequence_is_dropped_and_degrades_scope(tmp_path):
-    # No `review-<N>.json` filename to derive a sequence from, and no
-    # reviewed_at -- there is no recorded ordering basis at all, so this
-    # record must not become a fabricated event. It is dropped, and the
-    # drop is surfaced via `degraded`, not silently absorbed.
-    write_task(tmp_path / "tasks", "T-001", status="done")
-    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    write_decision_artifact_raw(
+    write_run_manifest(
         tmp_path,
         run_id="run-a",
-        filename="review-unordered.json",
-        payload={
-            "version": 1,
-            "reviewed_at": None,
-            "task_id": "T-001",
-            "start_commit": "abc123",
-            "decision": "approve",
-            "annotations": [],
-            "reviewed_files": [],
-        },
+        task_id="T-001",
+        reviews=[
+            review_record(task_id="T-001", reviewed_at=None, decision="approve"),
+            review_record(task_id="T-001", reviewed_at=None, decision="reject"),
+            review_record(task_id="T-001", reviewed_at=None, decision="approve"),
+        ],
     )
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
 
-    assert result["events"] == []
-    assert result["degraded"] is True
+    # Array position (1-based), the manifest's own recorded structure --
+    # never reordered by content (both entries approve/reject/approve).
+    assert [e["sequence"] for e in result["events"]] == [1, 2, 3]
+    assert [e["action"] for e in result["events"]] == ["approved", "rejected", "approved"]
 
 
 # ---------------------------------------------------------------------------
@@ -169,9 +203,9 @@ def test_record_with_neither_timestamp_nor_sequence_is_dropped_and_degrades_scop
 
 
 def test_actor_is_not_recorded_never_guessed(tmp_path):
-    # The review-decision artifact shape has no field naming a reviewer at
+    # The review-decision record shape has no field naming a reviewer at
     # all -- actor must never be filled in with a plausible value (e.g.
-    # "human", because a human review gate wrote the file).
+    # "human", because only a human review gate produces this record type).
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
     write_decision_artifact(tmp_path, task_id="T-001")
@@ -218,34 +252,12 @@ def test_ordering_never_reads_annotation_or_review_body_text(tmp_path):
     # "last" must not influence ordering -- only reviewed_at/sequence do.
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    write_decision_artifact_raw(
-        tmp_path,
-        run_id="run-a",
-        filename="review-001.json",
-        payload={
-            "version": 1,
-            "reviewed_at": "2026-08-08T15:00:00Z",  # later timestamp
-            "task_id": "T-001",
-            "start_commit": "abc123",
-            "decision": "approve",
-            "annotations": [{"file": "x", "body": "this happened first, before anything else"}],
-            "reviewed_files": [],
-        },
-    )
-    write_decision_artifact_raw(
-        tmp_path,
-        run_id="run-b",
-        filename="review-001.json",
-        payload={
-            "version": 1,
-            "reviewed_at": "2026-08-08T09:00:00Z",  # earlier timestamp
-            "task_id": "T-001",
-            "start_commit": "abc123",
-            "decision": "reject",
-            "annotations": [{"file": "x", "body": "this happened last, after everything else"}],
-            "reviewed_files": [],
-        },
-    )
+    first_record = review_record(task_id="T-001", decision="approve", reviewed_at="2026-08-08T15:00:00Z")
+    first_record["annotations"] = [{"file": "x", "body": "this happened first, before anything else"}]
+    second_record = review_record(task_id="T-001", decision="reject", reviewed_at="2026-08-08T09:00:00Z")
+    second_record["annotations"] = [{"file": "x", "body": "this happened last, after everything else"}]
+    write_run_manifest(tmp_path, run_id="run-a", task_id="T-001", reviews=[first_record])
+    write_run_manifest(tmp_path, run_id="run-b", task_id="T-001", reviews=[second_record])
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
 
@@ -271,20 +283,21 @@ def test_no_validation_events_synthesized_without_a_recorded_timestamp_or_sequen
 
 
 # ---------------------------------------------------------------------------
-# Events retain their citations
+# Events retain their citation
 # ---------------------------------------------------------------------------
 
 
-def test_events_retain_citation_to_the_source_review_file(tmp_path):
+def test_events_retain_citation_to_the_owning_manifest_and_array_position(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
-    path = write_decision_artifact(tmp_path, task_id="T-001", run_id="run-a", sequence=1)
+    manifest_path = write_decision_artifact(tmp_path, task_id="T-001", run_id="run-a")
 
     result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
 
     citation = result["events"][0]["citation"]
-    assert citation["path"] == str(path)
+    assert citation["path"] == str(manifest_path)
     assert citation["kind"] == "decision"
+    assert citation["anchor"] == "reviews[0]"
     assert citation["sha256"] is not None
     assert len(citation["sha256"]) == 64
 
@@ -298,6 +311,36 @@ def test_events_validate_against_timeline_event_schema(tmp_path):
 
     for event in result["events"]:
         assert validate(event, TIMELINE_EVENT_SCHEMA) == []
+
+
+# ---------------------------------------------------------------------------
+# A missing/unreadable blob reference inside a review record never affects
+# the timeline -- query_timeline never dereferences patch/guide blob content.
+# ---------------------------------------------------------------------------
+
+
+def test_a_review_records_blob_reference_never_needs_to_resolve(tmp_path):
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    record = review_record(task_id="T-001", decision="approve", reviewed_at="2026-08-08T12:00:00Z")
+    # This sha256 corresponds to no real blob anywhere on disk or in any
+    # artifact store -- the fixture never writes one for any test in this
+    # file. The event must still be built correctly regardless.
+    record["patch"] = {
+        "sha256": "0" * 64,
+        "size": 999,
+        "media_type": "text/x-diff",
+        "local": True,
+        "publication": "local",
+        "uri": None,
+    }
+    write_run_manifest(tmp_path, run_id="run-a", task_id="T-001", reviews=[record])
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert len(result["events"]) == 1
+    assert result["events"][0]["action"] == "approved"
+    assert result["events"][0]["at"] == "2026-08-08T12:00:00Z"
 
 
 # ---------------------------------------------------------------------------
@@ -341,23 +384,63 @@ def test_timeline_on_empty_repo_is_empty_not_an_error(tmp_path):
     assert result["degraded"] is False
 
 
-def test_corrupt_review_file_is_skipped_and_degrades_only_this_scope(tmp_path):
+def test_manifest_with_empty_reviews_array_is_empty_not_degraded(tmp_path):
+    # A task that has been run but never reviewed yet -- a real, valid
+    # manifest with `reviews: []`, not a corruption or an absence.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_run_manifest(tmp_path, run_id="run-a", task_id="T-001", reviews=[])
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert result["events"] == []
+    assert result["degraded"] is False
+
+
+def test_corrupt_manifest_is_skipped_and_does_not_crash_any_scope(tmp_path):
     write_task(tmp_path / "tasks", "T-001", status="done")
     write_task(tmp_path / "tasks", "T-002", status="done")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
     write_bundle(tmp_path / "bundles", "b2", "Bundle Two", ["task:T-002"])
-    write_decision_artifact_raw(
-        tmp_path, run_id="run-a", filename="review-001.json", payload="{not valid json"
-    )
+    write_raw_manifest_json(tmp_path, run_id="run-corrupt", payload="{not valid json")
     write_decision_artifact(tmp_path, task_id="T-002", run_id="run-b")
 
     scope_a = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
     scope_b = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b2"))
 
     assert scope_a["events"] == []
-    assert scope_a["degraded"] is False  # nothing recorded for T-001; the corrupt file names no task
-    assert len(scope_b["events"]) == 1  # the corrupt file in another run does not affect this scope
-    assert scope_b["degraded"] is False
+    assert scope_a["degraded"] is False  # nothing recorded for T-001
+    assert len(scope_b["events"]) == 1  # the corrupt manifest does not affect this scope
+    assert scope_b["degraded"] is True  # T-002's own event is degraded (actor not-recorded), as always
+
+
+def test_schema_invalid_manifest_is_skipped_and_does_not_crash(tmp_path):
+    # Valid JSON, but fails `evidence_manifest.schema.json` (missing every
+    # required field) -- `list_run_manifests` already skips this; confirms
+    # the timeline query doesn't choke on it either.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    write_raw_manifest_json(tmp_path, run_id="run-bad", payload={"not": "a valid manifest"})
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert result["events"] == []
+    assert result["degraded"] is False
+
+
+def test_review_entry_with_no_task_id_is_ignored_not_guessed(tmp_path):
+    # A review entry that names no task at all cannot be attributed to any
+    # scope -- it must not be guessed into belonging to this one.
+    write_task(tmp_path / "tasks", "T-001", status="done")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001"])
+    orphan = review_record(decision="approve")
+    del orphan["task_id"]
+    write_run_manifest(tmp_path, run_id="run-a", task_id="T-001", reviews=[orphan])
+
+    result = query_timeline(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    assert result["events"] == []
+    assert result["degraded"] is False
 
 
 def test_unknown_scope_kind_raises():

@@ -11,12 +11,14 @@ owns:
   ledger, never plan checkbox state -- design SS3.4) and, for the timeline,
   the `satisfies` link from task to SR;
 - `factory.trace.validation_status` for validation report outcomes and
-  staleness.
-
-`query_timeline` reads signed review decision records directly (no existing
-loader covers that shape) -- see the comment above `_iter_decision_records`
-for exactly which artifacts back timeline events and why others were
-deliberately excluded rather than guessed at.
+  staleness;
+- `factory.evidence.manifests` for the durable per-run evidence manifest,
+  whose `reviews` array is `query_timeline`'s source of signed review
+  decisions (see the comment above `_iter_decision_records` for exactly
+  which artifacts back timeline events, why others were deliberately
+  excluded rather than guessed at, and why this replaced an earlier,
+  incorrect direct-glob approach that assumed a directory layout nothing in
+  this repo actually writes).
 
 A bundle member naming a spec/plan/task/SR that does not exist is resolved
 here (real existence, not the syntactic-only check Task 1 could do) and
@@ -30,10 +32,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
@@ -557,14 +559,48 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # ---------------------------------------------------------------------------
 # Decision timeline (design SS4.3, SS7.4)
 #
-# The only recorded-artifact type in this repo that carries both an explicit
-# decision and an explicit, *authored* ordering signal is the signed review
-# decision record `factory.orchestrator.human_review.FileHumanReviewGate`
-# archives at `evidence/runs/<run_id>/reviews/review-<NNN>.json`: it has a
-# `reviewed_at` timestamp (which can be null/missing) and, independently, an
-# explicit sequence counter baked into its own filename by the archiving
-# code itself (`sequence = 1; while ...: sequence += 1` in
-# `human_review.py`) -- a genuinely recorded ordering signal, not a guess.
+# The recorded-artifact source is the `reviews` array inside each durable run
+# evidence manifest (`evidence/runs/<run_id>.json`), read through the
+# existing `factory.evidence.manifests.list_run_manifests` loader -- never a
+# parallel directory glob. This corrects an earlier version of this file that
+# globbed `evidence/runs/<run_id>/reviews/review-*.json`: nothing in this
+# repo ever writes that layout. `evidence/runs/<run_id>` is a *file*
+# (`manifests.py:69`, `write_run_manifest`), not a directory.
+#
+# `factory.orchestrator.human_review.FileHumanReviewGate._archive` does write
+# individual `review-{sequence:03}.json` files, but into `transcript_dir /
+# "reviews"` -- per-run scratch under `sessions/.factory-transcripts/`, which
+# `.gitignore` deliberately excludes from the repo. Those files are not
+# durable evidence. `factory.evidence.finalize._review_evidence` is what
+# turns them into durable evidence: it globs exactly that transcript
+# directory (in the same `sorted(...)` order the archiving code's filenames
+# encode) and folds each record into `manifest["reviews"]`
+# (`finalize.py:230`), popping `diff` in favor of a published `patch` blob
+# ref. `factory.evidence.reconcile.py:360-366` maintains that same array for
+# legacy-migrated reviews. Either way, `manifest["reviews"]` is the one
+# place a signed review decision durably lives.
+#
+# Because `finalize.py` preserves the archiving order when it builds this
+# array, an entry's own position within `manifest["reviews"]` is a genuinely
+# recorded structural fact about the durable manifest document -- not
+# inferred from content or rationale, exactly like the old filename counter
+# it replaces -- and is used as the sequence-number fallback (1-based
+# position) when `reviewed_at` is absent. Because array position is *always*
+# available (every entry has one), a review record reaching this module
+# always has *some* recorded ordering basis; the "drop for lacking any
+# ordering basis at all" case from the transcript-file era can no longer
+# occur here, and `_decision_event_from_record` reflects that by never
+# returning `None` (kept `DecisionTimelineEvent.__post_init__`'s own
+# at-or-sequence check as the enforcement backstop regardless).
+#
+# `evidence_manifest.schema.json` requires `reviews` on any manifest that
+# validates at all (`schema.json`'s top-level `required` list), and
+# `list_run_manifests` already skips -- individually, silently, matching the
+# same discipline `bundles._load_all` already applies -- any manifest file
+# that fails to parse or fails that schema validation. So a manifest reaching
+# this module always has a `reviews` list already (possibly empty, never
+# absent): there is no "absent vs. empty" ambiguity left for this module to
+# resolve, because the loader it reuses already resolved it upstream.
 #
 # Two other candidate sources were deliberately excluded, not overlooked:
 #   - `validation/validation-report.json` entries (`factory.trace.
@@ -589,56 +625,61 @@ _DECISION_ACTION_MAP = {
     "reject": TimelineAction.REJECTED,
 }
 
-# Matches the exact filename shape `FileHumanReviewGate._archive` writes
-# (`review-{sequence:03}.json`) -- deliberately anchored so an unrelated
-# `review-*.json`-shaped file that isn't actually numbered yields no
-# sequence, rather than a misparsed one.
-_REVIEW_SEQUENCE_RE = re.compile(r"^review-(\d+)$")
+
+def _evidence_dir(repo_root: Path) -> Path:
+    return repo_root / "evidence"
 
 
-def _iter_decision_records(repo_root: Path) -> list[tuple[dict, Path, int | None]]:
-    """Scan `evidence/runs/*/reviews/review-*.json` for signed review
-    decisions (design SS4.3).
+def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, int]]:
+    """Read signed review decisions from the `reviews` array of every real
+    run manifest (design SS4.3), via `factory.evidence.manifests.
+    list_run_manifests` -- never a parallel directory glob.
 
-    An absent `evidence/runs` directory is a legitimate state (no runs have
-    finished yet), not an error -- mirrors `bundles.list_bundles`. A file
-    that fails to parse as JSON, or does not parse to an object, is skipped
-    individually: it degrades only its own record, never the whole scan
-    (design SS8), and never raises out of this function.
+    Yields `(review_record, citation, sequence)` where `citation` points at
+    the owning manifest file (with an `anchor` naming which array entry) and
+    `sequence` is that entry's 1-based position in `manifest["reviews"]`. A
+    manifest file that fails to parse or fails schema validation is already
+    skipped by `list_run_manifests` -- it degrades only itself, never the
+    whole scan (design SS8), and never raises out of this function.
     """
-    runs_dir = repo_root / "evidence" / "runs"
-    if not runs_dir.is_dir():
+    evidence_dir = _evidence_dir(repo_root)
+    if not (evidence_dir / "runs").is_dir():
         return []
-    records: list[tuple[dict, Path, int | None]] = []
-    for review_path in sorted(runs_dir.glob("*/reviews/review-*.json")):
-        try:
-            raw = json.loads(review_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(raw, dict):
-            continue
-        match = _REVIEW_SEQUENCE_RE.match(review_path.stem)
-        sequence = int(match.group(1)) if match else None
-        records.append((raw, review_path, sequence))
+    records: list[tuple[dict, SystemCitation, int]] = []
+    for manifest in evidence_manifests.list_run_manifests(evidence_dir):
+        run_id = manifest.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            continue  # cannot even locate the manifest file to cite -- unusable
+        manifest_path = evidence_dir / "runs" / f"{run_id}.json"
+        manifest_sha256 = _sha256_file(manifest_path)
+        reviews = manifest.get("reviews")
+        if not isinstance(reviews, list):
+            continue  # schema guarantees this in practice; defensive only
+        for index, review in enumerate(reviews):
+            if not isinstance(review, dict):
+                continue
+            citation = SystemCitation(
+                kind=CitationKind.DECISION,
+                path=str(manifest_path),
+                sha256=manifest_sha256,
+                anchor=f"reviews[{index}]",
+            )
+            records.append((review, citation, index + 1))
     return records
 
 
 def _decision_event_from_record(
-    record: dict, path: Path, sequence: int | None
-) -> DecisionTimelineEvent | None:
+    record: dict, citation: SystemCitation, sequence: int
+) -> DecisionTimelineEvent:
     """Build one `DecisionTimelineEvent` from a parsed review-decision record.
 
-    Returns `None` -- rather than inventing an ordering -- when the record
-    carries neither a recorded timestamp nor a recorded sequence number;
-    `DecisionTimelineEvent.__post_init__` would reject such a construction
-    outright, and design SS4.3 forbids inferring ordering from anything else.
-    Callers surface the drop via the query result's `degraded` flag instead
-    of silently losing it.
+    Always succeeds: `sequence` (the record's position within its manifest's
+    `reviews` array) is always a real int, so there is always at least one
+    recorded ordering basis for anything reaching this function -- see the
+    module-level comment above `_iter_decision_records`.
     """
     at_raw = record.get("reviewed_at")
     at = at_raw if isinstance(at_raw, str) and at_raw else None
-    if at is None and sequence is None:
-        return None
 
     reasons: list[str] = []
 
@@ -659,7 +700,8 @@ def _decision_event_from_record(
 
     if at is None:
         reasons.append(
-            "reviewed_at not recorded; ordering falls back to the recorded review sequence number"
+            "reviewed_at not recorded; ordering falls back to the review's recorded "
+            "position within its manifest's reviews array"
         )
 
     task_id = record.get("task_id")
@@ -669,7 +711,7 @@ def _decision_event_from_record(
         actor=actor,
         action=action,
         subject=subject,
-        citation=SystemCitation(kind=CitationKind.DECISION, path=str(path), sha256=_sha256_file(path)),
+        citation=citation,
         freshness=Freshness(state=FreshnessState.DEGRADED, reason="; ".join(reasons), dependencies=[]),
         at=at,
         sequence=sequence,
@@ -681,12 +723,12 @@ def _timeline_sort_key(event: DecisionTimelineEvent) -> tuple:
     timestamp sort chronologically among themselves and before events that
     only have a recorded sequence number (there is no honest way to compare
     a timestamp to a bare sequence number, so the two groups are never
-    interleaved by guesswork). Within either group, `citation.path` is the
-    final, fully-deterministic tie-break.
+    interleaved by guesswork). Within either group, `citation.path` plus
+    `citation.anchor` is the final, fully-deterministic tie-break.
     """
     if event.at is not None:
-        return (0, event.at, event.citation.path)
-    return (1, "", f"{event.sequence:020d}", event.citation.path)
+        return (0, event.at, event.citation.path, event.citation.anchor or "")
+    return (1, "", f"{event.sequence:020d}", event.citation.path, event.citation.anchor or "")
 
 
 def _bundle_task_ids(bundle: BundleDeclaration) -> set[str]:
@@ -703,10 +745,11 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 
     Returns `{"scope": {...}, "events": [...], "degraded": bool}`. `events`
     is chronologically ordered per `_timeline_sort_key`. `degraded` is true
-    only when a candidate decision record for this scope existed but could
-    not be represented as an event at all (no recorded timestamp or sequence
-    number) -- never when there are simply no recorded decisions yet, which
-    is a legitimate empty state, not a degradation.
+    when at least one included event itself carries degraded freshness (this
+    artifact type never names an actor -- see `_decision_event_from_record`
+    -- so it is true whenever `events` is non-empty); an empty `events` list
+    means no recorded decisions exist yet for this scope, which is a
+    legitimate state, not a degradation.
     """
     if scope.kind == "bundle":
         bundle_id = _scope_identifier(scope)
@@ -720,22 +763,18 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
         raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
 
     events: list[DecisionTimelineEvent] = []
-    dropped = 0
-    for record, path, sequence in _iter_decision_records(repo_root):
-        if record.get("task_id") not in task_ids:
+    for record, citation, sequence in _iter_decision_records(repo_root):
+        task_id = record.get("task_id")
+        if not isinstance(task_id, str) or task_id not in task_ids:
             continue
-        event = _decision_event_from_record(record, path, sequence)
-        if event is None:
-            dropped += 1
-            continue
-        events.append(event)
+        events.append(_decision_event_from_record(record, citation, sequence))
 
     events.sort(key=_timeline_sort_key)
 
     return {
         "scope": {"kind": scope.kind, "ref": scope.ref},
         "events": [to_dict(e) for e in events],
-        "degraded": dropped > 0,
+        "degraded": any(e.freshness.state is FreshnessState.DEGRADED for e in events),
     }
 
 

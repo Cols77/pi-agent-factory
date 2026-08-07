@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from factory.evidence.manifests import write_run_manifest as _write_evidence_manifest
+
 _SR_BOUND = """---
 id: {id}
 title: "{title}"
@@ -134,57 +136,112 @@ def write_corrupt_validation_report(repo_root: Path) -> Path:
     return path
 
 
+def review_record(
+    *,
+    task_id: str = "T-001",
+    decision: str = "approve",
+    reviewed_at: str | None = "2026-08-08T12:00:00Z",
+    start_commit: str = "a" * 40,
+) -> dict:
+    """One entry as `factory.evidence.finalize._review_evidence` leaves it in
+    `manifest["reviews"]` -- version/reviewed_at/task_id/start_commit/
+    decision/annotations/reviewed_files/patch (a published blob ref; the
+    standalone transcript file's `diff` field is popped in favor of this by
+    `finalize.py`, never `manifest["reviews"]` shape). This is the shape
+    `query_timeline` (design SS4.3) actually reads.
+    """
+    return {
+        "version": 1,
+        "reviewed_at": reviewed_at,
+        "task_id": task_id,
+        "start_commit": start_commit,
+        "decision": decision,
+        "annotations": [],
+        "reviewed_files": [],
+        "patch": {
+            "sha256": "f" * 64,
+            "size": 10,
+            "media_type": "text/x-diff",
+            "local": True,
+            "publication": "local",
+            "uri": None,
+        },
+    }
+
+
+def write_run_manifest(
+    repo_root: Path,
+    *,
+    run_id: str = "run-001",
+    task_id: str = "T-001",
+    reviews: list[dict] | None = None,
+    outcome: str = "completed",
+    started_at: str = "2026-08-08T08:00:00Z",
+    ended_at: str = "2026-08-08T09:00:00Z",
+) -> Path:
+    """Write a schema-valid run evidence manifest via the real
+    `factory.evidence.manifests.write_run_manifest` writer -- guarantees the
+    fixture matches the shape `factory.evidence.finalize` actually produces
+    (design SS4.3's durable evidence, `evidence/runs/<run_id>.json`, a flat
+    file -- never a `evidence/runs/<run_id>/reviews/*.json` directory; no
+    producer in this repo ever writes that layout). `reviews` defaults to an
+    empty list -- a real, valid manifest for a task that has not yet had a
+    review round, a legitimate state rather than a corruption or absence.
+    """
+    manifest = {
+        "schema_version": 2,
+        "run_id": run_id,
+        "task_id": task_id,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "start_commit": "a" * 40,
+        "result_commit": "b" * 40,
+        "outcome": outcome,
+        "inputs": {
+            "task": {"path": f"tasks/{task_id}-slug.md", "sha256": "c" * 64},
+            "requirements": [],
+            "factory_config_sha256": "d" * 64,
+        },
+        "dependencies": [],
+        "implementation": {
+            "changed_files": [],
+            "patch": {"sha256": "e" * 64, "size": 0, "media_type": "text/x-diff"},
+        },
+        "validation": [],
+        "reviews": reviews if reviews is not None else [],
+        "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
+    return _write_evidence_manifest(repo_root / "evidence", manifest)
+
+
 def write_decision_artifact(
     repo_root: Path,
     *,
     task_id: str = "T-001",
     run_id: str = "run-001",
-    sequence: int = 1,
     reviewed_at: str | None = "2026-08-08T12:00:00Z",
     decision: str = "approve",
 ) -> Path:
-    """A signed-review decision record (design SS4.3) -- the archive shape
-    `factory.orchestrator.human_review.FileHumanReviewGate._archive` writes:
-    `evidence/runs/<run_id>/reviews/review-<sequence:03>.json`. This is
-    Task 3's timeline source; the filename's `<sequence>` counter is a
-    genuinely recorded ordering signal independent of `reviewed_at` (see
-    `FileHumanReviewGate._archive`'s own `sequence = 1; while ...:
-    sequence += 1` loop) -- never a guess.
+    """Convenience: one run manifest holding exactly one review record for
+    `task_id`. Thin wrapper over `write_run_manifest` + `review_record` for
+    the common single-decision case most tests need; returns the manifest
+    path (the citation source `query_timeline` actually cites).
     """
-    path = (
-        repo_root
-        / "evidence"
-        / "runs"
-        / run_id
-        / "reviews"
-        / f"review-{sequence:03d}.json"
+    return write_run_manifest(
+        repo_root,
+        run_id=run_id,
+        task_id=task_id,
+        reviews=[review_record(task_id=task_id, decision=decision, reviewed_at=reviewed_at)],
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "reviewed_at": reviewed_at,
-                "task_id": task_id,
-                "start_commit": "abc123",
-                "decision": decision,
-                "annotations": [],
-                "reviewed_files": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
 
 
-def write_decision_artifact_raw(
-    repo_root: Path, *, run_id: str = "run-001", filename: str, payload: dict | str
-) -> Path:
-    """Write a decision-artifact file whose filename/content is fully caller
-    controlled -- for corrupt-JSON and non-numbered-filename edge cases that
-    `write_decision_artifact` cannot express.
+def write_raw_manifest_json(repo_root: Path, *, run_id: str = "run-001", payload: dict | str) -> Path:
+    """Write `evidence/runs/<run_id>.json` directly, bypassing
+    `write_run_manifest`'s schema validation -- for corrupt-JSON and
+    schema-invalid-content edge cases the real writer would refuse to write.
     """
-    path = repo_root / "evidence" / "runs" / run_id / "reviews" / filename
+    path = repo_root / "evidence" / "runs" / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
