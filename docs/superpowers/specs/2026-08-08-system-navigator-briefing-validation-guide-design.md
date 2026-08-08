@@ -250,9 +250,11 @@ The subprocess shim for `factory.system` follows the existing `trace-cli.ts` sha
 ### 6.3 Rendering rules
 
 - recorded rows get a neutral badge;
-- derived rows show their inputs and algorithm label;
+- derived rows render like recorded rows, with their claim text and citations;
 - synthesized prose shows citations inline or in a footnote rail;
 - missing rows render plainly and do not get hidden;
+
+> **Amendment (user ruling, 2026-08-08).** An earlier version of this section required derived rows to "show their inputs and algorithm label." That requirement is dropped. `derived` has exactly one producer in the whole navigator — the unreadable-validation-report claim — and a rendering contract authored for a single instance is over-specification, not discipline. Derived rows render like recorded ones: claim text plus citations.
 - stale/degraded claims are visible and color-coded, but also text-labeled.
 
 ### 6.4 Entry points
@@ -310,7 +312,7 @@ Command registration is an explicit implementation step with its own test, not a
 ```jsonc
 {
   "subject": { "kind": "sr", "ref": "..." },
-  "status": "passed|failed|error|blocked|never-run",
+  "status": "passed|failed|error|blocked|never-run|unknown",
   "evidence": ["..."],
   "freshness": { "state": "fresh|stale|degraded|n/a", "...": "..." },
   "summary": "..."
@@ -318,6 +320,8 @@ Command registration is an explicit implementation step with its own test, not a
 ```
 
 `status` carries the recorded outcome only. Staleness and absence live on the `freshness` object, not in the status enum — an earlier shape had `stale` and `missing` in both places, which let one row assert two different things about the same fact.
+
+**`unknown` status** (user ruling, 2026-08-08). When the validation report exists but cannot be read, the outcome is genuinely undetermined: `never-run` would assert a recorded fact the evidence does not support, and it contradicted what the brief says about the same SR. `unknown` states the truth — the row stays visible, with `freshness: degraded` naming the unreadable report. Omitting the row instead was rejected: a scope vanishing from the matrix is the silent-loss failure §8 exists to prevent.
 
 **Subject kind is `sr` only** (user ruling, 2026-08-07). An earlier draft allowed `sr|task|validation|decision`, but the status vocabulary above describes validation outcomes and nothing else: a task is `todo`/`doing`/`done` and a decision is `approve`/`reject`, and neither maps onto `passed|failed|error|blocked|never-run` without inventing a correspondence. Inventing one would violate the no-guessing rule this document exists to enforce. This is a **validation** matrix, as §1 names it. Task status is already carried by the brief (§4.1) and decisions are already carried by the timeline (§4.3); emitting them here would duplicate those surfaces under a vocabulary that does not fit them.
 
