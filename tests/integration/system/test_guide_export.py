@@ -122,6 +122,65 @@ def test_export_path_escaping_repo_root_is_rejected(repo, tmp_path_factory):
         export_guide(repo, _SCOPE, outside)
 
 
+# ---------------------------------------------------------------------------
+# `target == repo_root` and an existing-directory target both used to reach
+# `tmp.replace(target)` with `target` a directory -- an uncaught OS-level
+# `PermissionError`/`OSError` instead of the structured `ValueError` every
+# other confinement failure produces, and (for `target == repo_root`) a
+# `.tmp` file written as a *sibling* of the repo root, outside the confined
+# tree entirely (design SS9).
+# ---------------------------------------------------------------------------
+
+
+def test_export_path_equal_to_repo_root_is_rejected(repo):
+    before = {p for p in repo.parent.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError, match="escapes repo root"):
+        export_guide(repo, _SCOPE, repo)
+    # Nothing was written anywhere, including outside the repo root as a
+    # sibling `.tmp` file (the exact failure mode this guard closes).
+    after = {p for p in repo.parent.rglob("*") if p.is_file()}
+    assert before == after
+
+
+def test_export_path_empty_string_is_rejected(repo):
+    # `Path("")` resolves to `repo` itself -- the same case as above, reached
+    # through the CLI's most natural typo.
+    with pytest.raises(ValueError, match="escapes repo root"):
+        export_guide(repo, _SCOPE, Path(""))
+
+
+def test_export_path_dot_is_rejected(repo):
+    with pytest.raises(ValueError, match="escapes repo root"):
+        export_guide(repo, _SCOPE, Path("."))
+
+
+def test_export_path_that_is_an_existing_directory_is_rejected(repo):
+    existing_dir = repo / "some-existing-dir"
+    existing_dir.mkdir()
+    with pytest.raises(ValueError, match="existing directory"):
+        export_guide(repo, _SCOPE, existing_dir)
+    # The directory itself is untouched -- no crash mid-rename.
+    assert existing_dir.is_dir()
+    assert list(existing_dir.iterdir()) == []
+
+
+def test_cli_guide_export_equal_to_repo_root_reports_structured_error_not_traceback(repo):
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "factory.system", "guide",
+            "--scope", "sr:SR-001", "--repo-root", str(repo), "--json",
+            "--export", str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    body = json.loads(result.stderr)
+    assert "escapes repo root" in body["error"]
+
+
 def test_export_lands_outside_every_forbidden_directory_when_confined(repo):
     dest = repo / "exports" / "guide.json"
     written = export_guide(repo, _SCOPE, dest)

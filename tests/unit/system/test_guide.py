@@ -155,10 +155,39 @@ def test_bundle_coverage_section_collapses_to_bullets_when_a_task_member_is_miss
     coverage = _section(result, 1)
 
     assert validate(coverage, CLAIM_SCHEMA) == []
-    assert coverage["kind"] == "recorded"
+    # A rollup over several distinct member claims (some missing) is
+    # `derived`, never `recorded` (design SS3.1: the section badge must
+    # never overstate what actually backs it -- CRITICAL 1 fix).
+    assert coverage["kind"] == "derived"
     assert coverage["spans"] == []
     assert coverage["freshness"]["state"] == "degraded"
     assert "task:T-999" in coverage["text"]
+    # Each bullet carries its own contributing claim's kind -- the missing
+    # member is never relabelled as if it had been recorded.
+    assert "[missing] (n/a) task:T-999" in coverage["text"]
+    assert "[recorded]" in coverage["text"]
+
+
+def test_bundle_coverage_section_bullets_never_label_a_missing_member_recorded(tmp_path):
+    # Direct reproduction of the review finding: a bundle declaring a
+    # spec member and a task member that both fail to resolve must never
+    # render its collapsed coverage section as `recorded`, and every bullet
+    # line must carry the underlying claim's real (`missing`) kind, not the
+    # section's own.
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["spec:docs/nope.md", "task:T-404"])
+
+    result = query_guide(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+    coverage = _section(result, 1)
+
+    assert validate(coverage, CLAIM_SCHEMA) == []
+    assert coverage["kind"] == "derived"
+    assert coverage["kind"] != "recorded"
+    assert coverage["freshness"]["state"] == "degraded"
+    assert coverage["freshness"]["state"] != "n/a"  # derived may never carry n/a
+    for line in coverage["text"].split("\n"):
+        assert line.startswith("- [missing] (n/a) ")
+    assert "spec:docs/nope.md" in coverage["text"]
+    assert "task:T-404" in coverage["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +220,9 @@ def test_validation_section_collapses_to_bullets_when_validation_is_stale(tmp_pa
     validation = _section(result, 2)
 
     assert validate(validation, CLAIM_SCHEMA) == []
-    assert validation["kind"] == "recorded"
+    # A matrix row is never itself a "recorded claim" -- rolling one or more
+    # up into bullets is `derived`, never `recorded`.
+    assert validation["kind"] == "derived"
     assert validation["spans"] == []
     assert validation["freshness"]["state"] == "stale"
     # There is no partially-hedged prose: a stale dependency never leaves a
@@ -208,9 +239,9 @@ def test_validation_section_collapses_to_bullets_when_never_validated(tmp_path):
     validation = _section(result, 2)
 
     assert validate(validation, CLAIM_SCHEMA) == []
-    assert validation["kind"] == "recorded"
+    assert validation["kind"] == "derived"
     assert validation["spans"] == []
-    # A `recorded` claim may never carry `n/a` (SS3.2 coupling rule): a
+    # A `derived` claim may never carry `n/a` (SS3.2 coupling rule): a
     # missing/n/a matrix row rolls up to `degraded` for the aggregate, not
     # `n/a` -- `_aggregate_freshness` enforces this explicitly.
     assert validation["freshness"]["state"] == "degraded"
@@ -257,7 +288,9 @@ def test_decisions_section_collapses_to_bullets_when_actor_is_not_recorded(tmp_p
     decisions = _section(result, 3)
 
     assert validate(decisions, CLAIM_SCHEMA) == []
-    assert decisions["kind"] == "recorded"
+    # A timeline event is derived from a review record, never itself a
+    # "recorded claim" -- a rollup of one or more events is `derived`.
+    assert decisions["kind"] == "derived"
     assert decisions["spans"] == []
     assert decisions["freshness"]["state"] == "degraded"
     assert "task:T-001" in decisions["text"]
@@ -337,11 +370,14 @@ def test_verbatim_span_failure_degrades_bundle_scope_sections_to_bullets_never_r
 
     # Identity (0), coverage (1), and validation (2) would all otherwise be
     # `fresh` and synthesized here -- with span verification forced to fail,
-    # every one of them must degrade cleanly to bullets instead.
-    for index in (0, 1, 2):
+    # every one of them must degrade cleanly to bullets instead. Identity
+    # falls back to its single already-recorded claim unchanged (`recorded`);
+    # coverage and validation are rollups over several distinct claims/rows,
+    # so they are `derived`.
+    for index, expected_kind in ((0, "recorded"), (1, "derived"), (2, "derived")):
         section = result["sections"][index]
         assert validate(section, CLAIM_SCHEMA) == []
-        assert section["kind"] == "recorded"
+        assert section["kind"] == expected_kind
         assert section["spans"] == []
         assert section["text"]
 
@@ -354,12 +390,13 @@ def test_verbatim_span_failure_degrades_sr_scope_sections_to_bullets_never_raise
 
     result = query_guide(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
 
-    # Identity (0), detail (1), and validation (2) would all otherwise be
-    # `fresh` and synthesized here.
-    for index in (0, 1, 2):
+    # Identity (0) and detail (1) each fall back to a single already-recorded
+    # claim unchanged (`recorded`); validation (2) is a rollup over the
+    # matrix's rows, so it is `derived`.
+    for index, expected_kind in ((0, "recorded"), (1, "recorded"), (2, "derived")):
         section = result["sections"][index]
         assert validate(section, CLAIM_SCHEMA) == []
-        assert section["kind"] == "recorded"
+        assert section["kind"] == expected_kind
         assert section["spans"] == []
         assert section["text"]
 
@@ -373,7 +410,7 @@ def test_verbatim_span_failure_degrades_sr_scope_sections_to_bullets_never_raise
     ("stale", "expected_kind", "expected_state"),
     [
         (False, "synthesized", "fresh"),
-        (True, "recorded", "stale"),
+        (True, "derived", "stale"),
     ],
 )
 def test_collapse_predicate_is_binary_on_freshness_alone(tmp_path, stale, expected_kind, expected_state):

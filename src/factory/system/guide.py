@@ -13,9 +13,13 @@ assert a quote it has not just verified.
 
 **Collapse predicate (design SS4.4).** For each section, freshness of every
 fact backing it is checked: `all_dependencies_fresh(section) -> prose`,
-otherwise the section renders as recorded bullets built only from text
-`factory.system.queries` already produced (never new prose). This is the one
-binary decision the design calls for. As a second, independent safety net --
+otherwise the section renders as bullets built only from text
+`factory.system.queries` already produced (never new prose) -- `derived` when
+the bullets roll up several distinct underlying facts (some possibly
+`missing`), or the one contributing claim's own already-recorded `kind` when
+there is only a single fact to fall back to unchanged (`_bullets`). This is
+the one binary decision the design calls for. As a second, independent safety
+net --
 never itself a second *collapse* axis, since it only ever narrows an already
 "fresh" section toward the same bullets outcome -- a section that is fresh
 but for which a scaffolded sentence's verbatim span cannot be independently
@@ -73,6 +77,8 @@ from factory.system.models import (
 )
 from factory.system.queries import (
     ScopeKindError,
+    _requirements_dir,
+    _tasks_dir,
     query_brief,
     query_matrix,
     query_timeline,
@@ -168,8 +174,42 @@ def _missing_section(text: str) -> SystemClaim:
     )
 
 
-def _bullets(lines: list[str], citations: list[SystemCitation], freshness: Freshness) -> SystemClaim:
-    return SystemClaim(kind=ClaimClass.RECORDED, text="\n".join(lines), freshness=freshness, citations=citations)
+def _bullets(
+    lines: list[str], citations: list[SystemCitation], freshness: Freshness, kind: ClaimClass
+) -> SystemClaim:
+    """Assemble a collapsed section from lines the caller already has in
+    hand. `kind` is never hardcoded here -- the caller states it explicitly,
+    because it depends on what the lines actually are:
+
+    - a single already-recorded fact reproduced unchanged (the span-
+      verification safety net catching one fresh claim) keeps that claim's
+      own `kind` (always `recorded` in this module's real call sites);
+    - a rollup over several distinct underlying facts (several bundle
+      members, several matrix rows, several timeline events) is `derived`,
+      never `recorded` -- collapsing multiple facts, some possibly `missing`,
+      into one section is itself a transformation, not a verbatim quote.
+
+    This is the fix for the bug where every collapsed section was
+    unconditionally labelled `recorded`, even when built entirely from
+    `missing` claims (design SS3.1: the badge must never overstate what
+    contributed to it). The SS3.2 coupling rule still holds regardless of
+    which `kind` is passed: `_aggregate_freshness` never returns `n/a` for a
+    multi-claim rollup (an `n/a` contributor maps to `degraded`), so a
+    `derived` section is never asked to carry `n/a`, and a single-claim
+    fallback's freshness is always exactly the freshness that claim already
+    had (`recorded` claims here are never `n/a` either).
+    """
+    return SystemClaim(kind=kind, text="\n".join(lines), freshness=freshness, citations=citations)
+
+
+def _claim_bullet_line(claim: dict) -> str:
+    """Render one already-computed claim dict as a bullet line, carrying its
+    own `kind` and `freshness.state` the same way `cli.py:_render_brief`
+    already prints `[{kind}] ({state}) {text}` for the brief -- so a
+    collapsed guide section never hides which underlying claims were
+    `missing` behind a section-level badge that only shows the aggregate.
+    """
+    return f"- [{claim['kind']}] ({claim['freshness']['state']}) {claim['text']}"
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +234,7 @@ def _identity_section(repo_root: Path, scope: SystemScopeRef, brief: dict) -> Sy
         scaffold = f'This guide covers the declared bundle "{candidate}".'
     else:
         req_id = _identifier(scope)
-        reqs = register.load_register(repo_root / "requirements")
+        reqs = register.load_register(_requirements_dir(repo_root))
         req = register.get_requirement(reqs, req_id)
         if req is None:
             return _missing_section(f"{scope.ref}: requirement no longer resolves")
@@ -208,7 +248,15 @@ def _identity_section(repo_root: Path, scope: SystemScopeRef, brief: dict) -> Sy
                 kind=ClaimClass.SYNTHESIZED, text=scaffold, freshness=freshness, citations=[citation], spans=[span]
             )
 
-    return _bullets([f"- {candidate}"], [citation], freshness)
+    # A single already-recorded claim reproduced unchanged, not a rollup --
+    # keeps `identity_claim`'s own kind (always `recorded` here) rather than
+    # the section-level `derived` a genuine multi-claim rollup gets below.
+    return _bullets(
+        [_claim_bullet_line(identity_claim)],
+        [citation],
+        freshness,
+        kind=ClaimClass(identity_claim["kind"]),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +277,7 @@ def _bundle_coverage_section(repo_root: Path, scope: SystemScopeRef, brief: dict
     ]
 
     if _all_fresh(freshnesses) and task_ref_claims:
-        tasks = ledger.load_tasks(repo_root / "tasks")
+        tasks = ledger.load_tasks(_tasks_dir(repo_root))
         sentences: list[str] = []
         citations: list[SystemCitation] = []
         spans: list[Span] = []
@@ -260,8 +308,14 @@ def _bundle_coverage_section(repo_root: Path, scope: SystemScopeRef, brief: dict
             sc = _citation_from_dict(cite)
             if sc not in citations:
                 citations.append(sc)
-    lines = [f"- {c['text']}" for c in facts]
-    return _bullets(lines, citations, _aggregate_freshness(freshnesses))
+    # A rollup over every declared member's own claim -- some may be
+    # `missing` (an unresolved member) -- so the section is `derived`, and
+    # each bullet carries the contributing claim's own `kind`/freshness
+    # rather than letting the section-level badge overstate it (design
+    # SS3.1; this is the fix for the bug where a bundle whose members are
+    # all `missing` rendered as a `recorded` section).
+    lines = [_claim_bullet_line(c) for c in facts]
+    return _bullets(lines, citations, _aggregate_freshness(freshnesses), kind=ClaimClass.DERIVED)
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +331,7 @@ def _sr_detail_section(repo_root: Path, scope: SystemScopeRef, brief: dict) -> S
     freshness = _freshness_from_dict(upstream_claim["freshness"])
 
     req_id = _identifier(scope)
-    reqs = register.load_register(repo_root / "requirements")
+    reqs = register.load_register(_requirements_dir(repo_root))
     req = register.get_requirement(reqs, req_id)
     if req is None:
         return _missing_section(f"{scope.ref}: requirement no longer resolves")
@@ -291,8 +345,16 @@ def _sr_detail_section(repo_root: Path, scope: SystemScopeRef, brief: dict) -> S
                 kind=ClaimClass.SYNTHESIZED, text=text, freshness=freshness, citations=[citation], spans=[span]
             )
 
+    # A single already-recorded claim reproduced unchanged (the upstream
+    # claim `_sr_brief_claims` always includes second) -- keeps its own
+    # kind, not a rollup's `derived`.
     upstream_citations = [_citation_from_dict(c) for c in upstream_claim["citations"]] or [citation]
-    return _bullets([f"- {upstream_claim['text']}"], upstream_citations, freshness)
+    return _bullets(
+        [_claim_bullet_line(upstream_claim)],
+        upstream_citations,
+        freshness,
+        kind=ClaimClass(upstream_claim["kind"]),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +384,7 @@ def _validation_section(repo_root: Path, scope: SystemScopeRef, brief: dict, mat
     citation_lookup = _requirement_citations_by_sr_ref(scope, brief)
 
     if _all_fresh(freshnesses):
-        reqs = register.load_register(repo_root / "requirements")
+        reqs = register.load_register(_requirements_dir(repo_root))
         sentences: list[str] = []
         citations: list[SystemCitation] = []
         spans: list[Span] = []
@@ -360,7 +422,10 @@ def _validation_section(repo_root: Path, scope: SystemScopeRef, brief: dict, mat
             sc = _citation_from_dict(cite_raw)
             if sc not in citations:
                 citations.append(sc)
-    return _bullets(lines, citations, _aggregate_freshness(freshnesses))
+    # A matrix row is never itself a "recorded claim" -- it is computed
+    # (design SS7.3), so a rollup of one or more rows is `derived`, never
+    # `recorded`. Each line already carries the row's own status/freshness.
+    return _bullets(lines, citations, _aggregate_freshness(freshnesses), kind=ClaimClass.DERIVED)
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +481,10 @@ def _decision_section(timeline: dict) -> SystemClaim:
         sc = _citation_from_dict(event["citation"])
         if sc not in citations:
             citations.append(sc)
-    return _bullets(lines, citations, _aggregate_freshness(freshnesses))
+    # A timeline event is never itself a "recorded claim" -- it is derived
+    # from a review record (design SS7.4) -- so a rollup of one or more
+    # events is `derived`, never `recorded`.
+    return _bullets(lines, citations, _aggregate_freshness(freshnesses), kind=ClaimClass.DERIVED)
 
 
 def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
@@ -478,10 +546,27 @@ def is_exported_guide(path: Path) -> bool:
 
 
 def _confine_export_path(repo_root: Path, dest: Path) -> Path:
+    """Resolve and validate an `--export` destination (design SS4.5, SS9).
+
+    Rejects, all as a structured `ValueError` (never an uncaught traceback):
+    - anything outside the repo root, including the root itself. `target ==
+      root` used to be explicitly allowed, which let `export_guide`'s
+      `tmp = target.with_name(target.name + ".tmp")` compute a *sibling* of
+      the repo root (e.g. `<root>.tmp`) -- a write outside the confined tree
+      that design SS9 names as a hard invariant. `Path("")` resolves to
+      `root` too, so `--export ""` hits this same guard.
+    - any existing directory, root or not. `export_guide` always writes a
+      *file* at `target` (`tmp.replace(target)`); pointing `--export` at a
+      directory that already exists crashes that rename with an OS-level
+      `PermissionError`/`OSError` instead of a structured error.
+    - the forbidden non-readmission directories (evidence/bundles/requirements).
+    """
     root = repo_root.resolve()
     target = (dest if dest.is_absolute() else root / dest).resolve()
-    if target != root and root not in target.parents:
+    if target == root or root not in target.parents:
         raise ValueError(f"export path escapes repo root: {dest}")
+    if target.is_dir():
+        raise ValueError(f"export path must not be an existing directory: {dest}")
     for forbidden_name in _FORBIDDEN_EXPORT_DIRS:
         forbidden = (root / forbidden_name).resolve()
         if target == forbidden or forbidden in target.parents:
