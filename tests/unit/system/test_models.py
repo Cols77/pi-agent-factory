@@ -288,7 +288,7 @@ def test_matrix_status_enum_has_no_stale_or_missing():
     values = {s.value for s in MatrixStatus}
     assert "stale" not in values
     assert "missing" not in values
-    assert values == {"passed", "failed", "error", "blocked", "never-run"}
+    assert values == {"passed", "failed", "error", "blocked", "never-run", "unknown"}
 
 
 def test_validation_matrix_row_round_trips():

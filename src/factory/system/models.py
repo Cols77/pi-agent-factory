@@ -57,6 +57,7 @@ class MatrixStatus(str, Enum):
     ERROR = "error"
     BLOCKED = "blocked"
     NEVER_RUN = "never-run"
+    UNKNOWN = "unknown"
 
 
 class TimelineActor(str, Enum):

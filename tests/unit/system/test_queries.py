@@ -31,6 +31,7 @@ from ._fixtures import (
     write_bundle_raw,
     write_corrupt_validation_report,
     write_decision_artifact,
+    write_non_dict_validation_report,
     write_plan,
     write_spec,
     write_sr,
@@ -242,10 +243,13 @@ def test_corrupt_validation_report_is_degraded_not_never_run_freshness_in_matrix
     result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
 
     row = result["rows"][0]
-    # `status` may still be "never-run" -- there is no recorded pass/fail
-    # outcome -- but freshness must say "degraded", not "n/a", because a
-    # report genuinely exists and could not be read.
-    assert row["status"] == "never-run"
+    # `status` must be "unknown", not "never-run" (user ruling, 2026-08-08):
+    # "never-run" would assert a recorded fact the evidence does not
+    # support, and it contradicted the brief's `derived`/`degraded` claim
+    # about the same SR (IMPORTANT 4). Freshness says "degraded", not "n/a",
+    # because a report genuinely exists and could not be read.
+    assert row["status"] == "unknown"
+    assert row["status"] != "never-run"
     assert row["freshness"]["state"] == "degraded"
 
 
@@ -257,6 +261,83 @@ def test_corrupt_validation_report_claim_still_validates_against_claim_schema(tm
 
     for claim in result["claims"]:
         assert validate(claim, CLAIM_SCHEMA) == []
+
+
+def test_corrupt_validation_report_brief_and_matrix_agree_about_the_same_sr(tmp_path):
+    # IMPORTANT 4: the brief and matrix previously contradicted each other
+    # for an unreadable report -- brief said `derived`/`degraded`, matrix
+    # asserted the recorded outcome `never-run`. Both surfaces must now
+    # agree the outcome is undetermined.
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_corrupt_validation_report(tmp_path)
+    scope = SystemScopeRef(kind="sr", ref="sr:SR-001")
+
+    brief = query_brief(tmp_path, scope)
+    matrix = query_matrix(tmp_path, scope)
+
+    validation_claim = next(c for c in brief["claims"] if "unreadable" in c["text"])
+    row = matrix["rows"][0]
+
+    assert validation_claim["kind"] == "derived"
+    assert validation_claim["freshness"]["state"] == "degraded"
+    assert row["status"] == "unknown"
+    assert row["freshness"]["state"] == "degraded"
+    # Neither surface asserts the recorded fact "never validated"/"never-run"
+    # about a report that could not be read.
+    assert "never validated" not in validation_claim["text"]
+    assert row["status"] != "never-run"
+
+
+# ---------------------------------------------------------------------------
+# Non-object JSON in a validation report (e.g. a bare array) is also
+# corrupt -- `_validation_report_is_corrupt` previously only checked whether
+# the file parsed at all, so a file like `[1,2,3]` parsed fine and was
+# reported "not corrupt", and `validation_status.load_validation`'s
+# `raw.get("requirements", [])` then raised `AttributeError` on the list,
+# crashing brief/matrix/guide for every scope (IMPORTANT 3).
+# ---------------------------------------------------------------------------
+
+
+def test_non_dict_validation_report_json_degrades_brief_instead_of_crashing(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_non_dict_validation_report(tmp_path)
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    validation_claims = [c for c in result["claims"] if "SR-001" in c["text"] and "unreadable" in c["text"]]
+    assert len(validation_claims) == 1
+    assert validation_claims[0]["kind"] == "derived"
+    assert validation_claims[0]["freshness"]["state"] == "degraded"
+
+
+def test_non_dict_validation_report_json_degrades_matrix_instead_of_crashing(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_non_dict_validation_report(tmp_path)
+
+    result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    row = result["rows"][0]
+    assert row["status"] == "unknown"
+    assert row["freshness"]["state"] == "degraded"
+
+
+def test_non_dict_validation_report_json_degrades_guide_instead_of_crashing(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", statement="When X happens, the system shall Y.")
+    write_non_dict_validation_report(tmp_path)
+
+    result = query_guide(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    validation_section = result["sections"][2]
+    assert validate(validation_section, CLAIM_SCHEMA) == []
+    assert validation_section["kind"] == "derived"
+    assert validation_section["freshness"]["state"] == "degraded"
+
+
+def test_non_dict_validation_report_json_is_reported_corrupt(tmp_path):
+    from factory.system.queries import _validation_report_is_corrupt
+
+    write_non_dict_validation_report(tmp_path)
+    assert _validation_report_is_corrupt(tmp_path) is True
 
 
 def test_missing_validation_report_file_is_still_na_not_degraded(tmp_path):

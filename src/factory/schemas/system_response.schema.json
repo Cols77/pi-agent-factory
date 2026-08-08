@@ -15,7 +15,8 @@
       "properties": {
         "scope": {"$ref": "#/$defs/topScopeRef"},
         "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
-        "degraded": {"type": "boolean"}
+        "degraded": {"type": "boolean"},
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
       }
     },
     "matrix": {
@@ -150,7 +151,7 @@
       "required": ["subject", "status", "evidence", "freshness", "summary"],
       "properties": {
         "subject": {"$ref": "#/$defs/matrixSubjectRef"},
-        "status": {"enum": ["passed", "failed", "error", "blocked", "never-run"]},
+        "status": {"enum": ["passed", "failed", "error", "blocked", "never-run", "unknown"]},
         "evidence": {"type": "array", "items": {"type": "string"}},
         "freshness": {"$ref": "#/$defs/freshness"},
         "summary": {"type": "string"}

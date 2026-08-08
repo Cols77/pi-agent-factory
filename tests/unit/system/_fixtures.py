@@ -136,6 +136,19 @@ def write_corrupt_validation_report(repo_root: Path) -> Path:
     return path
 
 
+def write_non_dict_validation_report(repo_root: Path) -> Path:
+    """A validation report that is valid JSON but does not parse to a JSON
+    object -- e.g. a bare array. Distinct from `write_corrupt_validation_report`
+    (which is not even valid JSON): this shape parses fine but
+    `validation_status.load_validation`'s `raw.get("requirements", [])`
+    raises `AttributeError` on it, since a list has no `.get` -- exactly the
+    crash `_validation_report_is_corrupt` must also catch (IMPORTANT 3)."""
+    path = repo_root / "validation" / "validation-report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    return path
+
+
 def review_record(
     *,
     task_id: str = "T-001",

@@ -33,6 +33,7 @@ const BRIEF = {
     },
   ],
   degraded: true,
+  degraded_reasons: ["1 declared member(s) do not exist in the repo"],
 };
 
 const MATRIX = {

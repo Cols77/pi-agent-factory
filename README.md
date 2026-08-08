@@ -62,6 +62,74 @@ Consuming projects run their own `kb/`, `tasks/`, `sessions/`, and
 `context-manifests/` stores locally; this repo only ships the orchestrator,
 schemas, and validators that operate on them.
 
+## System navigator
+
+`factory.system` answers "what is actually true about this feature/
+requirement, and where is the evidence" from what is already recorded in the
+repo -- it never guesses and never invokes a model. Every fact it prints is
+labeled with where it came from (recorded/derived/synthesized/missing) and
+whether it is still current (fresh/stale/degraded/n/a).
+
+```
+uv run python -m factory.system brief    --scope <ref> --json
+uv run python -m factory.system matrix   --scope <ref> --json
+uv run python -m factory.system timeline --scope <ref> --json
+uv run python -m factory.system guide    --scope <ref> --json [--export <path>]
+uv run python -m factory.system scope    --json
+```
+
+- `brief` -- one-page summary for the scope: what's declared, what resolved,
+  what's missing.
+- `matrix` -- one row per SR, with its recorded validation outcome
+  (`passed|failed|error|blocked|never-run|unknown`) and freshness.
+- `timeline` -- chronological decisions (signed reviews) for the scope.
+- `guide` -- grounded prose assembled deterministically from the above (no
+  LLM call); `--export <path>` writes a point-in-time snapshot to disk
+  (never inside `evidence/`, `bundles/`, or `requirements/` -- an export can
+  never be cited back in as evidence).
+- `scope` -- lists every scope the navigator can open, plus any bundle files
+  that failed to load and why.
+
+Drop `--json` for a human-readable rendering instead. Add `--repo-root <path>`
+to target a repo other than the current directory.
+
+**Openable scopes** are exact refs, never fuzzy: `bundle:<id>` (a declared
+feature-scope bundle, see below) or `sr:<id>` (a requirement from
+`requirements/`, the same register `factory.requirements` uses).
+
+### Authoring a bundle
+
+A bundle is a feature scope you declare by hand: a label plus a flat list of
+member refs, nothing else -- no status, no claims, no rationale (those are
+all *derived* by the navigator from the real artifacts the refs point at).
+Bundle files live in `bundles/<id>.json` at the repo root and are validated
+against `src/factory/schemas/system_bundle.schema.json`.
+
+```json
+{
+  "id": "evidence-lifecycle",
+  "label": "Evidence lifecycle",
+  "members": [
+    "spec:docs/superpowers/specs/2026-08-08-evidence-lifecycle-design.md",
+    "plan:docs/superpowers/plans/2026-08-08-evidence-lifecycle.md",
+    "task:T-045",
+    "sr:SR-012"
+  ]
+}
+```
+
+- **The filename must equal `id`.** `bundles/evidence-lifecycle.json` must
+  declare `"id": "evidence-lifecycle"` -- this is what lets `bundle:<id>`
+  resolve exactly rather than by filesystem happenstance. A mismatch loads
+  as a visible error (`python -m factory.system scope` reports it), not a
+  silent failure or a fuzzy fallback.
+- Members may be `spec:<path>`, `plan:<path>`, `task:<id>`, or `sr:<id>`
+  only. A member ref that doesn't parse, or names something that doesn't
+  exist in the repo, is reported `missing` and degrades the bundle -- it is
+  never dropped silently.
+- An absent `bundles/` directory is a legitimate state (no bundle scopes,
+  not an error).
+
 ## Polish workflow
 
 `factory polish` lets a human exercise a project use case and turn feedback into

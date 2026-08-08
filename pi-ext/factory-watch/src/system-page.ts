@@ -161,9 +161,23 @@ export function renderSystemPageHtml(): string {
     const panel = document.getElementById('panelBrief');
     clear(panel);
     if (brief.degraded) {
+      // Rendered from brief.degraded_reasons exactly as Python computed
+      // it -- never a fixed banner string invented client-side (design
+      // section 6.3: browser code must not state a cause the payload
+      // itself never asserted). Same shape/rendering as the timeline
+      // banner below.
       const banner2 = document.createElement('div');
       banner2.className = 'degraded-banner';
-      banner2.appendChild(document.createTextNode('degraded: one or more declared members did not resolve'));
+      const label = document.createElement('div');
+      label.appendChild(document.createTextNode('degraded:'));
+      banner2.appendChild(label);
+      const reasons = document.createElement('ul');
+      (brief.degraded_reasons || []).forEach((reason) => {
+        const li = document.createElement('li');
+        li.appendChild(document.createTextNode(reason));
+        reasons.appendChild(li);
+      });
+      banner2.appendChild(reasons);
       panel.appendChild(banner2);
     }
     if (!brief.claims.length) {

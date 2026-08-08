@@ -63,6 +63,7 @@ export interface SystemBrief {
   scope: SystemScopeRef;
   claims: SystemClaim[];
   degraded?: boolean;
+  degraded_reasons?: string[];
 }
 
 export interface MatrixSubjectRef {
@@ -70,7 +71,7 @@ export interface MatrixSubjectRef {
   ref: string;
 }
 
-export type MatrixStatus = "passed" | "failed" | "error" | "blocked" | "never-run";
+export type MatrixStatus = "passed" | "failed" | "error" | "blocked" | "never-run" | "unknown";
 
 export interface ValidationMatrixRow {
   subject: MatrixSubjectRef;

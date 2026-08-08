@@ -241,8 +241,9 @@ def _resolve_task_member(
 
 
 def _validation_report_is_corrupt(repo_root: Path) -> bool:
-    """True only when the validation report file exists but fails to parse
-    as JSON -- never merely because it parsed to zero usable entries.
+    """True when the validation report file exists but either fails to parse
+    as JSON or does not parse to a JSON object -- never merely because it
+    parsed to zero usable entries.
 
     `validation_status.load_validation` swallows read/parse failures into
     `{}`, which made a genuinely corrupt file indistinguishable from a file
@@ -252,19 +253,27 @@ def _validation_report_is_corrupt(repo_root: Path) -> bool:
     anything has run -- not corruption). The fix is to attempt the parse
     ourselves, mirroring `load_validation`'s own try/except, rather than
     inferring corruption from its collapsed return value: a report that
-    parses is never corrupt, no matter how few (or how invalid) its entries
-    are. Design SS3.1: "if a claim cannot be tied to recorded artifacts, it
-    is shown as missing or degraded, never guessed" -- this cuts both ways,
-    so we must not guess corruption either.
+    parses to an object is never corrupt, no matter how few (or how invalid)
+    its entries are. Design SS3.1: "if a claim cannot be tied to recorded
+    artifacts, it is shown as missing or degraded, never guessed" -- this
+    cuts both ways, so we must not guess corruption either.
+
+    A file that parses to something other than a JSON object (e.g. a bare
+    array `[1,2,3]`) is also corrupt: `load_validation` calls `raw.get(...)`
+    on whatever it parses, which raises `AttributeError` for anything
+    non-dict. Left undetected, that crashes `brief`/`matrix`/`guide` for
+    every scope instead of degrading the one SR whose report is unreadable
+    (the Global Constraint: missing/corrupt evidence degrades one scope, not
+    the whole navigator).
     """
     path = validation_status.report_path(repo_root)
     if not path.exists():
         return False
     try:
-        json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return True
-    return False
+    return not isinstance(raw, dict)
 
 
 def _sr_validation_claim(
@@ -348,6 +357,26 @@ def _validation_report_citation(repo_root: Path) -> SystemCitation | None:
     return SystemCitation(kind=CitationKind.VALIDATION, path=str(path), sha256=sha256)
 
 
+def _load_validation_statuses(repo_root: Path, report_corrupt: bool) -> dict[str, SrStatus]:
+    """`validation_status.load_validation`, skipped when the report is
+    corrupt (`report_corrupt`, always from `_validation_report_is_corrupt`,
+    computed first by every caller).
+
+    Calling `load_validation` on a report that parses to something other
+    than a JSON object (e.g. a bare `[1,2,3]`) crashes deep inside
+    `factory.trace` (`raw.get("requirements", [])` on a non-dict raises
+    `AttributeError`), which would take down `brief`/`matrix`/`guide` for
+    every scope in the repo. Routing the corrupt case to `{}` here keeps
+    every caller on the same already-correct degraded path
+    `_sr_validation_claim`/`_sr_matrix_row` already use for an unreadable
+    report, instead of ever reaching `factory.trace` with a shape it cannot
+    handle.
+    """
+    if report_corrupt:
+        return {}
+    return validation_status.load_validation(repo_root)
+
+
 def _sr_brief_claims(repo_root: Path, req: Requirement) -> list[SystemClaim]:
     req_citation = SystemCitation(
         kind=CitationKind.REQUIREMENT,
@@ -385,18 +414,36 @@ def _sr_brief_claims(repo_root: Path, req: Requirement) -> list[SystemClaim]:
                 citations=[req_citation],
             )
         )
-    statuses = validation_status.load_validation(repo_root)
-    report_citation = _validation_report_citation(repo_root)
     report_corrupt = _validation_report_is_corrupt(repo_root)
+    statuses = _load_validation_statuses(repo_root, report_corrupt)
+    report_citation = _validation_report_citation(repo_root)
     claims.append(_sr_validation_claim(req, statuses.get(req.id), report_citation, report_corrupt))
     return claims
+
+
+def _brief_degraded_reasons(malformed_member_count: int, unresolved_member_count: int) -> list[str]:
+    """Distinct, counted reasons a bundle brief's `degraded` is true --
+    mirroring `_timeline_degraded_reasons`'s discipline: each string
+    corresponds to something actually counted over the bundle's own members,
+    never an invented or generic explanation (IMPORTANT 5). Rendered
+    verbatim by the browser instead of `system-page.ts` inventing its own
+    fixed banner text, which was true only by coincidence of the current
+    implementation.
+    """
+    reasons: list[str] = []
+    if malformed_member_count:
+        reasons.append(f"{malformed_member_count} declared member ref(s) did not parse")
+    if unresolved_member_count:
+        reasons.append(f"{unresolved_member_count} declared member(s) do not exist in the repo")
+    return reasons
 
 
 def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Assemble the one-page briefing for `scope` (design SS4.1, SS4.2, SS5.2).
 
     Returns a JSON-able dict: `{"scope": {...}, "claims": [...], ...}`.
-    Bundle scopes additionally carry `"degraded": bool` -- true when any
+    Bundle scopes additionally carry `"degraded": bool` and
+    `"degraded_reasons": list[str]` -- true, with each reason named, when any
     declared member (syntactically bad, per Task 1, or simply nonexistent,
     resolved here) failed to resolve.
     """
@@ -415,11 +462,11 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
 
         tasks = ledger.load_tasks(_tasks_dir(repo_root))
         reqs = register.load_register(_requirements_dir(repo_root))
-        statuses = validation_status.load_validation(repo_root)
-        report_citation = _validation_report_citation(repo_root)
         report_corrupt = _validation_report_is_corrupt(repo_root)
+        statuses = _load_validation_statuses(repo_root, report_corrupt)
+        report_citation = _validation_report_citation(repo_root)
 
-        degraded = bool(bundle.unresolved)
+        unresolved_member_count = 0
         for member in bundle.members:
             identifier = member.ref.split(":", 1)[1]
             if member.kind in _SPEC_PLAN_KINDS:
@@ -434,14 +481,18 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)
             claims.extend(resolution.extra_claims)
-            degraded = degraded or not resolution.resolved
+            if not resolution.resolved:
+                unresolved_member_count += 1
 
         claims.extend(bundle.unresolved)
+
+        degraded_reasons = _brief_degraded_reasons(len(bundle.unresolved), unresolved_member_count)
 
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
             "claims": [to_dict(c) for c in claims],
-            "degraded": degraded,
+            "degraded": bool(degraded_reasons),
+            "degraded_reasons": degraded_reasons,
         }
 
     if scope.kind == "sr":
@@ -476,9 +527,14 @@ def _sr_matrix_row(req: Requirement, status: SrStatus | None, report_corrupt: bo
         )
     if status is None:
         if report_corrupt:
+            # `never-run` would assert a recorded fact the evidence does not
+            # support -- and it would contradict the brief's `derived`/
+            # `degraded` claim for the same SR (`_sr_validation_claim`'s
+            # matching branch). The outcome is genuinely undetermined, so the
+            # status says that (user ruling, 2026-08-08; design SS7.3).
             return ValidationMatrixRow(
                 subject=subject,
-                status=MatrixStatus.NEVER_RUN,
+                status=MatrixStatus.UNKNOWN,
                 evidence=[],
                 freshness=Freshness(
                     state=FreshnessState.DEGRADED,
@@ -519,9 +575,13 @@ def _sr_matrix_row(req: Requirement, status: SrStatus | None, report_corrupt: bo
 
 
 def _sr_missing_matrix_row(ref: str) -> ValidationMatrixRow:
+    # `never-run` would assert a validation outcome about a requirement that
+    # does not exist to be validated -- there is nothing recorded to be
+    # "never run" about. `unknown` states the truth: no outcome can be
+    # determined for a ref that does not resolve (user ruling, 2026-08-08).
     return ValidationMatrixRow(
         subject=SystemScopeRef(kind="sr", ref=ref),
-        status=MatrixStatus.NEVER_RUN,
+        status=MatrixStatus.UNKNOWN,
         evidence=[],
         freshness=Freshness(state=FreshnessState.NA, reason="referenced sr does not exist", dependencies=[]),
         summary="sr does not exist",
@@ -539,8 +599,8 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
         bundle_id = _scope_identifier(scope)
         bundle = _load_bundle_or_raise(repo_root, bundle_id)
         reqs = register.load_register(_requirements_dir(repo_root))
-        statuses = validation_status.load_validation(repo_root)
         report_corrupt = _validation_report_is_corrupt(repo_root)
+        statuses = _load_validation_statuses(repo_root, report_corrupt)
 
         rows: list[ValidationMatrixRow] = []
         for member in bundle.members:
@@ -561,8 +621,8 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
     if scope.kind == "sr":
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
-        statuses = validation_status.load_validation(repo_root)
         report_corrupt = _validation_report_is_corrupt(repo_root)
+        statuses = _load_validation_statuses(repo_root, report_corrupt)
         row = _sr_matrix_row(req, statuses.get(req.id), report_corrupt)
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
@@ -578,9 +638,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # The recorded-artifact source is the `reviews` array inside each durable run
 # evidence manifest (`evidence/runs/<run_id>.json`), read through the
 # existing `factory.evidence.manifests.list_run_manifests` loader -- never a
-# parallel directory glob. This corrects an earlier version of this file that
-# globbed `evidence/runs/<run_id>/reviews/review-*.json`: nothing in this
-# repo ever writes that layout. `evidence/runs/<run_id>` is a *file*
+# parallel directory glob. `evidence/runs/<run_id>` is a *file*
 # (`manifests.py:69`, `write_run_manifest`), not a directory.
 #
 # `factory.orchestrator.human_review.FileHumanReviewGate._archive` does write
@@ -598,16 +656,13 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 #
 # Because `finalize.py` preserves the archiving order when it builds this
 # array, an entry's own position within `manifest["reviews"]` is a genuinely
-# recorded structural fact about the durable manifest document -- not
-# inferred from content or rationale, exactly like the old filename counter
-# it replaces -- and is used as the sequence-number fallback (1-based
-# position) when `reviewed_at` is absent. Because array position is *always*
-# available (every entry has one), a review record reaching this module
-# always has *some* recorded ordering basis; the "drop for lacking any
-# ordering basis at all" case from the transcript-file era can no longer
-# occur here, and `_decision_event_from_record` reflects that by never
-# returning `None` (kept `DecisionTimelineEvent.__post_init__`'s own
-# at-or-sequence check as the enforcement backstop regardless).
+# recorded structural fact about the durable manifest document -- and is used
+# as the sequence-number fallback (1-based position) when `reviewed_at` is
+# absent. Because array position is *always* available (every entry has
+# one), a review record reaching this module always has *some* recorded
+# ordering basis, so `_decision_event_from_record` never returns `None`
+# (kept `DecisionTimelineEvent.__post_init__`'s own at-or-sequence check as
+# the enforcement backstop regardless).
 #
 # Array position is, however, only meaningful *within* one manifest -- two
 # different manifests' "1st review" are not comparable to each other by
@@ -615,12 +670,9 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # before or after another run's first review. So sequence-only events are
 # ordered first by their *manifest's* recorded `ended_at` (required by
 # `evidence_manifest.schema.json`, and already the field `list_run_manifests`
-# itself sorts on) and only *then* by position within that manifest. This
-# was a real bug in an earlier version of this file: the sort key put
-# `sequence` ahead of `citation.path`, so sequence-only events from different
-# manifests interleaved by raw position number -- asserting an order nothing
-# recorded. `test_sequence_only_events_across_manifests_order_by_manifest_
-# ended_at_then_position` in `test_timeline.py` pins the fix.
+# itself sorts on) and only *then* by position within that manifest --
+# `test_sequence_only_events_across_manifests_order_by_manifest_
+# ended_at_then_position` in `test_timeline.py` pins this ordering.
 #
 # `evidence_manifest.schema.json` requires `reviews` on any manifest that
 # validates at all (`schema.json`'s top-level `required` list), and
@@ -642,10 +694,9 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 # own `task_id` field is exactly the thing that failed to load. The signal is
 # therefore necessarily repo-wide (every scope's `query_timeline` call sees
 # the same nonzero count while any manifest anywhere is unreadable), not
-# scoped to the affected task alone; see the note above
-# `_unreadable_manifest_count` and the "Concerns" section of the task report
-# for the tension this creates with design SS8's "degrades only the affected
-# scope" wording.
+# scoped to the affected task alone -- a known tension with design SS8's
+# "degrades only the affected scope" wording, accepted because there is no
+# way to attribute an unreadable file's content without reading it.
 #
 # Two other candidate sources were deliberately excluded, not overlooked:
 #   - `validation/validation-report.json` entries (`factory.trace.
@@ -656,11 +707,10 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 #   - The task ledger (`factory.orchestrator.ledger.Task`) carries no
 #     timestamp either, and its `todo/done/rejected/escalated` vocabulary has
 #     no non-arbitrary mapping onto `TimelineAction` (the same reasoning
-#     Task 2 already applied to keep `MatrixStatus` from absorbing task/
-#     decision vocabularies -- see task-2-report.md finding on matrix scope).
+#     keeps `MatrixStatus` from absorbing task/decision vocabularies).
 #
-# This module never touches a `spec:`/`plan:` trace-node id (the carried-
-# forward `spec:<path>` vs. `spec:<basename>` namespace collision from
+# This module never touches a `spec:`/`plan:` trace-node id (the
+# `spec:<path>` vs. trace's `spec:<basename>` namespace collision in
 # `trace/model.py:94-97` does not apply here): timeline events are always
 # `task`-subject, keyed off the review record's own `task_id` field.
 # ---------------------------------------------------------------------------
@@ -788,7 +838,12 @@ def _decision_event_from_record(
         citation=citation,
         freshness=Freshness(state=FreshnessState.DEGRADED, reason="; ".join(reasons), dependencies=[]),
         at=at,
-        sequence=sequence,
+        # `sequence` is only a within-manifest array-position fallback for
+        # when no recorded timestamp exists (see `_timeline_sort_key`) --
+        # emitting it alongside a real `at` would present that position as a
+        # top-level ordinal beside a genuine timestamp, which nothing
+        # recorded ever asserted.
+        sequence=sequence if at is None else None,
     )
 
 

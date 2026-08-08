@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factory.local/schemas/system_matrix_row.schema.json",
   "title": "System navigator validation matrix row",
-  "description": "The matrix is a validation matrix: `subject.kind` is `sr` only (design SS7.3, amended at commit 561c89a). The status vocabulary (passed|failed|error|blocked|never-run) describes validation outcomes and nothing else -- a task's status is todo/doing/done and a decision's is approve/reject, neither of which maps onto this enum without guessing. Task status belongs to the brief; decisions belong to the timeline.",
+  "description": "The matrix is a validation matrix: `subject.kind` is `sr` only (design SS7.3, amended at commit 561c89a). The status vocabulary (passed|failed|error|blocked|never-run|unknown) describes validation outcomes and nothing else -- a task's status is todo/doing/done and a decision's is approve/reject, neither of which maps onto this enum without guessing. Task status belongs to the brief; decisions belong to the timeline. `unknown` (user ruling, 2026-08-08) is distinct from `never-run`: it names a genuinely undetermined outcome (e.g. an unreadable validation report), where `never-run` would assert a recorded fact the evidence does not support.",
   "type": "object",
   "additionalProperties": false,
   "required": ["subject", "status", "evidence", "freshness", "summary"],
   "properties": {
     "subject": {"$ref": "#/$defs/scopeRef"},
-    "status": {"enum": ["passed", "failed", "error", "blocked", "never-run"]},
+    "status": {"enum": ["passed", "failed", "error", "blocked", "never-run", "unknown"]},
     "evidence": {"type": "array", "items": {"type": "string"}},
     "freshness": {"$ref": "#/$defs/freshness"},
     "summary": {"type": "string"}
