@@ -174,6 +174,13 @@ def test_cli_guide_with_export_flag_writes_exactly_the_requested_file(repo):
     doc = json.loads(dest.read_text(encoding="utf-8"))
     assert doc["artifact"] == EXPORTED_GUIDE_ARTIFACT_MARKER
 
+    # stdout stays pure JSON; the confirmation of where the file actually
+    # landed goes to stderr (review round 1 finding: cmd_guide previously
+    # discarded export_guide's returned path).
+    json.loads(result.stdout)
+    assert "guide exported to" in result.stderr
+    assert str(dest.resolve()) in result.stderr
+
 
 # ---------------------------------------------------------------------------
 # Non-readmission: an exported guide can never re-enter as evidence.
@@ -242,13 +249,17 @@ def test_exported_guide_renamed_into_requirements_directory_does_not_resolve_as_
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-999"))
 
 
-def test_exported_guide_is_never_accepted_as_a_task_or_sr_member_either(repo):
-    # Belt-and-suspenders: task:/sr: members resolve through the ledger and
-    # requirements register, neither of which can ever match an exported
-    # guide's shape, so citing one that way is refused by construction, not
-    # by the explicit is_exported_guide guard (which only guards spec/plan
-    # members, the one member kind whose resolution was a bare
-    # `path.is_file()` check with no schema/shape validation at all).
+def test_exported_guide_is_never_accepted_as_a_task_member_either(repo):
+    # Belt-and-suspenders: task: members resolve through the ledger, which
+    # can never match an exported guide's shape, so citing one that way is
+    # refused by construction here -- "exports/guide.json" is not a task id
+    # the ledger could ever look up, so `ledger.get_task` returns `None`
+    # without ever attempting to read/parse the exported file at all. See
+    # `test_exported_guide_placed_as_a_real_sr_file_is_refused_when_cited_
+    # as_a_bundle_member` below for the companion case that genuinely
+    # attempts interpretation instead (review round 1, finding: this test
+    # alone was judged insufficient because it never actually reads the
+    # exported file's content).
     dest = repo / "exports" / "guide.json"
     export_guide(repo, _SCOPE, dest)
 
@@ -263,3 +274,34 @@ def test_exported_guide_is_never_accepted_as_a_task_or_sr_member_either(repo):
     assert result["degraded"] is True
     missing = [c for c in result["claims"] if c["kind"] == "missing"]
     assert any(c["text"] == "task:exports/guide.json" for c in missing)
+
+
+def test_exported_guide_placed_as_a_real_sr_file_is_refused_when_cited_as_a_bundle_member(repo):
+    # The genuine-interpretation companion to the task: case above (review
+    # round 1 finding): `sr:` members resolve by requirement id, not by
+    # path, so the only way to actually exercise "an exported guide sits
+    # where a real SR file would" is to place its raw content at the exact
+    # path `sr:SR-999` resolves to (requirements/SR-999.md) and let
+    # `factory.requirements.register` genuinely attempt to parse it as a
+    # requirement. It fails -- the exported document has no YAML
+    # frontmatter and none of the required id/title/statement/domain
+    # fields -- so the bundle load itself raises rather than silently
+    # admitting SR-999 as a readmitted "requirement". This is a harder
+    # failure mode than the graceful `missing` a genuinely nonexistent SR id
+    # gets (design SS8), but it is still a refusal: the exported guide is
+    # never accepted as a citable requirement, under any bundle member kind.
+    dest = repo / "exports" / "guide.json"
+    export_guide(repo, _SCOPE, dest)
+    exported_content = dest.read_text(encoding="utf-8")
+
+    (repo / "requirements" / "SR-999.md").write_text(exported_content, encoding="utf-8")
+
+    bundles_dir = repo / "bundles"
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    (bundles_dir / "b3.json").write_text(
+        json.dumps({"id": "b3", "label": "Bundle", "members": ["sr:SR-999"]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        query_brief(repo, SystemScopeRef(kind="bundle", ref="bundle:b3"))

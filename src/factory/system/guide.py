@@ -22,9 +22,13 @@ but for which a scaffolded sentence's verbatim span cannot be independently
 verified also renders as bullets rather than emit unverifiable prose. In
 practice, with this repo's real artifact shapes, every section template
 below is designed around content that verifies whenever it is fresh, so this
-safety net is not expected to fire; `test_guide.py` exercises the primitive
-(`_verbatim_span`) directly to prove it *would* refuse an unverifiable
-quote.
+safety net is not expected to fire in production; `test_guide.py` exercises
+both `_verbatim_span` directly (to prove it *would* refuse an unverifiable
+quote) and, by monkeypatching it to force a failure, the full
+`query_guide()` path for every section that still checks a span (identity,
+coverage/detail, validation -- the decision section carries no free-text
+content to verify at all; see the next paragraph), proving each degrades
+cleanly to bullets rather than raising or emitting a partial claim.
 
 **What counts as "prose" needing a verified span.** The rule this module
 exists to enforce is about *free-text natural-language content* (a
@@ -365,6 +369,20 @@ def _validation_section(repo_root: Path, scope: SystemScopeRef, brief: dict, mat
 # `_decision_event_from_record`), so every real event is `degraded` -- this
 # section collapses to bullets whenever there is anything recorded at all,
 # honestly, not as a contrived test fixture.
+#
+# `actor` and `action` are both controlled vocabulary (`TimelineActor`/
+# `TimelineAction`, closed enums `factory.system.queries` already resolved --
+# design SS7.4) and `subject.ref` is a derived ref string, not free-text
+# copied from a source document -- there is nothing here for
+# `_verbatim_span` to verify (see the module docstring's "what counts as
+# prose" note), so this section never emits a `Span` even when synthesized.
+# Review round 1, finding 2: an earlier version routed `action` through
+# `_verbatim_span` while embedding `actor` directly two lines later in the
+# same sentence -- an inconsistency that silently defeated the fresh->prose
+# path for this section in practice, because no real review record's mapped
+# action string (e.g. "approve" -> "approved") is ever literally present in
+# its own citation file. `test_decision_section_renders_prose_when_every_
+# event_is_fresh` pins the fix.
 # ---------------------------------------------------------------------------
 
 
@@ -377,26 +395,19 @@ def _decision_section(timeline: dict) -> SystemClaim:
 
     if _all_fresh(freshnesses):
         citations: list[SystemCitation] = []
-        spans: list[Span] = []
         sentences: list[str] = []
-        ok = True
         for event in events:
             citation = _citation_from_dict(event["citation"])
-            span = _verbatim_span(event["action"], citation.path, len(citations))
-            if span is None:
-                ok = False
-                break
-            citations.append(citation)
-            spans.append(span)
+            if citation not in citations:
+                citations.append(citation)
             sentences.append(f'{event["subject"]["ref"]} was {event["action"]} by {event["actor"]}.')
-        if ok:
-            return SystemClaim(
-                kind=ClaimClass.SYNTHESIZED,
-                text=" ".join(sentences),
-                freshness=_aggregate_freshness(freshnesses),
-                citations=citations,
-                spans=spans,
-            )
+        return SystemClaim(
+            kind=ClaimClass.SYNTHESIZED,
+            text=" ".join(sentences),
+            freshness=_aggregate_freshness(freshnesses),
+            citations=citations,
+            spans=[],
+        )
 
     citations = []
     lines = []

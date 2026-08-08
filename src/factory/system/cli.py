@@ -53,7 +53,16 @@ def cmd_guide(repo_root: Path, scope_raw: str, export_raw: str | None) -> dict:
     scope = parse_scope_ref(scope_raw)
     result = query_guide(repo_root, scope)
     if export_raw is not None:
-        export_guide(repo_root, scope, Path(export_raw))
+        written = export_guide(repo_root, scope, Path(export_raw))
+        # Confirmation goes to stderr, never stdout: stdout is the guide
+        # payload (JSON when --json, rendered text otherwise) and must stay
+        # exactly that -- printing here would corrupt `--json` output for any
+        # caller doing `json.loads(stdout)`. `written` is the resolved,
+        # confined path (`_confine_export_path`'s output), which can differ
+        # from the raw `--export` argument, so this is the one place the
+        # user actually learns where the file landed (review round 1,
+        # finding: `cmd_guide` previously discarded this return value).
+        print(f"guide exported to: {written}", file=sys.stderr)
     return result
 
 

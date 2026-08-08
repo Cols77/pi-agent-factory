@@ -236,10 +236,30 @@ def test_guide_with_export_flag_writes_the_requested_file(tmp_path, capsys):
             "--export", str(dest),
         ]
     )
+    captured = capsys.readouterr()
     assert rc == 0
     assert dest.is_file()
     exported = json.loads(dest.read_text(encoding="utf-8"))
     assert exported["artifact"] == "system_guide_export"
+
+    # stdout stays pure JSON, parseable end to end; the export confirmation
+    # (review round 1: cmd_guide previously discarded the written path)
+    # goes to stderr, naming the actual resolved path.
+    json.loads(captured.out)
+    assert "guide exported to" in captured.err
+    assert str(dest.resolve()) in captured.err
+
+
+def test_guide_with_export_flag_confirms_the_resolved_path_on_stderr_without_json_flag(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    dest = tmp_path / "out" / "guide.json"
+    rc = main(["guide", "--scope", "sr:SR-001", "--repo-root", str(tmp_path), "--export", str(dest)])
+    captured = capsys.readouterr()
+    assert rc == 0
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(captured.out)
+    assert "guide exported to" in captured.err
+    assert str(dest.resolve()) in captured.err
 
 
 def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):

@@ -263,6 +263,107 @@ def test_decisions_section_collapses_to_bullets_when_actor_is_not_recorded(tmp_p
     assert "task:T-001" in decisions["text"]
 
 
+def test_decision_section_renders_prose_when_every_event_is_fresh():
+    # Review round 1, finding 2: `actor`/`action` are controlled vocabulary
+    # (`TimelineActor`/`TimelineAction`), never free-text prose copied from a
+    # source document, so the decision section embeds them directly and
+    # never routes them through `_verbatim_span` -- unlike an earlier
+    # version, which checked `action` (but not `actor`) against
+    # `_verbatim_span`, and since no real review record's mapped action
+    # string ("approve" -> "approved") is ever literally present in its own
+    # citation file, that inconsistency silently defeated the fresh->prose
+    # path for this section on every real timeline.
+    #
+    # A real recorded review never actually produces a `fresh` event today
+    # (queries.py's `_decision_event_from_record` always marks the actor
+    # not-recorded, hence `degraded` -- see queries.py's module comment), so
+    # this constructs the timeline dict directly (matching design SS7.4's
+    # timelineEvent shape) rather than through `query_timeline`, to prove
+    # the section *builder* itself takes the prose path once its input says
+    # fresh. This is exactly the assertion that would have caught finding 2.
+    timeline = {
+        "scope": {"kind": "sr", "ref": "sr:SR-001"},
+        "events": [
+            {
+                "at": "2026-08-08T12:00:00Z",
+                "sequence": None,
+                "actor": "human",
+                "action": "approved",
+                "subject": {"kind": "task", "ref": "task:T-001"},
+                "citation": {
+                    "kind": "decision",
+                    "path": "evidence/runs/run-001.json",
+                    "sha256": "a" * 64,
+                    "anchor": "reviews[0]",
+                },
+                "freshness": {"state": "fresh", "reason": None, "dependencies": []},
+            }
+        ],
+        "degraded": False,
+        "degraded_reasons": [],
+    }
+
+    section = guide_module._decision_section(timeline)
+
+    assert section.kind.value == "synthesized"
+    assert section.spans == []  # nothing quotable here -- no span needed
+    assert section.freshness.state.value == "fresh"
+    assert "task:T-001" in section.text
+    assert "approved" in section.text
+    assert "human" in section.text
+    assert len(section.citations) == 1
+    assert section.citations[0].path == "evidence/runs/run-001.json"
+
+
+# ---------------------------------------------------------------------------
+# The verbatim-span verification safety net: a *fresh* section whose
+# candidate text nonetheless fails independent verification must still
+# degrade to bullets, never raise, never emit an unverified span. Previously
+# this branch (`if span is None: ok = False; break`) was only exercised via
+# a different trigger (task/requirement not found); this forces the actual
+# verification-failure path directly.
+# ---------------------------------------------------------------------------
+
+
+def test_verbatim_span_failure_degrades_bundle_scope_sections_to_bullets_never_raises(tmp_path, monkeypatch):
+    write_bundle(tmp_path / "bundles", "b1", "Bundle", ["task:T-001", "sr:SR-001"])
+    write_task(tmp_path / "tasks", "T-001", title="Implement the thing", status="done", satisfies=["SR-001"])
+    write_sr(tmp_path / "requirements", "SR-001", statement="When X happens, the system shall Y.")
+    write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}])
+
+    monkeypatch.setattr(guide_module, "_verbatim_span", lambda *args, **kwargs: None)
+
+    result = query_guide(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+
+    # Identity (0), coverage (1), and validation (2) would all otherwise be
+    # `fresh` and synthesized here -- with span verification forced to fail,
+    # every one of them must degrade cleanly to bullets instead.
+    for index in (0, 1, 2):
+        section = result["sections"][index]
+        assert validate(section, CLAIM_SCHEMA) == []
+        assert section["kind"] == "recorded"
+        assert section["spans"] == []
+        assert section["text"]
+
+
+def test_verbatim_span_failure_degrades_sr_scope_sections_to_bullets_never_raises(tmp_path, monkeypatch):
+    write_sr(tmp_path / "requirements", "SR-001", statement="When X happens, the system shall Y.")
+    write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}])
+
+    monkeypatch.setattr(guide_module, "_verbatim_span", lambda *args, **kwargs: None)
+
+    result = query_guide(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    # Identity (0), detail (1), and validation (2) would all otherwise be
+    # `fresh` and synthesized here.
+    for index in (0, 1, 2):
+        section = result["sections"][index]
+        assert validate(section, CLAIM_SCHEMA) == []
+        assert section["kind"] == "recorded"
+        assert section["spans"] == []
+        assert section["text"]
+
+
 # ---------------------------------------------------------------------------
 # The collapse predicate is one binary axis, not graduated conservatism.
 # ---------------------------------------------------------------------------
