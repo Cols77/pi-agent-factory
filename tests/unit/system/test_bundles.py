@@ -124,6 +124,27 @@ def test_unresolvable_member_is_reported_missing_and_degrades_bundle(tmp_path):
     assert bundle.label == "Partially broken bundle"
 
 
+def test_unresolvable_member_claim_cites_the_bundle_file_that_declared_it(tmp_path):
+    # An unresolved-member claim previously carried no citation at all --
+    # a reader had no way to check which bundle file declared the bad ref.
+    bundles_dir = tmp_path / "bundles"
+    path = _write_bundle(
+        bundles_dir,
+        "partial",
+        {"id": "partial", "label": "Partially broken bundle", "members": ["not-a-real-kind:whatever"]},
+    )
+
+    bundle = load_bundle(bundles_dir, "partial")
+
+    assert len(bundle.unresolved) == 1
+    claim = bundle.unresolved[0]
+    assert len(claim.citations) == 1
+    citation = claim.citations[0]
+    assert citation.kind is CitationKind.BUNDLE
+    assert citation.path == str(path)
+    assert citation.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Duplicate members are rejected
 # ---------------------------------------------------------------------------

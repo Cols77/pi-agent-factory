@@ -93,6 +93,13 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
             f"requires id={bundle_id!r} (bundle files must be named <id>.json)"
         )
 
+    citation = SystemCitation(
+        kind=CitationKind.BUNDLE,
+        path=str(path),
+        sha256=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        anchor=None,
+    )
+
     members: list[SystemScopeRef] = []
     unresolved: list[SystemClaim] = []
     for raw_ref in raw["members"]:
@@ -106,17 +113,15 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
                         state=FreshnessState.NA,
                         reason="bundle member ref did not resolve",
                     ),
+                    # Points at the bundle file that declared the bad ref --
+                    # not evidence that the ref itself resolves to anything,
+                    # but a real, checkable pointer to where the claim
+                    # originated (previously carried no citation at all).
+                    citations=[citation],
                 )
             )
         else:
             members.append(parsed)
-
-    citation = SystemCitation(
-        kind=CitationKind.BUNDLE,
-        path=str(path),
-        sha256=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
-        anchor=None,
-    )
 
     return BundleDeclaration(
         id=str(raw["id"]),
