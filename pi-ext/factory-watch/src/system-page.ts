@@ -51,7 +51,14 @@ export function renderSystemPageHtml(): string {
   .freshness-stale { color: var(--stale); }
   .freshness-degraded { color: var(--degraded); }
   .freshness-n-a { color: var(--na); }
-  .claim-text { margin-top: 4px; }
+  /* Requirement statements and summaries are multi-line prose. Without
+     pre-wrap the payload's own paragraph breaks collapse into one unreadable
+     blob -- the single worst rendering problem on this page. pre-wrap keeps
+     the recorded structure without running a markdown parser over payload
+     text, so nothing here can inject markup. */
+  .claim-text { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .span { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .citation, .evidence-item { overflow-wrap: anywhere; }
   .citations, .spans, .evidence { margin-top: 4px; font-size: 11px; opacity: .8; }
   .citation, .span, .evidence-item { padding: 1px 0; }
   .degraded-banner { border: 1px solid var(--degraded); color: var(--degraded); border-radius: 4px; padding: 6px 10px; margin: 8px 0; }
@@ -149,7 +156,12 @@ export function renderSystemPageHtml(): string {
       claim.spans.forEach((s) => {
         const sp = document.createElement('div');
         sp.className = 'span';
-        sp.appendChild(document.createTextNode('quoted: "' + s.text + '" (citation ' + s.citation_index + ')'));
+        // Name the source, not its array index. "(citation 0)" is an
+        // implementation detail of the payload leaking into a human surface;
+        // the reader wants to know WHICH document the words were copied from.
+        const cited = (claim.citations || [])[s.citation_index];
+        const source = cited ? cited.path + (cited.anchor ? ' #' + cited.anchor : '') : 'unknown source';
+        sp.appendChild(document.createTextNode('quoted from ' + source + ': "' + s.text + '"'));
         spans.appendChild(sp);
       });
       row.appendChild(spans);

@@ -476,8 +476,50 @@ def test_bundle_member_spec_and_plan_existence_resolves_via_real_files(tmp_path)
 
     assert result["degraded"] is False
     kinds = {c["text"]: c["kind"] for c in result["claims"]}
-    assert kinds["spec:docs/superpowers/specs/2026-08-08-x.md"] == "recorded"
-    assert kinds["plan:docs/superpowers/plans/2026-08-08-x.md"] == "recorded"
+    assert kinds["Spec title — spec:docs/superpowers/specs/2026-08-08-x.md"] == "recorded"
+    assert kinds["Plan title — plan:docs/superpowers/plans/2026-08-08-x.md"] == "recorded"
+
+
+def test_bundle_member_claims_carry_the_documents_recorded_title(tmp_path):
+    # A brief whose claims are bare refs tells a reader nothing they could not
+    # get from `ls`. The repo already parses a title out of every spec and plan
+    # (factory.trace.model._file_node), so surfacing it is recorded evidence
+    # from the cited document -- not a new inference.
+    write_spec(tmp_path, "2026-08-08-evidence.md", title="Evidence lifecycle and recovery")
+    write_bundle(
+        tmp_path / "bundles",
+        "ev",
+        "Evidence bundle",
+        ["spec:docs/superpowers/specs/2026-08-08-evidence.md"],
+    )
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:ev"))
+
+    member = next(c for c in result["claims"] if "2026-08-08-evidence.md" in c["text"])
+    assert "Evidence lifecycle and recovery" in member["text"]
+    # The ref stays: the title is for humans, the ref is what resolves.
+    assert "spec:docs/superpowers/specs/2026-08-08-evidence.md" in member["text"]
+    assert member["kind"] == "recorded"
+
+
+def test_member_title_falls_back_to_the_ref_when_no_title_is_recorded(tmp_path):
+    # No heading, no frontmatter title -> nothing recorded to show. The claim
+    # must not invent one, and must not render an empty prefix.
+    specs = tmp_path / "docs" / "superpowers" / "specs"
+    specs.mkdir(parents=True, exist_ok=True)
+    (specs / "2026-08-08-untitled.md").write_text("no heading here\n", encoding="utf-8")
+    write_bundle(
+        tmp_path / "bundles",
+        "untitled",
+        "Untitled bundle",
+        ["spec:docs/superpowers/specs/2026-08-08-untitled.md"],
+    )
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:untitled"))
+
+    member = next(c for c in result["claims"] if "2026-08-08-untitled.md" in c["text"])
+    assert not member["text"].startswith("—")
+    assert member["text"] == "spec:docs/superpowers/specs/2026-08-08-untitled.md"
 
 
 # ---------------------------------------------------------------------------

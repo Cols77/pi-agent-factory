@@ -57,6 +57,7 @@ from factory.system.models import (
     ValidationMatrixRow,
     to_dict,
 )
+from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
@@ -204,11 +205,55 @@ def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identi
     )
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
-        text=member.ref,
+        text=_member_label(repo_root, path, member.ref),
         freshness=_fresh(),
         citations=[citation],
     )
     return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
+
+
+def _document_titles(repo_root: Path) -> dict[Path, str]:
+    """Recorded titles for every spec/plan/task/SR document, keyed by real path.
+
+    Reuses `factory.trace.model.load_nodes` -- the loader that already derives
+    a title from frontmatter or the first heading -- rather than re-parsing
+    documents here. A brief whose claims are bare refs tells a reader nothing
+    they could not get from `ls`, and the title is recorded content of the
+    document the claim already cites, so surfacing it infers nothing.
+    """
+    titles: dict[Path, str] = {}
+    try:
+        for node in trace_model.load_nodes(repo_root):
+            try:
+                titles[node.path.resolve()] = node.title
+            except OSError:
+                continue
+    except (OSError, ValueError):
+        # A repo whose documents cannot be scanned still gets refs; titles are
+        # an enrichment, never a precondition.
+        return {}
+    return titles
+
+
+def _member_label(repo_root: Path, path: Path, ref: str) -> str:
+    """`<title> — <ref>`, or the bare ref when no title is recorded.
+
+    Never fabricates a title from the filename: a document with no heading and
+    no frontmatter title has nothing recorded to show, and an invented one
+    would be exactly the unsupported claim this navigator exists to avoid.
+
+    `trace.model._file_node` falls back to the file's own name when it finds no
+    heading, so a title equal to the filename is that fallback firing, not a
+    recorded title -- it is rejected here rather than echoed back as though the
+    document had said it.
+    """
+    try:
+        title = _document_titles(repo_root).get(path.resolve())
+    except OSError:
+        title = None
+    if not title or title == ref or title == path.name:
+        return ref
+    return f"{title} — {ref}"
 
 
 def _resolve_task_member(

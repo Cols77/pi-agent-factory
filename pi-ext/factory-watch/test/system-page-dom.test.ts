@@ -259,6 +259,16 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(kinds).toEqual(["synthesized", "derived"]);
   });
 
+  test("a quoted span names the document it was copied from, not a citation index", async () => {
+    // "(citation 0)" is a payload array index; a reader needs to know WHICH
+    // source the words came from for the quote to mean anything.
+    const dom = await loadPage({ scope: "bundle:evidence-lifecycle" });
+    const span = dom.window.document.querySelector("#panelBrief .span");
+    expect(span?.textContent).toContain("bundles/evidence-lifecycle.yaml");
+    expect(span?.textContent).toContain('"Evidence lifecycle"');
+    expect(span?.textContent).not.toContain("citation 0");
+  });
+
   test("falls back to a plain notice, never a crash, when the guide fetch fails", async () => {
     const dom = await loadPage({ scope: "bundle:evidence-lifecycle", guideFails: true });
     const doc = dom.window.document;
