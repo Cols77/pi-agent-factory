@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import factoryWatch from "../src/index.js";
 import { spawnTerminalWindow } from "../src/terminal-window.js";
-import { openInBrowser, writeSurfacePref } from "../src/review-surface.js";
+import { openInBrowser, readSurfacePref, writeSurfacePref } from "../src/review-surface.js";
 import { computeImplementingFiles, computeReviewFiles } from "../src/review-diff.js";
 import { runReviewLoop } from "../src/review-overlay.js";
 import { readReviewGuide } from "../src/review-guide.js";
@@ -467,6 +467,33 @@ describe("factory-watch commands", () => {
     expect(ctx.ui.custom).not.toHaveBeenCalled();
   });
 
+  test("/factory-watch ignores the docs surface preference", async () => {
+    // Regression: factory-watch used to read the "docs" key, so choosing
+    // Browser once for /review-plans silently rerouted mission control into
+    // the browser. Surfaces are per-command, not one global mode.
+    const dir = mkdtempSync(join(tmpdir(), "watch-pref-"));
+    writeSurfacePref(dir, "browser", "docs");
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd: dir });
+    await commands.get("factory-watch")!.handler("", ctx);
+    // Assert the browser branch was never ENTERED, not merely that we ended
+    // up on the terminal path: openDocsServerFocused throws in this
+    // environment, so a notify-only assertion passes even against the old
+    // code that did take the browser branch and failed out of it.
+    expect(openInBrowser).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+      expect.stringContaining("browser docs failed"),
+      "warning",
+    );
+  });
+
+  test("/factory-watch honours its own watch surface preference", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "watch-pref-"));
+    writeSurfacePref(dir, "browser", "watch");
+    expect(readSurfacePref(dir, "watch")).toBe("browser");
+    expect(readSurfacePref(dir, "docs")).toBe("terminal");
+  });
+
   test("/system --stop reports when no docs server is running", async () => {
     const { commands } = capture();
     const ctx = fakeCtx();
@@ -510,7 +537,7 @@ describe("factory-watch commands", () => {
 
   test("/factory-watch browser preference opens checkpoint-focused docs without volatile status", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "factory-watch-browser-"));
-    writeSurfacePref(cwd, "browser", "docs");
+    writeSurfacePref(cwd, "browser", "watch");
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: JSON.stringify({
@@ -533,7 +560,7 @@ describe("factory-watch commands", () => {
 
   test("/factory-watch browser preference opens an unfocused page when no run is active", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "factory-watch-no-run-"));
-    writeSurfacePref(cwd, "browser", "docs");
+    writeSurfacePref(cwd, "browser", "watch");
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: JSON.stringify({ checkpoint: null, assessment: null }),
@@ -551,7 +578,7 @@ describe("factory-watch commands", () => {
 
   test("/factory-watch browser launch failure falls back to terminal mission control", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "factory-watch-fallback-"));
-    writeSurfacePref(cwd, "browser", "docs");
+    writeSurfacePref(cwd, "browser", "watch");
     const record: StatusRecord = {
       session_id: "sess-1", task_id: "T-001", current_node: "dev", current_state: "running",
       pipeline: [], started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -578,8 +605,8 @@ describe("factory-watch commands", () => {
   test("/factory-watch browser mode rejects reuse across repository roots", async () => {
     const first = mkdtempSync(join(tmpdir(), "factory-watch-root-a-"));
     const second = mkdtempSync(join(tmpdir(), "factory-watch-root-b-"));
-    writeSurfacePref(first, "browser", "docs");
-    writeSurfacePref(second, "browser", "docs");
+    writeSurfacePref(first, "browser", "watch");
+    writeSurfacePref(second, "browser", "watch");
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: JSON.stringify({ checkpoint: null, assessment: null }),

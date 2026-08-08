@@ -4,7 +4,11 @@ import { dirname, join } from "node:path";
 
 export type Surface = "terminal" | "browser";
 
-export type SurfaceKey = "review" | "docs";
+// "watch" is deliberately its own key. factory-watch used to read "docs",
+// so choosing Browser once for /review-plans silently changed what
+// /factory-watch did -- a command whose description says it opens mission
+// control. Surfaces are per-command preferences, not one global mode.
+export type SurfaceKey = "review" | "docs" | "watch";
 
 export interface BrowserFocus {
   taskId?: string;

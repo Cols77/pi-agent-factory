@@ -604,15 +604,24 @@ export default function factoryWatch(pi: PiApi): void {
   });
 
   pi.registerCommand("factory-watch", {
-    description: "Open mission control for the current factory run",
-    handler: async (_args: string, ctx: ExtCommandCtx) => {
-      // When the browser docs preference is selected, watch the current run in
-      // the existing docs server (focused on the checkpoint run-state) instead
-      // of dropping into the terminal mission-control loop. The volatile status
-      // file is NOT consulted for the browser path: the checkpoint survives a
-      // reboot that clears sessions/.factory-status.json, so browser watching
-      // keeps working after a reboot. Terminal mode keeps its status-file gate.
-      if (readSurfacePref(ctx.cwd, "docs") === "browser") {
+    description: "Open mission control for the current factory run (--browser to watch in the docs server)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      // Mission control is a TUI surface by default. A browser path exists,
+      // but it is opt-in per-command: either an explicit --browser flag or
+      // this command's OWN "watch" preference. It deliberately does NOT read
+      // the "docs" key any more -- choosing Browser once for /review-plans
+      // used to silently reroute mission control into the browser, which
+      // contradicted this command's own description.
+      //
+      // The volatile status file is NOT consulted for the browser path: the
+      // checkpoint survives a reboot that clears
+      // sessions/.factory-status.json, so browser watching keeps working
+      // after a reboot. Terminal mode keeps its status-file gate.
+      const watchArgs = parseReviewPlansArgs(args);
+      const wantsBrowser =
+        watchArgs.surface === "browser" ||
+        (watchArgs.surface === null && readSurfacePref(ctx.cwd, "watch") === "browser");
+      if (wantsBrowser) {
         try {
           await openDocsServerFocused(ctx, "factory run");
           return;
