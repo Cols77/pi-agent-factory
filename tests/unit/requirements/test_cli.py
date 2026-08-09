@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from factory.requirements.cli import cmd_index, cmd_new, cmd_show, cmd_status, main
+from factory.requirements.cli import cmd_bind, cmd_defer, cmd_index, cmd_new, cmd_show, cmd_status, main
 
 pytestmark = pytest.mark.unit
 
@@ -141,3 +141,67 @@ def test_main_status_exit_code(tmp_path, capsys):
     rc = main(["status", "--requirements-dir", str(tmp_path)])
     assert rc == 0
     assert "SR-001" in capsys.readouterr().out
+
+
+def test_show_reports_no_harness_binding(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    cmd_bind(
+        tmp_path, "SR-009", experiment="zone_clear", metric="resume_rate",
+        assert_expr=">= 0.95", harness=None, trials=1, reaffirm_reason=None,
+    )
+    out = cmd_show(tmp_path, "SR-009")
+    assert "(no harness)" in out
+    assert "None" not in out
+
+
+def test_bind_writes_a_measurement_and_reports_it(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    out = cmd_bind(
+        tmp_path, "SR-009", experiment="zone_clear", metric="resume_rate",
+        assert_expr=">= 0.95", harness="sim-testbench", trials=3, reaffirm_reason=None,
+    )
+    assert "SR-009" in out
+    assert "sim-testbench" in out
+    assert "[proposed]" not in cmd_status(tmp_path)
+
+
+def test_bind_accepts_no_harness_and_says_so(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    out = cmd_bind(
+        tmp_path, "SR-009", experiment="zone_clear", metric="resume_rate",
+        assert_expr=">= 0.95", harness=None, trials=1, reaffirm_reason=None,
+    )
+    assert "no harness" in out.lower()
+
+
+def test_bind_on_an_unknown_id_is_reported_not_raised(tmp_path):
+    assert "not found" in cmd_bind(
+        tmp_path, "SR-999", experiment="e", metric="m", assert_expr=">= 1",
+        harness=None, trials=1, reaffirm_reason=None,
+    )
+
+
+def test_defer_records_the_reason_where_trace_reads_it(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    out = cmd_defer(tmp_path, "SR-009", "no current task delivers this")
+    assert "SR-009" in out
+    assert "trace_deferred: no current task delivers this" in (
+        tmp_path / "SR-009.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_defer_with_a_blank_reason_is_refused(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    assert "reason" in cmd_defer(tmp_path, "SR-009", "   ").lower()
+
+
+def test_main_wires_bind_and_defer(tmp_path, capsys):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    rc = main([
+        "bind", "SR-009", "--requirements-dir", str(tmp_path),
+        "--experiment", "zone_clear", "--metric", "resume_rate", "--assert", ">= 0.95",
+    ])
+    assert rc == 0
+    assert "SR-009" in capsys.readouterr().out
+    rc = main(["defer", "SR-009", "--requirements-dir", str(tmp_path), "--reason", "later"])
+    assert rc == 0

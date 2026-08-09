@@ -13,6 +13,7 @@ from factory.requirements.register import (
     load_register,
     parse_requirement,
 )
+from factory.requirements.write import ReasonRequiredError, reaffirm, write_binding, write_deferral
 
 _ID_RE = re.compile(r"SR-(\d+)")
 
@@ -105,12 +106,54 @@ def cmd_show(requirements_dir: Path, req_id: str) -> str:
             f"binding: (proposed -- not yet measurable)\n"
             f"source: {req.source or '(none)'}"
         )
+    harness = b.harness if b.harness is not None else "(no harness)"
     return (
         f"{req.id}  {req.title}\n"
         f"statement: {req.statement}\n"
-        f"binding: {b.harness}/{b.experiment} {b.metric} {b.assert_expr} (trials={b.trials})\n"
+        f"binding: {harness}/{b.experiment} {b.metric} {b.assert_expr} (trials={b.trials})\n"
         f"checksum: {'current' if is_checksum_current(req) else 'STALE'}"
     )
+
+
+def cmd_bind(
+    requirements_dir: Path,
+    req_id: str,
+    *,
+    experiment: str,
+    metric: str,
+    assert_expr: str,
+    harness: str | None,
+    trials: int,
+    reaffirm_reason: str | None,
+) -> str:
+    path = requirements_dir / f"{req_id}.md"
+    if not path.exists():
+        return f"not found: {req_id}"
+    if reaffirm_reason is not None:
+        reaffirm(path, reaffirm_reason)
+    else:
+        write_binding(
+            path,
+            experiment=experiment,
+            metric=metric,
+            assert_expr=assert_expr,
+            harness=harness,
+            trials=trials,
+            window=None,
+        )
+    harness_desc = harness if harness is not None else "no harness named yet"
+    return f"{req_id}  bound to {harness_desc}: {metric} {assert_expr}"
+
+
+def cmd_defer(requirements_dir: Path, req_id: str, reason: str) -> str:
+    path = requirements_dir / f"{req_id}.md"
+    if not path.exists():
+        return f"not found: {req_id}"
+    try:
+        write_deferral(path, reason)
+    except ReasonRequiredError:
+        return f"{req_id}: a reason is required to defer"
+    return f"{req_id}  deferred: {reason}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -130,6 +173,20 @@ def main(argv: list[str] | None = None) -> int:
     p_status.add_argument("--stale", action="store_true")
     p_show = sub.add_parser("show", parents=[common])
     p_show.add_argument("id")
+
+    p_bind = sub.add_parser("bind", parents=[common])
+    p_bind.add_argument("id")
+    p_bind.add_argument("--experiment", required=True)
+    p_bind.add_argument("--metric", required=True)
+    p_bind.add_argument("--assert", dest="assert_expr", required=True)
+    p_bind.add_argument("--harness", default=None)
+    p_bind.add_argument("--trials", type=int, default=1)
+    p_bind.add_argument("--reaffirm", dest="reaffirm_reason", default=None)
+
+    p_defer = sub.add_parser("defer", parents=[common])
+    p_defer.add_argument("id")
+    p_defer.add_argument("--reason", required=True)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "new":
@@ -140,4 +197,19 @@ def main(argv: list[str] | None = None) -> int:
         print(cmd_status(args.requirements_dir, stale_only=args.stale))
     elif args.cmd == "show":
         print(cmd_show(args.requirements_dir, args.id))
+    elif args.cmd == "bind":
+        print(
+            cmd_bind(
+                args.requirements_dir,
+                args.id,
+                experiment=args.experiment,
+                metric=args.metric,
+                assert_expr=args.assert_expr,
+                harness=args.harness,
+                trials=args.trials,
+                reaffirm_reason=args.reaffirm_reason,
+            )
+        )
+    elif args.cmd == "defer":
+        print(cmd_defer(args.requirements_dir, args.id, args.reason))
     return 0
