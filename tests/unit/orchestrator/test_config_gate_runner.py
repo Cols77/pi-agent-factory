@@ -105,3 +105,54 @@ def test_python_placeholder_is_quoted_when_the_interpreter_path_has_a_space(tmp_
         tmp_path, {"unit": [GateStep(cmd='{python} -c "print(1)"')]}, log_dir=tmp_path / "logs"
     )
     assert runner.run("unit") == 0
+
+
+def test_python_placeholder_uses_the_target_repos_interpreter(tmp_path, monkeypatch):
+    """`{python}` must be the TARGET repo's interpreter, not the orchestrator's.
+
+    On a cross-repo run (`--repo <other>`), sys.executable is the factory's own
+    venv, which does not have the target project installed. Every gate then ran
+    in the wrong environment: in cool_physical_ai_project this surfaced as 33
+    collection errors, `ModuleNotFoundError: No module named 'drone'`, which
+    escalated T-059 as "unit tests red" even though the code was importable in
+    its own venv.
+    """
+    venv_bin = tmp_path / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")
+    venv_bin.mkdir(parents=True)
+    target_python = venv_bin / ("python.exe" if sys.platform == "win32" else "python")
+    # A real interpreter, reachable only via the target repo's .venv path.
+    target_python.write_bytes(Path(sys.executable).read_bytes())
+
+    runner = ConfigGateRunner(
+        tmp_path, {"unit": [GateStep(cmd="{python} -c \"pass\"")]}, log_dir=tmp_path / "logs"
+    )
+    captured = {}
+    real_run = subprocess.run
+
+    def spy(cmd, *a, **kw):
+        captured["cmd"] = cmd
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    runner.run("unit")
+    assert str(target_python) in captured["cmd"], (
+        f"gate used {captured['cmd']!r}; expected the target repo's venv interpreter"
+    )
+
+
+def test_python_placeholder_falls_back_when_target_has_no_venv(tmp_path, monkeypatch):
+    """A target repo without a .venv still has to run: fall back to the
+    orchestrator's own interpreter rather than failing to resolve."""
+    runner = ConfigGateRunner(
+        tmp_path, {"unit": [GateStep(cmd="{python} -c \"pass\"")]}, log_dir=tmp_path / "logs"
+    )
+    captured = {}
+    real_run = subprocess.run
+
+    def spy(cmd, *a, **kw):
+        captured["cmd"] = cmd
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    assert runner.run("unit") == 0
+    assert sys.executable in captured["cmd"]

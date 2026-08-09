@@ -79,6 +79,35 @@ def _quote_for_shell(path: str) -> str:
     return shlex.quote(path)
 
 
+def _target_python(repo_root: Path) -> str:
+    """The interpreter a gate should run under: the TARGET repo's, not ours.
+
+    `sys.executable` is whatever runs the orchestrator. On a cross-repo run
+    (`--repo <other>`) that is the factory's own venv, which does not have the
+    target project installed -- so every gate executed in the wrong
+    environment. In cool_physical_ai_project this surfaced as 33 collection
+    errors (`ModuleNotFoundError: No module named 'drone'`) and escalated T-059
+    as "unit tests red", even though the package imported fine under the
+    target's own venv.
+
+    This mirrors the inverse lesson already recorded in `__main__`: the
+    scope-guard extension ships with the FACTORY and must not be derived from
+    --repo. Ownership decides the source -- the interpreter belongs to the
+    target, the extension belongs to us.
+
+    Falls back to `sys.executable` when the target has no `.venv`, which is the
+    common case of the factory running against itself.
+    """
+    parts = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
+    candidate = repo_root.joinpath(".venv", *parts)
+    try:
+        if candidate.is_file():
+            return str(candidate)
+    except OSError:
+        pass
+    return sys.executable
+
+
 class ConfigGateRunner:
     """Runs the gate steps a project declares in .factory/factory.yaml.
 
@@ -107,7 +136,7 @@ class ConfigGateRunner:
 
         chunks: list[str] = []
         for step in steps:
-            cmd = step.cmd.replace("{python}", _quote_for_shell(sys.executable))
+            cmd = step.cmd.replace("{python}", _quote_for_shell(_target_python(self._repo_root)))
             cwd = self._repo_root / step.cwd if step.cwd else self._repo_root
             if self._log_dir is None:
                 rc = subprocess.run(cmd, shell=True, cwd=str(cwd), check=False).returncode
