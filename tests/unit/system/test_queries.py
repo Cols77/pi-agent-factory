@@ -38,6 +38,7 @@ from ._fixtures import (
     write_task,
     write_validation_report,
 )
+from ._fixtures import _write_bundle_fixture, _write_manifest_fixture, _write_task_fixture  # noqa: F401
 
 pytestmark = pytest.mark.unit
 
@@ -467,6 +468,40 @@ def test_bundle_with_all_members_resolving_is_not_degraded(tmp_path):
     result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:clean"))
 
     assert result["degraded"] is False
+
+
+# ---------------------------------------------------------------------------
+# Task 5: a bundle task: member claim carries an implementation summary
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_task_members_carry_an_implementation_summary(tmp_path, write_task,
+                                                              write_manifest, write_bundle):
+    write_task(tmp_path, "T-059", status="done", satisfies=[])
+    write_manifest(tmp_path, run_id="r1", task_id="T-059", outcome="completed",
+                   changed_files=["src/a.py", "src/b.py"])
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-059"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+
+    member = next(c for c in result["claims"] if "T-059" in c["text"])
+    summary = member["implementation_summary"]
+    assert summary["runs"] == 1
+    assert summary["latest_outcome"] == "completed"
+    assert summary["changed_file_count"] == 2
+
+
+def test_a_task_member_with_no_runs_summarises_as_none_not_zero(tmp_path, write_task,
+                                                                write_bundle):
+    write_task(tmp_path, "T-070", status="todo", satisfies=[])
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-070"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-070" in c["text"])
+
+    assert member["implementation_summary"]["runs"] == 0
+    assert member["implementation_summary"]["latest_outcome"] is None
+    assert member["implementation_summary"]["changed_file_count"] is None
 
 
 def test_bundle_member_spec_and_plan_existence_resolves_via_real_files(tmp_path):

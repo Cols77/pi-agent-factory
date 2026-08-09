@@ -10,7 +10,18 @@
     "text": {"type": "string"},
     "citations": {"type": "array", "items": {"$ref": "#/$defs/citation"}},
     "spans": {"type": "array", "items": {"$ref": "#/$defs/span"}},
-    "freshness": {"$ref": "#/$defs/freshness"}
+    "freshness": {"$ref": "#/$defs/freshness"},
+    "implementation_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runs", "latest_outcome", "changed_file_count", "latest_validation"],
+      "properties": {
+        "runs": {"type": "integer", "minimum": 0},
+        "latest_outcome": {"type": ["string", "null"]},
+        "changed_file_count": {"type": ["integer", "null"], "minimum": 0},
+        "latest_validation": {"type": ["string", "null"]}
+      }
+    }
   },
   "allOf": [
     {

@@ -77,6 +77,18 @@ def write_bundle(bundles_dir: Path, bundle_id: str, label: str, members: list[st
     return path
 
 
+@pytest.fixture(name="write_bundle")
+def _write_bundle_fixture():
+    """Same-name factory-fixture wrapper for `write_bundle` above -- see the
+    module docstring for why this is a separate object rather than
+    decorating `write_bundle` itself. `write_bundle`'s own signature
+    (`bundles_dir, bundle_id, label, members`) already matches what a
+    fixture-style caller wants (mirrors `_write_session_fixture`, which
+    returns `write_session` unwrapped for the same reason), so this just
+    hands the plain builder back."""
+    return write_bundle
+
+
 def write_bundle_raw(bundles_dir: Path, filename_stem: str, payload: dict | str) -> Path:
     """Write a bundle file whose filename is independent of `payload["id"]`.
 
