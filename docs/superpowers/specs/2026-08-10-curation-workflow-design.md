@@ -21,12 +21,21 @@ Measured in `cool_physical_ai_project` on 2026-08-10:
 - **Zero bundles exist, in any repository.** The 60-second feature briefing — the navigator's
   headline capability, built across Increments A and B — is scoped to `bundle:<id>`, and no
   bundle had ever been authored anywhere until a trial one was written for this design.
-- **280 traceability gaps exist and 275 carry an explicit disposition.** Only 5 are open.
+- **280 traceability gaps exist and 275 carry a disposition.** Only 5 are open — but see below.
 
-That last number is the point. Trace is the one family that is healthy, and it is healthy because
-it is the only one with a vocabulary for deciding: `link`, `defer`, `exempt`, and a recorded
-`disposition` on every gap. The other two families have no such vocabulary, so their backlog is
-invisible rather than small.
+Trace is the healthiest family, because it is the only one with a vocabulary for deciding: `link`,
+`defer`, `exempt`, and a recorded `disposition` on every gap. The other two have no such
+vocabulary, so their backlog is invisible rather than small.
+
+**The 5-open figure is, however, flattering.** `gaps.find_gaps` assigns `sr_proposed` gaps
+`disposition="deferred"` unconditionally, in code, reasoning that "the human accepted it knowing the
+binding was open." So all 180 unbound requirements are auto-deferred the moment they are minted. No
+human decided any of them, and `trace check` can never fail on them by construction.
+
+That is the concrete mechanism by which an empty register stays invisible. It is not wrong of trace
+— an undecided binding genuinely is not a *traceability* gap — but it does mean nothing in the
+system currently reports that 180 of 181 requirements cannot be measured. Closing that hole is what
+`factory-requirements check` (§4) is for.
 
 The cause is mechanical, not cultural:
 
@@ -176,7 +185,7 @@ their resolved member set, so drift is a signal rather than an absence.
 | `show` | read | exists | via `graph` | new |
 | `bind` / `link` / `add`+`remove` | write — the positive decision | **new** | exists | new |
 | `defer` | write — recorded reason | new | exists | new |
-| `exempt` | write — recorded reason | new | exists | new |
+| `exempt` | write — recorded reason | **n/a — SRs are not exemptable** | exists | new |
 | `index` | maintenance — checksums | exists (fixed) | — | new |
 
 **`bind`** writes the `binding:` block (`harness`, `experiment`, `metric`, `assert`, `trials`,
@@ -188,8 +197,20 @@ registry.
 that the statement changed and the existing binding still measures it. A flag rather than a new
 verb, to keep the vocabulary small. Reaffirming without a reason is refused.
 
-**`defer` and `exempt` require a reason.** An empty or whitespace reason is refused — the existing
-`Override` validation in `preflight/checks.py` sets this precedent and it is followed.
+**`defer` requires a reason.** An empty or whitespace reason is refused — the existing `Override`
+validation in `preflight/checks.py` sets this precedent and it is followed.
+
+**Requirements get `defer` but never `exempt`.** `trace.gaps._disposition_of` already refuses to
+exempt `sr` and `br` nodes, citing the rule that "SRs are deliberately not exemptable. Deferral is
+still allowed — an SR may legitimately need more time — but it can never be waived outright." That
+policy is existing and correct; this design follows it rather than opening a second route around
+it. `exempt` therefore appears in the vocabulary for trace and bundles only.
+
+**Dispositions reuse the existing storage.** `trace.model._disposition` already reads
+`trace_exempt` and `trace_deferred` from an artifact's own frontmatter. `factory-requirements defer`
+writes `trace_deferred: <reason>` to the requirement file — the same field trace already reads. No
+new store, no parallel parsing rule, and a deferral made through either CLI is visible to both.
+Neither field participates in `content_checksum`, so recording a disposition never stales a binding.
 
 ## 5. The curation pipeline
 
@@ -291,7 +312,7 @@ The closure rule needs a test per state, including the two that are easy to conf
 
 ## 9. Increments
 
-**Increment 1 — level the CLIs.** `bind`, `bind --reaffirm`, `defer`, `exempt`, `check` and `next`
+**Increment 1 — level the CLIs.** `bind`, `bind --reaffirm`, `defer`, `check` and `next`
 for requirements; the optional-harness representation change (§3.3); fix `index` so it refuses to
 launder staleness; the closure state model with its severity tiers, and its tests. No pipeline.
 This unblocks binding work immediately and settles the vocabulary before it is baked into node
