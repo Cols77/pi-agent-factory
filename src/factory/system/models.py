@@ -47,6 +47,7 @@ class CitationKind(str, Enum):
     DECISION = "decision"
     TRACE = "trace"
     BUNDLE = "bundle"
+    SESSION = "session"
 
 
 class MatrixStatus(str, Enum):
