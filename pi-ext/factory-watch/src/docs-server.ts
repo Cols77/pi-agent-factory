@@ -19,7 +19,9 @@ import {
   loadSystemBriefing,
   loadSystemGuide,
   loadSystemMatrix,
+  loadSystemReverse,
   loadSystemScopes,
+  loadSystemStory,
   loadSystemTimeline,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
@@ -251,8 +253,8 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these five exact paths exist -- anything else falls through to
-  // the 404 below.
+  // and only these seven exact paths exist -- anything else falls through
+  // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
     if (!result.ok) {
@@ -298,6 +300,29 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
   // `loadSystemGuide` never passes `--export`).
   if (req.method === "GET" && url.pathname === "/api/system/guide") {
     const result = loadSystemGuide(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Increment B "V-cycle": `story` is the forward half (task -> runs ->
+  // requirements), `reverse` the backward half (file -> run -> task ->
+  // requirements). Same exact-pathname discipline as the five routes above.
+  if (req.method === "GET" && url.pathname === "/api/system/story") {
+    const result = loadSystemStory(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/system/reverse") {
+    const result = loadSystemReverse(cwd, url.searchParams.get("scope") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

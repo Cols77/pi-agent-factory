@@ -18,12 +18,17 @@ describe("system-cli against the real CLI", () => {
     expect(result).toEqual({ ok: true, value: { scopes: [], errors: [] } });
   }, 60_000);
 
-  test("brief --scope on a non-scope kind surfaces the real structured error", () => {
+  // "task:" is itself a scope kind `factory.system` recognizes (increment B
+  // added it for `story`, commit 7c771a8/7c74b1c) -- but `brief` only ever
+  // resolves bundle:/sr:, so the real CLI now reports this as "unsupported
+  // scope kind" (query_brief's own guard), not the parser-level "invalid
+  // scope ref" a wholly-unrecognized prefix would raise.
+  test("brief --scope on a scope kind that brief does not support surfaces the real structured error", () => {
     const result = loadSystemBriefing(REPO_ROOT, "task:T-001");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain("invalid scope ref");
-      expect(result.error).toContain("task:T-001");
+      expect(result.error).toContain("unsupported scope kind");
+      expect(result.error).toContain("task");
       expect(result.error).toContain("ScopeKindError");
     }
   }, 60_000);

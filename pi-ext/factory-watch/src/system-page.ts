@@ -63,6 +63,20 @@ export function renderSystemPageHtml(): string {
   .citation, .span, .evidence-item { padding: 1px 0; }
   .degraded-banner { border: 1px solid var(--degraded); color: var(--degraded); border-radius: 4px; padding: 6px 10px; margin: 8px 0; }
   .empty { opacity: .7; }
+  /* Increment B "V-cycle": Story (forward, task -> runs -> requirements)
+     and Reverse (backward, file -> run -> task -> requirements). .run and
+     .path reuse .claim's frame; the rest are their own small elements. */
+  .run, .path { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
+  .run-head, .story-task { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .source-manifest { color: var(--fresh); }
+  .source-session { color: var(--stale); }
+  .commit-range, .stops-at { margin-top: 4px; font-size: 11px; opacity: .8; overflow-wrap: anywhere; }
+  .changed-files { margin-top: 4px; font-size: 11px; }
+  .changed-file { padding: 1px 0; overflow-wrap: anywhere; }
+  .path-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .path-chain .arrow { opacity: .6; }
+  .requirements { margin-top: 8px; font-size: 12px; }
+  .requirement { padding: 1px 0; }
 </style></head>
 <body>
   <header><h1>System Navigator</h1></header>
@@ -80,11 +94,15 @@ export function renderSystemPageHtml(): string {
         <button id="tabMatrix" class="tab" aria-selected="false">Matrix</button>
         <button id="tabTimeline" class="tab" aria-selected="false">Timeline</button>
         <button id="tabGuide" class="tab" aria-selected="false">Guide</button>
+        <button id="tabStory" class="tab" aria-selected="false">Story</button>
+        <button id="tabReverse" class="tab" aria-selected="false">Reverse</button>
       </div>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
       <div id="panelTimeline" class="panel" hidden></div>
       <div id="panelGuide" class="panel" hidden></div>
+      <div id="panelStory" class="panel" hidden></div>
+      <div id="panelReverse" class="panel" hidden></div>
     </div>
   </main>
 <script>
@@ -329,6 +347,202 @@ export function renderSystemPageHtml(): string {
     panel.appendChild(note);
   }
 
+  // Shared by renderStory/renderReverse below (increment B "V-cycle") --
+  // same shape as the inline degraded banners in renderBrief/renderTimeline
+  // above, factored out here only because two more callers are added in
+  // this file rather than duplicated a third and fourth time.
+  function renderDegradedBanner(reasons) {
+    const banner2 = document.createElement('div');
+    banner2.className = 'degraded-banner';
+    const label = document.createElement('div');
+    label.appendChild(document.createTextNode('degraded:'));
+    banner2.appendChild(label);
+    const reasonList = document.createElement('ul');
+    (reasons || []).forEach((reason) => {
+      const li = document.createElement('li');
+      li.appendChild(document.createTextNode(reason));
+      reasonList.appendChild(li);
+    });
+    banner2.appendChild(reasonList);
+    return banner2;
+  }
+
+  function renderCommitRange(startCommit, resultCommit) {
+    const el = document.createElement('div');
+    el.className = 'commit-range';
+    el.appendChild(document.createTextNode(
+      startCommit && resultCommit
+        ? 'commits ' + startCommit + '..' + resultCommit
+        : 'commit range not recorded'
+    ));
+    return el;
+  }
+
+  // changed_files is null for a session-sourced run (design increment
+  // B: a session record never captures changed files) -- that state is
+  // already stated plainly by the implementation claim's own 'missing'
+  // text (rendered via renderClaim below), so there is nothing further to
+  // render here for that case; an empty recorded list is a real, distinct
+  // fact and is rendered as such rather than folded into the null case.
+  function renderChangedFiles(changedFiles) {
+    if (changedFiles === null) return null;
+    const el = document.createElement('div');
+    el.className = 'changed-files';
+    if (!changedFiles.length) {
+      const empty = document.createElement('div');
+      empty.className = 'changed-file empty';
+      empty.appendChild(document.createTextNode('no changed files recorded'));
+      el.appendChild(empty);
+      return el;
+    }
+    changedFiles.forEach((path) => {
+      const item = document.createElement('div');
+      item.className = 'changed-file';
+      item.appendChild(document.createTextNode(path));
+      el.appendChild(item);
+    });
+    return el;
+  }
+
+  // One storyRun/reverseRun's implementation + changed files + citation --
+  // shared by renderStoryRun and renderReversePath below, since a
+  // reverseRun is the same shape as a storyRun minus source.
+  function renderRunDetail(el, run) {
+    el.appendChild(renderCommitRange(run.start_commit, run.result_commit));
+    el.appendChild(renderClaim(run.implementation));
+    const files = renderChangedFiles(run.implementation.changed_files);
+    if (files) el.appendChild(files);
+    el.appendChild(citationLine(run.citation));
+  }
+
+  // Renders one storyRun: a .source badge naming exactly 'manifest' or
+  // 'session' (design increment B) -- a session-sourced run is never
+  // rendered identically to a manifest-sourced one, and its 'missing'
+  // implementation claim (via renderRunDetail -> renderClaim) is never
+  // hidden or folded away.
+  function renderStoryRun(run) {
+    const el = document.createElement('div');
+    el.className = 'run';
+    const head = document.createElement('div');
+    head.className = 'run-head';
+    const source = document.createElement('span');
+    source.className = 'badge source source-' + run.source;
+    source.appendChild(document.createTextNode(run.source));
+    head.appendChild(source);
+    const runId = document.createElement('span');
+    runId.appendChild(document.createTextNode(run.run_id));
+    head.appendChild(runId);
+    head.appendChild(badge(run.outcome, 'outcome'));
+    el.appendChild(head);
+    renderRunDetail(el, run);
+    return el;
+  }
+
+  function renderStory(story) {
+    const panel = document.getElementById('panelStory');
+    clear(panel);
+    const head = document.createElement('div');
+    head.className = 'story-task';
+    head.appendChild(document.createTextNode(
+      story.task.id + ': ' + story.task.title + ' (' + story.task.status + ')'
+    ));
+    panel.appendChild(head);
+    if (story.degraded) panel.appendChild(renderDegradedBanner(story.degraded_reasons));
+    if (!story.runs.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.appendChild(document.createTextNode('No recorded runs for this task.'));
+      panel.appendChild(empty);
+    } else {
+      // runs already arrives ordered by Python (started_at, then citation
+      // path) -- rendered as-is, no client-side sort.
+      story.runs.forEach((run) => panel.appendChild(renderStoryRun(run)));
+    }
+    const reqs = document.createElement('div');
+    reqs.className = 'requirements';
+    if (story.requirements.length) {
+      const label = document.createElement('div');
+      label.appendChild(document.createTextNode('requirements:'));
+      reqs.appendChild(label);
+      story.requirements.forEach((ref) => {
+        const item = document.createElement('div');
+        item.className = 'requirement';
+        item.appendChild(document.createTextNode(ref));
+        reqs.appendChild(item);
+      });
+    } else {
+      reqs.appendChild(document.createTextNode('no requirements recorded'));
+    }
+    panel.appendChild(reqs);
+  }
+
+  // One reversePath: file -> run -> task -> requirements, with stops_at
+  // always named plainly (never omitted, even when null -- "the chain
+  // completed" is itself a fact worth stating, not just the stopping case).
+  function renderReversePath(path) {
+    const el = document.createElement('div');
+    el.className = 'path';
+    const chain = document.createElement('div');
+    chain.className = 'path-chain';
+    function hop(text) {
+      const span = document.createElement('span');
+      span.className = 'hop';
+      span.appendChild(document.createTextNode(text));
+      return span;
+    }
+    function arrow() {
+      const span = document.createElement('span');
+      span.className = 'arrow';
+      span.appendChild(document.createTextNode('→'));
+      return span;
+    }
+    chain.appendChild(hop(path.file));
+    chain.appendChild(arrow());
+    chain.appendChild(hop(path.run.run_id));
+    chain.appendChild(arrow());
+    chain.appendChild(hop(path.task ? path.task.id : 'unresolved'));
+    chain.appendChild(arrow());
+    chain.appendChild(hop(path.requirements.length ? path.requirements.join(', ') : 'unresolved'));
+    el.appendChild(chain);
+    const stops = document.createElement('div');
+    stops.className = 'stops-at';
+    stops.appendChild(document.createTextNode(
+      'stops_at: ' + (path.stops_at === null ? 'null (chain complete)' : path.stops_at)
+    ));
+    el.appendChild(stops);
+    renderRunDetail(el, path.run);
+    return el;
+  }
+
+  function renderReverse(reverse) {
+    const panel = document.getElementById('panelReverse');
+    clear(panel);
+    if (reverse.degraded) panel.appendChild(renderDegradedBanner(reverse.degraded_reasons));
+    if (!reverse.paths.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.appendChild(document.createTextNode('No recorded run touches this file.'));
+      panel.appendChild(empty);
+      return;
+    }
+    // paths already arrives ordered by Python (started_at, then citation
+    // path) -- rendered as-is, no client-side sort.
+    reverse.paths.forEach((path) => panel.appendChild(renderReversePath(path)));
+  }
+
+  // A plain, visible notice for a panel whose view does not apply to the
+  // currently loaded scope's kind (e.g. the Brief panel for a task: scope)
+  // -- rendered rather than left blank, mirroring renderGuideFallback's
+  // "say where to look instead" discipline above.
+  function renderNotApplicable(panelId, note) {
+    const panel = document.getElementById(panelId);
+    clear(panel);
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.appendChild(document.createTextNode(note));
+    panel.appendChild(p);
+  }
+
   function scopeHref(ref) {
     return '/system?scope=' + encodeURIComponent(ref);
   }
@@ -377,7 +591,7 @@ export function renderSystemPageHtml(): string {
   }
 
   function showTab(name) {
-    ['Brief', 'Matrix', 'Timeline', 'Guide'].forEach((tab) => {
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'].forEach((tab) => {
       document.getElementById('tab' + tab).setAttribute('aria-selected', String(tab === name));
       document.getElementById('panel' + tab).hidden = tab !== name;
     });
@@ -386,8 +600,62 @@ export function renderSystemPageHtml(): string {
   document.getElementById('tabMatrix').onclick = () => showTab('Matrix');
   document.getElementById('tabTimeline').onclick = () => showTab('Timeline');
   document.getElementById('tabGuide').onclick = () => showTab('Guide');
+  document.getElementById('tabStory').onclick = () => showTab('Story');
+  document.getElementById('tabReverse').onclick = () => showTab('Reverse');
 
-  async function loadScope(scopeRef) {
+  // Each of story/reverse/brief+matrix+timeline+guide only resolves one
+  // particular scope kind (design increment B: story is task:-only,
+  // reverse is file:-only, matching storyScopeRef/reverseScopeRef in
+  // system_response.schema.json exactly) -- this reads the same kind:
+  // prefix Python itself parses (_task_id_from_scope,
+  // _resolve_scope_file) to pick which of Python's own endpoints to call,
+  // the same way scopeHref above already builds a scope-kind-agnostic
+  // URL. It is dispatch, not interpretation: no freshness, ordering, or
+  // provenance is decided here, only which already-built request to send.
+  function scopeKind(ref) {
+    const idx = ref.indexOf(':');
+    return idx === -1 ? '' : ref.slice(0, idx);
+  }
+
+  async function loadStoryScope(scopeRef) {
+    const res = await fetch('/api/system/story?scope=' + encodeURIComponent(scopeRef));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
+      content.hidden = true;
+      picker.hidden = false;
+      return;
+    }
+    showBanner('');
+    content.hidden = false;
+    document.getElementById('scopeHeader').textContent = scopeRef;
+    renderStory(await res.json());
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse'].forEach((tab) => renderNotApplicable(
+      'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
+    ));
+    showTab('Story');
+  }
+
+  async function loadReverseScope(scopeRef) {
+    const res = await fetch('/api/system/reverse?scope=' + encodeURIComponent(scopeRef));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
+      content.hidden = true;
+      picker.hidden = false;
+      return;
+    }
+    showBanner('');
+    content.hidden = false;
+    document.getElementById('scopeHeader').textContent = scopeRef;
+    renderReverse(await res.json());
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story'].forEach((tab) => renderNotApplicable(
+      'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
+    ));
+    showTab('Reverse');
+  }
+
+  async function loadBundleScope(scopeRef) {
     const scopeParam = encodeURIComponent(scopeRef);
     // The guide fetch is intentionally not in the failure gate below: a
     // failed/unavailable guide degrades only its own tab (design section 8),
@@ -420,6 +688,22 @@ export function renderSystemPageHtml(): string {
     } else {
       renderGuideFallback();
     }
+    renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
+    renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
+    showTab('Brief');
+  }
+
+  async function loadScope(scopeRef) {
+    const kind = scopeKind(scopeRef);
+    if (kind === 'task') {
+      await loadStoryScope(scopeRef);
+      return;
+    }
+    if (kind === 'file') {
+      await loadReverseScope(scopeRef);
+      return;
+    }
+    await loadBundleScope(scopeRef);
   }
 
   await loadScopes();

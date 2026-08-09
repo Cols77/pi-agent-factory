@@ -75,6 +75,45 @@ function dependencies(overrides: Record<string, unknown> = {}) {
         ],
       },
     }),
+    story: () => ({
+      ok: true as const,
+      value: {
+        scope: { kind: "task" as const, ref: "task:T-055" },
+        task: { id: "T-055", title: "Wire the demo feature", status: "done" },
+        runs: [
+          {
+            run_id: "s1",
+            source: "session" as const,
+            outcome: "completed",
+            started_at: "2026-08-02T00:00:00Z",
+            ended_at: "2026-08-02T00:30:00Z",
+            start_commit: null,
+            result_commit: null,
+            implementation: {
+              kind: "missing" as const,
+              text: "run s1: implementation not recorded",
+              citations: [],
+              spans: [],
+              freshness: { state: "n/a" as const, reason: "session records do not capture changed files or a commit range", dependencies: [] },
+              changed_files: null,
+            },
+            citation: { kind: "session" as const, path: "sessions/.factory-transcripts/s1/session.json", sha256: null, anchor: null },
+          },
+        ],
+        requirements: [],
+        degraded: true,
+        degraded_reasons: ["1 run(s) have no recorded implementation detail (session record only, no evidence manifest)"],
+      },
+    }),
+    reverse: () => ({
+      ok: true as const,
+      value: {
+        scope: { kind: "file" as const, ref: "file:src/a.py" },
+        paths: [],
+        degraded: false,
+        degraded_reasons: [],
+      },
+    }),
     ...overrides,
   };
 }
@@ -101,6 +140,8 @@ describe("system context tools", () => {
       "system_matrix",
       "system_timeline",
       "system_guide",
+      "system_story",
+      "system_reverse",
     ]);
   });
 
@@ -213,6 +254,47 @@ describe("system context tools", () => {
     });
     const tools = buildSystemContextTools(deps as never);
     const value = parsed(await execute(tools[8]!, { scope: "task:T-001" }));
+    expect(value.status).toBe("unknown");
+    expect(value.instruction).toContain("Do not infer");
+  });
+
+  test("system_story passes the Python-owned runs straight through, including a session-sourced run's missing implementation", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[9]!, { scope: "task:T-055" }));
+    expect(value.task).toEqual({ id: "T-055", title: "Wire the demo feature", status: "done" });
+    expect(value.runs[0]).toMatchObject({
+      source: "session",
+      implementation: { kind: "missing" },
+    });
+  });
+
+  test("system_story on an unresolvable scope remains explicitly unknown", async () => {
+    const deps = dependencies({
+      story: () => ({ ok: false as const, error: "task not found: 'T-999'" }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[9]!, { scope: "task:T-999" }));
+    expect(value.status).toBe("unknown");
+    expect(value.instruction).toContain("Do not infer");
+  });
+
+  test("system_reverse passes the Python-owned paths straight through, including the legitimate empty state", async () => {
+    const tools = buildSystemContextTools(dependencies() as never);
+    const value = parsed(await execute(tools[10]!, { scope: "file:src/a.py" }));
+    expect(value).toEqual({
+      scope: { kind: "file", ref: "file:src/a.py" },
+      paths: [],
+      degraded: false,
+      degraded_reasons: [],
+    });
+  });
+
+  test("system_reverse on an unresolvable scope remains explicitly unknown", async () => {
+    const deps = dependencies({
+      reverse: () => ({ ok: false as const, error: "file not found: 'src/missing.py'" }),
+    });
+    const tools = buildSystemContextTools(deps as never);
+    const value = parsed(await execute(tools[10]!, { scope: "file:src/missing.py" }));
     expect(value.status).toBe("unknown");
     expect(value.instruction).toContain("Do not infer");
   });

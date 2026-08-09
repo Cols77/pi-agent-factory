@@ -21,7 +21,8 @@ export type CitationKind =
   | "review"
   | "decision"
   | "trace"
-  | "bundle";
+  | "bundle"
+  | "session";
 
 export interface SystemCitation {
   kind: CitationKind;
@@ -177,4 +178,108 @@ export function loadSystemTimeline(cwd: string, scope: string): CliResult<System
 export function loadSystemGuide(cwd: string, scope: string): CliResult<SystemGuide> {
   const cmd = buildSystemCommand(["guide", "--scope", scope, "--json"]);
   return runJsonCli<SystemGuide>(cwd, cmd.bin, cmd.args);
+}
+
+// The rest of this file mirrors `factory.system.story.query_story` /
+// `factory.system.reverse.query_reverse` (increment B, V-cycle) exactly --
+// same discipline as every type above: this file renders, it never
+// interprets.
+
+export interface StoryScopeRef {
+  kind: "task";
+  ref: string;
+}
+
+export interface StoryTask {
+  id: string;
+  title: string;
+  status: string;
+}
+
+// A claim (kind/text/citations/spans/freshness) plus `changed_files`:
+// present (a list, possibly empty) only when recorded by a real evidence
+// manifest; `null` for a session-only run, which never captures changed
+// files.
+export interface StoryImplementation extends SystemClaim {
+  changed_files: string[] | null;
+}
+
+// One recorded run of a task's story, sourced either from a durable
+// evidence manifest (`source: "manifest"`) or, when no manifest exists for
+// that run, from a session record (`source: "session"`, `implementation`
+// always missing/n-a). `start_commit`/`result_commit` are `null` for a
+// session-sourced run -- a session record never captures a commit range.
+export interface StoryRun {
+  run_id: string;
+  source: "manifest" | "session";
+  outcome: string;
+  started_at: string | null;
+  ended_at: string | null;
+  start_commit: string | null;
+  result_commit: string | null;
+  implementation: StoryImplementation;
+  citation: SystemCitation;
+}
+
+export interface SystemStory {
+  scope: StoryScopeRef;
+  task: StoryTask;
+  runs: StoryRun[];
+  requirements: string[];
+  degraded: boolean;
+  degraded_reasons: string[];
+}
+
+export interface ReverseScopeRef {
+  kind: "file";
+  ref: string;
+}
+
+// The evidence manifest run that recorded the walked file in its
+// `implementation.changed_files`. Always sourced from a durable evidence
+// manifest -- session records carry no changed files and cannot
+// participate in a file-anchored walk, so unlike `StoryRun` there is no
+// `source` field here.
+export interface ReverseRun {
+  run_id: string;
+  outcome: string;
+  started_at: string | null;
+  ended_at: string | null;
+  start_commit: string | null;
+  result_commit: string | null;
+  implementation: StoryImplementation;
+  citation: SystemCitation;
+}
+
+// The resolved task record a path's `task` hop points at, or `null` when
+// the matched run's `task_id` does not resolve in the ledger
+// (`stops_at: "task"`).
+export type ReverseTask = StoryTask | null;
+
+// One walked path from the file back to a requirement: run -> task ->
+// satisfies. `stops_at` names the first hop that did not resolve
+// (`"task"` or `"satisfies"`), or `null` when the chain completes.
+export interface ReversePath {
+  file: string;
+  run: ReverseRun;
+  task: ReverseTask;
+  requirements: string[];
+  stops_at: "task" | "satisfies" | null;
+}
+
+export interface SystemReverse {
+  scope: ReverseScopeRef;
+  paths: ReversePath[];
+  degraded: boolean;
+  degraded_reasons: string[];
+}
+
+export function loadSystemStory(cwd: string, scope: string): CliResult<SystemStory> {
+  const cmd = buildSystemCommand(["story", "--scope", scope, "--json"]);
+  return runJsonCli<SystemStory>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemReverse(cwd: string, scope: string): CliResult<SystemReverse> {
+  const cmd = buildSystemCommand(["reverse", "--scope", scope, "--json"]);
+  return runJsonCli<SystemReverse>(cwd, cmd.bin, cmd.args);
 }
