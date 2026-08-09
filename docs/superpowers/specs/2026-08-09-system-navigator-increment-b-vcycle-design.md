@@ -28,7 +28,7 @@ Answered by the user on 2026-08-09 during design.
 1. **`task:` becomes an openable scope.** "How was this implemented" is answered per task, so a task needs a page of its own.
 2. **Reverse navigation walks recorded links only.** file → `changed_files` → manifest → `task_id` → task → `satisfies` → SR. Every hop is a recorded artifact; there is no inference step.
 3. **No whole-suite test pass rate.** Manifests hold per-run validation, not suite totals. The navigator reports what is recorded and never computes a repo-wide percentage.
-4. **No git-derived history.** Tasks with no manifest show `missing`. See §6.
+4. **No git-derived history, but session records are read.** Manifests are never reconstructed. Where no manifest exists, run history comes from `sessions/*.session.json` — a recorded artifact — and implementation stays `missing`. See §6 and §6.1.
 5. **The claim-class model is unchanged.** The four-way separation from the 2026-08-06 plan maps onto the existing classes; B introduces no new claim vocabulary. See §3.3.
 
 ## 3. Information model
@@ -106,6 +106,7 @@ Aggregates are `derived`, cite the manifests they came from, and degrade when an
 | task → SR | trace `satisfies` edge |
 | document titles | `trace.model.load_nodes` |
 | SR statement | `factory.requirements.register` |
+| run history where no manifest exists | `sessions/*.session.json` (§6.1) |
 
 No new parsers. Every source is already loaded somewhere in the navigator; B composes them, it does not re-read artifacts itself.
 
@@ -118,6 +119,23 @@ Evidence manifests exist only from 2026-08-09. Every task completed before then 
 Git commit messages look like a fallback — `T-058: mark mission manager…`, `feat: … (T-057)` — and were rejected. The convention demonstrably lies: commit `3d1ab1b` in `cool_physical_ai_project` is titled *"T-059: Implement the Common Planner Protocol and Reactive Planner"* and contains **none** of T-059's implementation, because `commit_all` swept unrelated work in. Reading task identity out of commit prose puts it in the same category as plan checkboxes, which the parent design already bars by name (§3.4 there).
 
 The navigator therefore gets richer as runs accumulate, and starts sparse. That is the honest state, and stating it is preferable to fabricating history.
+
+### 6.1 Session records are a second recorded source
+
+Manifests cannot be reconstructed for historical tasks. The schema requires `start_commit`, `result_commit` and `implementation{changed_files, patch}`, and none of those survive: of 37 session records in this repo, exactly **one** has `commits` populated, and no artifact anywhere records the changed files or patch of a pre-2026-08-09 run. Writing "manifests" for that history would mean inventing required fields — manufacturing evidence in the one store whose value is that it never does.
+
+`sessions/*.session.json` is, however, a genuinely recorded artifact: written by the run, at run time, describing what that run did. The navigator reads it as a **second, thinner evidence source**, not as a manifest.
+
+It supplies: `task_id`, `started_at`/`ended_at`, `outcome`, per-node results with their `extra` payloads, `dod.met`, and `git.head`. Across the 37 factory records that is 17 completed, 15 rejected and 5 escalated task-runs — the rejected and escalated ones being the history most worth having.
+
+Rules:
+
+- a claim sourced this way cites the **session record**, with citation kind `session`, never a manifest;
+- `implementation` is `missing` for such a run, because it genuinely was never recorded — not degraded, not inferred from `git.head`;
+- session-record history renders visibly thinner than manifest history. That asymmetry is permanent and correct: those runs *are* less well evidenced, and flattening the two would be the lie;
+- where both a manifest and a session record exist for the same `run_id`, the manifest wins and the session record is not read.
+
+Nothing is written, no schema changes, and no field is invented.
 
 **Known gap:** `manifest.reviews` is empty on runs made with `--auto`, because `finalize` archives records written by the *human* review gate, which `--auto` skips. Both manifests that exist today are `--auto` runs. The review column of §4.1 is therefore unexercised against real data, and the plan must not assume its shape from the schema alone — it needs one non-`--auto` run before that column is trusted.
 
