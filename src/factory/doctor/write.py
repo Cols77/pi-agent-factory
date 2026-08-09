@@ -7,7 +7,7 @@ import frontmatter
 
 from factory.doctor.context import gather_context
 from factory.requirements.cli import _next_id
-from factory.requirements.register import content_checksum, parse_requirement
+from factory.requirements.write import write_binding
 
 _TASK_ID_RE = re.compile(r"T-(\d+)")
 
@@ -60,23 +60,15 @@ def promote(
     path = project_root / "requirements" / f"{req_id}.md"
     if not path.is_file():
         raise ValueError(f"no such requirement: {req_id}")
-    binding: dict = {
-        "harness": harness,
-        "experiment": experiment,
-        "metric": metric,
-        "assert": assert_expr,
-        "trials": trials,
-    }
-    if window is not None:
-        binding["window"] = window
-    post = frontmatter.load(str(path))
-    post["binding"] = binding
-    path.write_text(frontmatter.dumps(post), encoding="utf-8")
-
-    # Re-read so the checksum covers exactly what is on disk.
-    post = frontmatter.load(str(path))
-    post["checksum"] = content_checksum(parse_requirement(path))
-    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+    write_binding(
+        path,
+        experiment=experiment,
+        metric=metric,
+        assert_expr=assert_expr,
+        harness=harness,
+        trials=trials,
+        window=window,
+    )
 
     declared = gather_context(project_root)["config"]["harnesses"].get(harness, {})
     return path, metric in declared.get("metrics", [])
