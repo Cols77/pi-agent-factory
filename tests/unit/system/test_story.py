@@ -84,6 +84,38 @@ def test_an_unknown_task_raises_scope_not_found(tmp_path):
         query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-999"))
 
 
+def test_runs_are_ordered_by_started_at_then_citation_path_on_ties(tmp_path, write_task, write_manifest):
+    write_task(tmp_path, "T-080", status="done", satisfies=[])
+    write_manifest(tmp_path, run_id="later", task_id="T-080", outcome="completed",
+                   started_at="2026-08-09T10:00:00Z", ended_at="2026-08-09T10:30:00Z")
+    write_manifest(tmp_path, run_id="earlier", task_id="T-080", outcome="completed",
+                   started_at="2026-08-01T00:00:00Z", ended_at="2026-08-01T00:30:00Z")
+    # Same started_at as each other -- only the citation path (which orders
+    # by run_id, since the path is evidence/runs/<run_id>.json) can break
+    # the tie; this is the exact defect the design calls out as already
+    # fixed once in the timeline query.
+    write_manifest(tmp_path, run_id="tie-b", task_id="T-080", outcome="completed",
+                   started_at="2026-08-05T00:00:00Z", ended_at="2026-08-05T00:30:00Z")
+    write_manifest(tmp_path, run_id="tie-a", task_id="T-080", outcome="completed",
+                   started_at="2026-08-05T00:00:00Z", ended_at="2026-08-05T00:30:00Z")
+
+    runs = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-080"))["runs"]
+
+    assert [r["run_id"] for r in runs] == ["earlier", "tie-a", "tie-b", "later"]
+
+
+def test_escalated_and_rejected_manifest_runs_are_kept_not_filtered(tmp_path, write_task, write_manifest):
+    write_task(tmp_path, "T-081", status="escalated", satisfies=[])
+    write_manifest(tmp_path, run_id="r-rejected", task_id="T-081", outcome="rejected")
+    write_manifest(tmp_path, run_id="r-escalated", task_id="T-081", outcome="escalated")
+
+    runs = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-081"))["runs"]
+
+    assert sorted(r["outcome"] for r in runs) == ["escalated", "rejected"], (
+        "a failed attempt is part of the story"
+    )
+
+
 def test_story_validates_against_the_response_schemas_story_member(
     tmp_path, write_task, write_manifest, write_session
 ):

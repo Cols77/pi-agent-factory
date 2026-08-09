@@ -22,8 +22,3 @@ def task_ref_from_trace_id(raw: str) -> str | None:
     if value.startswith("task:"):
         value = value[len("task:"):]
     return f"task:{value}" if _TASK_ID.match(value) else None
-
-
-def trace_id_for_task(task_id: str) -> str:
-    """The trace node id for a task ledger id."""
-    return task_id if task_id.startswith("task:") else f"task:{task_id}"

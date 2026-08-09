@@ -30,7 +30,6 @@ Nothing here infers provenance or fuzzy-matches a scope ref: `bundle:` and
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +39,14 @@ from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
 from factory.system import bundles
+from factory.system._claims import (
+    evidence_dir as _evidence_dir,
+    fresh as _fresh,
+    manifest_path as _manifest_path,
+    missing_claim as _missing,
+    sha256_file as _sha256_file,
+    tasks_dir as _tasks_dir,
+)
 from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import (
     BundleDeclaration,
@@ -111,29 +118,6 @@ def _bundles_dir(repo_root: Path) -> Path:
 
 def _requirements_dir(repo_root: Path) -> Path:
     return repo_root / "requirements"
-
-
-def _tasks_dir(repo_root: Path) -> Path:
-    return repo_root / "tasks"
-
-
-def _fresh(reason: str | None = None) -> Freshness:
-    return Freshness(state=FreshnessState.FRESH, reason=reason, dependencies=[])
-
-
-def _missing(text: str, reason: str) -> SystemClaim:
-    return SystemClaim(
-        kind=ClaimClass.MISSING,
-        text=text,
-        freshness=Freshness(state=FreshnessState.NA, reason=reason, dependencies=[]),
-    )
-
-
-def _sha256_file(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
 
 
 def _load_bundle_or_raise(repo_root: Path, bundle_id: str) -> BundleDeclaration:
@@ -767,10 +751,6 @@ _DECISION_ACTION_MAP = {
 }
 
 
-def _evidence_dir(repo_root: Path) -> Path:
-    return repo_root / "evidence"
-
-
 def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, int, str]]:
     """Read signed review decisions from the `reviews` array of every real
     run manifest (design SS4.3), via `factory.evidence.manifests.
@@ -799,7 +779,7 @@ def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, 
         ended_at = manifest.get("ended_at")
         if not isinstance(ended_at, str) or not ended_at:
             continue  # schema guarantees this in practice; defensive only
-        manifest_path = evidence_dir / "runs" / f"{run_id}.json"
+        manifest_path = _manifest_path(evidence_dir, run_id)
         manifest_sha256 = _sha256_file(manifest_path)
         reviews = manifest.get("reviews")
         if not isinstance(reviews, list):

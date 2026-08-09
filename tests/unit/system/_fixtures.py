@@ -24,6 +24,8 @@ from pathlib import Path
 import pytest
 
 from factory.evidence.manifests import write_run_manifest as _write_evidence_manifest
+from factory.orchestrator.session import build_record, write_session as _write_session_record
+from factory.orchestrator.types import NodeEvent, TaskResult
 
 _SR_BOUND = """---
 id: {id}
@@ -286,33 +288,36 @@ def _write_manifest_fixture():
 def write_session(
     repo_root: Path, session_id: str, task_id: str, outcome: str, dod_met: bool = True
 ) -> Path:
-    """Write one `sessions/<session_id>.session.json` record for `task_id`.
+    """Write one `sessions/<session_id>.session.json` record for `task_id`,
+    through the real `factory.orchestrator.session.build_record` +
+    `write_session` writer -- the same writer `factory.orchestrator.
+    execution` uses, and the one that validates against
+    `session_record.schema.json` (`required: model_backend` among others)
+    before writing. A hand-rolled payload here previously omitted
+    `model_backend` -- a shape no real producer in this repo could emit, the
+    same class of defect the evidence-manifest fixtures were built to avoid
+    from the start.
 
     Moved here from `tests/unit/system/test_sessions.py` (was `_write_session`
     there) so `test_story.py` can build session-only-run fixtures through the
     same real shape `factory.system.sessions.load_session_runs` reads,
     without a second, parallel definition drifting from this one.
     """
-    sessions_dir = repo_root / "sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "session_id": session_id,
-        "started_at": "2026-08-06T20:00:00Z",
-        "ended_at": "2026-08-06T20:30:00Z",
-        "git": {"branch": "main", "head": "a" * 40},
-        "tasks": [{
-            "task_id": task_id,
-            "title": "Some task",
-            "outcome": outcome,
-            "iterations": 1,
-            "commits": [],
-            "dod": {"met": dod_met},
-            "nodes": [{"node": "dev", "result": "pass", "attempts": 1, "extra": {}}],
-        }],
-    }
-    path = sessions_dir / f"{session_id}.session.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    return path
+    result = TaskResult(
+        task_id=task_id,
+        title="Some task",
+        outcome=outcome,
+        iterations=1,
+        events=[NodeEvent(node="dev", result="pass", attempts=1, extra={})],
+        dod_met=dod_met,
+    )
+    record = build_record(
+        session_id=session_id,
+        model_backend="test-backend",
+        results=[result],
+        git_info={"branch": "main", "head": "a" * 40},
+    )
+    return _write_session_record(repo_root / "sessions", record)
 
 
 @pytest.fixture(name="write_session")

@@ -215,15 +215,14 @@
       }
     },
     "storyTask": {
-      "description": "The resolved task record a story is about (design increment B): the ledger's own id/title/status, plus `ref` -- the trace-node id for this task (`factory.system.refs.trace_id_for_task`).",
+      "description": "The resolved task record a story is about (design increment B): the ledger's own id/title/status. No separate `ref` -- it would always equal `scope.ref` (both come from the same resolved task id), so it isn't duplicated here.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "title", "status", "ref"],
+      "required": ["id", "title", "status"],
       "properties": {
         "id": {"type": "string", "pattern": "^T-[0-9]+$"},
         "title": {"type": "string"},
-        "status": {"type": "string"},
-        "ref": {"type": "string", "minLength": 1}
+        "status": {"type": "string"}
       }
     },
     "storyImplementation": {

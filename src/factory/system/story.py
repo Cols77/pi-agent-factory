@@ -32,51 +32,29 @@ merged into one story, so this module re-sorts the merged list itself.
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
 from factory.system import sessions
+from factory.system._claims import (
+    evidence_dir as _evidence_dir,
+    fresh as _fresh,
+    manifest_path as _manifest_path,
+    missing_claim as _missing_claim,
+    sha256_file as _sha256_file,
+    tasks_dir as _tasks_dir,
+)
 from factory.system.models import (
     ClaimClass,
     CitationKind,
-    Freshness,
-    FreshnessState,
     SystemCitation,
     SystemClaim,
     SystemScopeRef,
     to_dict,
 )
 from factory.system.queries import ScopeKindError, ScopeNotFoundError
-from factory.system.refs import sr_ref_from_trace_id, trace_id_for_task
-
-
-def _tasks_dir(repo_root: Path) -> Path:
-    return repo_root / "tasks"
-
-
-def _evidence_dir(repo_root: Path) -> Path:
-    return repo_root / "evidence"
-
-
-def _sha256_file(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
-
-
-def _fresh() -> Freshness:
-    return Freshness(state=FreshnessState.FRESH, reason=None, dependencies=[])
-
-
-def _missing_claim(text: str, reason: str) -> SystemClaim:
-    return SystemClaim(
-        kind=ClaimClass.MISSING,
-        text=text,
-        freshness=Freshness(state=FreshnessState.NA, reason=reason, dependencies=[]),
-    )
+from factory.system.refs import sr_ref_from_trace_id
 
 
 def _task_id_from_scope(scope: SystemScopeRef) -> str:
@@ -94,15 +72,21 @@ def _manifest_run(evidence_dir: Path, manifest: dict) -> dict:
     Cites `CitationKind.MANIFEST` (never `CitationKind.SESSION`); the
     manifest's own `implementation.changed_files` is recorded evidence, so
     the claim is `recorded`/`fresh`, never guessed or reconstructed.
+
+    `manifest` always came back from `evidence_manifests.list_run_manifests`,
+    which already validates it against `evidence_manifest.schema.json`
+    before returning it -- every field accessed below is in that schema's
+    `required` list, so plain indexing (not `.get`) is used throughout,
+    consistently.
     """
-    run_id = str(manifest["run_id"])
-    manifest_path = evidence_dir / "runs" / f"{run_id}.json"
+    run_id = manifest["run_id"]
+    path = _manifest_path(evidence_dir, run_id)
     citation = SystemCitation(
         kind=CitationKind.MANIFEST,
-        path=str(manifest_path),
-        sha256=_sha256_file(manifest_path),
+        path=str(path),
+        sha256=_sha256_file(path),
     )
-    changed_files = list(manifest.get("implementation", {}).get("changed_files") or [])
+    changed_files = list(manifest["implementation"]["changed_files"])
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
         text=f"run {run_id}: {len(changed_files)} changed file(s) recorded",
@@ -114,11 +98,11 @@ def _manifest_run(evidence_dir: Path, manifest: dict) -> dict:
     return {
         "run_id": run_id,
         "source": "manifest",
-        "outcome": manifest.get("outcome"),
-        "started_at": manifest.get("started_at"),
-        "ended_at": manifest.get("ended_at"),
-        "start_commit": manifest.get("start_commit"),
-        "result_commit": manifest.get("result_commit"),
+        "outcome": manifest["outcome"],
+        "started_at": manifest["started_at"],
+        "ended_at": manifest["ended_at"],
+        "start_commit": manifest["start_commit"],
+        "result_commit": manifest["result_commit"],
         "implementation": implementation,
         "citation": to_dict(citation),
     }
@@ -159,7 +143,8 @@ def _session_run(run: sessions.SessionRun) -> dict:
 def _requirements_for_task(task: ledger.Task) -> tuple[list[str], int]:
     """The task's requirements, from its own recorded `satisfies` list --
     the same field `factory.trace.model.extract_edges` reads to build a
-    `satisfies` trace edge for `trace_id_for_task(task.id)`; read here
+    `satisfies` trace edge for this task's node (`T-059`, unprefixed --
+    verified against `tests/unit/trace/test_model_edges.py`); read here
     through the ledger's own parse of that field rather than a second
     loader. Each bare id is mapped through `sr_ref_from_trace_id` and
     dropped -- never guessed -- when unmappable; the drop count feeds
@@ -245,7 +230,6 @@ def query_story(repo_root: Path, scope: SystemScopeRef) -> dict:
             "id": task.id,
             "title": task.title,
             "status": task.status,
-            "ref": trace_id_for_task(task.id),
         },
         "runs": runs,
         "requirements": requirements,
