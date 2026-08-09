@@ -45,6 +45,13 @@ def run_requirement_validation(
                 {"id": req.id, "error": "proposed requirement: no binding to validate"}
             )
             continue
+        if req.binding.harness is None:
+            # The measurement is decided, but the harness does not exist yet.
+            # This is intentional (a WARNING state), but validation cannot proceed.
+            entries.append(
+                {"id": req.id, "error": "binding: no harness named yet"}
+            )
+            continue
         try:
             harness = harness_for(req.binding.harness)
             result = harness.run(req.binding, workdir)

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from factory.requirements.register import (
     Binding,
+    Requirement,
     content_checksum,
     get_requirement,
     is_checksum_current,
@@ -137,3 +138,49 @@ def test_binding_cadence_defaults_and_parses(tmp_path):
         encoding="utf-8",
     )
     assert parse_requirement(p2).binding.cadence == "periodic"
+
+
+def test_a_binding_may_name_no_harness_yet(tmp_path):
+    path = tmp_path / "SR-050.md"
+    path.write_text(
+        "---\n"
+        "id: SR-050\n"
+        "title: No harness yet\n"
+        'statement: "When X, the system shall Y."\n'
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "binding:\n"
+        "  experiment: demo_experiment\n"
+        "  metric: demo_rate\n"
+        '  assert: ">= 0.90"\n'
+        "---\nRationale.\n",
+        encoding="utf-8",
+    )
+    req = parse_requirement(path)
+    assert req.binding is not None
+    assert req.binding.harness is None
+    assert req.binding.metric == "demo_rate"
+
+
+def test_an_absent_harness_does_not_change_an_existing_digest(tmp_path):
+    """The canonical string uses `harness or ""`, so a real harness digests
+    exactly as it did before this change. Guards against staling the register."""
+    named = Binding(
+        harness="demo-harness", experiment="e", metric="m", assert_expr=">= 1", trials=1, window=None
+    )
+    blank = Binding(
+        harness=None, experiment="e", metric="m", assert_expr=">= 1", trials=1, window=None
+    )
+    req_named = Requirement(
+        id="SR-001", title="t", statement="s", domain="behavioral", upstream=[],
+        binding=named, body="", path=tmp_path / "SR-001.md",
+    )
+    req_blank = Requirement(
+        id="SR-002", title="t", statement="s", domain="behavioral", upstream=[],
+        binding=blank, body="", path=tmp_path / "SR-002.md",
+    )
+    assert content_checksum(req_named) != content_checksum(req_blank)
+    assert content_checksum(req_named) == (
+        "sha256:d2a144ea5b8c3213376c7241beb246edf0207f2c27cf49c237089ef6464f7ee6"
+    ), "a named harness must digest exactly as it did before harness became optional"
+    assert content_checksum(req_named).startswith("sha256:")
