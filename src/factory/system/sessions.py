@@ -37,21 +37,30 @@ def load_session_runs(repo_root: Path, task_id: str) -> list[SessionRun]:
             continue
         if not isinstance(payload, dict):
             continue
-        for entry in payload.get("tasks") or []:
-            if not isinstance(entry, dict) or entry.get("task_id") != task_id:
+        try:
+            tasks = payload.get("tasks") or []
+            if not isinstance(tasks, list):
                 continue
-            dod = entry.get("dod")
-            runs.append(
-                SessionRun(
-                    run_id=str(payload.get("session_id") or path.stem),
-                    task_id=task_id,
-                    started_at=payload.get("started_at"),
-                    ended_at=payload.get("ended_at"),
-                    outcome=str(entry.get("outcome") or "unknown"),
-                    nodes=list(entry.get("nodes") or []),
-                    dod_met=dod.get("met") if isinstance(dod, dict) else None,
-                    path=path,
+            for entry in tasks:
+                if not isinstance(entry, dict) or entry.get("task_id") != task_id:
+                    continue
+                dod = entry.get("dod")
+                nodes = entry.get("nodes") or []
+                if not isinstance(nodes, list):
+                    continue
+                runs.append(
+                    SessionRun(
+                        run_id=str(payload.get("session_id") or path.stem),
+                        task_id=task_id,
+                        started_at=payload.get("started_at"),
+                        ended_at=payload.get("ended_at"),
+                        outcome=str(entry.get("outcome") or "unknown"),
+                        nodes=list(nodes),
+                        dod_met=dod.get("met") if isinstance(dod, dict) else None,
+                        path=path,
+                    )
                 )
-            )
+        except TypeError:
+            continue
     runs.sort(key=lambda r: (r.started_at or "", r.run_id))
     return runs

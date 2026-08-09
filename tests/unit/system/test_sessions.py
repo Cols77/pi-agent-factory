@@ -69,3 +69,49 @@ def test_runs_are_ordered_by_recorded_start_time(tmp_path):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert [r.run_id for r in load_session_runs(tmp_path, "T-055")] == ["earlier", "later"]
+
+
+def test_wrong_shaped_tasks_field_is_skipped_not_fatal(tmp_path):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    # Record with tasks as a scalar instead of list
+    bad_payload = {
+        "session_id": "bad",
+        "started_at": "2026-08-06T20:00:00Z",
+        "ended_at": "2026-08-06T20:30:00Z",
+        "tasks": 42,
+    }
+    (sessions / "bad.session.json").write_text(json.dumps(bad_payload), encoding="utf-8")
+    # Record with good tasks list
+    _write_session(tmp_path, "good", "T-055", "completed")
+
+    runs = load_session_runs(tmp_path, "T-055")
+
+    assert [r.run_id for r in runs] == ["good"]
+
+
+def test_wrong_shaped_nodes_field_is_skipped_not_fatal(tmp_path):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    # Record with nodes as a scalar instead of list
+    bad_payload = {
+        "session_id": "bad",
+        "started_at": "2026-08-06T20:00:00Z",
+        "ended_at": "2026-08-06T20:30:00Z",
+        "tasks": [{
+            "task_id": "T-055",
+            "title": "Some task",
+            "outcome": "completed",
+            "iterations": 1,
+            "commits": [],
+            "dod": {"met": True},
+            "nodes": 42,  # wrong: should be a list
+        }],
+    }
+    (sessions / "bad.session.json").write_text(json.dumps(bad_payload), encoding="utf-8")
+    # Record with good nodes list
+    _write_session(tmp_path, "good", "T-055", "completed")
+
+    runs = load_session_runs(tmp_path, "T-055")
+
+    assert [r.run_id for r in runs] == ["good"]
