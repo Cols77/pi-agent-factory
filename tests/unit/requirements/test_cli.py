@@ -112,6 +112,30 @@ def test_show_reports_no_binding(tmp_path):
     assert "docs/superpowers/specs/a.md" in out
 
 
+def test_index_refuses_to_relaunder_a_stale_checksum(tmp_path):
+    path = _write(tmp_path, "SR-001.md", _BOUND)
+    cmd_index(tmp_path)
+    stamped = path.read_text(encoding="utf-8")
+
+    text = stamped.replace("shall do Y", "shall do Y NOW")
+    path.write_text(text, encoding="utf-8")
+
+    result = cmd_index(tmp_path)
+
+    entry = next(r for r in result["requirements"] if r["id"] == "SR-001")
+    assert entry["stale"] is True, "index must report staleness, never absorb it"
+    assert path.read_text(encoding="utf-8") == text, "a stale file is left exactly as found"
+    assert "STALE" in cmd_status(tmp_path), "the signal survives an index run"
+
+
+def test_index_still_stamps_a_requirement_that_has_no_checksum(tmp_path):
+    _write(tmp_path, "SR-001.md", _BOUND)
+    result = cmd_index(tmp_path)
+    entry = next(r for r in result["requirements"] if r["id"] == "SR-001")
+    assert entry["stale"] is False
+    assert entry["checksum"].startswith("sha256:")
+
+
 def test_main_status_exit_code(tmp_path, capsys):
     cmd_new(tmp_path, "First", "behavioral")
     rc = main(["status", "--requirements-dir", str(tmp_path)])

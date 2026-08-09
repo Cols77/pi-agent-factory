@@ -55,10 +55,21 @@ def cmd_index(requirements_dir: Path) -> dict:
             out.append({"id": req.id, "checksum": None, "proposed": True})
             continue
         checksum = content_checksum(req)
-        post = frontmatter.load(str(req.path))
-        post["checksum"] = checksum
-        req.path.write_text(frontmatter.dumps(post), encoding="utf-8")
-        out.append({"id": req.id, "checksum": checksum, "stale": False})
+        if req.checksum is None:
+            # First stamp for a newly bound requirement.
+            post = frontmatter.load(str(req.path))
+            post["checksum"] = checksum
+            req.path.write_text(frontmatter.dumps(post), encoding="utf-8")
+            out.append({"id": req.id, "checksum": checksum, "stale": False})
+            continue
+        if req.checksum == checksum:
+            out.append({"id": req.id, "checksum": checksum, "stale": False})
+            continue
+        # Stale. Re-stamping here would launder the one signal that says the
+        # statement moved and nobody re-judged whether the binding still
+        # measures it. Report and leave the file exactly as found; only `bind`
+        # or `bind --reaffirm` may clear it.
+        out.append({"id": req.id, "checksum": req.checksum, "stale": True})
     result = {"requirements": out}
     (requirements_dir / "index.json").write_text(
         json.dumps(result, indent=2), encoding="utf-8"
