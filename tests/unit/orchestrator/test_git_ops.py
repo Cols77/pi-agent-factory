@@ -344,3 +344,64 @@ def test_write_patch_skips_untracked_directory_nested_repo(tmp_path):
     assert "new.bin" in [p["path"] for p in sidecar["files"]]
     # Nested-repo directory is also excluded from the fingerprint.
     ops.worktree_fingerprint(repo, start)
+
+
+def _commit_file(repo, name, text):
+    (repo / name).write_text(text, encoding="utf-8")
+    subprocess.run(["git", "add", name], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", f"add {name}"], cwd=repo, check=True)
+
+
+def test_commit_all_leaves_untouched_preexisting_edits_alone(tmp_path):
+    """A run must not commit the human's work-in-progress under its own message.
+
+    `git add -A` swept everything dirty. Observed in cool_physical_ai_project:
+    commit 3d1ab1b, titled "T-059: Implement the Common Planner Protocol",
+    contained none of T-059's implementation and four unrelated task files the
+    human was mid-edit on.
+
+    Only files byte-identical to their run-start state are skipped -- if the
+    agent touched a file, it is the run's work regardless of who dirtied it
+    first, and dropping it would be worse than over-committing.
+    """
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    _commit_file(repo, "wip.txt", "original\n")
+    _commit_file(repo, "agent.txt", "original\n")
+
+    # Human's uncommitted edit, present before the run starts.
+    (repo / "wip.txt").write_text("human edit\n", encoding="utf-8")
+    preserve = ops.dirty_snapshot(repo)
+    assert "wip.txt" in preserve
+
+    # The agent's work during the run.
+    (repo / "agent.txt").write_text("agent edit\n", encoding="utf-8")
+
+    assert ops.commit_all(repo, "T-999: agent work", preserve=preserve) is True
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert "agent.txt" in committed
+    assert "wip.txt" not in committed, f"committed the human's WIP: {committed}"
+    # And the human's edit is still there, uncommitted.
+    assert (repo / "wip.txt").read_text(encoding="utf-8") == "human edit\n"
+
+
+def test_commit_all_still_commits_a_preexisting_file_the_agent_changed(tmp_path):
+    """Dirty-at-start is not ownership. If the agent changed it too, it is the
+    run's work and must be committed."""
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    _commit_file(repo, "shared.txt", "original\n")
+
+    (repo / "shared.txt").write_text("human edit\n", encoding="utf-8")
+    preserve = ops.dirty_snapshot(repo)
+    (repo / "shared.txt").write_text("human edit + agent edit\n", encoding="utf-8")
+
+    assert ops.commit_all(repo, "T-999: agent work", preserve=preserve) is True
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert "shared.txt" in committed

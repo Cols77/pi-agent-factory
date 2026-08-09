@@ -71,7 +71,10 @@ def ensure_factory_ignores(repo_root: Path) -> bool:
 class GitOps(Protocol):
     def head_commit(self, repo_root: Path) -> str: ...
     def commit_exists(self, repo_root: Path, commit: str) -> bool: ...
-    def commit_all(self, repo_root: Path, message: str) -> bool: ...
+    def commit_all(
+        self, repo_root: Path, message: str, preserve: dict[str, str] | None = None
+    ) -> bool: ...
+    def dirty_snapshot(self, repo_root: Path) -> dict[str, str]: ...
     def commit_paths(self, repo_root: Path, paths: list[Path], message: str) -> bool: ...
     def changed_files(self, repo_root: Path, start_commit: str) -> list[str]: ...
     def changed_files_between(
@@ -101,13 +104,59 @@ class SubprocessGitOps:
         )
         return result.returncode == 0
 
-    def commit_all(self, repo_root: Path, message: str) -> bool:
-        # Best-effort: stage and commit any working-tree changes. A git failure
-        # (e.g. a path git refuses, such as the Windows reserved name `nul` that
-        # its readdir can pick up) must NOT crash the orchestrator and strand a
-        # human's approve mid-pipeline -- warn and continue without a commit.
+    def dirty_snapshot(self, repo_root: Path) -> dict[str, str]:
+        """Content hashes of every path already dirty, keyed by repo-relative path.
+
+        Taken at run start so `commit_all` can tell the human's
+        work-in-progress from the run's own output. A path is only ever skipped
+        when its bytes are unchanged since this snapshot -- see commit_all.
+        """
+        snapshot: dict[str, str] = {}
         try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+                cwd=repo_root, capture_output=True, check=True,
+            )
+        except subprocess.CalledProcessError:
+            return {}
+        for entry in result.stdout.split(b"\0"):
+            if len(entry) < 4:
+                continue
+            relative = os.fsdecode(entry[3:])
+            if _is_factory_scratch(relative):
+                continue
+            path = repo_root / relative
+            try:
+                snapshot[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+        return snapshot
+
+    def commit_all(
+        self, repo_root: Path, message: str, preserve: dict[str, str] | None = None
+    ) -> bool:
+        # Best-effort: stage and commit the run's working-tree changes. A git
+        # failure (e.g. a path git refuses, such as the Windows reserved name
+        # `nul` that its readdir can pick up) must NOT crash the orchestrator
+        # and strand a human's approve mid-pipeline -- warn and continue
+        # without a commit.
+        #
+        # `preserve` maps paths that were ALREADY dirty when the run started to
+        # their content hash then. Such a path is left alone only while it
+        # still matches that hash: `git add -A` used to sweep the human's
+        # work-in-progress into the run's commit (cool_physical_ai_project
+        # 3d1ab1b, titled for T-059, carried four unrelated task files someone
+        # was mid-edit on). If the agent touched the file as well, it is the
+        # run's work no matter who dirtied it first, and skipping it would lose
+        # real output -- the hash check is what keeps that distinction honest.
+        try:
+            unchanged = self._unchanged_since(repo_root, preserve or {})
             subprocess.run(["git", "add", "-A"], cwd=repo_root, check=True)
+            for relative in unchanged:
+                subprocess.run(
+                    ["git", "reset", "-q", "HEAD", "--", relative],
+                    cwd=repo_root, capture_output=True, check=False,
+                )
             staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
             if staged.returncode == 0:
                 return False
@@ -119,6 +168,18 @@ class SubprocessGitOps:
                 file=sys.stderr,
             )
             return False
+
+    def _unchanged_since(self, repo_root: Path, preserve: dict[str, str]) -> list[str]:
+        """Paths from the snapshot whose bytes the run never touched."""
+        unchanged: list[str] = []
+        for relative, digest in preserve.items():
+            try:
+                current = hashlib.sha256((repo_root / relative).read_bytes()).hexdigest()
+            except OSError:
+                continue
+            if current == digest:
+                unchanged.append(relative)
+        return unchanged
 
     def commit_paths(self, repo_root: Path, paths: list[Path], message: str) -> bool:
         root = repo_root.resolve()
@@ -295,7 +356,12 @@ class FakeGitOps:
     def commit_exists(self, repo_root: Path, commit: str) -> bool:
         return commit == self.head
 
-    def commit_all(self, repo_root: Path, message: str) -> bool:
+    def dirty_snapshot(self, repo_root: Path) -> dict[str, str]:
+        return {}
+
+    def commit_all(
+        self, repo_root: Path, message: str, preserve: dict[str, str] | None = None
+    ) -> bool:
         if self.has_uncommitted:
             self.commit_messages.append(message)
             return True

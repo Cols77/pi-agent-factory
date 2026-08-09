@@ -98,6 +98,10 @@ def run_task(
 ) -> TaskResult:
     events: list[NodeEvent] = []
     start_commit = start_commit or git_ops.head_commit(repo_root)
+    # Whatever is already dirty here belongs to the human, not this run. The
+    # task commit leaves those paths alone unless the agent also changes them
+    # (see SubprocessGitOps.commit_all).
+    preexisting_dirty = git_ops.dirty_snapshot(repo_root)
 
     context_record = next(
         (
@@ -276,7 +280,7 @@ def run_task(
         if human_review is None:
             if llm_passed:
                 assert r_ev is not None
-                git_ops.commit_all(repo_root, _commit_message(task))
+                git_ops.commit_all(repo_root, _commit_message(task), preserve=preexisting_dirty)
                 if execution is not None:
                     execution.record(
                         node="code-commit",
@@ -349,7 +353,7 @@ def run_task(
                 },
             )
         if decision.decision == "approve":
-            git_ops.commit_all(repo_root, _commit_message(task))
+            git_ops.commit_all(repo_root, _commit_message(task), preserve=preexisting_dirty)
             if execution is not None:
                 execution.record(
                     node="code-commit",
