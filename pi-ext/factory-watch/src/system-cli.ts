@@ -52,12 +52,27 @@ export interface SystemFreshness {
 
 export type ClaimClass = "recorded" | "derived" | "synthesized" | "missing";
 
+// Mirrors system_claim.schema.json's optional `implementation_summary`
+// (Task 5, design SS4.3): attached only to a bundle `task:` member claim --
+// run count, latest outcome, changed-file count, and latest validation
+// verdict, computed entirely in Python. `changed_file_count` is `null`
+// (never `0`) whenever nothing was recorded, so "no runs yet" is never
+// confused with "changed nothing" -- the rendering side must preserve that
+// distinction, not flatten it.
+export interface SystemClaimImplementationSummary {
+  runs: number;
+  latest_outcome: string | null;
+  changed_file_count: number | null;
+  latest_validation: string | null;
+}
+
 export interface SystemClaim {
   kind: ClaimClass;
   text: string;
   citations: SystemCitation[];
   spans: SystemSpan[];
   freshness: SystemFreshness;
+  implementation_summary?: SystemClaimImplementationSummary;
 }
 
 export interface SystemBrief {

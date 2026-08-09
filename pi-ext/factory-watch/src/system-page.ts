@@ -73,6 +73,17 @@ export function renderSystemPageHtml(): string {
   .commit-range, .stops-at { margin-top: 4px; font-size: 11px; opacity: .8; overflow-wrap: anywhere; }
   .changed-files { margin-top: 4px; font-size: 11px; }
   .changed-file { padding: 1px 0; overflow-wrap: anywhere; }
+  /* Task 5's implementation_summary (design SS4.3), rendered on a bundle
+     task: member claim -- run count, latest outcome, changed-file count,
+     latest validation. Uses the same --fresh/--stale/--degraded/--na
+     palette as freshnessBadge above so a stale validation reads distinctly
+     from a plain pass, never flattened to the same colour. */
+  .implementation-summary { margin-top: 6px; font-size: 11px; opacity: .85; }
+  .summary-line { padding: 1px 0; }
+  .validation-passed { color: var(--fresh); }
+  .validation-stale { color: var(--stale); }
+  .validation-failed { color: var(--degraded); }
+  .validation-none { color: var(--na); }
   .path-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
   .path-chain .arrow { opacity: .6; }
   .requirements { margin-top: 8px; font-size: 12px; }
@@ -146,6 +157,52 @@ export function renderSystemPageHtml(): string {
     return el;
   }
 
+  // Renders Task 5's implementation_summary (design SS4.3): run count,
+  // latest outcome, changed-file count, latest validation -- attached only
+  // to a bundle task: member claim. Every field is rendered plainly,
+  // including null: changed_file_count is deliberately null (never 0)
+  // when nothing was recorded, so "no runs yet" is never confused with
+  // "changed nothing" -- that distinction must stay visible here, not be
+  // flattened into a blank cell or a zero. Same for latest_outcome and
+  // latest_validation. latest_validation's three real verdicts
+  // (passed/stale/failed) each get their own colour via the CSS above --
+  // a stale pass must never render identically to a plain pass.
+  function renderImplementationSummary(summary) {
+    const el = document.createElement('div');
+    el.className = 'implementation-summary';
+
+    const runs = document.createElement('div');
+    runs.className = 'summary-line';
+    runs.appendChild(document.createTextNode('runs: ' + summary.runs));
+    el.appendChild(runs);
+
+    const outcome = document.createElement('div');
+    outcome.className = 'summary-line';
+    outcome.appendChild(document.createTextNode(
+      'latest outcome: ' + (summary.latest_outcome === null ? 'not recorded' : summary.latest_outcome)
+    ));
+    el.appendChild(outcome);
+
+    const changedFiles = document.createElement('div');
+    changedFiles.className = 'summary-line';
+    changedFiles.appendChild(document.createTextNode(
+      'changed files: ' + (summary.changed_file_count === null ? 'not recorded' : String(summary.changed_file_count))
+    ));
+    el.appendChild(changedFiles);
+
+    const validation = document.createElement('div');
+    validation.className = 'summary-line';
+    validation.appendChild(document.createTextNode('latest validation: '));
+    const validationValue = document.createElement('span');
+    const validationText = summary.latest_validation === null ? 'not recorded' : summary.latest_validation;
+    validationValue.className = 'validation-' + (summary.latest_validation === null ? 'none' : summary.latest_validation);
+    validationValue.appendChild(document.createTextNode(validationText));
+    validation.appendChild(validationValue);
+    el.appendChild(validation);
+
+    return el;
+  }
+
   // Renders one SystemClaim exactly as Python emitted it: claim.kind is the
   // badge text verbatim (recorded/derived/synthesized/missing), never
   // remapped or dropped -- a 'missing' claim renders through this same path,
@@ -162,6 +219,9 @@ export function renderSystemPageHtml(): string {
     text.className = 'claim-text';
     text.appendChild(document.createTextNode(claim.text));
     row.appendChild(text);
+    if (claim.implementation_summary) {
+      row.appendChild(renderImplementationSummary(claim.implementation_summary));
+    }
     if (claim.citations && claim.citations.length) {
       const cites = document.createElement('div');
       cites.className = 'citations';
