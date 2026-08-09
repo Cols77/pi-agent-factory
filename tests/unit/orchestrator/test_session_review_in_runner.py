@@ -71,3 +71,4 @@ def test_session_review_invoked_at_end_of_run_next_with_events_and_kb_titles(tmp
     # produces.
     assert AgentRole.SESSION_REVIEW in backend.prompts
     assert "## What happened this run" in backend.prompts[AgentRole.SESSION_REVIEW]
+    assert "Final outcome: completed" in backend.prompts[AgentRole.SESSION_REVIEW]

@@ -10,6 +10,63 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
+# The factory's own per-run output. These live inside the target repo and are
+# untracked there (a target repo does not inherit the factory's .gitignore), so
+# enumerating untracked files picked them up and `write_patch` inlined their
+# full contents, base64-encoded, into the checkpoint sidecar it was writing --
+# into sessions/.factory-runs/ itself. Each checkpoint therefore embedded every
+# earlier sidecar: 768MB -> 1.8GB -> 4.3GB -> 10GB across four checkpoints in
+# cool_physical_ai_project, then MemoryError in json.dumps. The run died at its
+# first execution.record, before finalize_run_evidence, which is why no
+# evidence manifest was ever written in any repo.
+#
+# These are excluded by path rather than by .gitignore because the fix must
+# hold even in a target repo that has not been told to ignore them.
+_FACTORY_SCRATCH_PREFIXES = (
+    "sessions/.factory-runs/",
+    "sessions/.factory-transcripts/",
+    ".factory/artifacts/",
+)
+
+
+def _is_factory_scratch(relative: str) -> bool:
+    """True for the factory's own run output, which is never a work product."""
+    normalized = relative.replace("\\", "/")
+    return normalized.startswith(_FACTORY_SCRATCH_PREFIXES)
+
+
+_IGNORE_BLOCK_HEADER = "# factory scratch (written by the orchestrator; never a work product)"
+
+
+def ensure_factory_ignores(repo_root: Path) -> bool:
+    """Ensure the target repo ignores the factory's own run output.
+
+    A target repo does not inherit the factory's .gitignore, so its scratch
+    directories show up as untracked work there. That is more than cosmetic:
+    `commit_all` runs `git add -A`, so unignored run output can be committed
+    into the user's repository.
+
+    Idempotent and additive -- it appends a marked block only when an entry is
+    missing, and never rewrites or reorders what is already there. Returns True
+    when the file was modified.
+    """
+    gitignore = repo_root / ".gitignore"
+    try:
+        existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+    except OSError:
+        return False
+    present = {line.strip() for line in existing.splitlines()}
+    missing = [p for p in _FACTORY_SCRATCH_PREFIXES if p not in present]
+    if not missing:
+        return False
+    block = "\n".join([_IGNORE_BLOCK_HEADER, *missing])
+    prefix = "" if existing == "" or existing.endswith("\n") else "\n"
+    try:
+        gitignore.write_text(f"{existing}{prefix}{block}\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
 
 class GitOps(Protocol):
     def head_commit(self, repo_root: Path) -> str: ...
@@ -127,7 +184,21 @@ class SubprocessGitOps:
             capture_output=True,
             check=True,
         )
-        return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
+        files = []
+        for raw in result.stdout.split(b"\0"):
+            if not raw:
+                continue
+            relative = os.fsdecode(raw)
+            # git lists an embedded repository / nested git worktree as a single
+            # untracked *directory* entry. It cannot be snapshotted as a file and
+            # read_bytes() would raise PermissionError (e.g. on Windows). Skip any
+            # non-file entry so patch/fingerprint recording never crashes on it.
+            if (repo_root / relative).is_dir():
+                continue
+            if _is_factory_scratch(relative):
+                continue
+            files.append(relative)
+        return sorted(files)
 
     def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str:
         digest = hashlib.sha256()

@@ -16,6 +16,7 @@ def compose_prompt(
     feedback: str | None = None,
     *,
     events: list[NodeEvent] | None = None,
+    final_outcome: str | None = None,
     existing_kb_titles: list[tuple[str, str]] | None = None,
     skills_dir: Path,
 ) -> str:
@@ -60,6 +61,15 @@ def compose_prompt(
         for ev in events:
             plural = "attempt" if ev.attempts == 1 else "attempts"
             lines.append(f"- {ev.node}: {ev.result} ({ev.attempts} {plural})")
+            reason = ev.extra.get("reason")
+            if reason:
+                lines.append(f"  - reason: {reason}")
+            finding_details = ev.extra.get("finding_details")
+            if isinstance(finding_details, list):
+                for finding in finding_details:
+                    lines.append(f"  - finding: {finding}")
+        if final_outcome:
+            lines.append(f"- Final outcome: {final_outcome}")
 
     if existing_kb_titles:
         lines.append("")

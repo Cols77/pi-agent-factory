@@ -248,3 +248,99 @@ def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):
     with patch("factory.orchestrator.git_ops.subprocess.run", side_effect=fake_run):
         result = ops.commit_all(tmp_path, "msg")  # must not raise
     assert result is False
+
+
+def test_write_patch_never_inlines_the_factorys_own_scratch_output(tmp_path):
+    """A sidecar must never embed a previous sidecar.
+
+    write_patch writes `<checkpoint>.patch.untracked.json` into
+    sessions/.factory-runs/, which is untracked in a target repo. Enumerating
+    untracked files therefore picked up every earlier sidecar and inlined it,
+    base64-encoded, into the new one. Observed in cool_physical_ai_project:
+    768MB -> 1.8GB -> 4.3GB -> 10GB across four checkpoints (~2.3x each), then
+    MemoryError in json.dumps -- which killed the run before
+    finalize_run_evidence, so no evidence manifest was ever written.
+    """
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+
+    # A previous run's scratch output, exactly where the orchestrator puts it.
+    checkpoints = repo / "sessions" / ".factory-runs" / "by-session" / "r1" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "000001.patch.untracked.json").write_text(
+        json.dumps({"files": [{"path": "x", "data": "QQ==", "mode": 420}]}), encoding="utf-8"
+    )
+    (repo / "sessions" / ".factory-transcripts").mkdir(parents=True)
+    (repo / "sessions" / ".factory-transcripts" / "big.log").write_text("t\n", encoding="utf-8")
+    (repo / ".factory" / "artifacts").mkdir(parents=True)
+    (repo / ".factory" / "artifacts" / "blob").write_bytes(b"\x00")
+    # A genuine untracked source file still must be captured.
+    (repo / "new.bin").write_bytes(b"\x00\x01")
+
+    patch = checkpoints / "000002.patch"
+    ops.write_patch(repo, start, patch)
+    sidecar = json.loads(
+        patch.with_suffix(".patch.untracked.json").read_text(encoding="utf-8")
+    )
+    paths = [p["path"] for p in sidecar["files"]]
+
+    assert "new.bin" in paths, "real untracked work must still be captured"
+    assert not [p for p in paths if ".factory-runs" in p], f"sidecar embedded itself: {paths}"
+    assert not [p for p in paths if ".factory-transcripts" in p], f"transcripts inlined: {paths}"
+    assert not [p for p in paths if ".factory/artifacts" in p.replace("\\", "/")], (
+        f"artifact store inlined: {paths}"
+    )
+
+
+def test_ensure_factory_ignores_is_additive_and_idempotent(tmp_path):
+    """A target repo does not inherit the factory's .gitignore, and commit_all
+    runs `git add -A` -- so unignored run output can be committed into the
+    user's repository. Adding the entries must never rewrite what is there."""
+    from factory.orchestrator.git_ops import ensure_factory_ignores
+
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text(".venv/\n", encoding="utf-8")
+
+    assert ensure_factory_ignores(tmp_path) is True
+    text = gitignore.read_text(encoding="utf-8")
+    assert text.startswith(".venv/\n"), "existing entries must be preserved verbatim"
+    for prefix in ("sessions/.factory-runs/", "sessions/.factory-transcripts/", ".factory/artifacts/"):
+        assert prefix in text
+
+    # Second call is a no-op: no duplicate block, no rewrite.
+    assert ensure_factory_ignores(tmp_path) is False
+    assert gitignore.read_text(encoding="utf-8") == text
+
+
+def test_ensure_factory_ignores_creates_the_file_when_absent(tmp_path):
+    from factory.orchestrator.git_ops import ensure_factory_ignores
+
+    assert ensure_factory_ignores(tmp_path) is True
+    text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert text.startswith("# factory scratch")
+    assert not text.startswith("\n"), "no leading blank line on a fresh file"
+
+
+def test_write_patch_skips_untracked_directory_nested_repo(tmp_path):
+    """A nested git worktree (reported by git as an untracked *directory*) must
+    not crash patch recording nor appear in the sidecar as a file. Regression for
+    the PermissionError from read_bytes() on a directory (e.g. Windows)."""
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "new.bin").write_bytes(b"\x00\x01")
+    snap = repo / "snap"
+    snap.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=snap, check=True)
+    (snap / "inner.txt").write_text("x\n", encoding="utf-8")
+
+    patch = repo / "checkpoint.patch"
+    assert ops.write_patch(repo, start, patch) == patch  # must not raise
+    sidecar = json.loads(
+        patch.with_suffix(".patch.untracked.json").read_text(encoding="utf-8")
+    )
+    assert all(p["path"] != "snap" for p in sidecar["files"])
+    assert "new.bin" in [p["path"] for p in sidecar["files"]]
+    # Nested-repo directory is also excluded from the fingerprint.
+    ops.worktree_fingerprint(repo, start)

@@ -564,7 +564,13 @@ def run_review(
         return NodeOutcome.PASS, NodeEvent("review", "pass", 1, extra), []
     finding_summary = f"{len(findings)} finding(s)" if findings else "DoD not met"
     extra = _note_backend_failure(
-        {"findings": len(findings), "gate": gate, "confidence": confidence, "verify": verify},
+        {
+            "findings": len(findings),
+            "finding_details": findings,
+            "gate": gate,
+            "confidence": confidence,
+            "verify": verify,
+        },
         result,
     )
     status.report(
@@ -591,6 +597,7 @@ def run_session_review(
     *,
     events: list[NodeEvent] | None = None,
     existing_kb_titles: list[tuple[str, str]] | None = None,
+    final_outcome: str | None = None,
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
 ) -> AgentResult:
@@ -624,6 +631,7 @@ def run_session_review(
         task,
         events=events,
         existing_kb_titles=existing_kb_titles,
+        final_outcome=final_outcome,
         skills_dir=repo_root / ".pi" / "skills",
     )
     return _run_with_context_limit_continuation(

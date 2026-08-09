@@ -115,14 +115,28 @@ def test_compose_prompt_includes_events_section_when_provided(tmp_path):
     skills_dir = tmp_path / ".pi" / "skills"
     events = [
         NodeEvent("context-gather", "pass", 1),
-        NodeEvent("dev", "pass", 2),
+        NodeEvent(
+            "review",
+            "changes-requested",
+            1,
+            {"finding_details": ["trace link targets the wrong requirement"], "gate": 0},
+        ),
+        NodeEvent("dev", "escalate", 2, {"reason": "unit tests red"}),
     ]
     prompt = compose_prompt(
-        AgentRole.SESSION_REVIEW, TASK, events=events, skills_dir=skills_dir,
+        AgentRole.SESSION_REVIEW,
+        TASK,
+        events=events,
+        final_outcome="escalated",
+        skills_dir=skills_dir,
     )
     assert "## What happened this run" in prompt
     assert "context-gather: pass (1 attempt)" in prompt
-    assert "dev: pass (2 attempts)" in prompt
+    assert "review: changes-requested (1 attempt)" in prompt
+    assert "trace link targets the wrong requirement" in prompt
+    assert "dev: escalate (2 attempts)" in prompt
+    assert "unit tests red" in prompt
+    assert "Final outcome: escalated" in prompt
 
 
 def test_compose_prompt_omits_events_section_when_not_provided(tmp_path):

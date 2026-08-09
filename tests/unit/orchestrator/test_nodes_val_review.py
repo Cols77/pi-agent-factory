@@ -31,6 +31,7 @@ def test_review_changes_when_findings_present(tmp_path):
     b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": ["DRY: dup"]})]})
     outcome, ev, findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path)
     assert outcome == NodeOutcome.CHANGES and findings == ["DRY: dup"]
+    assert ev.extra["finding_details"] == ["DRY: dup"]
 
 
 def test_review_changes_when_gate_red_even_if_dod_claimed(tmp_path):

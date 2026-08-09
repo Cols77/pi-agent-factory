@@ -54,7 +54,12 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
     AgentRole.CONTEXT_GATHERER: Scope(allow=["context-manifests/**"], bash="deny"),
-    AgentRole.DEV: Scope(allow=["src/**", "tests/**"], bash="allow"),
+    # Traceability matrices are implementation artifacts and some tasks explicitly
+    # modify them. Requirements remain human-owned and writable only through the
+    # registered trace tools, not through Dev's direct file tools.
+    AgentRole.DEV: Scope(
+        allow=["src/**", "tests/**", "docs/traceability/**"], bash="allow"
+    ),
     AgentRole.VALIDATION: Scope(allow=[], bash="allow"),
     AgentRole.REVIEW: Scope(allow=[], bash="deny"),
     AgentRole.SESSION_REVIEW: Scope(allow=["sessions/**", "kb/**"], bash="deny"),

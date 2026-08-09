@@ -10,7 +10,7 @@ from factory.evidence.manifests import load_run_manifest, write_run_manifest
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
-from factory.orchestrator.git_ops import GitOps, SubprocessGitOps
+from factory.orchestrator.git_ops import GitOps, SubprocessGitOps, ensure_factory_ignores
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
 from factory.orchestrator.ledger import (
     Task,
@@ -459,6 +459,11 @@ def run_next(
     sid = resume.run_id if resume is not None else session_id or _default_session_id()
     started_at = _utc_now()
     start_commit = resume.start_commit if resume is not None else git_ops.head_commit(repo_root)
+    if checkpoint_runs or resume is not None:
+        # Checkpointing is what writes scratch into the target repo, so this is
+        # where the target repo learns to ignore it. Without this, run output is
+        # untracked there and `commit_all`'s `git add -A` can commit it.
+        ensure_factory_ignores(repo_root)
     execution = (
         RunExecution.create(repo_root, sid, task.id, start_commit, git_ops)
         if checkpoint_runs or resume is not None
@@ -602,6 +607,7 @@ def run_next(
         task,
         repo_root,
         events=result.events,
+        final_outcome=result.outcome,
         existing_kb_titles=list_kb_titles(repo_root / "kb"),
         transcript_dir=transcript_dir,
         status=status,

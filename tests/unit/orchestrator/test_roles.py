@@ -18,9 +18,12 @@ def test_review_is_read_only():
     assert s.bash == "deny"
 
 
-def test_dev_can_write_src_and_run_bash():
+def test_dev_can_write_code_and_traceability_artifacts_and_run_bash():
     s = ROLE_SCOPE[AgentRole.DEV]
     assert "src/**" in s.allow
+    assert "tests/**" in s.allow
+    assert "docs/traceability/**" in s.allow
+    assert "requirements/**" not in s.allow
     assert s.bash == "allow"
 
 
