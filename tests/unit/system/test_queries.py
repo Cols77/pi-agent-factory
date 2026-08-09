@@ -27,6 +27,8 @@ from factory.system.queries import (
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 from ._fixtures import (
+    validation_entry,
+    validation_requirement,
     write_bundle,
     write_bundle_raw,
     write_corrupt_validation_report,
@@ -39,6 +41,7 @@ from ._fixtures import (
     write_validation_report,
 )
 from ._fixtures import _write_bundle_fixture, _write_manifest_fixture, _write_task_fixture  # noqa: F401
+from ._fixtures import _write_session_fixture  # noqa: F401
 
 pytestmark = pytest.mark.unit
 
@@ -502,6 +505,177 @@ def test_a_task_member_with_no_runs_summarises_as_none_not_zero(tmp_path, write_
     assert member["implementation_summary"]["runs"] == 0
     assert member["implementation_summary"]["latest_outcome"] is None
     assert member["implementation_summary"]["changed_file_count"] is None
+
+
+# ---------------------------------------------------------------------------
+# Task 5 review fix: `latest_validation`'s three verdict branches and three
+# `None` conditions -- the controller-supplied rule (2026-08-09) had zero
+# coverage. Each test here pins exactly one branch.
+# ---------------------------------------------------------------------------
+
+
+def test_latest_validation_is_failed_when_any_requirement_did_not_pass(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    write_task(tmp_path, "T-081", status="done", satisfies=[])
+    write_manifest(
+        tmp_path,
+        run_id="r1",
+        task_id="T-081",
+        outcome="completed",
+        validation=[
+            validation_entry(
+                [
+                    validation_requirement(req_id="SR-001", passed=True, stale=False),
+                    validation_requirement(req_id="SR-002", passed=False, stale=False),
+                ]
+            )
+        ],
+    )
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-081"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-081" in c["text"])
+
+    assert member["implementation_summary"]["latest_validation"] == "failed"
+
+
+def test_latest_validation_is_stale_when_all_passed_but_one_is_stale(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    # The whole reason the third state exists: a stale pass must never be
+    # reported as a plain pass (controller ruling, 2026-08-09) -- this is
+    # the pin for that.
+    write_task(tmp_path, "T-082", status="done", satisfies=[])
+    write_manifest(
+        tmp_path,
+        run_id="r1",
+        task_id="T-082",
+        outcome="completed",
+        validation=[
+            validation_entry(
+                [
+                    validation_requirement(req_id="SR-001", passed=True, stale=False),
+                    validation_requirement(req_id="SR-002", passed=True, stale=True),
+                ]
+            )
+        ],
+    )
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-082"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-082" in c["text"])
+
+    assert member["implementation_summary"]["latest_validation"] == "stale"
+
+
+def test_latest_validation_is_passed_when_all_passed_and_none_stale(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    write_task(tmp_path, "T-083", status="done", satisfies=[])
+    write_manifest(
+        tmp_path,
+        run_id="r1",
+        task_id="T-083",
+        outcome="completed",
+        validation=[validation_entry([validation_requirement(req_id="SR-001", passed=True, stale=False)])],
+    )
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-083"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-083" in c["text"])
+
+    assert member["implementation_summary"]["latest_validation"] == "passed"
+
+
+def test_latest_validation_is_none_for_a_session_sourced_latest_run(
+    tmp_path, write_task, write_session, write_bundle
+):
+    write_task(tmp_path, "T-084", status="done", satisfies=[])
+    write_session(tmp_path, "session-1", "T-084", "completed")
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-084"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-084" in c["text"])
+
+    # A session record never captures validation (design, same reasoning as
+    # `changed_files`), so there is nothing to verdict -- never guessed.
+    assert member["implementation_summary"]["latest_validation"] is None
+
+
+def test_latest_validation_is_none_when_manifest_has_no_validation_entries(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    write_task(tmp_path, "T-085", status="done", satisfies=[])
+    write_manifest(tmp_path, run_id="r1", task_id="T-085", outcome="completed")  # validation defaults to []
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-085"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-085" in c["text"])
+
+    assert member["implementation_summary"]["latest_validation"] is None
+
+
+def test_latest_validation_is_none_when_validation_entries_name_no_requirements(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    write_task(tmp_path, "T-086", status="done", satisfies=[])
+    write_manifest(
+        tmp_path,
+        run_id="r1",
+        task_id="T-086",
+        outcome="completed",
+        validation=[validation_entry(requirements=[])],
+    )
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-086"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+    member = next(c for c in result["claims"] if "T-086" in c["text"])
+
+    assert member["implementation_summary"]["latest_validation"] is None
+
+
+def test_bundle_task_member_gets_a_derived_implementation_summary_claim_with_citation(
+    tmp_path, write_task, write_manifest, write_bundle
+):
+    write_task(tmp_path, "T-090", status="done", satisfies=[])
+    write_manifest(tmp_path, run_id="r1", task_id="T-090", outcome="completed", changed_files=["src/a.py"])
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-090"])
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+
+    aggregate_claims = [c for c in result["claims"] if c["kind"] == "derived" and "T-090" in c["text"]]
+    assert len(aggregate_claims) == 1
+    claim = aggregate_claims[0]
+    assert validate(claim, CLAIM_SCHEMA) == []
+    assert claim["citations"]
+    assert claim["citations"][0]["kind"] == "manifest"
+    assert claim["freshness"]["state"] == "fresh"
+
+
+def test_unreadable_run_citation_degrades_the_bundle_brief(
+    tmp_path, write_task, write_manifest, write_bundle, monkeypatch
+):
+    write_task(tmp_path, "T-091", status="done", satisfies=[])
+    write_manifest(tmp_path, run_id="r1", task_id="T-091", outcome="completed", changed_files=["src/a.py"])
+    write_bundle(tmp_path / "bundles", "feat", "Feature", ["task:T-091"])
+
+    # Simulate the cited manifest becoming unreadable at the exact point
+    # `story.py` hashes it for the run's own citation -- the same OSError
+    # path `factory.system._claims.sha256_file` already handles by
+    # returning `None`. The manifest itself is real and schema-valid
+    # (written above through the real writer); only the hashing outcome for
+    # this one test is forced, so this exercises the defensive branch
+    # without a flaky, OS-specific permission trick.
+    monkeypatch.setattr("factory.system.story._sha256_file", lambda path: None)
+
+    result = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:feat"))
+
+    assert result["degraded"] is True
+    assert any(
+        "implementation summary cites a manifest or session record that could not be read" in reason
+        for reason in result["degraded_reasons"]
+    )
 
 
 def test_bundle_member_spec_and_plan_existence_resolves_via_real_files(tmp_path):

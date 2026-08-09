@@ -226,6 +226,56 @@ def review_record(
     return record
 
 
+def validation_requirement(
+    *,
+    req_id: str = "SR-001",
+    passed: bool = True,
+    stale: bool = False,
+    metric: str = "demo_rate",
+    value: float = 1.0,
+    assert_expr: str = ">= 0.5",
+    trials: int = 1,
+) -> dict:
+    """One entry of a `manifest["validation"]` entry's own `requirements`
+    array -- the shape `factory.evidence.finalize._validation_evidence`
+    folds in verbatim from a real `validation-report.json`, and the shape
+    `factory.system.queries._validation_verdict` reads (`id`/`passed`/
+    `stale` are the fields it looks at; the rest is realistic surrounding
+    content, not read by that function today)."""
+    return {
+        "id": req_id,
+        "domain": "behavioral",
+        "metric": metric,
+        "value": value,
+        "assert": assert_expr,
+        "passed": passed,
+        "trials": trials,
+        "declared_trials": trials,
+        "stale": stale,
+        "artifacts": [],
+    }
+
+
+def validation_entry(requirements: list[dict] | None = None) -> dict:
+    """One entry of `manifest["validation"]` itself -- `{"report": <blob
+    ref>, "requirements": [...]}`, matching `factory.evidence.finalize.
+    _validation_evidence`'s `[{"report": ..., **parsed}]` shape (`parsed`
+    is a real `validation-report.json`'s own `{"requirements": [...]}`).
+    `requirements` defaults to an empty list -- a real validation entry
+    whose report named no requirements."""
+    return {
+        "report": {
+            "sha256": "a" * 64,
+            "size": 100,
+            "media_type": "application/json",
+            "local": True,
+            "publication": "local",
+            "uri": None,
+        },
+        "requirements": requirements if requirements is not None else [],
+    }
+
+
 def write_run_manifest(
     repo_root: Path,
     *,
@@ -236,6 +286,7 @@ def write_run_manifest(
     started_at: str = "2026-08-08T08:00:00Z",
     ended_at: str = "2026-08-08T09:00:00Z",
     changed_files: list[str] | None = None,
+    validation: list[dict] | None = None,
 ) -> Path:
     """Write a schema-valid run evidence manifest via the real
     `factory.evidence.manifests.write_run_manifest` writer -- guarantees the
@@ -246,7 +297,12 @@ def write_run_manifest(
     empty list -- a real, valid manifest for a task that has not yet had a
     review round, a legitimate state rather than a corruption or absence.
     `changed_files` defaults to an empty list, matching what a manifest for
-    a run that touched nothing records.
+    a run that touched nothing records. `validation` defaults to an empty
+    list (a real, valid manifest for a run whose transcript held no
+    `validation-report.json`, per `factory.evidence.finalize.
+    _validation_evidence`'s own `([], [])` return for that case) -- added
+    backward-compatibly, the same way `changed_files` was, so every existing
+    caller is unaffected.
     """
     manifest = {
         "schema_version": 2,
@@ -267,7 +323,7 @@ def write_run_manifest(
             "changed_files": changed_files if changed_files is not None else [],
             "patch": {"sha256": "e" * 64, "size": 0, "media_type": "text/x-diff"},
         },
-        "validation": [],
+        "validation": validation if validation is not None else [],
         "reviews": reviews if reviews is not None else [],
         "decisions": [],
         "publication": {"state": "local", "errors": []},
