@@ -62,6 +62,18 @@
         "degraded": {"type": "boolean"},
         "degraded_reasons": {"type": "array", "items": {"type": "string"}}
       }
+    },
+    "reverse": {
+      "description": "Matches `factory.system.reverse.query_reverse` (increment B, reverse half of the V-cycle): walks a `file:` scope back through the evidence manifest(s) that recorded it as a changed file, to the task that produced it, to the requirement(s) it satisfies. A separate, optional member, produced only by the standalone `factory-system reverse` CLI call -- same status as `story` above, not in the top-level `required` list.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "paths", "degraded", "degraded_reasons"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/reverseScopeRef"},
+        "paths": {"type": "array", "items": {"$ref": "#/$defs/reversePath"}},
+        "degraded": {"type": "boolean"},
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
+      }
     }
   },
   "$defs": {
@@ -286,6 +298,65 @@
         {
           "if": {"properties": {"source": {"const": "manifest"}}, "required": ["source"]},
           "then": {"properties": {"citation": {"properties": {"kind": {"const": "manifest"}}}}}
+        }
+      ]
+    },
+    "reverseScopeRef": {
+      "description": "`query_reverse` only ever resolves a `file:` scope -- distinct from `topScopeRef` (bundle|sr) and `storyScopeRef` (task) above.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["file"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "reverseRun": {
+      "description": "The evidence manifest run that recorded the walked file in its `implementation.changed_files` (design increment B, reverse half). Always sourced from a durable evidence manifest, citing `CitationKind.MANIFEST` -- session records carry no changed files and cannot participate in a file-anchored walk, so there is no `source`/session variant here (unlike `storyRun`).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id", "outcome", "started_at", "ended_at",
+        "start_commit", "result_commit", "implementation", "citation"
+      ],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "outcome": {"type": "string"},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "start_commit": {"type": ["string", "null"]},
+        "result_commit": {"type": ["string", "null"]},
+        "implementation": {"$ref": "#/$defs/storyImplementation"},
+        "citation": {"$ref": "#/$defs/citation"}
+      }
+    },
+    "reverseTask": {
+      "description": "The resolved task record a path's `task` hop points at, or `null` when the matched run's `task_id` does not resolve in the ledger (`stops_at: \"task\"`).",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["id", "title", "status"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^T-[0-9]+$"},
+        "title": {"type": "string"},
+        "status": {"type": "string"}
+      }
+    },
+    "reversePath": {
+      "description": "One walked path from the file back to a requirement: run -> task -> satisfies. `stops_at` names the first hop that did not resolve (`task` or `satisfies`), or `null` when the chain completes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "run", "task", "requirements", "stops_at"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "run": {"$ref": "#/$defs/reverseRun"},
+        "task": {"$ref": "#/$defs/reverseTask"},
+        "requirements": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "stops_at": {"enum": ["task", "satisfies", null]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"task": {"type": "null"}}, "required": ["task"]},
+          "then": {"properties": {"stops_at": {"const": "task"}}}
         }
       ]
     }

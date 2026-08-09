@@ -26,6 +26,8 @@ import pytest
 from factory.evidence.manifests import write_run_manifest as _write_evidence_manifest
 from factory.orchestrator.session import build_record, write_session as _write_session_record
 from factory.orchestrator.types import NodeEvent, TaskResult
+from factory.system.guide import export_guide as _export_guide
+from factory.system.models import SystemScopeRef
 
 _SR_BOUND = """---
 id: {id}
@@ -377,3 +379,27 @@ def write_raw_manifest_json(repo_root: Path, *, run_id: str = "run-001", payload
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def write_exported_guide(dest: Path, *, sr_id: str = "SR-900") -> Path:
+    """Write a real exported guide at `dest` via `factory.system.guide.
+    export_guide` -- the genuine artifact `factory.system.guide.
+    is_exported_guide` recognizes (design SS4.5 non-readmission rule), not a
+    hand-rolled lookalike dict. `dest`'s parent directory doubles as the repo
+    root the export is confined to (`export_guide`'s own containment rule);
+    a bound SR is written under `<dest.parent>/requirements` purely so the
+    guide has something real to synthesize -- callers that only care about
+    the exported file's own shape (e.g. `is_exported_guide`/`query_reverse`
+    refusing to navigate into it) never need to touch the SR itself.
+    """
+    repo_root = dest.parent
+    write_sr(repo_root / "requirements", sr_id)
+    return _export_guide(repo_root, SystemScopeRef(kind="sr", ref=f"sr:{sr_id}"), dest)
+
+
+@pytest.fixture(name="write_exported_guide")
+def _write_exported_guide_fixture():
+    """Same-name factory-fixture wrapper for `write_exported_guide` above --
+    see the module docstring for why this is a separate object rather than
+    decorating `write_exported_guide` itself."""
+    return write_exported_guide
