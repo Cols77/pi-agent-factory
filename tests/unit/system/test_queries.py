@@ -59,10 +59,20 @@ def test_parse_scope_ref_accepts_bundle_and_sr():
     assert parse_scope_ref("sr:SR-001") == SystemScopeRef(kind="sr", ref="sr:SR-001")
 
 
-@pytest.mark.parametrize("raw", ["task:T-001", "spec:x.md", "nonsense", "bundle:", "sr:", ":x", ""])
+@pytest.mark.parametrize("raw", ["spec:x.md", "nonsense", "bundle:", "sr:", ":x", ""])
 def test_parse_scope_ref_rejects_anything_else(raw):
     with pytest.raises(ScopeKindError):
         parse_scope_ref(raw)
+
+
+def test_task_and_file_are_now_openable_scopes():
+    assert parse_scope_ref("task:T-059").kind == "task"
+    assert parse_scope_ref("file:src/drone/planning/reactive.py").kind == "file"
+
+
+def test_spec_and_plan_are_still_not_openable_scopes():
+    with pytest.raises(ScopeKindError):
+        parse_scope_ref("spec:docs/superpowers/specs/x.md")
 
 
 def test_query_brief_rejects_non_bundle_non_sr_scope_kind(tmp_path):

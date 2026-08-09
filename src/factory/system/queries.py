@@ -61,7 +61,7 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
@@ -82,15 +82,16 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    Only `bundle:<id>` and `sr:<id>` are legal top-level scopes (design
-    SS2 item 6, SS5.1). Anything else -- an unknown kind, a missing
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, and `file:<path>` are legal
+    top-level scopes (design SS2 item 6, SS5.1); task and file are now
+    openable per design §3.1. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
     """
     kind, sep, identifier = raw.partition(":")
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
-            f"invalid scope ref: {raw!r} (expected bundle:<id> or sr:<id>)"
+            f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, task:<id> or file:<path>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
