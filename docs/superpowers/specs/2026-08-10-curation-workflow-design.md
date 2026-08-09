@@ -64,7 +64,7 @@ Generalise trace's model rather than invent one. Every curated item is either **
 
 | Family | Legal states | Staleness signal | Today |
 | --- | --- | --- | --- |
-| Requirements | measured-passing · measured-failing · planned · declined | `checksum` over statement + binding | states absent; no `bind`; `index` launders staleness |
+| Requirements | measured-passing · measured-failing · planned · unmeasurable · declined | `checksum` over statement + binding | states absent; no `bind`; `index` launders staleness |
 | Trace | linked · deferred · exempt | — (a gap is recomputed from source each time) | complete |
 | Bundles | all members resolve · members with recorded absence | none | no writer at all |
 
@@ -73,12 +73,19 @@ Generalise trace's model rather than invent one. Every curated item is either **
 It is mechanically checkable and needs no model. It verifies that every requirement has a decided
 measurement and an owner — never that the measurement is a good one.
 
+**Warnings do not fail the gate.** Findings carry a severity, reusing the tiers
+`freshness.model.FreshnessSeverity` already defines — `INTEGRITY`, `BLOCKING`, `WARNING`. Pending
+and stale are `BLOCKING`; an unmeasurable requirement (§3.3) is a `WARNING`. `check` exits non-zero
+on blocking findings only, and always reports warnings.
+
 ### 3.1 Requirement states
 
 - **measured-passing** — bound, checksum current, a validation result exists and passes.
 - **measured-failing** — bound, checksum current, a validation result exists and fails.
 - **planned** — bound, checksum current, no result yet, and a linked task exists in the ledger
   that is **not already `done`**.
+- **unmeasurable** — the measurement is decided (metric, assertion) but **no harness is named yet**.
+  Legal, and carries a `WARNING`. See §3.3.
 - **declined** — deferred or exempt, with a recorded reason.
 - **pending** — anything else: unbound with no disposition, bound but orphaned, or stale.
 
@@ -125,7 +132,34 @@ Nobody re-judges whether the binding still measures the changed statement.
 New rule: **`index` writes a checksum only where none exists.** A stale checksum is reported and
 exits non-zero. Staleness is cleared only by a decision (§4).
 
-### 3.3 Bundle drift
+### 3.3 The harness may not exist yet
+
+A binding names a `harness`. The workflow does **not** validate it against a registry, because a
+registry of harnesses does not exist and inventing one would block every binding on infrastructure
+that has not been built.
+
+Instead, `bind` **asks the human** which harness measures this requirement, and accepts three
+answers:
+
+1. **An existing harness** — e.g. `sim-testbench`, the only one observed in the register today.
+   The requirement proceeds to `planned` or `measured`.
+2. **A harness that does not exist yet** — recorded as named, and the requirement is `planned`:
+   building that harness is work, tracked like any other, and the requirement cannot be measured
+   until it lands.
+3. **"I don't know yet"** — the harness is left undefined. The requirement is `unmeasurable` and
+   carries a `WARNING`. It is honest and visible rather than blocking, and it resolves the moment a
+   harness is named.
+
+The third answer requires a representation change: `Binding.harness` is currently a required `str`
+with no default and must become `str | None`. `content_checksum` joins `b.harness` directly, so it
+becomes `b.harness or ""` — which leaves every currently-bound requirement's digest byte-identical
+and adds behaviour only for the new `None` case. No existing requirement is staled by this change.
+
+The general principle: **an unnamed harness is a warning, never a blocker.** A requirement whose
+measurement is decided but whose instrument does not exist yet is strictly more honest than one
+that was never decided at all, and the register must be able to say so.
+
+### 3.4 Bundle drift
 
 Bundle members are exact refs (`task:T-059`, `sr:SR-086`). Rename the task or retire the
 requirement and the bundle quietly begins reporting `missing`, with no way to distinguish a member
@@ -146,7 +180,9 @@ their resolved member set, so drift is a signal rather than an absence.
 | `index` | maintenance — checksums | exists (fixed) | — | new |
 
 **`bind`** writes the `binding:` block (`harness`, `experiment`, `metric`, `assert`, `trials`,
-`window`) and stamps the checksum, exactly as `doctor/write.py` already does when minting.
+`window`) and stamps the checksum, exactly as `doctor/write.py` already does when minting. It asks
+the human for the harness and accepts "not yet" (§3.3); it never validates the harness against a
+registry.
 
 **`bind --reaffirm --reason "..."`** clears staleness without changing the measurement: it records
 that the statement changed and the existing binding still measures it. A flag rather than a new
@@ -157,7 +193,18 @@ verb, to keep the vocabulary small. Reaffirming without a reason is refused.
 
 ## 5. The curation pipeline
 
-Same shape as `/factory-run`. Unit of work is one open decision.
+Same shape as `/factory-run`. The unit of work is a **batch of open decisions** — one or many.
+
+A run selects a batch at `survey`, and `propose` makes one judgment per item in it. Batching is
+what makes 180 pending requirements tractable; a strict one-decision-per-run loop would need 180
+runs. Batch size is a parameter of the run, and a batch of one is the degenerate case, not a
+special one.
+
+The human review gate reviews **the batch as a set**, with per-item annotations — the same shape
+`FileHumanReviewGate` already archives, where a decision carries an `annotations[]` list. A
+rejection names the items it rejects; those return to `propose` while the approved items proceed.
+This matters: forcing an all-or-nothing verdict on a batch of thirty would push a reviewer toward
+approving items they have not actually examined.
 
 ```
 survey → propose → [gate: schema + refs] → human review → apply → verify
@@ -245,9 +292,10 @@ The closure rule needs a test per state, including the two that are easy to conf
 ## 9. Increments
 
 **Increment 1 — level the CLIs.** `bind`, `bind --reaffirm`, `defer`, `exempt`, `check` and `next`
-for requirements; fix `index` so it refuses to launder staleness; the closure state model and its
-tests. No pipeline. This unblocks binding work immediately and settles the vocabulary before it is
-baked into node contracts.
+for requirements; the optional-harness representation change (§3.3); fix `index` so it refuses to
+launder staleness; the closure state model with its severity tiers, and its tests. No pipeline.
+This unblocks binding work immediately and settles the vocabulary before it is baked into node
+contracts.
 
 **Increment 2 — bundles.** The bundle writer (`new`, `add`, `remove`), the member checksum, and
 `check`/`next`/`status` for bundles.
@@ -257,13 +305,23 @@ gate, and evidence recording.
 
 Increment 1 is a prerequisite for 3: a pipeline needs a tool that owns the write.
 
-## 10. Open questions
+## 10. Resolved questions
 
-- **Where does a harness name come from?** `bind` must validate that the declared `harness` exists.
-  `sim-testbench` is the only one observed in the register today. Whether harnesses are a declared
-  registry or discovered from `.factory/factory.yaml` gates is undecided, and Increment 1 must
-  settle it before `bind` can validate.
-- **Batch or single decision?** The pipeline is specified as one decision per run. With 180 pending
-  requirements that is 180 runs. Whether a run may cover a batch — and if so, whether the human
-  review gate reviews the batch or each decision — is deferred to Increment 3, when the cost of the
-  single-decision loop has been observed rather than guessed.
+Both questions this design opened were settled on 2026-08-10:
+
+- **Where a harness name comes from.** The workflow asks the human. No registry, no validation. An
+  unnamed harness is left undefined and carries a `WARNING`; a named-but-unbuilt harness is work to
+  be implemented alongside the system. See §3.3.
+- **Batch or single decision.** A run may cover a batch. The review gate reviews the batch as a set
+  with per-item annotations, and a rejection names the items it rejects. See §5.
+
+## 11. Known gaps
+
+- **`measured-failing` has no observed example.** No requirement in any repository has a failing
+  validation result today, because only SR-001 is bound at all. The state is designed from the
+  manifest schema and one observed passing entry. Whoever implements §3.1 must not fabricate a
+  fixture that merely resembles a failing result — build it through the real writers, or record the
+  state as unproven until a real failing run exists.
+- **Trace has no unlink operation.** The drone's `SR-001 → BR-002` dangling upstream is deferred
+  with the recorded reason that it cannot be removed. This design does not add one; a curation
+  workflow that can decide but never undo is an accepted limitation of the first three increments.
