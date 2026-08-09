@@ -2,11 +2,26 @@
 
 Not a test module itself (no `pytestmark`) -- pytest does not collect it
 because it defines no `test_*` functions.
+
+A handful of builders below (`write_manifest`, `write_session`, and the
+`task:T-...`-keyed fixture for `write_task`) are ALSO registered as pytest
+fixtures -- factories that hand back a `(repo_root, ...) -> Path` callable
+using the shared `repo_root`-style calling convention `test_story.py` (and
+`test_cli.py`'s story test) use, in contrast to this module's plain
+builders, which existing tests call directly with an already-joined
+subdirectory (`write_task(tmp_path / "tasks", ...)`). Both conventions have
+to coexist without renaming the plain builders (other test files import and
+call them directly, unaffected by this module also holding fixtures), so
+the task/session fixtures are separate objects registered under the same
+fixture *name* via `@pytest.fixture(name=...)` rather than reusing the
+plain functions' own identifiers.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+import pytest
 
 from factory.evidence.manifests import write_run_manifest as _write_evidence_manifest
 
@@ -204,6 +219,7 @@ def write_run_manifest(
     outcome: str = "completed",
     started_at: str = "2026-08-08T08:00:00Z",
     ended_at: str = "2026-08-08T09:00:00Z",
+    changed_files: list[str] | None = None,
 ) -> Path:
     """Write a schema-valid run evidence manifest via the real
     `factory.evidence.manifests.write_run_manifest` writer -- guarantees the
@@ -213,6 +229,8 @@ def write_run_manifest(
     producer in this repo ever writes that layout). `reviews` defaults to an
     empty list -- a real, valid manifest for a task that has not yet had a
     review round, a legitimate state rather than a corruption or absence.
+    `changed_files` defaults to an empty list, matching what a manifest for
+    a run that touched nothing records.
     """
     manifest = {
         "schema_version": 2,
@@ -230,7 +248,7 @@ def write_run_manifest(
         },
         "dependencies": [],
         "implementation": {
-            "changed_files": [],
+            "changed_files": changed_files if changed_files is not None else [],
             "patch": {"sha256": "e" * 64, "size": 0, "media_type": "text/x-diff"},
         },
         "validation": [],
@@ -239,6 +257,88 @@ def write_run_manifest(
         "publication": {"state": "local", "errors": []},
     }
     return _write_evidence_manifest(repo_root / "evidence", manifest)
+
+
+@pytest.fixture(name="write_manifest")
+def _write_manifest_fixture():
+    """Factory fixture: `write_manifest(repo_root, **kwargs) -> Path`.
+
+    Threads straight through to `write_run_manifest` above (which itself
+    calls the real `factory.evidence.manifests.write_run_manifest` writer) --
+    this is purely a same-name, factory-fixture wrapper for `test_story.py`,
+    which takes fixtures as test parameters rather than importing and
+    calling the plain builder directly. Registered under an explicit `name=`
+    (like `_write_task_fixture`/`_write_session_fixture` below) rather than
+    the Python identifier `write_manifest` itself: pytest's fallback fixture
+    name follows the *importing module's* attribute name, so a plain,
+    un-aliased `def write_manifest():` would also make importing this
+    module's `write_manifest` plain builder (were there one) ambiguous with
+    the fixture -- the explicit name sidesteps that regardless of how this
+    gets imported.
+    """
+
+    def _write(repo_root: Path, **kwargs) -> Path:
+        return write_run_manifest(repo_root, **kwargs)
+
+    return _write
+
+
+def write_session(
+    repo_root: Path, session_id: str, task_id: str, outcome: str, dod_met: bool = True
+) -> Path:
+    """Write one `sessions/<session_id>.session.json` record for `task_id`.
+
+    Moved here from `tests/unit/system/test_sessions.py` (was `_write_session`
+    there) so `test_story.py` can build session-only-run fixtures through the
+    same real shape `factory.system.sessions.load_session_runs` reads,
+    without a second, parallel definition drifting from this one.
+    """
+    sessions_dir = repo_root / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "session_id": session_id,
+        "started_at": "2026-08-06T20:00:00Z",
+        "ended_at": "2026-08-06T20:30:00Z",
+        "git": {"branch": "main", "head": "a" * 40},
+        "tasks": [{
+            "task_id": task_id,
+            "title": "Some task",
+            "outcome": outcome,
+            "iterations": 1,
+            "commits": [],
+            "dod": {"met": dod_met},
+            "nodes": [{"node": "dev", "result": "pass", "attempts": 1, "extra": {}}],
+        }],
+    }
+    path = sessions_dir / f"{session_id}.session.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+@pytest.fixture(name="write_session")
+def _write_session_fixture():
+    """Same-name factory-fixture wrapper for `write_session` above -- see the
+    module docstring for why this is a separate object rather than
+    decorating `write_session` itself."""
+    return write_session
+
+
+@pytest.fixture(name="write_task")
+def _write_task_fixture():
+    """Factory fixture: `write_task(repo_root, task_id, **kwargs) -> Path`.
+
+    A `repo_root`-taking adapter over the plain `write_task` builder below
+    (which takes an already-joined `tasks_dir`, and stays that way -- other
+    test files import and call it directly with `tmp_path / "tasks"`). Kept
+    as a distinct object under an aliased fixture name (see the module
+    docstring) rather than renaming or changing the signature of the
+    existing, still-in-use plain function.
+    """
+
+    def _write(repo_root: Path, task_id: str, **kwargs) -> Path:
+        return write_task(repo_root / "tasks", task_id, **kwargs)
+
+    return _write
 
 
 def write_decision_artifact(

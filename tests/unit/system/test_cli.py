@@ -1,10 +1,13 @@
-"""Tests for factory.system.cli: brief/matrix/timeline/guide/scope subcommands.
+"""Tests for factory.system.cli: brief/matrix/timeline/story/guide/scope
+subcommands.
 
 JSON is emitted only on `--json`; structured errors go to stderr with a
 non-zero exit code.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 
 import pytest
@@ -12,6 +15,7 @@ import pytest
 from factory.system.cli import main
 
 from ._fixtures import (
+    _write_task_fixture,  # noqa: F401 -- registers the `write_task` fixture used below
     write_bundle,
     write_bundle_raw,
     write_decision_artifact,
@@ -22,6 +26,22 @@ from ._fixtures import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def run_cli(argv: list[str]) -> str:
+    """Run the CLI and return captured stdout, asserting a zero exit code.
+
+    A plain helper (not a `capsys`-based fixture): `capsys` only captures
+    output written while pytest owns the file descriptors for the *current
+    test*, which a bare module-level function can't request for itself the
+    way a fixture can -- redirecting stdout directly here works the same
+    from any caller, fixture or not.
+    """
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = main(argv)
+    assert rc == 0, buf.getvalue()
+    return buf.getvalue()
 
 
 def test_brief_json_flag_prints_valid_json(tmp_path, capsys):
@@ -126,6 +146,12 @@ def test_timeline_on_empty_repo_reports_no_recorded_decisions(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "no recorded decisions" in out
+
+
+def test_story_subcommand_emits_json_for_a_task_scope(tmp_path, write_task):
+    write_task(tmp_path, "T-059", status="done", satisfies=[])
+    out = run_cli(["story", "--scope", "task:T-059", "--repo-root", str(tmp_path), "--json"])
+    assert json.loads(out)["task"]["id"] == "T-059"
 
 
 def test_scope_json_flag_lists_declared_scopes(tmp_path, capsys):

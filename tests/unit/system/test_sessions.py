@@ -2,30 +2,9 @@ import json
 import pytest
 from factory.system.sessions import SessionRun, load_session_runs  # noqa: F401
 
+from ._fixtures import write_session as _write_session
+
 pytestmark = pytest.mark.unit
-
-
-def _write_session(repo_root, session_id, task_id, outcome, dod_met=True):
-    sessions = repo_root / "sessions"
-    sessions.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "session_id": session_id,
-        "started_at": "2026-08-06T20:00:00Z",
-        "ended_at": "2026-08-06T20:30:00Z",
-        "git": {"branch": "main", "head": "a" * 40},
-        "tasks": [{
-            "task_id": task_id,
-            "title": "Some task",
-            "outcome": outcome,
-            "iterations": 1,
-            "commits": [],
-            "dod": {"met": dod_met},
-            "nodes": [{"node": "dev", "result": "pass", "attempts": 1, "extra": {}}],
-        }],
-    }
-    path = sessions / f"{session_id}.session.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    return path
 
 
 def test_loads_only_runs_for_the_requested_task(tmp_path):

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factory.local/schemas/system_response.schema.json",
   "title": "System navigator response envelope",
-  "description": "Design SS7.1 composed projection shape: the browser assembles this from the separate brief/matrix/timeline/guide calls -- no single CLI invocation emits it. This version defines `scope`, `brief`, `matrix`, `timeline`, and `guide`. A top-level `freshness` field previously appeared here, but no producer (CLI subcommand or browser composition) ever emitted it -- only test fixtures populated it, which the design SS7.1 amendment (commit 2b771a8) calls out as fiction that must be dropped rather than carried. It was removed rather than given an invented producer: computing an aggregate freshness client-side would be browser-side freshness logic, which design section 13 rules out as a non-goal.",
+  "description": "Design SS7.1 composed projection shape: the browser assembles this from the separate brief/matrix/timeline/guide calls -- no single CLI invocation emits it. This version defines `scope`, `brief`, `matrix`, `timeline`, and `guide`. A top-level `freshness` field previously appeared here, but no producer (CLI subcommand or browser composition) ever emitted it -- only test fixtures populated it, which the design SS7.1 amendment (commit 2b771a8) calls out as fiction that must be dropped rather than carried. It was removed rather than given an invented producer: computing an aggregate freshness client-side would be browser-side freshness logic, which design section 13 rules out as a non-goal. `story` (increment B) is a separate, optional member: it is `task:`-scoped rather than sharing this envelope's top-level bundle/sr `scope`, produced only by the standalone `factory-system story` CLI call, and no existing envelope composition emits it -- so it is not in the top-level `required` list.",
   "type": "object",
   "additionalProperties": false,
   "required": ["scope", "brief", "matrix", "timeline", "guide"],
@@ -47,6 +47,20 @@
       "properties": {
         "scope": {"$ref": "#/$defs/topScopeRef"},
         "sections": {"type": "array", "items": {"$ref": "#/$defs/claim"}}
+      }
+    },
+    "story": {
+      "description": "Matches `factory.system.story.query_story` (increment B, forward half of the V-cycle): one task's implementation story, assembled from recorded evidence manifests and session records.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "task", "runs", "requirements", "degraded", "degraded_reasons"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/storyScopeRef"},
+        "task": {"$ref": "#/$defs/storyTask"},
+        "runs": {"type": "array", "items": {"$ref": "#/$defs/storyRun"}},
+        "requirements": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "degraded": {"type": "boolean"},
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
       }
     }
   },
@@ -188,6 +202,92 @@
       "anyOf": [
         {"properties": {"at": {"type": "string"}}, "required": ["at"]},
         {"properties": {"sequence": {"type": "integer"}}, "required": ["sequence"]}
+      ]
+    },
+    "storyScopeRef": {
+      "description": "`query_story` only ever resolves a `task:` scope -- narrower than `topScopeRef` (bundle|sr) above, which is deliberately why this is its own def rather than a shared one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"enum": ["task"]},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "storyTask": {
+      "description": "The resolved task record a story is about (design increment B): the ledger's own id/title/status, plus `ref` -- the trace-node id for this task (`factory.system.refs.trace_id_for_task`).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "ref"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^T-[0-9]+$"},
+        "title": {"type": "string"},
+        "status": {"type": "string"},
+        "ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "storyImplementation": {
+      "description": "A claim (kind/text/citations/spans/freshness, same coupling rule as `claim` above) plus `changed_files` -- present (a list, possibly empty) only when recorded by a real evidence manifest; `null` for a session-only run, which never captures changed files.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "citations", "spans", "freshness", "changed_files"],
+      "properties": {
+        "kind": {"enum": ["recorded", "derived", "synthesized", "missing"]},
+        "text": {"type": "string"},
+        "citations": {"type": "array", "items": {"$ref": "#/$defs/citation"}},
+        "spans": {"type": "array", "items": {"$ref": "#/$defs/span"}},
+        "freshness": {"$ref": "#/$defs/freshness"},
+        "changed_files": {"type": ["array", "null"], "items": {"type": "string"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]},
+          "then": {"properties": {"freshness": {"properties": {"state": {"const": "n/a"}}}}}
+        },
+        {
+          "if": {
+            "not": {"properties": {"kind": {"const": "missing"}}, "required": ["kind"]}
+          },
+          "then": {
+            "properties": {"freshness": {"properties": {"state": {"not": {"const": "n/a"}}}}}
+          }
+        }
+      ]
+    },
+    "storyRun": {
+      "description": "One recorded run of a task's story, sourced either from a durable evidence manifest (`source: manifest`, citing `CitationKind.MANIFEST`) or, when no manifest exists for that run, from a session record (`source: session`, citing `CitationKind.SESSION`, `implementation` always missing/n-a). `start_commit`/`result_commit` are `null` for a session-sourced run -- a session record never captures a commit range.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id", "source", "outcome", "started_at", "ended_at",
+        "start_commit", "result_commit", "implementation", "citation"
+      ],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "source": {"enum": ["manifest", "session"]},
+        "outcome": {"type": "string"},
+        "started_at": {"type": ["string", "null"]},
+        "ended_at": {"type": ["string", "null"]},
+        "start_commit": {"type": ["string", "null"]},
+        "result_commit": {"type": ["string", "null"]},
+        "implementation": {"$ref": "#/$defs/storyImplementation"},
+        "citation": {"$ref": "#/$defs/citation"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"source": {"const": "session"}}, "required": ["source"]},
+          "then": {
+            "properties": {
+              "citation": {"properties": {"kind": {"const": "session"}}},
+              "start_commit": {"const": null},
+              "result_commit": {"const": null}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"source": {"const": "manifest"}}, "required": ["source"]},
+          "then": {"properties": {"citation": {"properties": {"kind": {"const": "manifest"}}}}}
+        }
       ]
     }
   }
