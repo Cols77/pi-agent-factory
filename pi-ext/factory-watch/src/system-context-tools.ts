@@ -10,7 +10,9 @@ import {
   loadSystemBriefing,
   loadSystemGuide,
   loadSystemMatrix,
+  loadSystemReverse,
   loadSystemScopes,
+  loadSystemStory,
   loadSystemTimeline,
 } from "./system-cli.js";
 
@@ -26,6 +28,8 @@ interface Dependencies {
   matrix: typeof loadSystemMatrix;
   timeline: typeof loadSystemTimeline;
   guide: typeof loadSystemGuide;
+  story: typeof loadSystemStory;
+  reverse: typeof loadSystemReverse;
 }
 
 const defaultDependencies: Dependencies = {
@@ -38,6 +42,8 @@ const defaultDependencies: Dependencies = {
   matrix: loadSystemMatrix,
   timeline: loadSystemTimeline,
   guide: loadSystemGuide,
+  story: loadSystemStory,
+  reverse: loadSystemReverse,
 };
 
 const MAX_OUTPUT_BYTES = 50 * 1024;
@@ -287,6 +293,53 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     },
   };
 
+  const systemStory = {
+    name: "system_story",
+    label: "System navigator: task implementation story",
+    description:
+      "Return the Python-computed implementation story for a task: scope (increment B, forward " +
+      "half of the V-cycle) -- runs sourced from a durable evidence manifest or, when no manifest " +
+      "exists for a run, a thinner session record. A session-sourced run's `implementation` is " +
+      "always the literal claim kind 'missing'; this tool never fills that in or treats a session " +
+      "record as equivalent to a manifest.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. task:T-001" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.story(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
+  const systemReverse = {
+    name: "system_reverse",
+    label: "System navigator: reverse navigation",
+    description:
+      "Return the Python-computed reverse walk for a file: scope (increment B, reverse half of " +
+      "the V-cycle): file -> run -> task -> requirements. Each path's `stops_at` names the first " +
+      "hop that did not resolve ('task' or 'satisfies'), or is null when the chain completes; " +
+      "this tool never guesses past an unresolved hop.",
+    parameters: Type.Object({
+      scope: Type.String({ description: "Scope ref, e.g. file:src/a.py" }),
+    }),
+    async execute(
+      _callId: string,
+      params: { scope: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ToolCtx,
+    ) {
+      const value = deps.reverse(ctx.cwd, params.scope);
+      return result(value.ok ? value.value : unknown("system", value.error));
+    },
+  };
+
   return [
     systemContext,
     implementationHistory,
@@ -297,6 +350,8 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     systemMatrix,
     systemTimeline,
     systemGuide,
+    systemStory,
+    systemReverse,
   ];
 }
 

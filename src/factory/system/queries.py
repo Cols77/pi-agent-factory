@@ -30,7 +30,6 @@ Nothing here infers provenance or fuzzy-matches a scope ref: `bundle:` and
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +39,14 @@ from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
 from factory.system import bundles
+from factory.system._claims import (
+    evidence_dir as _evidence_dir,
+    fresh as _fresh,
+    manifest_path as _manifest_path,
+    missing_claim as _missing,
+    sha256_file as _sha256_file,
+    tasks_dir as _tasks_dir,
+)
 from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import (
     BundleDeclaration,
@@ -61,7 +68,7 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
@@ -82,15 +89,16 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    Only `bundle:<id>` and `sr:<id>` are legal top-level scopes (design
-    SS2 item 6, SS5.1). Anything else -- an unknown kind, a missing
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, and `file:<path>` are legal
+    top-level scopes (design SS2 item 6, SS5.1); task and file are now
+    openable per design §3.1. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
     """
     kind, sep, identifier = raw.partition(":")
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
-            f"invalid scope ref: {raw!r} (expected bundle:<id> or sr:<id>)"
+            f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, task:<id> or file:<path>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -110,29 +118,6 @@ def _bundles_dir(repo_root: Path) -> Path:
 
 def _requirements_dir(repo_root: Path) -> Path:
     return repo_root / "requirements"
-
-
-def _tasks_dir(repo_root: Path) -> Path:
-    return repo_root / "tasks"
-
-
-def _fresh(reason: str | None = None) -> Freshness:
-    return Freshness(state=FreshnessState.FRESH, reason=reason, dependencies=[])
-
-
-def _missing(text: str, reason: str) -> SystemClaim:
-    return SystemClaim(
-        kind=ClaimClass.MISSING,
-        text=text,
-        freshness=Freshness(state=FreshnessState.NA, reason=reason, dependencies=[]),
-    )
-
-
-def _sha256_file(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
 
 
 def _load_bundle_or_raise(repo_root: Path, bundle_id: str) -> BundleDeclaration:
@@ -170,11 +155,22 @@ def _load_requirement_or_raise(repo_root: Path, sr_id: str) -> Requirement:
 
 @dataclass(frozen=True)
 class _MemberResolution:
-    """The outcome of resolving one declared bundle member against real loaders."""
+    """The outcome of resolving one declared bundle member against real loaders.
+
+    `implementation_summary`/`implementation_summary_unreadable` are only
+    ever set by `_resolve_task_member` (Task 5): the plain
+    `{"runs", "latest_outcome", "changed_file_count", "latest_validation"}`
+    dict attached to the *serialized* `member_claim` (never a dataclass
+    field of `SystemClaim` itself -- `query_brief` merges it in after
+    `to_dict()`, since the schema-validated claim shape stays fixed), and
+    whether computing it hit a citation whose file could not be read.
+    """
 
     member_claim: SystemClaim
     extra_claims: list[SystemClaim]
     resolved: bool
+    implementation_summary: dict | None = None
+    implementation_summary_unreadable: bool = False
 
 
 def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identifier: str) -> _MemberResolution:
@@ -256,6 +252,142 @@ def _member_label(repo_root: Path, path: Path, ref: str) -> str:
     return f"{title} — {ref}"
 
 
+def _validation_verdict(validation_entries: list) -> str | None:
+    """A single pass/stale/failed verdict for one run's recorded validation
+    entries (`manifest["validation"]`, schema-guaranteed a list of objects
+    -- already loaded and schema-validated by `evidence_manifests.
+    list_run_manifests`, so reading it here is not a new parser).
+
+    `None` when the run recorded no validation entries at all, or none of
+    them name any requirement -- there is nothing to verdict, so nothing is
+    asserted (never guessed as "passed").
+
+    Controller ruling (2026-08-09): a stale pass is never reported as a
+    plain pass -- this whole subsystem exists so evidence quality is never
+    flattened. Any requirement recorded `passed: false` makes the whole
+    run "failed"; otherwise any requirement recorded `stale: true` makes it
+    "stale"; only when every requirement passed and none is stale is it
+    "passed". Never reads the `report` blob ref -- the verdict comes from
+    the inline `requirements` array alone.
+    """
+    requirements = [
+        req
+        for entry in validation_entries
+        if isinstance(entry, dict)
+        for req in entry.get("requirements", [])
+        if isinstance(req, dict)
+    ]
+    if not requirements:
+        return None
+    if any(not req.get("passed") for req in requirements):
+        return "failed"
+    if any(req.get("stale") for req in requirements):
+        return "stale"
+    return "passed"
+
+
+def _task_implementation_summary(repo_root: Path, task_id: str) -> tuple[dict, SystemClaim | None]:
+    """`implementation_summary` for one bundle `task:` member, and the
+    `derived` claim documenting it (design SS4.3: run count, latest
+    outcome, changed-file count, and latest validation result -- "what has
+    been built and does it pass").
+
+    Consumes `query_story` (Task 3) for the ordered run history -- never a
+    second walk of the evidence. Import is deferred (function-local)
+    because `factory.system.story` imports `ScopeKindError`/
+    `ScopeNotFoundError` from this module at its own module level -- a
+    module-level import here would be circular.
+
+    `changed_file_count` mirrors `latest_outcome`: both describe the
+    *latest* run only (`query_story`'s own oldest-first ordering,
+    `runs[-1]`), never a total across every run. It is `None`, never `0`,
+    whenever nothing was recorded -- no runs at all, or a session-only
+    latest run (`story.py`'s own `changed_files: None` design for a
+    session record) -- so "no runs" never reads as "changed nothing"
+    (global constraint).
+
+    `latest_validation` verdicts the latest run's own recorded `evidence/
+    runs/<run_id>.json` `validation` array (re-read through
+    `evidence_manifests.list_run_manifests`, the same loader `query_story`
+    itself already reads through) via `_validation_verdict`; `None` when
+    the latest run is session-sourced or recorded no validation entries.
+
+    The returned claim reuses the latest run's own citation (already built
+    by `story.py`, including its sha256 -- never re-hashed here) --
+    `kind=derived` (an aggregate over recorded runs, not a single recorded
+    fact), and `degraded` when that citation's `sha256` came back `None`
+    (the cited manifest/session file could not be read).
+
+    When the task has no recorded runs at all, no claim is returned (`None`)
+    -- a legitimate, common state (a `todo` task simply has no history yet),
+    not degradation, so it must not appear as an extra `missing` claim in
+    the bundle's claims list: `guide._bundle_coverage_section` reads every
+    task member's own claims and requires them all `fresh` before
+    synthesizing prose, and a task with no runs otherwise has two entirely
+    `fresh`, `recorded` claims (the ref and the ledger status) -- inserting
+    a third, `n/a` claim here would silently flip that section from
+    synthesized prose to a plain rollup for the ordinary, undegraded case of
+    "not started yet". `implementation_summary` on the member claim already
+    says `runs: 0` either way.
+    """
+    from factory.system.story import query_story  # deferred: story.py imports this module
+
+    story = query_story(repo_root, SystemScopeRef(kind="task", ref=f"task:{task_id}"))
+    runs = story["runs"]
+
+    if not runs:
+        summary = {
+            "runs": 0,
+            "latest_outcome": None,
+            "changed_file_count": None,
+            "latest_validation": None,
+        }
+        return summary, None
+
+    latest = runs[-1]
+    changed_files = latest["implementation"]["changed_files"]
+    changed_file_count = len(changed_files) if changed_files is not None else None
+
+    latest_validation = None
+    if latest["source"] == "manifest":
+        manifests = evidence_manifests.list_run_manifests(_evidence_dir(repo_root), task_id=task_id)
+        manifest = next((m for m in manifests if m["run_id"] == latest["run_id"]), None)
+        if manifest is not None:
+            latest_validation = _validation_verdict(manifest.get("validation") or [])
+
+    summary = {
+        "runs": len(runs),
+        "latest_outcome": latest["outcome"],
+        "changed_file_count": changed_file_count,
+        "latest_validation": latest_validation,
+    }
+
+    latest_citation = latest["citation"]
+    citation = SystemCitation(
+        kind=CitationKind(latest_citation["kind"]),
+        path=latest_citation["path"],
+        sha256=latest_citation["sha256"],
+        anchor=latest_citation.get("anchor"),
+    )
+    unreadable = citation.sha256 is None
+    freshness = (
+        Freshness(
+            state=FreshnessState.DEGRADED,
+            reason="latest run's cited evidence file could not be read",
+            dependencies=[],
+        )
+        if unreadable
+        else _fresh()
+    )
+    claim = SystemClaim(
+        kind=ClaimClass.DERIVED,
+        text=f"task {task_id} implementation: {len(runs)} run(s), latest outcome {latest['outcome']}",
+        freshness=freshness,
+        citations=[citation],
+    )
+    return summary, claim
+
+
 def _resolve_task_member(
     repo_root: Path, member: SystemScopeRef, identifier: str, tasks: list[ledger.Task]
 ) -> _MemberResolution:
@@ -282,7 +414,16 @@ def _resolve_task_member(
         freshness=_fresh(),
         citations=[citation],
     )
-    return _MemberResolution(member_claim=member_claim, extra_claims=[impl_claim], resolved=True)
+    summary, summary_claim = _task_implementation_summary(repo_root, identifier)
+    extra_claims = [impl_claim] if summary_claim is None else [impl_claim, summary_claim]
+    unreadable = summary_claim is not None and summary_claim.freshness.state is FreshnessState.DEGRADED
+    return _MemberResolution(
+        member_claim=member_claim,
+        extra_claims=extra_claims,
+        resolved=True,
+        implementation_summary=summary,
+        implementation_summary_unreadable=unreadable,
+    )
 
 
 def _validation_report_is_corrupt(repo_root: Path) -> bool:
@@ -466,7 +607,9 @@ def _sr_brief_claims(repo_root: Path, req: Requirement) -> list[SystemClaim]:
     return claims
 
 
-def _brief_degraded_reasons(malformed_member_count: int, unresolved_member_count: int) -> list[str]:
+def _brief_degraded_reasons(
+    malformed_member_count: int, unresolved_member_count: int, unreadable_summary_count: int
+) -> list[str]:
     """Distinct, counted reasons a bundle brief's `degraded` is true --
     mirroring `_timeline_degraded_reasons`'s discipline: each string
     corresponds to something actually counted over the bundle's own members,
@@ -474,12 +617,24 @@ def _brief_degraded_reasons(malformed_member_count: int, unresolved_member_count
     verbatim by the browser instead of `system-page.ts` inventing its own
     fixed banner text, which was true only by coincidence of the current
     implementation.
+
+    `unreadable_summary_count` (Task 5) mirrors `_story_degraded_reasons`'s
+    own count-gated style: it fires only when a task member's
+    `implementation_summary` claim cited a manifest or session record it
+    could not read (`_task_implementation_summary`'s `degraded` branch) --
+    never for the ordinary "no runs recorded yet" case, which is a
+    legitimate state, not a degradation.
     """
     reasons: list[str] = []
     if malformed_member_count:
         reasons.append(f"{malformed_member_count} declared member ref(s) did not parse")
     if unresolved_member_count:
         reasons.append(f"{unresolved_member_count} declared member(s) do not exist in the repo")
+    if unreadable_summary_count:
+        reasons.append(
+            f"{unreadable_summary_count} task member(s) implementation summary cites a "
+            "manifest or session record that could not be read"
+        )
     return reasons
 
 
@@ -512,6 +667,13 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         report_citation = _validation_report_citation(repo_root)
 
         unresolved_member_count = 0
+        unreadable_summary_count = 0
+        # Index into `claims` -> the plain implementation_summary dict to
+        # merge into that claim's *serialized* form below. Not a SystemClaim
+        # field: the schema-validated claim shape stays fixed, so this is
+        # attached to the dict after `to_dict()`, mirroring how `story.
+        # _manifest_run` extends `to_dict(claim)` with `changed_files`.
+        member_implementation_summaries: dict[int, dict] = {}
         for member in bundle.members:
             identifier = member.ref.split(":", 1)[1]
             if member.kind in _SPEC_PLAN_KINDS:
@@ -525,17 +687,27 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)
+            if resolution.implementation_summary is not None:
+                member_implementation_summaries[len(claims) - 1] = resolution.implementation_summary
             claims.extend(resolution.extra_claims)
             if not resolution.resolved:
                 unresolved_member_count += 1
+            if resolution.implementation_summary_unreadable:
+                unreadable_summary_count += 1
 
         claims.extend(bundle.unresolved)
 
-        degraded_reasons = _brief_degraded_reasons(len(bundle.unresolved), unresolved_member_count)
+        degraded_reasons = _brief_degraded_reasons(
+            len(bundle.unresolved), unresolved_member_count, unreadable_summary_count
+        )
+
+        claim_dicts = [to_dict(c) for c in claims]
+        for index, summary in member_implementation_summaries.items():
+            claim_dicts[index]["implementation_summary"] = summary
 
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
-            "claims": [to_dict(c) for c in claims],
+            "claims": claim_dicts,
             "degraded": bool(degraded_reasons),
             "degraded_reasons": degraded_reasons,
         }
@@ -766,10 +938,6 @@ _DECISION_ACTION_MAP = {
 }
 
 
-def _evidence_dir(repo_root: Path) -> Path:
-    return repo_root / "evidence"
-
-
 def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, int, str]]:
     """Read signed review decisions from the `reviews` array of every real
     run manifest (design SS4.3), via `factory.evidence.manifests.
@@ -798,7 +966,7 @@ def _iter_decision_records(repo_root: Path) -> list[tuple[dict, SystemCitation, 
         ended_at = manifest.get("ended_at")
         if not isinstance(ended_at, str) or not ended_at:
             continue  # schema guarantees this in practice; defensive only
-        manifest_path = evidence_dir / "runs" / f"{run_id}.json"
+        manifest_path = _manifest_path(evidence_dir, run_id)
         manifest_sha256 = _sha256_file(manifest_path)
         reviews = manifest.get("reviews")
         if not isinstance(reviews, list):

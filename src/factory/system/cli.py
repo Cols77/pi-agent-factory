@@ -1,5 +1,5 @@
-"""`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, `guide`, and
-`scope`.
+"""`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, `story`,
+`reverse`, `guide`, and `scope`.
 
 JSON is emitted on stdout only when `--json` is passed; a human-readable
 rendering is printed otherwise. Errors always go to stderr as a structured
@@ -28,6 +28,8 @@ from factory.system.queries import (
     query_matrix,
     query_timeline,
 )
+from factory.system.reverse import query_reverse
+from factory.system.story import query_story
 
 
 def _print_error(exc: Exception) -> None:
@@ -47,6 +49,16 @@ def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
 def cmd_timeline(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_timeline(repo_root, scope)
+
+
+def cmd_story(repo_root: Path, scope_raw: str) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    return query_story(repo_root, scope)
+
+
+def cmd_reverse(repo_root: Path, scope_raw: str) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    return query_reverse(repo_root, scope)
 
 
 def cmd_guide(repo_root: Path, scope_raw: str, export_raw: str | None) -> dict:
@@ -110,6 +122,46 @@ def _render_timeline(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_story(result: dict) -> str:
+    task = result["task"]
+    lines = [
+        f"scope: {result['scope']['ref']}",
+        f"  task: {task['id']} ({task['status']}) {task['title']}",
+    ]
+    if result["degraded"]:
+        lines.append("  ! degraded:")
+        for reason in result["degraded_reasons"]:
+            lines.append(f"    - {reason}")
+    lines.append(
+        "  requirements: " + (", ".join(result["requirements"]) if result["requirements"] else "none recorded")
+    )
+    if not result["runs"]:
+        lines.append("  no recorded runs")
+    for run in result["runs"]:
+        when = run["started_at"] or "unknown start"
+        lines.append(
+            f"  [{when}] {run['source']} run {run['run_id']}: {run['outcome']} "
+            f"({run['implementation']['kind']})"
+        )
+    return "\n".join(lines)
+
+
+def _render_reverse(result: dict) -> str:
+    lines = [f"scope: {result['scope']['ref']}"]
+    if result["degraded"]:
+        lines.append("  ! degraded:")
+        for reason in result["degraded_reasons"]:
+            lines.append(f"    - {reason}")
+    if not result["paths"]:
+        lines.append("  no recorded path from this file")
+    for path in result["paths"]:
+        task = path["task"]["id"] if path["task"] else "(unresolved)"
+        reqs = ", ".join(path["requirements"]) if path["requirements"] else "none recorded"
+        stops_at = f" [stops at: {path['stops_at']}]" if path["stops_at"] else ""
+        lines.append(f"  run {path['run']['run_id']} -> task {task} -> {reqs}{stops_at}")
+    return "\n".join(lines)
+
+
 def _render_guide(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
     for section in result["sections"]:
@@ -146,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
     p_timeline = sub.add_parser("timeline", parents=[common])
     p_timeline.add_argument("--scope", required=True)
 
+    p_story = sub.add_parser("story", parents=[common])
+    p_story.add_argument("--scope", required=True)
+
+    p_reverse = sub.add_parser("reverse", parents=[common])
+    p_reverse.add_argument("--scope", required=True)
+
     p_guide = sub.add_parser("guide", parents=[common])
     p_guide.add_argument("--scope", required=True)
     p_guide.add_argument("--export", default=None)
@@ -164,6 +222,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "timeline":
             result = cmd_timeline(args.repo_root, args.scope)
             rendered = _render_timeline(result)
+        elif args.cmd == "story":
+            result = cmd_story(args.repo_root, args.scope)
+            rendered = _render_story(result)
+        elif args.cmd == "reverse":
+            result = cmd_reverse(args.repo_root, args.scope)
+            rendered = _render_reverse(result)
         elif args.cmd == "guide":
             result = cmd_guide(args.repo_root, args.scope, args.export)
             rendered = _render_guide(result)
