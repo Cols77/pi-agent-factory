@@ -136,3 +136,56 @@ def test_run_raises_and_writes_nothing_when_no_tasks_found(tmp_path):
     with pytest.raises(NoTasksFoundError):
         run(plan_path, tmp_path)
     assert not (tmp_path / "tasks").exists() or list((tmp_path / "tasks").glob("T-*.md")) == []
+
+
+PLAN_WITH_FENCED_FIXTURE = """\
+### Task 1: Real Task
+
+**Files:**
+- Create: `src/a.py`
+
+**Interfaces:**
+- Produces: `do_a() -> None`.
+
+```markdown
+### Task 1: Fixture Inside A Fence
+### Task 2: Another Fixture
+```
+
+### Task 2: Second Real Task
+
+**Files:**
+- Create: `src/b.py`
+
+**Interfaces:**
+- Produces: `do_b() -> None`.
+"""
+
+
+def test_task_headers_inside_a_fence_are_not_sections():
+    tasks = parse_plan_tasks(PLAN_WITH_FENCED_FIXTURE)
+    assert [t.number for t in tasks] == [1, 2]
+    assert [t.title for t in tasks] == ["Real Task", "Second Real Task"]
+
+
+def test_fenced_content_stays_in_the_section_body():
+    tasks = parse_plan_tasks(PLAN_WITH_FENCED_FIXTURE)
+    assert "### Task 1: Fixture Inside A Fence" in tasks[0].body
+    assert "```markdown" in tasks[0].body
+
+
+def test_body_stops_at_the_next_section():
+    tasks = parse_plan_tasks(PLAN_WITH_FENCED_FIXTURE)
+    assert "Second Real Task" not in tasks[0].body
+    assert "`src/b.py`" in tasks[1].body
+
+
+def test_tilde_fences_are_masked_too():
+    text = "### Task 1: Real\n\n~~~\n### Task 9: Fake\n~~~\n"
+    assert [t.number for t in parse_plan_tasks(text)] == [1]
+
+
+def test_files_block_and_produces_survive_masking():
+    tasks = parse_plan_tasks(PLAN_WITH_FENCED_FIXTURE)
+    assert "Create: `src/a.py`" in tasks[0].files_block
+    assert tasks[0].produces == ["`do_a() -> None`."]

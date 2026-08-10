@@ -13,6 +13,34 @@ _FILES_BLOCK = re.compile(r"\*\*Files:\*\*\n(.*?)(?=\n\n\*\*Interfaces:\*\*)", r
 _PRODUCES_LINE = re.compile(r"^- Produces:\s*(.+)$", re.MULTILINE)
 _ID_RE = re.compile(r"^T-(\d+)$")
 
+
+def _mask_fenced_blocks(text: str) -> str:
+    """Blank out fenced code block contents, preserving every character
+    offset and every newline so that slices taken against the ORIGINAL text
+    stay aligned. A plan legitimately embeds plan-shaped markdown in a fence
+    (a test fixture, an example); those `### Task N:` lines are content, not
+    sections, and matching them produces phantom tasks (T-020).
+    """
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        marker = "```" if stripped.startswith("```") else "~~~" if stripped.startswith("~~~") else None
+        if fence is None:
+            if marker is None:
+                out.append(line)
+            else:
+                fence = marker
+                out.append(" " * len(line))
+            continue
+        out.append(" " * len(line))
+        # Only a matching marker closes the fence, so ``` inside a ~~~ block
+        # (and vice versa) does not end it early.
+        if marker == fence:
+            fence = None
+    return "\n".join(out)
+
+
 _FIXED_DOD_ITEM = "All steps in this task complete; tests/gates pass; committed"
 
 
@@ -22,6 +50,7 @@ class ParsedPlanTask:
     title: str
     files_block: str
     produces: list[str]
+    body: str = ""
 
 
 class NoTasksFoundError(RuntimeError):
@@ -35,7 +64,7 @@ def parse_plan_tasks(text: str) -> list[ParsedPlanTask]:
     plan document. Pure: no file I/O, no side effects. Returns an empty list
     if no task sections are found -- callers decide whether that's an error.
     """
-    headers = list(_TASK_HEADER.finditer(text))
+    headers = list(_TASK_HEADER.finditer(_mask_fenced_blocks(text)))
     tasks: list[ParsedPlanTask] = []
     for i, m in enumerate(headers):
         start = m.end()
@@ -52,6 +81,7 @@ def parse_plan_tasks(text: str) -> list[ParsedPlanTask]:
                 title=m.group(2).strip(),
                 files_block=files_block,
                 produces=produces,
+                body=chunk.strip(),
             )
         )
     return tasks
