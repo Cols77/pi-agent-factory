@@ -36,6 +36,7 @@ from pathlib import Path
 
 from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
+from factory.orchestrator.plan_to_tasks import parse_plan_tasks
 from factory.system import sessions
 from factory.system._claims import (
     evidence_dir as _evidence_dir,
@@ -184,6 +185,39 @@ def _story_degraded_reasons(
     return reasons
 
 
+def _plan_section(repo_root: Path, task: ledger.Task) -> dict | None:
+    """The `### Task N:` section of the task's source plan -- the steps the
+    implementer actually worked from, which the task file itself only points
+    at.
+
+    Resolved by title first and by `source_task` number second: until T-020
+    landed, a plan's fenced fixtures produced duplicate section numbers, and a
+    plan whose sections were reordered after export still names its task the
+    same. `parse_plan_tasks` stays the one owner of the `### Task N:` grammar.
+
+    Returns None -- never raises -- for a task with no `source_plan`, a plan
+    file that cannot be read, or a plan with no matching section. The section
+    is optional review context, never a gate.
+    """
+    if not task.source_plan:
+        return None
+    try:
+        text = (repo_root / task.source_plan).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    sections = parse_plan_tasks(text)
+    match = next((s for s in sections if s.title.strip() == task.title.strip()), None)
+    if match is None and task.source_task is not None:
+        match = next((s for s in sections if s.number == task.source_task), None)
+    if match is None:
+        return None
+    return {
+        "plan_path": task.source_plan,
+        "heading": f"Task {match.number}: {match.title}",
+        "body": match.body,
+    }
+
+
 def query_story(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Assemble the implementation story for a `task:` scope.
 
@@ -230,9 +264,11 @@ def query_story(repo_root: Path, scope: SystemScopeRef) -> dict:
             "id": task.id,
             "title": task.title,
             "status": task.status,
+            "dod": task.dod,
         },
         "runs": runs,
         "requirements": requirements,
         "degraded": bool(degraded_reasons),
         "degraded_reasons": degraded_reasons,
+        "plan_section": _plan_section(repo_root, task),
     }

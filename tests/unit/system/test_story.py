@@ -130,3 +130,90 @@ def test_story_validates_against_the_response_schemas_story_member(
     result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-059"))
 
     assert validate_against(result, _STORY_SCHEMA) == []
+
+
+_PLAN_TEXT = """\
+# A Plan
+
+### Task 1: First Component
+
+Build the first thing.
+
+### Task 2: Second Component
+
+Build the second thing.
+"""
+
+
+def _write_plan_file(repo_root, name="p.md", text=_PLAN_TEXT):
+    plans = repo_root / "docs" / "superpowers" / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    (plans / name).write_text(text, encoding="utf-8")
+    return f"docs/superpowers/plans/{name}"
+
+
+def test_plan_section_resolves_by_title(tmp_path, write_task):
+    plan_ref = _write_plan_file(tmp_path)
+    # source_task deliberately disagrees with the title: title must win, so a
+    # plan whose numbering shifted still resolves to the right section.
+    write_task(tmp_path, "T-001", title="Second Component", source_plan=plan_ref, source_task=1)
+
+    section = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))["plan_section"]
+
+    assert section["heading"] == "Task 2: Second Component"
+    assert section["plan_path"] == plan_ref
+    assert "Build the second thing." in section["body"]
+
+
+def test_plan_section_falls_back_to_source_task_number(tmp_path, write_task):
+    plan_ref = _write_plan_file(tmp_path)
+    write_task(tmp_path, "T-001", title="Renamed Since", source_plan=plan_ref, source_task=2)
+
+    section = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))["plan_section"]
+
+    assert section["heading"] == "Task 2: Second Component"
+
+
+def test_plan_section_is_none_without_source_plan(tmp_path, write_task):
+    write_task(tmp_path, "T-001", title="No Plan")
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    assert result["plan_section"] is None
+
+
+def test_plan_section_is_none_when_the_plan_file_is_missing(tmp_path, write_task):
+    write_task(tmp_path, "T-001", title="X", source_plan="docs/superpowers/plans/gone.md",
+               source_task=1)
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    assert result["plan_section"] is None
+
+
+def test_plan_section_is_none_when_no_section_matches(tmp_path, write_task):
+    plan_ref = _write_plan_file(tmp_path)
+    write_task(tmp_path, "T-001", title="Nowhere In The Plan", source_plan=plan_ref, source_task=9)
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    assert result["plan_section"] is None
+
+
+def test_plan_section_validates_against_the_response_schema(tmp_path, write_task):
+    plan_ref = _write_plan_file(tmp_path)
+    write_task(tmp_path, "T-001", title="First Component", source_plan=plan_ref, source_task=1)
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    validate_against(result, _STORY_SCHEMA)
+
+
+def test_task_carries_its_definition_of_done(tmp_path, write_task):
+    write_task(tmp_path, "T-001", title="X")
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    # The fixture template writes a single `- done` dod entry.
+    assert result["task"]["dod"] == ["done"]
+    validate_against(result, _STORY_SCHEMA)

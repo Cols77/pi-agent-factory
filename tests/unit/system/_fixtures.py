@@ -61,7 +61,7 @@ title: "{title}"
 status: {status}
 dod:
   - done
-{satisfies}---
+{satisfies}{source}---
 body
 """
 
@@ -124,12 +124,22 @@ def write_task(
     title: str = "Task title",
     status: str = "todo",
     satisfies: list[str] | None = None,
+    source_plan: str | None = None,
+    source_task: int | None = None,
 ) -> Path:
     tasks_dir.mkdir(parents=True, exist_ok=True)
     path = tasks_dir / f"{task_id}-slug.md"
     satisfies_block = f"satisfies: {json.dumps(satisfies)}\n" if satisfies else ""
+    source_block = ""
+    if source_plan:
+        source_block += f"source_plan: {source_plan}\n"
+    if source_task is not None:
+        source_block += f"source_task: {source_task}\n"
     path.write_text(
-        _TASK.format(id=task_id, title=title, status=status, satisfies=satisfies_block),
+        _TASK.format(
+            id=task_id, title=title, status=status,
+            satisfies=satisfies_block, source=source_block,
+        ),
         encoding="utf-8",
     )
     return path
