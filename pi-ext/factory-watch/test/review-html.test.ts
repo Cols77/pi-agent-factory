@@ -32,6 +32,15 @@ describe("renderReviewHtml", () => {
     expect(html).toContain("/api/why?file=");
   });
 
+  test("renders the fan-out marker so a partial chain is never silent", () => {
+    // walkIntentChain counts the requirements and specs it did not show. A page
+    // that computes that count and never renders it leaves the reviewer looking
+    // at one of two satisfied requirements with no sign the second exists --
+    // precisely the failure the count was added to prevent.
+    expect(html).toMatch(/n\.alternatives/);
+    expect(html).toContain("more)");
+  });
+
   test("the only non-clearing innerHTML assignment is the rendered plan section", () => {
     // renderMarkdown output is the sole trusted HTML on this page; every other
     // server value must reach the DOM through createTextNode.

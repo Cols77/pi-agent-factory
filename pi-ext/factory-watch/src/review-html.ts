@@ -141,7 +141,11 @@ export function renderReviewHtml(): string {
       list.className = 'chain';
       intent.chain.forEach((n, depth) => {
         const item = document.createElement('li');
-        item.appendChild(document.createTextNode('  '.repeat(depth) + n.kind + ' · ' + n.id + ' — ' + n.title));
+        // A hop with further candidates says so. Showing one of two satisfied
+        // requirements with no marker is the partial picture this pane exists
+        // to prevent.
+        const more = n.alternatives ? '  (+' + n.alternatives + ' more)' : '';
+        item.appendChild(document.createTextNode('  '.repeat(depth) + n.kind + ' · ' + n.id + ' — ' + n.title + more));
         list.appendChild(item);
       });
       box.appendChild(list);
