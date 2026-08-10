@@ -6,6 +6,17 @@ import type { FileStat } from "./review-diff.js";
 import { mapDiffRows } from "./review-model.js";
 import type { DiffRowMeta } from "./review-model.js";
 import type { ReviewGuide } from "./review-guide.js";
+import { walkIntentChain } from "./review-intent.js";
+import type { ReviewChainNode } from "./review-intent.js";
+import { buildSystemContext } from "./system-context.js";
+import { unknownSource } from "./system-context.js";
+import { loadSystemStory, loadSystemReverse } from "./system-cli.js";
+import { readLayoutPref, writeLayoutPref } from "./review-surface.js";
+import { DEFAULT_LAYOUT, normalizeLayout } from "./review-layout.js";
+import type { LayoutState } from "./review-layout.js";
+import { loadTraceGraph } from "./trace-cli.js";
+import { loadTaskEvidence, runPreflight } from "./evidence-client.js";
+import type { SystemContextDeps } from "./system-context.js";
 
 export interface ReviewTaskContext {
   id: string;
@@ -16,6 +27,26 @@ export interface ReviewTaskContext {
   html: string;
 }
 
+export interface ReviewIntent {
+  chain: ReviewChainNode[];
+  stopsAt: string | null;
+  planSection: { planPath: string; heading: string; html: string } | null;
+  // status and dod are duplicated with ReviewTaskContext on purpose: these come
+  // from query_story through the ledger, those come from reading the task file
+  // directly. The pane prefers these and falls back to those, which is what
+  // keeps the panel useful when the navigator is unavailable. A divergence
+  // between them is worth seeing, so they are not merged.
+  dod: string[];
+  status: string;
+  requirements: string[];
+}
+
+export interface ReviewPageDeps {
+  story: typeof loadSystemStory;
+  context: typeof buildSystemContext;
+  layout: typeof readLayoutPref;
+}
+
 export interface ReviewPageData {
   taskId: string;
   task: ReviewTaskContext | null;
@@ -24,6 +55,37 @@ export interface ReviewPageData {
   guide: ReviewGuide | null;
   files: FileStat[];
   diffs: Record<string, { lines: string[]; meta: DiffRowMeta[] }>;
+  intent: ReviewIntent | null;
+  layout: LayoutState;
+}
+
+const defaultSystemContextDeps: SystemContextDeps = {
+  graph: loadTraceGraph,
+  taskEvidence: loadTaskEvidence,
+  preflight: runPreflight,
+};
+
+function buildIntent(cwd: string, taskId: string, deps: ReviewPageDeps): ReviewIntent | null {
+  const story = deps.story(cwd, `task:${taskId}`);
+  if (!story.ok) return null; // navigator unavailable -- the task file panel still renders
+
+  const graph = deps.context(cwd, taskId, defaultSystemContextDeps).graph;
+  const walked = graph === null ? { chain: [], stopsAt: null } : walkIntentChain(graph, taskId);
+  const section = story.value.plan_section;
+  return {
+    chain: walked.chain,
+    stopsAt: walked.stopsAt,
+    planSection: section === null ? null : {
+      planPath: section.plan_path,
+      heading: section.heading,
+      // renderMarkdown escapes its source before emitting markup -- the same
+      // trusted renderer the task panel and /review-plans already use.
+      html: renderMarkdown(section.body).html,
+    },
+    dod: story.value.task.dod,
+    status: story.value.task.status,
+    requirements: story.value.requirements,
+  };
 }
 
 // The review handoff gives us an id, while task filenames deliberately carry a
@@ -65,7 +127,13 @@ export function buildReviewPageData(
   cwd: string,
   startCommit: string,
   files: FileStat[],
-  opts: { implementing?: boolean; banner?: string; guide?: ReviewGuide | null; taskId: string },
+  opts: {
+    implementing?: boolean;
+    banner?: string;
+    guide?: ReviewGuide | null;
+    taskId: string;
+    deps?: Partial<ReviewPageDeps>;
+  },
 ): ReviewPageData {
   const implementing = opts.implementing ?? false;
   const diffs: ReviewPageData["diffs"] = {};
@@ -76,6 +144,11 @@ export function buildReviewPageData(
     const lines = text.split("\n");
     diffs[f.path] = { lines, meta: mapDiffRows(lines) };
   }
+  const resolved: ReviewPageDeps = {
+    story: opts.deps?.story ?? loadSystemStory,
+    context: opts.deps?.context ?? buildSystemContext,
+    layout: opts.deps?.layout ?? readLayoutPref,
+  };
   return {
     taskId: opts.taskId,
     task: readTaskContext(cwd, opts.taskId),
@@ -84,6 +157,8 @@ export function buildReviewPageData(
     guide: opts.guide ?? null,
     files,
     diffs,
+    intent: buildIntent(cwd, opts.taskId, resolved),
+    layout: resolved.layout(cwd),
   };
 }
 
@@ -113,7 +188,10 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export function startReviewServer(data: ReviewPageData): Promise<RunningReviewServer> {
+export function startReviewServer(
+  data: ReviewPageData,
+  opts: { cwd: string; reverse?: typeof loadSystemReverse; writeLayout?: typeof writeLayoutPref },
+): Promise<RunningReviewServer> {
   return new Promise((resolveStart) => {
     let resolveDecision!: (d: ReviewDecisionPayload | null) => void;
     const decision = new Promise<ReviewDecisionPayload | null>((r) => (resolveDecision = r));
@@ -144,6 +222,27 @@ export function startReviewServer(data: ReviewPageData): Promise<RunningReviewSe
         res.end(JSON.stringify({ ok: true }));
         if (!settled) { settled = true; resolveDecision(payload); }
         server.close();
+        return;
+      }
+      if (req.method === "GET" && url.startsWith("/api/why")) {
+        const file = new URL(url, "http://127.0.0.1").searchParams.get("file") ?? "";
+        const reverse = (opts.reverse ?? loadSystemReverse)(opts.cwd, `file:${file}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        // A file with no recorded evidence is the normal case for a new file.
+        // It is reported as unknown, never as a failed pane.
+        res.end(JSON.stringify(reverse.ok ? reverse.value : unknownSource("reverse", reverse.error)));
+        return;
+      }
+      if (req.method === "POST" && url === "/api/layout") {
+        let state: LayoutState = DEFAULT_LAYOUT;
+        try {
+          state = normalizeLayout(JSON.parse(await readBody(req)));
+        } catch {
+          state = DEFAULT_LAYOUT;
+        }
+        (opts.writeLayout ?? writeLayoutPref)(opts.cwd, state);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
       res.writeHead(404);

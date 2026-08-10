@@ -209,6 +209,7 @@ export interface StoryTask {
   id: string;
   title: string;
   status: string;
+  dod: string[];
 }
 
 // A claim (kind/text/citations/spans/freshness) plus `changed_files`:
@@ -236,11 +237,21 @@ export interface StoryRun {
   citation: SystemCitation;
 }
 
+export interface StoryPlanSection {
+  plan_path: string;
+  heading: string;
+  body: string;
+}
+
 export interface SystemStory {
   scope: StoryScopeRef;
   task: StoryTask;
   runs: StoryRun[];
   requirements: string[];
+  // The `### Task N:` section of the task's source plan -- the steps the
+  // implementer worked from. Null when the task declares no source_plan, the
+  // plan is unreadable, or no section matches.
+  plan_section: StoryPlanSection | null;
   degraded: boolean;
   degraded_reasons: string[];
 }
