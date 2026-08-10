@@ -119,9 +119,9 @@ def cmd_bind(
     requirements_dir: Path,
     req_id: str,
     *,
-    experiment: str,
-    metric: str,
-    assert_expr: str,
+    experiment: str | None,
+    metric: str | None,
+    assert_expr: str | None,
     harness: str | None,
     trials: int,
     reaffirm_reason: str | None,
@@ -130,17 +130,30 @@ def cmd_bind(
     if not path.exists():
         return f"not found: {req_id}"
     if reaffirm_reason is not None:
-        reaffirm(path, reaffirm_reason)
-    else:
-        write_binding(
-            path,
-            experiment=experiment,
-            metric=metric,
-            assert_expr=assert_expr,
-            harness=harness,
-            trials=trials,
-            window=None,
-        )
+        # A reaffirmation re-judges the existing binding as still correct; it
+        # never writes a measurement, so the summary must not claim one was
+        # written -- experiment/metric/assert_expr are ignored here on purpose.
+        try:
+            reaffirm(path, reaffirm_reason)
+        except ReasonRequiredError:
+            return f"{req_id}: a reason is required to reaffirm"
+        return f"{req_id}  reaffirmed: {reaffirm_reason}"
+    if experiment is None or metric is None or assert_expr is None:
+        missing = [
+            name
+            for name, value in (("--experiment", experiment), ("--metric", metric), ("--assert", assert_expr))
+            if value is None
+        ]
+        return f"{req_id}: missing {', '.join(missing)} (or pass --reaffirm to keep the existing binding)"
+    write_binding(
+        path,
+        experiment=experiment,
+        metric=metric,
+        assert_expr=assert_expr,
+        harness=harness,
+        trials=trials,
+        window=None,
+    )
     harness_desc = harness if harness is not None else "no harness named yet"
     return f"{req_id}  bound to {harness_desc}: {metric} {assert_expr}"
 
@@ -176,9 +189,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_bind = sub.add_parser("bind", parents=[common])
     p_bind.add_argument("id")
-    p_bind.add_argument("--experiment", required=True)
-    p_bind.add_argument("--metric", required=True)
-    p_bind.add_argument("--assert", dest="assert_expr", required=True)
+    # Not required=True: a `bind --reaffirm` call carries none of these, and
+    # cmd_bind reports (rather than argparse rejecting) an incomplete
+    # measurement when --reaffirm is absent too.
+    p_bind.add_argument("--experiment", default=None)
+    p_bind.add_argument("--metric", default=None)
+    p_bind.add_argument("--assert", dest="assert_expr", default=None)
     p_bind.add_argument("--harness", default=None)
     p_bind.add_argument("--trials", type=int, default=1)
     p_bind.add_argument("--reaffirm", dest="reaffirm_reason", default=None)

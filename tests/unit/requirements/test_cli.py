@@ -2,6 +2,7 @@ import json
 
 import pytest
 from factory.requirements.cli import cmd_bind, cmd_defer, cmd_index, cmd_new, cmd_show, cmd_status, main
+from factory.requirements.register import is_checksum_current, parse_requirement
 
 pytestmark = pytest.mark.unit
 
@@ -204,4 +205,41 @@ def test_main_wires_bind_and_defer(tmp_path, capsys):
     assert rc == 0
     assert "SR-009" in capsys.readouterr().out
     rc = main(["defer", "SR-009", "--requirements-dir", str(tmp_path), "--reason", "later"])
+    assert rc == 0
+
+
+def test_bind_reaffirm_clears_staleness_without_a_measurement(tmp_path):
+    path = _write(tmp_path, "SR-001.md", _BOUND)
+    cmd_index(tmp_path)
+    # Mutate the statement so the stamped checksum no longer matches.
+    text = path.read_text(encoding="utf-8").replace("shall do Y", "shall do Y NOW")
+    path.write_text(text, encoding="utf-8")
+    assert "STALE" in cmd_status(tmp_path)
+
+    out = cmd_bind(
+        tmp_path, "SR-001", experiment=None, metric=None, assert_expr=None,
+        harness=None, trials=1, reaffirm_reason="wording clarified",
+    )
+    assert "wording clarified" in out
+    assert "bound to" not in out
+    assert is_checksum_current(parse_requirement(path))
+
+
+def test_bind_with_an_incomplete_measurement_and_no_reaffirm_is_reported(tmp_path):
+    path = _write(tmp_path, "SR-009.md", _PROPOSED)
+    before = path.read_text(encoding="utf-8")
+    out = cmd_bind(
+        tmp_path, "SR-009", experiment="zone_clear", metric=None, assert_expr=None,
+        harness=None, trials=1, reaffirm_reason=None,
+    )
+    assert "--metric" in out
+    assert "--assert" in out
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_main_wires_bind_reaffirm_without_measurement_args(tmp_path):
+    _write(tmp_path, "SR-001.md", _BOUND)
+    rc = main([
+        "bind", "SR-001", "--requirements-dir", str(tmp_path), "--reaffirm", "reworded",
+    ])
     assert rc == 0
