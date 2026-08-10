@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,7 +7,10 @@ import {
   parseReviewPlansArgs,
   readSurfacePref,
   writeSurfacePref,
+  readLayoutPref,
+  writeLayoutPref,
 } from "../src/review-surface.js";
+import { DEFAULT_LAYOUT } from "../src/review-layout.js";
 
 const dirs: string[] = [];
 function tmp() {
@@ -73,5 +76,32 @@ describe("surface preference keys", () => {
     const d = tmp();
     writeSurfacePref(d, "browser");
     expect(readSurfacePref(d)).toBe("browser");
+  });
+});
+
+describe("layout preference", () => {
+  test("round-trips through the surface preference file", () => {
+    const cwd = tmp();
+    writeLayoutPref(cwd, { collapsed: ["tree"], zoomed: "diff" });
+    expect(readLayoutPref(cwd)).toEqual({ collapsed: ["tree"], zoomed: "diff" });
+  });
+
+  test("does not disturb the surface preference stored in the same file", () => {
+    const cwd = tmp();
+    writeSurfacePref(cwd, "browser");
+    writeLayoutPref(cwd, { collapsed: ["comments"], zoomed: null });
+    expect(readSurfacePref(cwd)).toBe("browser");
+  });
+
+  test("a missing file yields the default layout", () => {
+    expect(readLayoutPref(tmp())).toEqual(DEFAULT_LAYOUT);
+  });
+
+  test("a corrupt stored layout yields the default rather than throwing", () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, "sessions"), { recursive: true });
+    writeFileSync(join(cwd, "sessions", ".factory-review-surface.json"),
+      '{"layout":{"collapsed":["bogus"],"zoomed":"nope"}}', "utf-8");
+    expect(readLayoutPref(cwd)).toEqual(DEFAULT_LAYOUT);
   });
 });

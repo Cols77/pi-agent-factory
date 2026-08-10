@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { DEFAULT_LAYOUT, normalizeLayout } from "./review-layout.js";
+import type { LayoutState } from "./review-layout.js";
 
 export type Surface = "terminal" | "browser";
 
@@ -21,11 +23,11 @@ export function surfacePrefPath(cwd: string): string {
 
 export function readSurfacePref(cwd: string, key: SurfaceKey = "review"): Surface {
   try {
-    const raw = JSON.parse(readFileSync(surfacePrefPath(cwd), "utf-8")) as Record<string, string>;
+    const raw = JSON.parse(readFileSync(surfacePrefPath(cwd), "utf-8")) as Record<string, unknown>;
     // "surface" is the pre-existing key for code review; keep honouring it so
     // an existing preference file is not silently discarded.
     const value = key === "review" ? (raw["surface"] ?? raw["review"]) : raw[key];
-    return value === "browser" ? "browser" : "terminal";
+    return String(value) === "browser" ? "browser" : "terminal";
   } catch {
     return "terminal";
   }
@@ -45,6 +47,36 @@ export function writeSurfacePref(cwd: string, pref: Surface, key: SurfaceKey = "
     writeFileSync(path, JSON.stringify(existing), "utf-8");
   } catch {
     // best-effort; a failed write just means we don't remember the choice
+  }
+}
+
+// Stored under its own "layout" key in the same file the surface preference
+// uses. localStorage is not an option: the review server binds port 0, so
+// every review is a new origin and a browser-stored layout would silently
+// reset each time.
+export function readLayoutPref(cwd: string): LayoutState {
+  try {
+    const raw = JSON.parse(readFileSync(surfacePrefPath(cwd), "utf-8")) as Record<string, unknown>;
+    return normalizeLayout(raw["layout"]);
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
+
+export function writeLayoutPref(cwd: string, state: LayoutState): void {
+  try {
+    const path = surfacePrefPath(cwd);
+    mkdirSync(dirname(path), { recursive: true });
+    let existing: Record<string, unknown> = {};
+    try {
+      existing = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+    } catch {
+      existing = {};
+    }
+    existing["layout"] = normalizeLayout(state);
+    writeFileSync(path, JSON.stringify(existing), "utf-8");
+  } catch {
+    // best-effort; a failed write just means we don't remember the layout
   }
 }
 
