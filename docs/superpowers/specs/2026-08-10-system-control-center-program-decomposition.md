@@ -66,6 +66,28 @@ Supplementary counts:
 | Remediation interface | **Split by nature of the act.** Mechanical operations get navigator buttons; judgment operations get agent-facing tools. |
 | Definition workstream depth | **Bundle-scoped and incremental.** Author the complete bundle map in one pass; bind and cover SRs per bundle, as each feature is actually worked. No speculative binding of 181 requirements. |
 | Build order | **A → B → C.** |
+| Multi-membership | **An artifact may belong to more than one bundle.** |
+| Bundle nesting | **Flat.** Scale is a UI problem, not a hierarchy problem. |
+| Bundle count | **Unconstrained.** The navigator must read well at 5 bundles and at 100. |
+| How the map is cut | **An agent proposes with rationale; the human rules.** No fixed cohesion taxonomy. |
+| Where rationale lives | **An ADR in the product repo**, never in the bundle files. |
+| Coverage gate | **Warns and blocks, with an explicit, self-reporting `--force`.** |
+
+### Consequences of multi-membership
+
+Recorded here because each one changes an interface rather than merely a value:
+
+- **Bundle counts are not a partition.** Per-bundle SR counts do not sum to 181. Health rollups are computed over the artifact set, never by summing bundles, or the project appears to hold more requirements than exist.
+- **A gap belongs to its subject, not to a feature.** The gap descriptor carries no bundle field; the navigator supplies feature context from wherever the user opened the gap.
+- **A requirement's page must list every bundle containing it.** Without a "member of" affordance, multi-membership is invisible and a shared requirement reads as though it belongs to whichever feature you happened to open.
+
+### Consequence of unconstrained bundle count
+
+The sidebar cannot rely on a bundle list being short enough to scan, and the
+inherited "never client-side `.sort()`" rule forbids ordering in the browser.
+**Bundle ordering is therefore an output of the health projection**, computed in
+Python and rendered in payload order. This is an SP-A → SP-B interface, not a UI
+detail.
 
 ## Sub-projects
 
@@ -76,16 +98,24 @@ The navigable skeleton, and the prerequisite for everything else.
 Delivers:
 
 - `adr:` accepted by `_parse_member_ref` (`bundles.py:49`) as `adr:<stem>` → `docs/adr/<stem>.md`, and as an openable scope so a decision has a page rather than a dead link.
-- `bundle_coverage(repo_root) -> Coverage` in `factory.system.bundles`: a pure function over existing loaders returning, per artifact kind, the bundled/unbundled split and the unbundled refs. No persisted index, no cache.
-- The complete bundle map for `cool_physical_ai_project` — all 181 SRs, 43 tasks, 6 specs, 2 ADRs assigned.
+- `bundle_coverage(repo_root) -> Coverage` in `factory.system.bundles`: a pure function over existing loaders returning, per artifact kind, the bundled/unbundled split and the unbundled refs. Membership is many-to-many, so coverage asks only whether an artifact belongs to *at least one* bundle. No persisted index, no cache.
+- A deterministic bundle ordering computed in Python, consumed by SP-B's sidebar (see "Consequence of unconstrained bundle count").
+- The complete bundle map for `cool_physical_ai_project` — all 181 SRs, 43 tasks, 6 specs, 2 ADRs assigned to at least one bundle.
+- `docs/adr/0003-feature-bundle-map.md` in the product repo, recording the agent's proposed cuts and the human's rulings on them. Bundle files stay membership-only per `bundles.py:3`; the reasoning lives in the ADR, which is itself a bundle member and so exercises the new `adr:` kind on real content.
 - Resolution of the dangling `BR-002` reference: create the artifact or unlink it.
-- A coverage gate wired into `.factory/factory.yaml`'s `gates.full`, failing on any unbundled artifact.
+- A coverage gate wired into `.factory/factory.yaml`'s `gates.full`. It reports every unbundled artifact and exits non-zero by default. An explicit per-invocation `--force` bypasses the failure and prints exactly what it suppressed — a silent override would make the gate decorative.
 
-Lands in: pi-agent-factory (contract, API, gate implementation) and cool_physical_ai_project (the map, the gate wiring).
+Lands in: pi-agent-factory (contract, API, gate implementation) and cool_physical_ai_project (the map, the ADR, the gate wiring).
 
 The coverage gate is SP-A's acceptance instrument. It is why SP-A is reviewable
 without SP-B's UI: completeness of the map is a mechanical property, decidable by
 code.
+
+**Known limit of the agent-proposes ruling.** The gate proves every artifact sits
+in *some* bundle. Nothing detects an artifact sitting in the *wrong* bundle, and
+newly authored requirements arrive with no mechanical rule to place them by. The
+ADR is the mitigation: later placements match against recorded reasoning rather
+than an invented taxonomy. This is accepted, not solved.
 
 ### SP-B — Control center
 
@@ -93,8 +123,9 @@ Delivers:
 
 - `factory.system health --json`, a projection composing `compute_health()` (`trace/health.py:53`), `classify()` (`requirements/closure.py:29`), and SP-A's `bundle_coverage()`. It duplicates no logic; it re-shapes existing computations into the navigator's projection contract.
 - A landing page that opens on project health instead of blank.
-- A feature-first sidebar: bundles as the primary axis, with the unbundled remainder visible rather than hidden.
+- A feature-first sidebar: bundles as the primary axis, with the unbundled remainder visible rather than hidden. It must read well at 5 bundles and at 100, rendering SP-A's Python-computed ordering — search and progressive disclosure, never client-side sorting.
 - Working traversal for the core use case: requirement → satisfying tasks → design decisions → changed files.
+- A "member of" affordance on every requirement and task, listing each bundle that contains it.
 - A structural split of `system-page.ts` along the seam already present in it (shell and CSS, per-tab renderers, client bootstrap). The existing DOM tests pin current behavior, so the split is verifiable. The "only edit `system-page.ts`" constraint carried by the three prior plans was correct for small increments and is wrong for this one.
 
 Lands in: pi-agent-factory.
@@ -112,8 +143,9 @@ Lands in: pi-agent-factory.
 
 ### SP-A → SP-B
 
-SP-A publishes three things SP-B consumes: the `adr:` member and scope kind, the
-`bundle_coverage()` API, and the coverage gate's pass/fail as a health input.
+SP-A publishes four things SP-B consumes: the `adr:` member and scope kind, the
+`bundle_coverage()` API, the deterministic bundle ordering, and the coverage
+gate's pass/fail as a health input.
 
 ### SP-B → SP-C
 
@@ -124,10 +156,14 @@ re-deriving it:
 ```json
 { "gap_id": "sr_unbound:SR-007",
   "subject": { "kind": "sr", "ref": "sr:SR-007" },
-  "bundle": "shark-detection",
   "operation": "bind",
   "class": "judgment" }
 ```
+
+The descriptor is anchored on the subject and carries no bundle field: with
+multi-membership, a gap is a property of the requirement, not of whichever
+feature the user happened to open it from. The navigator supplies that context
+at render time.
 
 ### The classification rule
 
@@ -171,6 +207,9 @@ These hold across all three sub-projects and are not renegotiated per design:
 
 ## Open questions, deferred to each sub-project's design
 
-- **SP-A:** bundle granularity and count; whether a bundle may nest; whether an artifact may belong to more than one bundle; whether the coverage gate blocks `full` immediately or warns for one increment.
-- **SP-B:** what the landing page leads with; how per-bundle readiness is expressed without inventing a score; whether `sr:` scopes remain individually listed once bundles are the primary axis.
+All SP-A structural questions are now ruled (see "Decisions taken"). What remains:
+
+- **SP-A:** what ordering signal the Python-computed bundle order uses; how the agent's bundle proposal is presented for ruling; whether `spec:`/`plan:` artifacts count toward coverage or only `sr:`/`task:`/`adr:`.
+- **SP-B:** what the landing page leads with; how per-bundle readiness is expressed without inventing a score, given the no-synthesized-judgment rule; whether `sr:` scopes remain individually listed once bundles are the primary axis; how the sidebar degrades at 100+ bundles.
 - **SP-C:** the exact operation inventory and its classification; undo semantics for mechanical operations; how a dispatch is handed to an agent from the browser.
+- **Program-level, unruled:** whether the `BR-*` tier stays a non-goal. SP-A currently resolves only the single dangling `BR-002` reference, leaving the V truncated at SR level for the whole program.
