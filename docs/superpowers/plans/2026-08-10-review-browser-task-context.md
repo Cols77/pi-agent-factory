@@ -1273,7 +1273,17 @@ export function writeLayoutPref(cwd: string, state: LayoutState): void {
 }
 ```
 
-Note: `readSurfacePref` casts the parsed file to `Record<string, string>`. Change that cast to `Record<string, unknown>` and coerce with `String(value)` where it reads `raw["surface"] ?? raw["review"]`, since the file now holds a nested object too.
+Note: `readSurfacePref` casts the parsed file to `Record<string, string>`, which
+stops being true once the file holds a nested `layout` object. Widen it to
+`Record<string, unknown>`.
+
+Do **not** coerce the value with `String(...)` where it reads
+`raw["surface"] ?? raw["review"]`. `value === "browser"` type-checks against an
+`unknown` under `--strict` with no cast, and `String(value) === "browser"` would
+be strictly looser: a hand-edited `"surface": ["browser"]` stringifies to
+`"browser"` and would start selecting the browser surface, where the strict
+comparison correctly falls through to `"terminal"`. Widening the cast must not
+widen what counts as a valid preference.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
