@@ -38,6 +38,18 @@ describe("surface pref", () => {
     writeFileSync(join(d, "sessions", ".factory-review-surface.json"), "not json");
     expect(readSurfacePref(d)).toBe("terminal");
   });
+  test("a non-string surface value does not stringify its way into browser", () => {
+    const d = tmp();
+    mkdirSync(join(d, "sessions"), { recursive: true });
+    // Array.prototype.toString() on ["browser"] is exactly "browser"; a strict
+    // comparison must not be fooled by that coincidence.
+    writeFileSync(
+      join(d, "sessions", ".factory-review-surface.json"),
+      '{"surface":["browser"]}',
+      "utf-8",
+    );
+    expect(readSurfacePref(d)).toBe("terminal");
+  });
 });
 
 describe("parseReviewPlansArgs", () => {

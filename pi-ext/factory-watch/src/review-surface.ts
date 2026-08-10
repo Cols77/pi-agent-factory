@@ -27,7 +27,7 @@ export function readSurfacePref(cwd: string, key: SurfaceKey = "review"): Surfac
     // "surface" is the pre-existing key for code review; keep honouring it so
     // an existing preference file is not silently discarded.
     const value = key === "review" ? (raw["surface"] ?? raw["review"]) : raw[key];
-    return String(value) === "browser" ? "browser" : "terminal";
+    return value === "browser" ? "browser" : "terminal";
   } catch {
     return "terminal";
   }
