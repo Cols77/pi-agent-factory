@@ -123,6 +123,15 @@ export function renderSystemPageHtml(): string {
   .path-chain .arrow { opacity: .6; }
   .requirements { margin-top: 8px; font-size: 12px; }
   .requirement { padding: 1px 0; }
+  /* Task B (system nav): the recovered per-requirement trace -- sr -> its
+     upstream br, then each satisfying task -> plan -> spec from the trace
+     graph. .trace-sr/.trace-task reuse .claim's frame; the chain reuses the
+     .path-chain arrow idiom with its own hop/arrow tokens. */
+  .trace-sr, .trace-task { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
+  .trace-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .trace-hop { padding: 1px 0; overflow-wrap: anywhere; }
+  .trace-arrow { opacity: .6; }
+  .trace-upstream { font-size: 11px; opacity: .8; margin-top: 2px; }
 </style></head>
 <body>
   <nav aria-label="System navigator"><header><h1>System Navigator</h1></header></nav>
@@ -148,6 +157,7 @@ export function renderSystemPageHtml(): string {
         <button id="tabGuide" class="tab" role="tab" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
         <button id="tabStory" class="tab" role="tab" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
         <button id="tabReverse" class="tab" role="tab" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
+        <button id="tabTrace" class="tab" role="tab" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
       </div></nav>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
@@ -155,6 +165,7 @@ export function renderSystemPageHtml(): string {
       <div id="panelGuide" class="panel" hidden></div>
       <div id="panelStory" class="panel" hidden></div>
       <div id="panelReverse" class="panel" hidden></div>
+      <div id="panelTrace" class="panel" hidden></div>
     </section>
   </div>
 <script>
@@ -660,6 +671,164 @@ export function renderSystemPageHtml(): string {
     panel.appendChild(p);
   }
 
+  // Task B (system nav): pure inversion of the /api/graph trace graph for the
+  // Current scope's SR refs -- the per-requirement trace the /system
+  // navigator used to show. No .sort, no payload remap: walk graph.edges in
+  // the order factory.trace emits them. For each sr in refs (matching an
+  // sr-kind node id, stripping a leading sr:), find every task whose
+  // satisfies edge targets it (in edge order), then that task's
+  // source_plan -> plan node and the plan's spec_ref -> spec node, plus
+  // the sr's upstream -> br node. An unresolved hop stays null (its id/
+  // title are never guessed) -- the renderer names it plainly, mirroring
+  // reverse.py/walkIntentChain's say-where-it-stopped discipline.
+  function invertTraceForScope(graph, refs) {
+    const nodes = new Map();
+    (graph.nodes || []).forEach((n) => nodes.set(n.id, n));
+    const edges = graph.edges || [];
+    const result = [];
+    refs.forEach((ref) => {
+      const srId = ref.replace(/^sr:/, '');
+      const srNode = nodes.get(srId) || null;
+      const entry = {
+        sr: ref,
+        srTitle: srNode ? (srNode.title || null) : null,
+        br: null,
+        tasks: [],
+      };
+      edges.forEach((e) => {
+        if (e.kind === 'upstream' && e.src === srId) {
+          if (!entry.br) entry.br = nodes.get(e.dst) || null;
+        }
+      });
+      edges.forEach((e) => {
+        if (e.kind === 'satisfies' && e.dst === srId) {
+          const taskId = e.src;
+          const taskNode = nodes.get(taskId) || null;
+          const task = {
+            task: taskId,
+            plan: null,
+            planTitle: null,
+            spec: null,
+            specTitle: null,
+          };
+          edges.forEach((e2) => {
+            if (e2.kind === 'source_plan' && e2.src === taskId) {
+              const planNode = nodes.get(e2.dst) || null;
+              if (planNode && !task.plan) {
+                task.plan = planNode.id;
+                task.planTitle = planNode.title || null;
+                edges.forEach((e3) => {
+                  if (e3.kind === 'spec_ref' && e3.src === planNode.id && !task.spec) {
+                    const specNode = nodes.get(e3.dst) || null;
+                    if (specNode) {
+                      task.spec = specNode.id;
+                      task.specTitle = specNode.title || null;
+                    }
+                  }
+                });
+              }
+            }
+          });
+          entry.tasks.push(task);
+        }
+      });
+      result.push(entry);
+    });
+    return result;
+  }
+
+  // Task B (system nav): renders one inverted trace entry's chain per SR.
+  // All payload-derived text through createTextNode. The plan/spec hops name
+  // the graph node id (and title when present) verbatim, so an unresolved
+  // hop -- (plan: unresolved) / (spec: unresolved) -- is never guessed.
+  function renderTrace(trace) {
+    const panel = document.getElementById('panelTrace');
+    clear(panel);
+    if (!trace.length) {
+      renderNotApplicable('panelTrace', 'No trace recorded for this scope. See the Story or Reverse tabs.');
+      return;
+    }
+    trace.forEach((entry) => {
+      const srBox = document.createElement('div');
+      srBox.className = 'trace-sr';
+      const srHead = document.createElement('div');
+      srHead.appendChild(document.createTextNode(
+        'SR ' + entry.sr + (entry.srTitle ? ' — ' + entry.srTitle : '')
+      ));
+      srBox.appendChild(srHead);
+      if (entry.br) {
+        const upstream = document.createElement('div');
+        upstream.className = 'trace-upstream';
+        upstream.appendChild(document.createTextNode(
+          'upstream: ' + entry.br.id + (entry.br.title ? ' — ' + entry.br.title : '')
+        ));
+        srBox.appendChild(upstream);
+      }
+      if (!entry.tasks.length) {
+        const none = document.createElement('div');
+        none.className = 'empty';
+        none.appendChild(document.createTextNode('no satisfying tasks recorded'));
+        srBox.appendChild(none);
+      }
+      entry.tasks.forEach((t) => {
+        const taskBox = document.createElement('div');
+        taskBox.className = 'trace-task';
+        const chain = document.createElement('div');
+        chain.className = 'trace-chain';
+        function hop(text) {
+          const span = document.createElement('span');
+          span.className = 'trace-hop';
+          span.appendChild(document.createTextNode(text));
+          return span;
+        }
+        function arrow() {
+          const span = document.createElement('span');
+          span.className = 'trace-arrow';
+          span.appendChild(document.createTextNode('→'));
+          return span;
+        }
+        const planLabel = t.plan
+          ? 'plan: ' + t.plan + (t.planTitle ? ' (' + t.planTitle + ')' : '')
+          : 'plan: (plan: unresolved)';
+        const specLabel = t.spec
+          ? 'spec: ' + t.spec + (t.specTitle ? ' (' + t.specTitle + ')' : '')
+          : 'spec: (spec: unresolved)';
+        chain.appendChild(hop(t.task));
+        chain.appendChild(arrow());
+        chain.appendChild(hop(planLabel));
+        chain.appendChild(arrow());
+        chain.appendChild(hop(specLabel));
+        taskBox.appendChild(chain);
+        srBox.appendChild(taskBox);
+      });
+      panel.appendChild(srBox);
+    });
+  }
+
+  // Task B (system nav): the lazy trace loader. Fetches /api/graph only on
+  // the first click of the Trace tab (never during scope load). On success
+  // caches the payload and renders the inversion; on failure renders a plain
+  // fallback notice and never touches the other tabs.
+  async function loadTrace() {
+    if (!scopeSrRefs.length) {
+      renderNotApplicable('panelTrace', 'Not applicable for this scope. See the Story or Reverse tabs.');
+      return;
+    }
+    if (traceLoaded) {
+      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+      return;
+    }
+    try {
+      const res = await fetch('/api/graph');
+      if (!res.ok) throw new Error('graph fetch failed');
+      traceData = await res.json();
+      traceLoaded = true;
+      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+    } catch (err) {
+      renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+    }
+  }
+
   // Full, ordered scope list captured for client-side filtering. The refs
   // stay in payload order (never a client-side sort); the filter only ever
   // toggles visibility, never reorders or drops a scope permanently.
@@ -669,6 +838,27 @@ export function renderSystemPageHtml(): string {
   // loads). Set at the top of loadScope so all three kind loaders and the
   // SPA URL both see it.
   let currentScope = null;
+
+  // Task B (system nav): the SR refs the current scope resolves to. For an
+  // sr: scope that is the single ref; for a bundle: scope it is the
+  // bundle's sr: member refs. Set by each kind loader; trace is N/A (empty)
+  // for task:/file: scopes.
+  let scopeSrRefs = [];
+  // Task B (system nav): lazy trace cache -- the /api/graph payload is
+  // fetched only on the first click of the Trace tab, never during scope
+  // load, so existing dom tests whose fetch mocks throw on /api/graph are
+  // never perturbed.
+  let traceLoaded = false;
+  let traceData = null;
+  // Task B (system nav): for an sr: scope the SR is already known
+  // synchronously from the requested URL ref, so it is set eagerly here (in
+  // the synchronous boot region, before the first await) -- a Trace click
+  // that lands before the scope payload finishes still has the SR to
+  // invert. This assignment fetches nothing, so the Trace tab stays
+  // lazy-on-first-click. bundle: SRs are only known once the scope payload
+  // arrives, so they are captured in loadBundleScope instead.
+  const bootScope = new URLSearchParams(window.location.search).get('scope');
+  if (bootScope && scopeKind(bootScope) === 'sr') scopeSrRefs = [bootScope];
 
   // Task 2 (system nav): records the active scope in the URL via
   // history.pushState -- SPA navigation with no full page reload, and
@@ -808,7 +998,7 @@ export function renderSystemPageHtml(): string {
 
 
   function showTab(name) {
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'].forEach((tab) => {
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'].forEach((tab) => {
       document.getElementById('tab' + tab).setAttribute('aria-selected', String(tab === name));
       document.getElementById('panel' + tab).hidden = tab !== name;
     });
@@ -830,7 +1020,7 @@ export function renderSystemPageHtml(): string {
   // scope) falls back so we never surface a hidden/mismatched panel.
   function selectInitialTab(kindDefault) {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse' };
+    const names = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     showTab(names[hash] || kindDefault);
   }
   document.getElementById('tabBrief').onclick = () => showTab('Brief');
@@ -839,6 +1029,7 @@ export function renderSystemPageHtml(): string {
   document.getElementById('tabGuide').onclick = () => showTab('Guide');
   document.getElementById('tabStory').onclick = () => showTab('Story');
   document.getElementById('tabReverse').onclick = () => showTab('Reverse');
+  document.getElementById('tabTrace').onclick = () => { showTab('Trace'); if (scopeSrRefs.length) loadTrace(); };
 
   // Task 3 (system nav): the Refresh button re-runs the current scope's load
   // in place (currentScope is set at the top of loadScope), so a stale view
@@ -851,9 +1042,9 @@ export function renderSystemPageHtml(): string {
   // list is open, ArrowDown/ArrowUp move focus to the next/previous VISIBLE
   // item -- the Task 1 filter hides non-matches with display:none, so only
   // visible rows are reachable, wrapping around at the ends.
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
   window.addEventListener('keydown', (e) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]);
       e.preventDefault();
       return;
@@ -900,8 +1091,9 @@ export function renderSystemPageHtml(): string {
     content.hidden = false;
     setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
+    scopeSrRefs = [];
     renderStory(await res.json());
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse'].forEach((tab) => renderNotApplicable(
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
     selectInitialTab('Story');
@@ -923,8 +1115,9 @@ export function renderSystemPageHtml(): string {
     content.hidden = false;
     setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
+    scopeSrRefs = [];
     renderReverse(await res.json());
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story'].forEach((tab) => renderNotApplicable(
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
     selectInitialTab('Reverse');
@@ -969,6 +1162,21 @@ export function renderSystemPageHtml(): string {
     }
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
+    // Task B (system nav): record the trace-able SR refs for this scope so the
+    // lazy Trace tab knows what to invert when first clicked. An sr: scope
+    // is its own single SR; a bundle: scope's SRs come from the matrix rows
+    // (the payload field through which the docs server states requirement
+    // membership), in payload order.
+    if (scopeKind(scopeRef) === 'sr') {
+      scopeSrRefs = [scopeRef];
+    } else {
+      scopeSrRefs = [];
+      (matrix.rows || []).forEach((row) => {
+        if (row.subject && row.subject.kind === 'sr') scopeSrRefs.push(row.subject.ref);
+      });
+    }
+    traceLoaded = false;
+    traceData = null;
     selectInitialTab('Brief');
     setLoading(false, true);
   }
