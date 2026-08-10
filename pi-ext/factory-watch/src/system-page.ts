@@ -38,6 +38,22 @@ export function renderSystemPageHtml(): string {
   .scope-item { display: block; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; margin: 4px 0; text-decoration: none; color: inherit; }
   .scope-item:hover { background: var(--hover); }
   .scope-error { color: var(--degraded); font-size: 12px; }
+  /* Task 1 (system nav): the scope picker is a searchable, kind-grouped
+     list that collapses to a compact bar once a scope is open. When the
+     page is in body.focus (a scope is loaded) the big list, its filter,
+     the group titles and the heading are hidden behind the single
+     "All scopes ▾" toggle button. */
+  #picker nav { margin: 10px 0; }
+  #scopeFilter { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: Canvas; color: inherit; margin-bottom: 6px; }
+  .scope-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 10px 0 2px; }
+  .scope-row { display: flex; align-items: center; }
+  .scope-item { display: block; flex: 1; padding: 3px 8px; border: none; border-radius: 3px; margin: 1px 0; text-decoration: none; color: inherit; font: inherit; text-align: left; width: 100%; }
+  .scope-item:hover, .scope-item:focus-visible { background: var(--hover); outline: 2px solid currentColor; outline-offset: 1px; }
+  .scope-kind { font-size: 10px; text-transform: uppercase; opacity: .55; margin-right: 6px; }
+  body.focus #scopeList, body.focus .scope-group-title, body.focus #scopeFilter, body.focus #picker h2 { display: none; }
+  #scopeToggle { display: none; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
+  body.focus #scopeToggle { display: inline-block; }
+  body.focus #picker { padding: 6px 0; }
   #content { padding: 16px 0; }
   #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
   .tab { font: inherit; padding: 6px 12px; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: inherit; }
@@ -95,8 +111,12 @@ export function renderSystemPageHtml(): string {
   <main>
     <div id="picker">
       <h2>Declared scopes</h2>
-      <div id="scopeList"></div>
-      <div id="scopeErrors"></div>
+      <button id="scopeToggle" aria-expanded="false">All scopes ▾</button>
+      <nav aria-label="Scopes">
+        <input id="scopeFilter" type="search" placeholder="Filter scopes…" aria-label="Filter scopes" />
+        <div id="scopeList"></div>
+        <div id="scopeErrors"></div>
+      </nav>
     </div>
     <div id="content" hidden>
       <h2 id="scopeHeader"></h2>
@@ -603,6 +623,21 @@ export function renderSystemPageHtml(): string {
     panel.appendChild(p);
   }
 
+  // Full, ordered scope list captured for client-side filtering. The refs
+  // stay in payload order (never a client-side sort); the filter only ever
+  // toggles visibility, never reorders or drops a scope permanently.
+  let scopeListData = [];
+
+  // Collapses/expands the picker: a loaded scope puts the body in focus
+  // (hiding the big list behind the "All scopes ▾" toggle); the failure /
+  // initial / toggle-reveal paths take it back out. aria-expanded on the
+  // toggle mirrors the opposite: it reports whether the picker list is open.
+  function setPickerClass(focused) {
+    document.body.classList.toggle('focus', !!focused);
+    const toggle = document.getElementById('scopeToggle');
+    if (toggle) toggle.setAttribute('aria-expanded', String(!focused));
+  }
+
   function scopeHref(ref) {
     return '/system?scope=' + encodeURIComponent(ref);
   }
@@ -610,18 +645,36 @@ export function renderSystemPageHtml(): string {
   function renderScopeList(data) {
     const list = document.getElementById('scopeList');
     clear(list);
+    scopeListData = [];
     if (!data.scopes.length) {
       const empty = document.createElement('p');
       empty.className = 'empty';
       empty.appendChild(document.createTextNode('No scopes declared in this repository yet.'));
       list.appendChild(empty);
     } else {
+      let lastKind = null;
       data.scopes.forEach((scope) => {
+        scopeListData.push({ kind: scope.kind, ref: scope.ref });
+        if (scope.kind !== lastKind) {
+          const title = document.createElement('div');
+          title.className = 'scope-group-title';
+          title.appendChild(document.createTextNode(scope.kind));
+          list.appendChild(title);
+          lastKind = scope.kind;
+        }
+        const row = document.createElement('div');
+        row.className = 'scope-row';
+        const chip = document.createElement('span');
+        chip.className = 'scope-kind';
+        chip.appendChild(document.createTextNode(scope.kind));
+        row.appendChild(chip);
         const a = document.createElement('a');
         a.className = 'scope-item';
+        a.dataset.kind = scope.kind;
         a.href = scopeHref(scope.ref);
         a.appendChild(document.createTextNode(scope.ref));
-        list.appendChild(a);
+        row.appendChild(a);
+        list.appendChild(row);
       });
     }
     const errors = document.getElementById('scopeErrors');
@@ -649,6 +702,43 @@ export function renderSystemPageHtml(): string {
       showBanner('could not load declared scopes: ' + String(err));
     }
   }
+
+  // The search input filters the rendered list in place: a scope row matches
+  // when the query appears in its ref or its kind. Group titles are hidden
+  // when every scope in their group has been filtered out; an empty query
+  // resets visibility so the full, ordered list comes back.
+  const scopeFilter = document.getElementById('scopeFilter');
+  const scopeList = document.getElementById('scopeList');
+  const scopeToggle = document.getElementById('scopeToggle');
+
+  function applyScopeFilter() {
+    const q = scopeFilter.value.trim().toLowerCase();
+    scopeList.querySelectorAll('.scope-row').forEach((row) => {
+      const item = row.querySelector('.scope-item');
+      const matches = !q ||
+        item.textContent.toLowerCase().includes(q) ||
+        (item.dataset.kind || '').toLowerCase().includes(q);
+      row.style.display = matches ? '' : 'none';
+    });
+    scopeList.querySelectorAll('.scope-group-title').forEach((title) => {
+      let sibling = title.nextElementSibling;
+      let anyVisible = false;
+      while (sibling && !sibling.classList.contains('scope-group-title')) {
+        if (sibling.style.display !== 'none') { anyVisible = true; break; }
+        sibling = sibling.nextElementSibling;
+      }
+      title.style.display = anyVisible ? '' : 'none';
+    });
+  }
+  scopeFilter.addEventListener('input', applyScopeFilter);
+
+  // The toggle re-opens the collapsed list (removes body.focus). When a
+  // scope is loaded the list group titles/filter/heading are hidden and the
+  // picker shrinks to just this button (CSS body.focus rules above).
+  if (scopeToggle) {
+    scopeToggle.addEventListener('click', () => setPickerClass(false));
+  }
+
 
   function showTab(name) {
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'].forEach((tab) => {
@@ -684,10 +774,12 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
       return;
     }
     showBanner('');
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
     renderStory(await res.json());
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse'].forEach((tab) => renderNotApplicable(
@@ -703,10 +795,12 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
       return;
     }
     showBanner('');
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
     renderReverse(await res.json());
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story'].forEach((tab) => renderNotApplicable(
@@ -732,6 +826,7 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || failed.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
       return;
     }
     showBanner('');
@@ -739,6 +834,7 @@ export function renderSystemPageHtml(): string {
       briefRes.json(), matrixRes.json(), timelineRes.json(),
     ]);
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
     renderBrief(brief);
     renderMatrix(matrix);
@@ -767,6 +863,7 @@ export function renderSystemPageHtml(): string {
   }
 
   await loadScopes();
+  setPickerClass(false);
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {
@@ -775,6 +872,7 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + requestedScope + ': ' + String(err));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
     }
   }
 })();
