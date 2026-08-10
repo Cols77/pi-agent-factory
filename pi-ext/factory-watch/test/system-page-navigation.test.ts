@@ -144,4 +144,37 @@ describe("system-page navigation", () => {
       { timeout: 2000 },
     );
   });
+
+  // Task 4 (system nav): keyboard tab switching. Alt+2 (no ctrl/meta) on
+  // the document selects the Matrix tab via the same showTab path a click
+  // uses, flipping its aria-selected to "true".
+  test("Alt+number switches tabs", async () => {
+    const dom = await loadPage();
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("scopeList")).not.toBeNull(),
+      { timeout: 2000 },
+    );
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "2", altKey: true, bubbles: true }),
+    );
+    expect(dom.window.document.getElementById("tabMatrix")!.getAttribute("aria-selected")).toBe("true");
+  });
+
+  // Task 4 (system nav): tabs are exposed as an ARIA tablist inside the
+  // navigator, with each tab button carrying a role and an aria-label.
+  // (aria-controls already landed in Task 2 and is asserted above.)
+  test("tabs are exposed as a navigation landmark with labels", async () => {
+    const dom = await loadPage();
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("scopeList")).not.toBeNull(),
+      { timeout: 2000 },
+    );
+    const tabs = dom.window.document.getElementById("tabs")!;
+    expect(tabs.getAttribute("role")).toBe("tablist");
+    const matrix = dom.window.document.getElementById("tabMatrix")!;
+    expect(matrix.getAttribute("role")).toBe("tab");
+    expect(matrix.getAttribute("aria-label")).toBe("Matrix");
+    // The tabs sit inside a labelled nav landmark.
+    expect(tabs.closest("nav[aria-label='System navigator']")).not.toBeNull();
+  });
 });

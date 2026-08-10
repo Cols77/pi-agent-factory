@@ -60,6 +60,10 @@ export function renderSystemPageHtml(): string {
   .scope-meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; font-size: 11px; opacity: .8; }
   #refresh { font: inherit; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
   #content { padding: 16px 0; }
+  /* Task 4 (system nav): a global visible-focus rule for every interactive
+     element so keyboard navigation reveals where focus is. It widens the
+     Task 1 .scope-item:focus-visible outline to tabs/buttons/inputs too. */
+  a:focus-visible, button:focus-visible, input:focus-visible, .tab:focus-visible, .scope-item:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
   /* Task 2 (system nav): #tabs is sticky so the Brief/Matrix/Timeline/Guide/
      Story/Reverse switch stays visible while scrolling a long panel. Canvas
      background keeps the tab strip opaque (not see-through over scrolled
@@ -115,7 +119,7 @@ export function renderSystemPageHtml(): string {
   .requirement { padding: 1px 0; }
 </style></head>
 <body>
-  <header><h1>System Navigator</h1></header>
+  <nav aria-label="System navigator"><header><h1>System Navigator</h1></header></nav>
   <div id="banner" role="status"></div>
   <main>
     <div id="picker">
@@ -131,14 +135,14 @@ export function renderSystemPageHtml(): string {
       <h2 id="scopeHeader"></h2>
       <div id="loading" role="status" hidden>Loading…</div>
       <div class="scope-meta"><button id="refresh">Refresh</button> <span id="loadedAt"></span></div>
-      <div id="tabs">
-        <button id="tabBrief" class="tab" aria-selected="true" aria-controls="panelBrief">Brief</button>
-        <button id="tabMatrix" class="tab" aria-selected="false" aria-controls="panelMatrix">Matrix</button>
-        <button id="tabTimeline" class="tab" aria-selected="false" aria-controls="panelTimeline">Timeline</button>
-        <button id="tabGuide" class="tab" aria-selected="false" aria-controls="panelGuide">Guide</button>
-        <button id="tabStory" class="tab" aria-selected="false" aria-controls="panelStory">Story</button>
-        <button id="tabReverse" class="tab" aria-selected="false" aria-controls="panelReverse">Reverse</button>
-      </div>
+      <nav aria-label="System navigator"><div id="tabs" role="tablist">
+        <button id="tabBrief" class="tab" role="tab" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
+        <button id="tabMatrix" class="tab" role="tab" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
+        <button id="tabTimeline" class="tab" role="tab" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
+        <button id="tabGuide" class="tab" role="tab" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
+        <button id="tabStory" class="tab" role="tab" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
+        <button id="tabReverse" class="tab" role="tab" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
+      </div></nav>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
       <div id="panelTimeline" class="panel" hidden></div>
@@ -834,6 +838,32 @@ export function renderSystemPageHtml(): string {
   // in place (currentScope is set at the top of loadScope), so a stale view
   // can be re-fetched without navigating away. No-op when no scope is loaded.
   document.getElementById('refresh').onclick = () => { if (currentScope) loadScope(currentScope); };
+
+  // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
+  // Alt+1..6 (no ctrl/meta) switch tabs via the same showTab used by clicks
+  // (aria-selected + hash). When keyboard focus is on a .scope-item and the
+  // list is open, ArrowDown/ArrowUp move focus to the next/previous VISIBLE
+  // item -- the Task 1 filter hides non-matches with display:none, so only
+  // visible rows are reachable, wrapping around at the ends.
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'];
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
+      showTab(TAB_ORDER[Number(e.key) - 1]);
+      e.preventDefault();
+      return;
+    }
+    const el = (e.target instanceof HTMLElement && e.target.closest('.scope-item')) ? e.target : null;
+    if (el && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const items = Array.from(scopeList.querySelectorAll('.scope-item'))
+        .filter((item) => item.style.display !== 'none');
+      const idx = items.indexOf(el);
+      if (idx === -1) return;
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      const next = items[(idx + delta + items.length) % items.length];
+      next.focus();
+    }
+  });
 
   // Each of story/reverse/brief+matrix+timeline+guide only resolves one
   // particular scope kind (design increment B: story is task:-only,
