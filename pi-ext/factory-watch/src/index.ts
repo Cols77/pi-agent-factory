@@ -20,6 +20,7 @@ import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/
 import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
+import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -356,6 +357,7 @@ export default function factoryWatch(pi: PiApi): void {
   // enumerating, validating and writing.
   registerTraceTools(pi);
   registerSystemContextTools(pi);
+  registerSessionReviewSuggestTools(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
