@@ -1680,6 +1680,15 @@ describe("renderReviewHtml", () => {
     expect(html).toContain("/api/why?file=");
   });
 
+  test("renders the fan-out marker so a partial chain is never silent", () => {
+    // walkIntentChain counts the requirements and specs it did not show. A page
+    // that computes that count and never renders it leaves the reviewer looking
+    // at one of two satisfied requirements with no sign the second exists --
+    // precisely the failure the count was added to prevent.
+    expect(html).toMatch(/n\.alternatives/);
+    expect(html).toContain("more)");
+  });
+
   test("the only non-clearing innerHTML assignment is the rendered plan section", () => {
     // renderMarkdown output is the sole trusted HTML on this page; every other
     // server value must reach the DOM through createTextNode.
@@ -1910,7 +1919,7 @@ Add this function and call it at the end of `renderTree`'s click handler (`el.on
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-html`
-Expected: PASS (7 tests)
+Expected: PASS (8 tests)
 
 - [ ] **Step 8: Full suite, typecheck, and manual verification**
 
