@@ -200,13 +200,23 @@ def test_plan_section_is_none_when_no_section_matches(tmp_path, write_task):
     assert result["plan_section"] is None
 
 
+def test_plan_section_is_none_when_the_plan_file_is_not_valid_utf8(tmp_path, write_task):
+    plan_ref = _write_plan_file(tmp_path)
+    (tmp_path / plan_ref).write_bytes(b"### Task 1: X\n\xff\xfe invalid\n")
+    write_task(tmp_path, "T-001", title="X", source_plan=plan_ref, source_task=1)
+
+    result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+
+    assert result["plan_section"] is None
+
+
 def test_plan_section_validates_against_the_response_schema(tmp_path, write_task):
     plan_ref = _write_plan_file(tmp_path)
     write_task(tmp_path, "T-001", title="First Component", source_plan=plan_ref, source_task=1)
 
     result = query_story(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
 
-    validate_against(result, _STORY_SCHEMA)
+    assert validate_against(result, _STORY_SCHEMA) == []
 
 
 def test_task_carries_its_definition_of_done(tmp_path, write_task):
@@ -216,4 +226,4 @@ def test_task_carries_its_definition_of_done(tmp_path, write_task):
 
     # The fixture template writes a single `- done` dod entry.
     assert result["task"]["dod"] == ["done"]
-    validate_against(result, _STORY_SCHEMA)
+    assert validate_against(result, _STORY_SCHEMA) == []

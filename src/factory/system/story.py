@@ -203,7 +203,7 @@ def _plan_section(repo_root: Path, task: ledger.Task) -> dict | None:
         return None
     try:
         text = (repo_root / task.source_plan).read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     sections = parse_plan_tasks(text)
     match = next((s for s in sections if s.title.strip() == task.title.strip()), None)
