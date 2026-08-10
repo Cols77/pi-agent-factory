@@ -350,6 +350,30 @@ def test_check_treats_an_error_only_validation_entry_as_no_measurement(tmp_path)
     assert "pending" in report.lower()
 
 
+def test_check_lets_a_live_task_mask_a_stale_done_task_for_the_same_requirement(tmp_path):
+    # T-001 is done and T-002 is still live, both naming SR-001. load_tasks sorts
+    # by id, so T-001 sorts first -- if _linked_task_status didn't prefer the
+    # not-done match, it would pick T-001's "done" status and SR-001 would fall
+    # through to pending (exit 1) instead of resolving planned (exit 0).
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    _write(
+        tasks, "T-001.md",
+        "---\nid: T-001\ntitle: old\nstatus: done\ndod:\n  - x\nsatisfies:\n  - SR-001\n---\nbody\n",
+    )
+    _write(
+        tasks, "T-002.md",
+        "---\nid: T-002\ntitle: live\nstatus: todo\ndod:\n  - x\nsatisfies:\n  - SR-001\n---\nbody\n",
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "the live task must mask the stale done one; SR-001 is planned, not pending"
+    assert "0 pending" in report
+
+
 def test_next_names_the_first_undecided_requirement(tmp_path):
     (tmp_path / "requirements").mkdir()
     _write(tmp_path / "requirements", "SR-009.md", _PROPOSED)
