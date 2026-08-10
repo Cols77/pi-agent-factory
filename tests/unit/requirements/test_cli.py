@@ -1,7 +1,18 @@
 import json
 
 import pytest
-from factory.requirements.cli import cmd_bind, cmd_defer, cmd_index, cmd_new, cmd_show, cmd_status, main
+from factory.evidence.manifests import write_run_manifest
+from factory.requirements.cli import (
+    cmd_bind,
+    cmd_check,
+    cmd_defer,
+    cmd_index,
+    cmd_new,
+    cmd_next,
+    cmd_show,
+    cmd_status,
+    main,
+)
 from factory.requirements.register import is_checksum_current, parse_requirement
 
 pytestmark = pytest.mark.unit
@@ -42,6 +53,35 @@ def _write(tmp_path, name: str, text: str):
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _manifest_with_validation_entries(requirements: list[dict], run_id: str = "run-1") -> dict:
+    # Mirrors evidence/test_manifests.py's fixture -- schema requires every one of
+    # these keys, but only `validation` is relevant to closure resolution.
+    return {
+        "schema_version": 2,
+        "run_id": run_id,
+        "task_id": "T-001",
+        "started_at": "2026-08-07T12:00:00Z",
+        "ended_at": "2026-08-07T12:01:00Z",
+        "start_commit": "a" * 40,
+        "result_commit": "b" * 40,
+        "outcome": "completed",
+        "inputs": {
+            "task": {"path": "tasks/T-001.md", "sha256": "c" * 64},
+            "requirements": [],
+            "factory_config_sha256": "d" * 64,
+        },
+        "dependencies": [],
+        "implementation": {
+            "changed_files": ["src/a.py"],
+            "patch": {"sha256": "e" * 64, "size": 12, "media_type": "text/x-diff"},
+        },
+        "validation": [{"requirements": requirements}],
+        "reviews": [],
+        "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
 
 
 def test_new_allocates_sequential_ids(tmp_path):
@@ -243,3 +283,81 @@ def test_main_wires_bind_reaffirm_without_measurement_args(tmp_path):
         "bind", "SR-001", "--requirements-dir", str(tmp_path), "--reaffirm", "reworded",
     ])
     assert rc == 0
+
+
+def test_check_fails_on_a_pending_requirement_and_says_why(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    _write(tmp_path / "requirements", "SR-009.md", _PROPOSED)
+    report, code = cmd_check(tmp_path)
+    assert code == 1, "an undecided requirement fails the gate"
+    assert "SR-009" in report
+    assert "pending" in report.lower()
+
+
+def test_check_passes_when_every_requirement_is_decided(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    _write(tmp_path / "requirements", "SR-009.md", _PROPOSED)
+    cmd_defer(tmp_path / "requirements", "SR-009", "no task delivers this yet")
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "0 pending" in report
+
+
+def test_an_unmeasurable_requirement_warns_without_failing(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    _write(tmp_path / "requirements", "SR-009.md", _PROPOSED)
+    cmd_bind(
+        tmp_path / "requirements", "SR-009", experiment="e", metric="m",
+        assert_expr=">= 1", harness=None, trials=1, reaffirm_reason=None,
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "an unnamed harness is a warning, never a blocker"
+    assert "unmeasurable" in report.lower()
+    assert "SR-009" in report
+
+
+def test_check_reports_a_stale_requirement_as_blocking(tmp_path):
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    path = _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("shall do Y", "shall do Y NOW"), encoding="utf-8"
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 1
+    assert "SR-001" in report
+
+
+def test_check_treats_an_error_only_validation_entry_as_no_measurement(tmp_path):
+    # An error entry ("no passed key") is what run_requirement_validation emits for
+    # an unknown/proposed requirement or a harness that raised -- it must never be
+    # read as evidence the requirement was measured. If it were, SR-001 here would
+    # wrongly resolve to measured-passing instead of staying pending.
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries(
+            [{"id": "SR-001", "error": "binding: no harness named yet"}]
+        ),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 1, "an error entry is not a measurement; SR-001 must stay pending"
+    assert "SR-001" in report
+    assert "pending" in report.lower()
+
+
+def test_next_names_the_first_undecided_requirement(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    _write(tmp_path / "requirements", "SR-009.md", _PROPOSED)
+    out = cmd_next(tmp_path)
+    assert "SR-009" in out
+    assert "When the zone clears" in out, "the statement is what the judgment is made against"
+
+
+def test_next_says_so_when_nothing_is_open(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    assert "nothing" in cmd_next(tmp_path).lower()

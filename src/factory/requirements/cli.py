@@ -7,7 +7,12 @@ from pathlib import Path
 
 import frontmatter
 
+from factory.evidence.manifests import list_run_manifests
+from factory.freshness.model import FreshnessSeverity
+from factory.orchestrator.ledger import Task, load_tasks
+from factory.requirements.closure import ClosureFinding, RequirementState, classify
 from factory.requirements.register import (
+    Requirement,
     content_checksum,
     is_checksum_current,
     load_register,
@@ -169,6 +174,101 @@ def cmd_defer(requirements_dir: Path, req_id: str, reason: str) -> str:
     return f"{req_id}  deferred: {reason}"
 
 
+def _deferred_reason(req: Requirement) -> str | None:
+    # `Requirement` doesn't carry this field -- `trace_deferred` is trace/write's
+    # disposition key, read straight from frontmatter rather than duplicating a
+    # parse rule `register.py` doesn't already have.
+    reason = frontmatter.load(str(req.path)).get("trace_deferred")
+    return str(reason) if reason else None
+
+
+def _linked_task_status(tasks: list[Task], req_id: str) -> str | None:
+    matches = [t for t in tasks if req_id in t.satisfies]
+    if not matches:
+        return None
+    # A done task that once claimed this requirement must not mask a live one
+    # still working on it, so prefer any match that isn't done.
+    live = next((t for t in matches if t.status != "done"), None)
+    return (live or matches[0]).status
+
+
+def _validation_state(manifests: list[dict], req_id: str) -> str | None:
+    # An entry with no `passed` key is an error entry (unknown/proposed
+    # requirement, unnamed harness, or a harness that raised) -- it never
+    # happened as a measurement, so it must not be read as one. Never reads
+    # the `report` blob ref; only the inline `requirements` array.
+    results = [
+        entry
+        for manifest in manifests
+        for validation in manifest.get("validation") or []
+        if isinstance(validation, dict)
+        for entry in validation.get("requirements", [])
+        if isinstance(entry, dict) and entry.get("id") == req_id and "passed" in entry
+    ]
+    if any(not entry["passed"] for entry in results):
+        return "failing"
+    if results:
+        return "passing"
+    return None
+
+
+def _findings(project_root: Path) -> list[tuple[Requirement, ClosureFinding]]:
+    reqs = load_register(project_root / "requirements")
+    tasks = load_tasks(project_root / "tasks")
+    manifests = list_run_manifests(project_root / "evidence")
+    return [
+        (
+            req,
+            classify(
+                req,
+                validation=_validation_state(manifests, req.id),
+                linked_task_status=_linked_task_status(tasks, req.id),
+                deferred_reason=_deferred_reason(req),
+            ),
+        )
+        for req in reqs
+    ]
+
+
+def cmd_check(project_root: Path) -> tuple[str, int]:
+    # Stateless by design, mirroring trace.cli.cmd_check: every finding is
+    # re-derived from disk on each call, so the gate cannot be satisfied by a
+    # claim that a requirement was judged -- only by the judgment itself.
+    findings = [finding for _, finding in _findings(project_root)]
+    pending = [f for f in findings if f.severity is FreshnessSeverity.BLOCKING]
+    warning = [f for f in findings if f.severity is FreshnessSeverity.WARNING]
+
+    lines = [
+        f"requirements closure: {len(findings)} requirement(s) evaluated",
+        f"{len(pending)} pending, {len(warning)} unmeasurable",
+    ]
+    if pending:
+        lines.append("")
+        lines.append("undecided requirements (the gate fails on these):")
+        for f in pending:
+            lines.append(f"  ! {f.req_id:<10} {f.detail}")
+    if warning:
+        lines.append("")
+        lines.append("unmeasurable — warned, not blocking:")
+        for f in warning:
+            lines.append(f"  ~ {f.req_id:<10} {f.detail}")
+    return "\n".join(lines), (1 if pending else 0)
+
+
+def cmd_next(project_root: Path) -> str:
+    tasks = load_tasks(project_root / "tasks")
+    for req, finding in _findings(project_root):
+        if finding.state is not RequirementState.PENDING:
+            continue
+        candidates = [t.id for t in tasks if req.id in t.satisfies]
+        return (
+            f"{req.id}  {req.title}\n"
+            f"statement: {req.statement}\n"
+            f"candidate tasks: {', '.join(candidates) if candidates else 'none'}"
+        )
+    return "nothing pending -- every requirement is decided"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="factory-requirements")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -203,6 +303,13 @@ def main(argv: list[str] | None = None) -> int:
     p_defer.add_argument("id")
     p_defer.add_argument("--reason", required=True)
 
+    # check/next take a project root, not a requirements dir: closure needs
+    # tasks and evidence too, matching trace.cli._add_root's flag and default.
+    p_check = sub.add_parser("check")
+    p_check.add_argument("--project-root", default=Path("."), type=Path)
+    p_next = sub.add_parser("next")
+    p_next.add_argument("--project-root", default=Path("."), type=Path)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "new":
@@ -228,4 +335,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.cmd == "defer":
         print(cmd_defer(args.requirements_dir, args.id, args.reason))
+    elif args.cmd == "check":
+        text, code = cmd_check(args.project_root)
+        print(text)
+        return code
+    elif args.cmd == "next":
+        print(cmd_next(args.project_root))
     return 0
