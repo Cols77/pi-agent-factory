@@ -3,6 +3,7 @@ import pytest
 from factory.requirements.register import is_checksum_current, parse_requirement
 from factory.requirements.write import (
     ReasonRequiredError,
+    UnboundRequirementError,
     reaffirm,
     write_binding,
     write_deferral,
@@ -84,6 +85,41 @@ def test_reaffirm_without_a_reason_is_refused(tmp_path):
     )
     with pytest.raises(ReasonRequiredError):
         reaffirm(path, "   ")
+
+
+def test_reaffirm_on_a_proposed_requirement_is_refused_before_anything_is_written(tmp_path):
+    # The refusal must land before the write, not after: a file carrying a
+    # `reaffirmed` record for a reaffirmation that then failed is a worse lie
+    # than the staleness it was trying to clear.
+    path = _write(tmp_path)
+    before = path.read_text(encoding="utf-8")
+    with pytest.raises(UnboundRequirementError):
+        reaffirm(path, "the statement was reworded")
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_write_binding_carries_forward_a_window_and_cadence_it_was_not_asked_to_change(tmp_path):
+    path = _write(tmp_path)
+    write_binding(
+        path, experiment="e", metric="m", assert_expr=">= 1", harness="h", trials=1,
+        window={"after_event": "shark_detected", "within_s": 5},
+    )
+    post = frontmatter.load(str(path))
+    post["binding"] = {**post["binding"], "cadence": "nightly"}
+    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+    # A re-bind that names no window must not drop the one on disk: `window` is
+    # a checksum input, so the stamp that follows would certify the loss.
+    write_binding(
+        path, experiment="e2", metric="m2", assert_expr=">= 2", harness="h", trials=4, window=None,
+    )
+
+    req = parse_requirement(path)
+    assert req.binding is not None
+    assert req.binding.window == {"after_event": "shark_detected", "within_s": 5}
+    assert req.binding.cadence == "nightly", "cadence is not even a checksum input; its loss is silent"
+    assert req.binding.metric == "m2", "the fields it WAS asked to change still change"
+    assert is_checksum_current(req)
 
 
 def test_write_deferral_uses_the_field_trace_already_reads(tmp_path):

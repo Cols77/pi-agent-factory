@@ -55,7 +55,9 @@ def _write(tmp_path, name: str, text: str):
     return path
 
 
-def _manifest_with_validation_entries(requirements: list[dict], run_id: str = "run-1") -> dict:
+def _manifest_with_validation_entries(
+    requirements: list[dict], run_id: str = "run-1", ended_at: str = "2026-08-07T12:01:00Z"
+) -> dict:
     # Mirrors evidence/test_manifests.py's fixture -- schema requires every one of
     # these keys, but only `validation` is relevant to closure resolution.
     return {
@@ -63,7 +65,7 @@ def _manifest_with_validation_entries(requirements: list[dict], run_id: str = "r
         "run_id": run_id,
         "task_id": "T-001",
         "started_at": "2026-08-07T12:00:00Z",
-        "ended_at": "2026-08-07T12:01:00Z",
+        "ended_at": ended_at,
         "start_commit": "a" * 40,
         "result_commit": "b" * 40,
         "outcome": "completed",
@@ -372,6 +374,206 @@ def test_check_lets_a_live_task_mask_a_stale_done_task_for_the_same_requirement(
     report, code = cmd_check(tmp_path)
     assert code == 0, "the live task must mask the stale done one; SR-001 is planned, not pending"
     assert "0 pending" in report
+
+
+def test_bind_reaffirm_on_a_proposed_requirement_is_reported_and_leaves_the_file_alone(tmp_path):
+    # 180 of the 181 requirements in the field register are proposed, so this is
+    # the likeliest mistaken invocation there is. It must refuse before writing:
+    # the old order wrote `reaffirmed:` and only then discovered there was no
+    # binding to checksum, leaving a record of a reaffirmation that never happened.
+    path = _write(tmp_path, "SR-009.md", _PROPOSED)
+    before = path.read_text(encoding="utf-8")
+    out = cmd_bind(
+        tmp_path, "SR-009", experiment=None, metric=None, assert_expr=None,
+        harness=None, trials=1, reaffirm_reason="the statement was reworded",
+    )
+    assert "SR-009" in out
+    assert "no binding" in out
+    assert path.read_text(encoding="utf-8") == before, "a refusal leaves no partial write"
+    assert "reaffirmed" not in path.read_text(encoding="utf-8")
+
+
+def test_main_bind_reaffirm_on_a_proposed_requirement_does_not_traceback(tmp_path, capsys):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    rc = main(["bind", "SR-009", "--requirements-dir", str(tmp_path), "--reaffirm", "reworded"])
+    assert rc == 0, "reported, never raised -- the idiom the rest of this CLI uses"
+    assert "no binding" in capsys.readouterr().out
+
+
+def test_bind_reaffirm_with_a_blank_reason_is_refused(tmp_path):
+    path = _write(tmp_path, "SR-001.md", _BOUND)
+    cmd_index(tmp_path)
+    before = path.read_text(encoding="utf-8")
+    out = cmd_bind(
+        tmp_path, "SR-001", experiment=None, metric=None, assert_expr=None,
+        harness=None, trials=1, reaffirm_reason="   ",
+    )
+    assert "reason" in out.lower()
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_rebinding_keeps_a_window_the_call_did_not_name(tmp_path):
+    # The single bound requirement in the field register carries a window, and
+    # `window` is a content_checksum input -- so dropping it and stamping would
+    # certify the mutilated binding as current, the exact laundering `index`
+    # was fixed to prevent.
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    cmd_bind(
+        tmp_path, "SR-009", experiment="e", metric="m", assert_expr=">= 1",
+        harness="sim-testbench", trials=1, reaffirm_reason=None,
+        window_json='{"after_event": "shark_detected", "within_s": 5}',
+    )
+    cmd_bind(
+        tmp_path, "SR-009", experiment="e", metric="m", assert_expr=">= 2",
+        harness="sim-testbench", trials=1, reaffirm_reason=None,
+    )
+    req = parse_requirement(tmp_path / "SR-009.md")
+    assert req.binding.window == {"after_event": "shark_detected", "within_s": 5}
+    assert is_checksum_current(req)
+
+
+def test_bind_window_json_round_trips(tmp_path):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    cmd_bind(
+        tmp_path, "SR-009", experiment="e", metric="m", assert_expr=">= 1",
+        harness="h", trials=1, reaffirm_reason=None,
+        window_json='{"after_event": "shark_detected", "within_s": 5}',
+    )
+    req = parse_requirement(tmp_path / "SR-009.md")
+    assert req.binding.window == {"after_event": "shark_detected", "within_s": 5}
+    assert isinstance(req.binding.window["within_s"], int), "JSON, not k=v, so numbers stay numbers"
+
+
+def test_bind_reports_a_malformed_window_json_without_writing(tmp_path):
+    path = _write(tmp_path, "SR-009.md", _PROPOSED)
+    before = path.read_text(encoding="utf-8")
+    out = cmd_bind(
+        tmp_path, "SR-009", experiment="e", metric="m", assert_expr=">= 1",
+        harness="h", trials=1, reaffirm_reason=None, window_json="{not json",
+    )
+    assert "--window-json" in out
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_main_wires_window_json(tmp_path, capsys):
+    _write(tmp_path, "SR-009.md", _PROPOSED)
+    rc = main([
+        "bind", "SR-009", "--requirements-dir", str(tmp_path),
+        "--experiment", "e", "--metric", "m", "--assert", ">= 1",
+        "--window-json", '{"within_s": 5}',
+    ])
+    assert rc == 0
+    capsys.readouterr()
+    assert parse_requirement(tmp_path / "SR-009.md").binding.window == {"within_s": 5}
+
+
+def test_main_index_exits_nonzero_on_a_stale_checksum(tmp_path, capsys):
+    # A CI step running `index` alone must not read exit 0 over a stale register.
+    path = _write(tmp_path, "SR-001.md", _BOUND)
+    assert main(["index", "--requirements-dir", str(tmp_path)]) == 0
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("shall do Y", "shall do Y NOW"), encoding="utf-8"
+    )
+    assert main(["index", "--requirements-dir", str(tmp_path)]) == 1
+    assert "true" in capsys.readouterr().out.lower(), "and still prints the report"
+
+
+def test_check_renders_a_measured_failing_requirement_distinctly_and_still_passes(tmp_path):
+    # Without this the unproven path is unfalsifiable: a requirement the system
+    # provably fails rendered byte-identically to one that passes.
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": False}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "a measured failure is a healthy closure state; the register does not judge it"
+    assert "1 measured-failing" in report
+    assert "0 measured-passing" in report
+    assert "SR-001" in report
+    assert "measured failing" in report
+
+
+def test_check_resolves_a_requirement_against_the_newest_manifest_that_measured_it(tmp_path):
+    # A requirement that failed, was fixed and now passes must read as passing.
+    # Aggregating across all history lets one ancient `passed: false` outvote
+    # every later run and parks it in measured-failing forever.
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries(
+            [{"id": "SR-001", "passed": False}], run_id="run-old",
+            ended_at="2026-08-07T12:01:00Z",
+        ),
+    )
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries(
+            [{"id": "SR-001", "passed": True}], run_id="run-new",
+            ended_at="2026-08-08T12:01:00Z",
+        ),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "1 measured-passing" in report
+    assert "0 measured-failing" in report, "the fix supersedes the old failure"
+
+
+def test_check_fails_on_an_integrity_finding_not_just_a_blocking_one(tmp_path, monkeypatch):
+    # Nothing emits INTEGRITY today, so this pins the gate's filter rather than a
+    # live state: INTEGRITY is the MORE severe tier, and FreshnessReport.ok
+    # already treats it as failing.
+    from factory.freshness.model import FreshnessSeverity
+    from factory.requirements import cli as cli_mod
+    from factory.requirements.closure import ClosureFinding, RequirementState
+    from factory.requirements.register import Requirement
+
+    req = Requirement(
+        id="SR-001", title="t", statement="s", domain="behavioral", upstream=[],
+        binding=None, body="", path=tmp_path / "SR-001.md",
+    )
+    finding = ClosureFinding(
+        req_id="SR-001", state=RequirementState.PENDING,
+        severity=FreshnessSeverity.INTEGRITY, detail="SR-001: integrity",
+    )
+    monkeypatch.setattr(cli_mod, "_findings", lambda _root: [(req, finding)])
+    report, code = cmd_check(tmp_path)
+    assert code == 1, "the more severe tier must not pass the gate silently"
+    assert "SR-001" in report
+
+
+def test_check_surfaces_a_deferral_that_closed_a_requirement_with_no_binding(tmp_path):
+    # `trace_deferred` is shared with trace, where it answers a traceability
+    # question, not a measurement one. A deferral on an unbound requirement
+    # therefore closes it with nobody having decided how it would be measured --
+    # reported rather than silently closed, but still not a gate failure.
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-009.md", _PROPOSED)
+    cmd_defer(reqs, "SR-009", "traceability handled elsewhere")
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "a recorded deferral is still a real disposition; this is visibility, not a gate change"
+    assert "1 declined (1 with no binding)" in report
+    assert "declined with no binding" in report
+    assert "SR-009" in report
+
+
+def test_check_does_not_flag_a_deferred_requirement_that_is_bound(tmp_path):
+    reqs = tmp_path / "requirements"
+    reqs.mkdir()
+    _write(reqs, "SR-001.md", _BOUND)
+    cmd_index(reqs)
+    cmd_defer(reqs, "SR-001", "scheduled for the next increment")
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "1 declined (0 with no binding)" in report
+    assert "declined with no binding" not in report
 
 
 def test_next_names_the_first_undecided_requirement(tmp_path):

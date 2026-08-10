@@ -8,7 +8,7 @@ from pathlib import Path
 import frontmatter
 
 from factory.evidence.manifests import list_run_manifests
-from factory.freshness.model import FreshnessSeverity
+from factory.freshness.model import GATE_FAILING_SEVERITIES, FreshnessSeverity
 from factory.orchestrator.ledger import Task, load_tasks
 from factory.requirements.closure import ClosureFinding, RequirementState, classify
 from factory.requirements.register import (
@@ -18,7 +18,14 @@ from factory.requirements.register import (
     load_register,
     parse_requirement,
 )
-from factory.requirements.write import ReasonRequiredError, reaffirm, write_binding, write_deferral
+from factory.requirements.write import (
+    ReasonRequiredError,
+    UnboundRequirementError,
+    reaffirm,
+    stamp_checksum,
+    write_binding,
+    write_deferral,
+)
 
 _ID_RE = re.compile(r"SR-(\d+)")
 
@@ -62,10 +69,9 @@ def cmd_index(requirements_dir: Path) -> dict:
             continue
         checksum = content_checksum(req)
         if req.checksum is None:
-            # First stamp for a newly bound requirement.
-            post = frontmatter.load(str(req.path))
-            post["checksum"] = checksum
-            req.path.write_text(frontmatter.dumps(post), encoding="utf-8")
+            # First stamp for a newly bound requirement. Delegated so `write`
+            # stays the single writer of the checksum field.
+            stamp_checksum(req.path)
             out.append({"id": req.id, "checksum": checksum, "stale": False})
             continue
         if req.checksum == checksum:
@@ -130,6 +136,7 @@ def cmd_bind(
     harness: str | None,
     trials: int,
     reaffirm_reason: str | None,
+    window_json: str | None = None,
 ) -> str:
     path = requirements_dir / f"{req_id}.md"
     if not path.exists():
@@ -142,6 +149,11 @@ def cmd_bind(
             reaffirm(path, reaffirm_reason)
         except ReasonRequiredError:
             return f"{req_id}: a reason is required to reaffirm"
+        except UnboundRequirementError:
+            return (
+                f"{req_id}: nothing to reaffirm -- this requirement is proposed and has no "
+                f"binding; bind it with --experiment/--metric/--assert instead"
+            )
         return f"{req_id}  reaffirmed: {reaffirm_reason}"
     if experiment is None or metric is None or assert_expr is None:
         missing = [
@@ -150,6 +162,12 @@ def cmd_bind(
             if value is None
         ]
         return f"{req_id}: missing {', '.join(missing)} (or pass --reaffirm to keep the existing binding)"
+    # Parsed here rather than in `main` so a malformed window is reported like
+    # every other refusal in this CLI, and before anything is written.
+    try:
+        window = json.loads(window_json) if window_json else None
+    except json.JSONDecodeError as exc:
+        return f"{req_id}: --window-json is not valid JSON ({exc.msg})"
     write_binding(
         path,
         experiment=experiment,
@@ -157,7 +175,7 @@ def cmd_bind(
         assert_expr=assert_expr,
         harness=harness,
         trials=trials,
-        window=None,
+        window=window,
     )
     harness_desc = harness if harness is not None else "no harness named yet"
     return f"{req_id}  bound to {harness_desc}: {metric} {assert_expr}"
@@ -193,22 +211,28 @@ def _linked_task_status(tasks: list[Task], req_id: str) -> str | None:
 
 
 def _validation_state(manifests: list[dict], req_id: str) -> str | None:
-    # An entry with no `passed` key is an error entry (unknown/proposed
-    # requirement, unnamed harness, or a harness that raised) -- it never
-    # happened as a measurement, so it must not be read as one. Never reads
-    # the `report` blob ref; only the inline `requirements` array.
-    results = [
-        entry
-        for manifest in manifests
-        for validation in manifest.get("validation") or []
-        if isinstance(validation, dict)
-        for entry in validation.get("requirements", [])
-        if isinstance(entry, dict) and entry.get("id") == req_id and "passed" in entry
-    ]
-    if any(not entry["passed"] for entry in results):
-        return "failing"
-    if results:
-        return "passing"
+    # Resolved against the NEWEST manifest that measured this id, not aggregated
+    # across all of history: a requirement that failed, was fixed and now passes
+    # is passing. Aggregating would let one ancient `passed: false` outvote every
+    # later run, parking a fixed requirement in measured-failing forever.
+    # `list_run_manifests` already returns newest-first.
+    for manifest in manifests:
+        # An entry with no `passed` key is an error entry (unknown/proposed
+        # requirement, unnamed harness, or a harness that raised) -- it never
+        # happened as a measurement, so it must not be read as one. Never reads
+        # the `report` blob ref; only the inline `requirements` array.
+        results = [
+            entry
+            for validation in manifest.get("validation") or []
+            if isinstance(validation, dict)
+            for entry in validation.get("requirements", [])
+            if isinstance(entry, dict) and entry.get("id") == req_id and "passed" in entry
+        ]
+        if not results:
+            continue
+        # Within one run, a single failed trial of the requirement is a failure
+        # of that run -- there is no later result to supersede it.
+        return "failing" if any(not entry["passed"] for entry in results) else "passing"
     return None
 
 
@@ -234,24 +258,55 @@ def cmd_check(project_root: Path) -> tuple[str, int]:
     # Stateless by design, mirroring trace.cli.cmd_check: every finding is
     # re-derived from disk on each call, so the gate cannot be satisfied by a
     # claim that a requirement was judged -- only by the judgment itself.
-    findings = [finding for _, finding in _findings(project_root)]
-    pending = [f for f in findings if f.severity is FreshnessSeverity.BLOCKING]
+    results = _findings(project_root)
+    findings = [finding for _, finding in results]
+    pending = [f for f in findings if f.severity in GATE_FAILING_SEVERITIES]
     warning = [f for f in findings if f.severity is FreshnessSeverity.WARNING]
+    passing = [f for f in findings if f.state is RequirementState.MEASURED_PASSING]
+    # Rendered separately from measured-passing on purpose: flattening a failing
+    # measurement into "measured" is the same class of lie as reporting a stale
+    # pass as a pass. It still exits 0 -- a measured failure is a healthy
+    # closure state, and that the system fails its own requirement is the
+    # validation report's business, not the register's.
+    failing = [f for f in findings if f.state is RequirementState.MEASURED_FAILING]
+    declined = [f for _, f in results if f.state is RequirementState.DECLINED]
+    # `trace_deferred` is shared with trace, where it answers a traceability
+    # question rather than a measurement one. A deferral on an unbound
+    # requirement therefore closes it without anyone having decided how it would
+    # be measured -- surfaced so the population is honest, but not failed on:
+    # the deferral is still a real, recorded disposition.
+    declined_unbound = [
+        f for req, f in results if f.state is RequirementState.DECLINED and req.binding is None
+    ]
 
     lines = [
         f"requirements closure: {len(findings)} requirement(s) evaluated",
-        f"{len(pending)} pending, {len(warning)} unmeasurable",
+        f"{len(pending)} pending, {len(warning)} unmeasurable, "
+        f"{len(passing)} measured-passing, {len(failing)} measured-failing, "
+        f"{len(declined)} declined ({len(declined_unbound)} with no binding)",
     ]
     if pending:
         lines.append("")
         lines.append("undecided requirements (the gate fails on these):")
         for f in pending:
             lines.append(f"  ! {f.req_id:<10} {f.detail}")
+    if failing:
+        lines.append("")
+        lines.append("measured failing — decided and measured; the system does not meet these:")
+        for f in failing:
+            lines.append(f"  x {f.req_id:<10} {f.detail}")
     if warning:
         lines.append("")
         lines.append("unmeasurable — warned, not blocking:")
         for f in warning:
             lines.append(f"  ~ {f.req_id:<10} {f.detail}")
+    if declined_unbound:
+        lines.append("")
+        lines.append(
+            "declined with no binding — deferred, but no measurement was ever decided:"
+        )
+        for f in declined_unbound:
+            lines.append(f"  - {f.req_id:<10} {f.detail}")
     return "\n".join(lines), (1 if pending else 0)
 
 
@@ -297,6 +352,10 @@ def main(argv: list[str] | None = None) -> int:
     p_bind.add_argument("--assert", dest="assert_expr", default=None)
     p_bind.add_argument("--harness", default=None)
     p_bind.add_argument("--trials", type=int, default=1)
+    # JSON, not k=v, mirroring `doctor promote`: the window carries typed values
+    # (within_s is a number, after_event a string) that a flat key-value syntax
+    # cannot express.
+    p_bind.add_argument("--window-json", dest="window_json", default=None)
     p_bind.add_argument("--reaffirm", dest="reaffirm_reason", default=None)
 
     p_defer = sub.add_parser("defer", parents=[common])
@@ -315,7 +374,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "new":
         print(cmd_new(args.requirements_dir, args.title, args.domain))
     elif args.cmd == "index":
-        print(json.dumps(cmd_index(args.requirements_dir), indent=2))
+        result = cmd_index(args.requirements_dir)
+        print(json.dumps(result, indent=2))
+        # A stale entry is a decision nobody has made yet, so a CI step running
+        # `index` alone must not read exit 0 over it. The exit code is derived
+        # here rather than returned by cmd_index, which stays a plain report its
+        # in-process callers can consume.
+        return 1 if any(entry.get("stale") for entry in result["requirements"]) else 0
     elif args.cmd == "status":
         print(cmd_status(args.requirements_dir, stale_only=args.stale))
     elif args.cmd == "show":
@@ -331,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
                 harness=args.harness,
                 trials=args.trials,
                 reaffirm_reason=args.reaffirm_reason,
+                window_json=args.window_json,
             )
         )
     elif args.cmd == "defer":

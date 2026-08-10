@@ -41,6 +41,10 @@ def test_a_failing_validation_result_is_legal_but_distinct(tmp_path):
         linked_task_status=None, deferred_reason=None,
     )
     assert finding.state is RequirementState.MEASURED_FAILING, "a failing result is honest evidence"
+    assert finding.severity is None, (
+        "measured-failing is a healthy CLOSURE state -- bound, current and genuinely "
+        "measured; the failure belongs to the validation report, not the register"
+    )
 
 
 def test_no_result_with_a_live_task_is_planned(tmp_path):
