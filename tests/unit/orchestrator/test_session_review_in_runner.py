@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import pytest
-from factory.orchestrator.backends import FakeGateRunner
+from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.nodes import run_session_review
+from factory.orchestrator.ledger import Task
 from factory.orchestrator.runner import run_next
-from factory.orchestrator.types import AgentRole, AgentResult
+from factory.orchestrator.types import AgentRole, AgentResult, NodeEvent
 from ._skill_fixtures import write_skill_stubs
 
 pytestmark = pytest.mark.unit
@@ -72,3 +75,56 @@ def test_session_review_invoked_at_end_of_run_next_with_events_and_kb_titles(tmp
     assert AgentRole.SESSION_REVIEW in backend.prompts
     assert "## What happened this run" in backend.prompts[AgentRole.SESSION_REVIEW]
     assert "Final outcome: completed" in backend.prompts[AgentRole.SESSION_REVIEW]
+
+
+def test_run_session_review_persists_structured_outcome_artifact(tmp_path):
+    task = Task("T-001", "Session review", "todo", ["tests green"], "body", tmp_path / "task.md")
+    outcome = {
+        "suggestions": [
+            {
+                "target": "gate",
+                "summary": "gate uses wrong interpreter",
+                "proposed": "replace {python} with uv run python",
+                "evidence": "collection-stage ModuleNotFoundError",
+            }
+        ],
+        "kb_added": ["kb/kb-0004-x.md"],
+    }
+    backend = FakeAgentBackend(
+        {AgentRole.SESSION_REVIEW: [AgentResult(True, outcome, session_id="sr-1")]}
+    )
+    run_session_review(
+        backend,
+        task,
+        tmp_path,
+        final_outcome="completed",
+        events=[NodeEvent("context-gather", "pass")],
+        run_id="0",
+    )
+    artifact = tmp_path / "sessions" / ".factory-runs" / "by-session" / "0" / "session-review.json"
+    assert artifact.exists()
+    data = json.loads(artifact.read_text(encoding="utf-8"))
+    assert data["run_id"] == "0"
+    assert data["task_id"] == "T-001"
+    assert data["final_outcome"] == "completed"
+    assert data["agent_session_id"] == "sr-1"
+    assert data["ok"] is True
+    assert data["suggestions"][0]["target"] == "gate"
+    assert data["kb_added"] == ["kb/kb-0004-x.md"]
+    assert data["summary_path"] == "sessions/0.session.json"
+
+
+def test_run_session_review_without_run_id_skips_artifact(tmp_path):
+    task = Task("T-001", "Session review", "todo", ["tests green"], "body", tmp_path / "task.md")
+    backend = FakeAgentBackend(
+        {AgentRole.SESSION_REVIEW: [AgentResult(True, {"suggestions": []})]}
+    )
+    run_session_review(
+        backend,
+        task,
+        tmp_path,
+        final_outcome="completed",
+        events=[NodeEvent("context-gather", "pass")],
+    )
+    artifact = tmp_path / "sessions" / ".factory-runs" / "by-session"
+    assert not (artifact / "session-review.json").exists()

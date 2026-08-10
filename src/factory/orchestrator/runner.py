@@ -615,6 +615,7 @@ def run_next(
         existing_kb_titles=list_kb_titles(repo_root / "kb"),
         transcript_dir=transcript_dir,
         status=status,
+        run_id=sid,
     )
     if execution is not None:
         execution.record(

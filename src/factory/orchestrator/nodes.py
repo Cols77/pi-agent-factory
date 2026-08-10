@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
+import json
 import subprocess
 from pathlib import Path
 
@@ -590,6 +591,46 @@ def run_review(
     )
 
 
+SESSION_REVIEW_ARTIFACT_NAME = "session-review.json"
+
+
+def persist_session_review_outcome(
+    run_id: str,
+    task: Task,
+    repo_root: Path,
+    *,
+    final_outcome: str | None,
+    result: AgentResult,
+) -> Path:
+    """Write the session-review outcome as a machine-readable artifact next to
+    the run's checkpoint so a caller of the factory (e.g. the invoking pi
+    session) can read it after the run exits and propose factory-run updates.
+    """
+    run_dir = repo_root / "sessions" / ".factory-runs" / "by-session" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    output = result.output if isinstance(result.output, dict) else {}
+    suggestions = output.get("suggestions", [])
+    if not isinstance(suggestions, list):
+        suggestions = []
+    kb_added = output.get("kb_added", [])
+    if not isinstance(kb_added, list):
+        kb_added = []
+    data = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "task_id": task.id,
+        "final_outcome": final_outcome,
+        "agent_session_id": result.session_id,
+        "ok": result.ok,
+        "suggestions": suggestions,
+        "kb_added": kb_added,
+        "summary_path": f"sessions/{run_id}.session.json",
+    }
+    path = run_dir / SESSION_REVIEW_ARTIFACT_NAME
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return path
+
+
 def run_session_review(
     backend: AgentBackend,
     task: Task,
@@ -600,6 +641,7 @@ def run_session_review(
     final_outcome: str | None = None,
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
+    run_id: str | None = None,
 ) -> AgentResult:
     captured_session_id: str | None = None
 
@@ -634,7 +676,7 @@ def run_session_review(
         final_outcome=final_outcome,
         skills_dir=repo_root / ".pi" / "skills",
     )
-    return _run_with_context_limit_continuation(
+    result = _run_with_context_limit_continuation(
         backend,
         AgentRole.SESSION_REVIEW,
         prompt,
@@ -653,3 +695,8 @@ def run_session_review(
         on_snippet=_on_snippet,
         on_session_id=_on_session_id,
     )
+    if run_id:
+        persist_session_review_outcome(
+            run_id, task, repo_root, final_outcome=final_outcome, result=result
+        )
+    return result

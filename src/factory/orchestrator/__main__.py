@@ -37,6 +37,38 @@ def _now_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
+def _session_review_line(repo_root: Path, run_id: str) -> str:
+    """One-line, parseable summary of the run's session-review outcome, read
+    from the artifact persisted next to the run checkpoint. Empty string means
+    no artifact (no session-review or already surfaced).
+    """
+    artifact = (
+        repo_root
+        / "sessions"
+        / ".factory-runs"
+        / "by-session"
+        / run_id
+        / "session-review.json"
+    )
+    if not artifact.exists():
+        return ""
+    try:
+        data = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    suggestions = data.get("suggestions", [])
+    if not isinstance(suggestions, list):
+        suggestions = []
+    targets: dict[str, int] = {}
+    for sug in suggestions:
+        targets[sug.get("target", "other")] = targets.get(sug.get("target", "other"), 0) + 1
+    parts = ", ".join(f"{k}={v}" for k, v in targets.items()) or "none"
+    kb = data.get("kb_added", [])
+    kb_part = f", kb={len(kb)}" if isinstance(kb, list) and kb else ""
+    summary_path = data.get("summary_path", "")
+    return f"session-review: {len(suggestions)} suggestion(s) [{parts}]{kb_part} -> {summary_path}"
+
+
 def _repo_from_run_state_args(argv: list[str]) -> Path:
     try:
         index = argv.index("--repo")
@@ -198,6 +230,10 @@ def main() -> None:
             checkpoint_runs=True, **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
+        if path is not None:
+            review_line = _session_review_line(repo_root, session_id)
+            if review_line:
+                print(review_line, file=sys.stderr)
     except Exception as exc:
         # Report the failure for the dashboard, but never let a failure of
         # THIS report (e.g. a locked status file on Windows) mask the original

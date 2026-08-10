@@ -137,6 +137,17 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "sessions/ noting any skill or prompt improvements that would have made this run "
         "more efficient -- these are suggestions for a human to read later, not changes to "
         "apply yourself.\n"
+        "Finally, emit ONLY a single fenced ```json block as your very last message, with "
+        "EXACTLY this schema:\n"
+        '{"suggestions": [{"target": "prompt"|"skill"|"role"|"gate"|"config"|"other", '
+        '"summary": "<one line>", "proposed": "<change>", '
+        '"evidence": "<which event/observation>"}], "kb_added": ["kb/<path>", ...]}\n'
+        "suggestions may be an empty list if nothing about the factory is worth changing. "
+        "Target meaning: gate = .factory/factory.yaml (e.g. the interpreter/gate command); "
+        "prompt = ROLE_PROMPTS wording; skill = a .pi/skills/<name>/SKILL.md improvement; "
+        "role = agent scope/permission changes. This JSON block is the machine-readable "
+        "outcome a consuming tool reads to propose factory-run updates automatically, so "
+        "each entry's 'proposed' must be a concrete, actionable change.\n"
         "Read and write files with the read/view and write tools -- NOT with bash (bash is "
         "disabled for your role)."
     ),
