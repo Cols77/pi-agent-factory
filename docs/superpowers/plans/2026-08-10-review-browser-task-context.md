@@ -1584,7 +1584,13 @@ and add these handlers before the final `404`:
       }
 ```
 
-- [ ] **Step 6: Update the caller**
+- [ ] **Step 6: Update the callers**
+
+`opts` is deliberately **required**, not optional. `cwd` has no safe default:
+falling back to `process.cwd()` would serve `/api/why` and `/api/layout` from
+whatever directory the process happens to be in, which inside a git worktree is
+a different repository — a wrong answer that still looks like a working
+feature. A caller that cannot supply `cwd` should fail to compile.
 
 In `pi-ext/factory-watch/src/index.ts:204`, change the call to:
 
@@ -1592,10 +1598,23 @@ In `pi-ext/factory-watch/src/index.ts:204`, change the call to:
               const srv = await startReviewServer(pageData, { cwd: ctx.cwd });
 ```
 
+Three pre-existing tests in `pi-ext/factory-watch/test/review-server.test.ts`
+call `startReviewServer(data)` with one argument and will no longer compile.
+Add the second argument to each, changing nothing else — not their assertions,
+their names, or their fixtures:
+
+```typescript
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+```
+
+This is a mechanical call-site update forced by a deliberate signature change,
+which is the one edit to a pre-existing test this plan sanctions. Weakening or
+retargeting an existing assertion is still forbidden.
+
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-server`
-Expected: PASS — including the four pre-existing `buildReviewPageData` and `startReviewServer` tests
+Expected: PASS — including the four pre-existing `buildReviewPageData` and `startReviewServer` tests, whose assertions are unchanged
 
 - [ ] **Step 8: Full suite and typecheck**
 
