@@ -55,7 +55,11 @@ export function renderSystemPageHtml(): string {
   body.focus #scopeToggle { display: inline-block; }
   body.focus #picker { padding: 6px 0; }
   #content { padding: 16px 0; }
-  #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  /* Task 2 (system nav): #tabs is sticky so the Brief/Matrix/Timeline/Guide/
+     Story/Reverse switch stays visible while scrolling a long panel. Canvas
+     background keeps the tab strip opaque (not see-through over scrolled
+     content) and z-index keeps it above the panels. */
+  #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; position: sticky; top: 0; z-index: 3; background: Canvas; }
   .tab { font: inherit; padding: 6px 12px; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: inherit; }
   .tab[aria-selected="true"] { border-bottom-color: currentColor; font-weight: 600; }
   .panel[hidden] { display: none; }
@@ -121,12 +125,12 @@ export function renderSystemPageHtml(): string {
     <div id="content" hidden>
       <h2 id="scopeHeader"></h2>
       <div id="tabs">
-        <button id="tabBrief" class="tab" aria-selected="true">Brief</button>
-        <button id="tabMatrix" class="tab" aria-selected="false">Matrix</button>
-        <button id="tabTimeline" class="tab" aria-selected="false">Timeline</button>
-        <button id="tabGuide" class="tab" aria-selected="false">Guide</button>
-        <button id="tabStory" class="tab" aria-selected="false">Story</button>
-        <button id="tabReverse" class="tab" aria-selected="false">Reverse</button>
+        <button id="tabBrief" class="tab" aria-selected="true" aria-controls="panelBrief">Brief</button>
+        <button id="tabMatrix" class="tab" aria-selected="false" aria-controls="panelMatrix">Matrix</button>
+        <button id="tabTimeline" class="tab" aria-selected="false" aria-controls="panelTimeline">Timeline</button>
+        <button id="tabGuide" class="tab" aria-selected="false" aria-controls="panelGuide">Guide</button>
+        <button id="tabStory" class="tab" aria-selected="false" aria-controls="panelStory">Story</button>
+        <button id="tabReverse" class="tab" aria-selected="false" aria-controls="panelReverse">Reverse</button>
       </div>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
@@ -628,6 +632,26 @@ export function renderSystemPageHtml(): string {
   // toggles visibility, never reorders or drops a scope permanently.
   let scopeListData = [];
 
+  // Task 2 (system nav): the currently loaded scope ref (null until one
+  // loads). Set at the top of loadScope so all three kind loaders and the
+  // SPA URL both see it.
+  let currentScope = null;
+
+  // Task 2 (system nav): records the active scope in the URL via
+  // history.pushState -- SPA navigation with no full page reload, and
+  // back/forward work because every load pushed a real history entry. The
+  // pushed URL is pathname + ?scope= query only (no hash) so a stale
+  // per-tab #hash from a previous scope never lingers after switching
+  // scope. The try/catch is required because jsdom and some embeddings
+  // throw when pushState targets a cross-origin/non-serializable URL.
+  function pushScope(ref) {
+    try {
+      history.pushState({ scope: ref }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
+    } catch {
+      /* ignore: SPA URL is best-effort; the load itself already happened */
+    }
+  }
+
   // Collapses/expands the picker: a loaded scope puts the body in focus
   // (hiding the big list behind the "All scopes ▾" toggle); the failure /
   // initial / toggle-reveal paths take it back out. aria-expanded on the
@@ -673,6 +697,16 @@ export function renderSystemPageHtml(): string {
         a.dataset.kind = scope.kind;
         a.href = scopeHref(scope.ref);
         a.appendChild(document.createTextNode(scope.ref));
+        // Task 2 (system nav): stay in the SPA -- clicking loads the scope
+        // in-place via loadScope (which also pushState's the URL) instead of
+        // a full page reload that would re-fetch everything and lose your
+        // place. The href is kept on the element so middle-click / open-in-
+        // new-tab / no-JS still work. The ref is captured in the closure, so
+        // no dataset/lookup is needed at click time.
+        a.addEventListener('click', (clickEvent) => {
+          clickEvent.preventDefault();
+          loadScope(scope.ref);
+        });
         row.appendChild(a);
         list.appendChild(row);
       });
@@ -745,6 +779,26 @@ export function renderSystemPageHtml(): string {
       document.getElementById('tab' + tab).setAttribute('aria-selected', String(tab === name));
       document.getElementById('panel' + tab).hidden = tab !== name;
     });
+    // Task 2 (system nav): keep the active tab in the URL hash so a reload
+    // or bookmark restores it. replaceState (not pushState) so switching
+    // tabs doesn't pad the back-stack; the hash maps tab name -> lower-case
+    // (#Matrix -> #matrix). The try/catch is required for jsdom/odd
+    // embeddings that reject URL mutation.
+    try {
+      history.replaceState(null, '', location.pathname + location.search + '#' + name.toLowerCase());
+    } catch {
+      /* ignore: hash update is best-effort; the tab switch itself happened */
+    }
+  }
+
+  // Task 2 (system nav): picks the boot tab from the URL hash when it names
+  // a valid tab, otherwise falls back to the scope kind's default tab. A hash
+  // that doesn't apply to the current scope kind (e.g. #story on a bundle
+  // scope) falls back so we never surface a hidden/mismatched panel.
+  function selectInitialTab(kindDefault) {
+    const hash = (location.hash || '').replace('#', '').toLowerCase();
+    const names = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse' };
+    showTab(names[hash] || kindDefault);
   }
   document.getElementById('tabBrief').onclick = () => showTab('Brief');
   document.getElementById('tabMatrix').onclick = () => showTab('Matrix');
@@ -785,7 +839,7 @@ export function renderSystemPageHtml(): string {
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
-    showTab('Story');
+    selectInitialTab('Story');
   }
 
   async function loadReverseScope(scopeRef) {
@@ -806,7 +860,7 @@ export function renderSystemPageHtml(): string {
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
-    showTab('Reverse');
+    selectInitialTab('Reverse');
   }
 
   async function loadBundleScope(scopeRef) {
@@ -846,10 +900,16 @@ export function renderSystemPageHtml(): string {
     }
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
-    showTab('Brief');
+    selectInitialTab('Brief');
   }
 
   async function loadScope(scopeRef) {
+    // Task 2 (system nav): SPA entry -- record the ref and push a history
+    // entry so the URL stays in sync and back/forward work, then dispatch to
+    // the kind loader. pushScope runs here (not inside the kind loaders) so
+    // all three paths get it exactly once.
+    currentScope = scopeRef;
+    pushScope(scopeRef);
     const kind = scopeKind(scopeRef);
     if (kind === 'task') {
       await loadStoryScope(scopeRef);

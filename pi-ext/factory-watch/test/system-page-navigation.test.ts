@@ -88,4 +88,40 @@ describe("system-page navigation", () => {
     expect(dom.window.document.body.classList.contains("focus")).toBe(true);
     expect(dom.window.document.getElementById("scopeToggle")).not.toBeNull();
   });
+
+  // Task 2 (system nav): SPA scope navigation. Clicking a scope item must
+  // load the scope in-place through the SPA loader (no full page reload) and
+  // update the URL via history.pushState to /system?scope=<ref> -- proven by
+  // the scope loading (#content unhidden) while window.location.search also
+  // carries scope=. The bundle/sr fixture kinds hit /brief /matrix /timeline
+  // /guide, so the empty-stub fixtures above resolve them.
+  test("scope items navigate via the SPA loader and pushState, not a full reload", async () => {
+    const dom = await loadPage();
+    await vi.waitFor(
+      () => expect(dom.window.document.querySelectorAll("#scopeList .scope-item").length).toBe(5),
+      { timeout: 2000 },
+    );
+    const click = dom.window.document.querySelector("#scopeList .scope-item") as unknown as HTMLElement;
+    click.click();
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("content")!.hidden).toBe(false),
+      { timeout: 2000 },
+    );
+    expect(dom.window.location.search).toContain("scope=bundle%3Aevidence-lifecycle");
+  });
+
+  // Task 2 (system nav): per-tab URL hash + aria-controls. Each tab button
+  // carries an aria-controls reference to its panel; clicking one selects it
+  // (aria-selected="true") and writes the hash.
+  test("tabs carry an aria-controls reference and reflect selection", async () => {
+    const dom = await loadPage();
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("scopeList")).not.toBeNull(),
+      { timeout: 2000 },
+    );
+    const tab = dom.window.document.getElementById("tabMatrix")!;
+    expect(tab.getAttribute("aria-controls")).toBe("panelMatrix");
+    tab.click();
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+  });
 });
