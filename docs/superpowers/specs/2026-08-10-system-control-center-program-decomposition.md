@@ -1,7 +1,7 @@
 # System Control Center — Program Decomposition
 
 **Date:** 2026-08-10
-**Status:** Approved decomposition. Each sub-project gets its own design → plan → implementation cycle.
+**Status:** Approved decomposition. Four sub-projects, built A → B → C → D. Each gets its own design → plan → implementation cycle.
 **Scope:** `pi-agent-factory` (the factory) and `cool_physical_ai_project` (the product under construction).
 
 ## Goal
@@ -65,13 +65,20 @@ Supplementary counts:
 | Unit of "a feature" | **Curated bundles, expanded.** Every SR, task, spec, and ADR belongs to at least one bundle. Explicit, reviewable in git, nothing inferred. |
 | Remediation interface | **Split by nature of the act.** Mechanical operations get navigator buttons; judgment operations get agent-facing tools. |
 | Definition workstream depth | **Bundle-scoped and incremental.** Author the complete bundle map in one pass; bind and cover SRs per bundle, as each feature is actually worked. No speculative binding of 181 requirements. |
-| Build order | **A → B → C.** |
 | Multi-membership | **An artifact may belong to more than one bundle.** |
 | Bundle nesting | **Flat.** Scale is a UI problem, not a hierarchy problem. |
 | Bundle count | **Unconstrained.** The navigator must read well at 5 bundles and at 100. |
-| How the map is cut | **An agent proposes with rationale; the human rules.** No fixed cohesion taxonomy. |
+| How the map is cut | **An agent proposes with rationale; the human rules**, one bundle at a time, each with the agent's recommendation. No fixed cohesion taxonomy. |
 | Where rationale lives | **An ADR in the product repo**, never in the bundle files. |
 | Coverage gate | **Warns and blocks, with an explicit, self-reporting `--force`.** |
+| Coverage scope | **`spec:` and `plan:` count toward coverage**, alongside `sr:`, `task:`, and `adr:`. |
+| Bundle ordering | **Most recently touched**, derived from git commit recency over member artifacts — never filesystem mtime. |
+| Bundle readiness | **Weak / Medium / Strong**, as a published deterministic predicate, always rendered beside its counts. |
+| Requirement listing | **`sr:` scopes are not individually listed.** Requirements are reached through a bundle, or by direct search on their ID. |
+| Business requirements | **The `BR-*` tier is in.** It is a distinct axis from bundles, delivered as SP-D. |
+| Mechanical undo | **Yes.** Every mechanical operation has a single inverse the navigator can invoke. |
+| Agent dispatch | **Via a pi agent**, handed the gap descriptor. |
+| Build order | **A → B → C → D.** |
 
 ### Consequences of multi-membership
 
@@ -102,7 +109,7 @@ Delivers:
 - A deterministic bundle ordering computed in Python, consumed by SP-B's sidebar (see "Consequence of unconstrained bundle count").
 - The complete bundle map for `cool_physical_ai_project` — all 181 SRs, 43 tasks, 6 specs, 2 ADRs assigned to at least one bundle.
 - `docs/adr/0003-feature-bundle-map.md` in the product repo, recording the agent's proposed cuts and the human's rulings on them. Bundle files stay membership-only per `bundles.py:3`; the reasoning lives in the ADR, which is itself a bundle member and so exercises the new `adr:` kind on real content.
-- Resolution of the dangling `BR-002` reference: create the artifact or unlink it.
+- The dangling `BR-002` reference is left in place and recorded as a known gap. SP-D resolves it permanently by restoring the BR tier; unlinking it in SP-A would destroy the one piece of recorded business intent the repo still has.
 - A coverage gate wired into `.factory/factory.yaml`'s `gates.full`. It reports every unbundled artifact and exits non-zero by default. An explicit per-invocation `--force` bypasses the failure and prints exactly what it suppressed — a silent override would make the gate decorative.
 
 Lands in: pi-agent-factory (contract, API, gate implementation) and cool_physical_ai_project (the map, the ADR, the gate wiring).
@@ -122,8 +129,15 @@ than an invented taxonomy. This is accepted, not solved.
 Delivers:
 
 - `factory.system health --json`, a projection composing `compute_health()` (`trace/health.py:53`), `classify()` (`requirements/closure.py:29`), and SP-A's `bundle_coverage()`. It duplicates no logic; it re-shapes existing computations into the navigator's projection contract.
-- A landing page that opens on project health instead of blank.
-- A feature-first sidebar: bundles as the primary axis, with the unbundled remainder visible rather than hidden. It must read well at 5 bundles and at 100, rendering SP-A's Python-computed ordering — search and progressive disclosure, never client-side sorting.
+- A landing page that opens on project health instead of blank, carrying three things: the health summary, the bundle list, and the navigation tabs.
+- **Bundle readiness** as a published predicate, computed in Python, never a feel:
+  - **Strong** — every SR in the bundle is `current`, has at least one non-exempt satisfying task, and has a passing validation.
+  - **Medium** — all SRs bound and covered, but validation is missing or stale.
+  - **Weak** — any SR unbound, uncovered, or deferred.
+
+  The label never renders alone; it always appears beside the counts that produced it (`Weak · 4 SR · 0 bound`), so the reason is answerable on the same line. This is what keeps readiness a *derived* claim rather than a synthesized one, and it is the only reading of the Weak/Medium/Strong ruling compatible with the no-synthesized-judgment constraint.
+- A feature-first sidebar: bundles as the primary axis, with the unbundled remainder visible rather than hidden. It must read well at 5 bundles and at 100, rendering SP-A's Python-computed ordering — search and progressive disclosure, never client-side sorting. Proposed shape, to be confirmed in SP-B's design: search is the primary control and resolves bundle labels *and* bare artifact IDs, so `SR-137` reaches its page without knowing its bundle; bundles group under Weak/Medium/Strong with Weak expanded by default and the rest collapsed but count-bearing; within a group, most-recently-touched order.
+- Individual `sr:` scopes leave the sidebar. Requirements are reached through a bundle or by direct ID search. **This makes the coverage gate load-bearing for navigability**, not merely for hygiene: an unbundled requirement is not untidy, it is unreachable by browsing.
 - Working traversal for the core use case: requirement → satisfying tasks → design decisions → changed files.
 - A "member of" affordance on every requirement and task, listing each bundle that contains it.
 - A structural split of `system-page.ts` along the seam already present in it (shell and CSS, per-tab renderers, client bootstrap). The existing DOM tests pin current behavior, so the split is verifiable. The "only edit `system-page.ts`" constraint carried by the three prior plans was correct for small increments and is wrong for this one.
@@ -134,10 +148,53 @@ Lands in: pi-agent-factory.
 
 Delivers the write side, split by the classification rule below: mechanical
 operations as navigator buttons backed by docs-server POST routes, judgment
-operations as agent-facing PIF tools in the `system_*` namespace plus a dispatch
-affordance in the navigator.
+operations as agent-facing PIF tools in the `system_*` namespace, dispatched to a
+pi agent carrying the gap descriptor.
+
+Proposed inventory, to be confirmed in SP-C's design:
+
+| Operation | Class |
+|---|---|
+| add member to bundle | mechanical |
+| remove member from bundle | mechanical |
+| reaffirm an existing deferral (`requirements defer --reaffirm`) | mechanical |
+| `requirements bind` (metric, assert, harness, trials, window) | judgment |
+| `requirements defer` with a new rationale | judgment |
+| `requirements new` | judgment |
+| `trace link` (task satisfies SR) | judgment — see below |
+| `trace exempt` (rationale) | judgment |
+| `trace defer` (rationale) | judgment |
+| create a bundle (label and initial membership) | judgment |
+| `doctor mint` / `doctor promote` | judgment |
+
+Every mechanical operation has a single inverse the navigator can invoke as undo.
+Bundle edits are ordinary files, so undo is an inverse write and stays visible in
+git.
 
 Lands in: pi-agent-factory.
+
+### SP-D — Business requirement tier
+
+Restores the top of the V. A `BR-*` artifact states business intent; every SR
+hangs off one via `upstream:`, which also retires the dangling `BR-002`
+reference permanently.
+
+**BRs and bundles are different axes, not competing groupings.** A BR answers
+*why does this exist and who asked for it*; a bundle answers *what do I read to
+understand it*. The relationship is many-to-many in both directions: a bundle may
+serve several BRs, a BR may span several bundles. Neither is derivable from the
+other, which is precisely why both earn their place — and why BR granularity is
+free to follow business intent rather than readable feature size.
+
+Delivers: the `BR-*` artifact kind and its scope; an `upstream:` BR for all 181
+SRs; a "serves" view on each bundle and a "served by" view on each BR.
+
+Lands in: pi-agent-factory (artifact kind, scope, views) and
+cool_physical_ai_project (the BRs themselves).
+
+Sequenced last of the four: it is the second large authoring pass, and running it
+after SP-B means its proposals are reviewed through the navigator instead of
+through raw files.
 
 ## Interfaces
 
@@ -176,6 +233,25 @@ authoring text, or choosing a number, that becomes durable evidence?**
 The rule is deliberately conservative. The moment an operation writes prose that
 is later read as justification, a human clicking a button is the wrong author.
 
+**Refinement, forced by `trace link`.** Linking a task to a requirement writes no
+prose and picks no number, so the question above classifies it mechanical — and
+that is wrong. Asserting that T-042 *satisfies* SR-007 is a claim about the world
+that can be false, and once written the coverage gate reads the requirement as
+covered. So the rule takes a second clause:
+
+> An operation is mechanical only if it also **asserts nothing that could turn
+> out to be false**.
+
+Adding an SR to a bundle asserts only "these are read together" — cheap, and
+revisable without consequence. Asserting `satisfies` claims the requirement is
+delivered. The first is mechanical; the second is judgment.
+
+### SP-B → SP-D
+
+SP-D's authoring pass reviews its proposals through the navigator SP-B builds,
+rather than through raw files. This is the reason SP-D follows SP-B rather than
+running beside SP-A.
+
 ### Repo boundary
 
 Everything reusable lands in pi-agent-factory. Only bundle files and gate wiring
@@ -184,7 +260,7 @@ installable package that discovers per-repo extensions.
 
 ## Inherited constraints
 
-These hold across all three sub-projects and are not renegotiated per design:
+These hold across all four sub-projects and are not renegotiated per design:
 
 - Python computes, TypeScript renders. No query, freshness, or provenance logic in the browser.
 - Claim class ∈ `recorded|derived|synthesized|missing`; freshness ∈ `fresh|stale|degraded|n/a`; `missing` ⟺ `n/a`. No new claim classes.
@@ -200,16 +276,16 @@ These hold across all three sub-projects and are not renegotiated per design:
 
 ## Non-goals
 
-- Binding all 181 requirements. Binding is per-bundle and on demand.
-- Restoring the `BR-*` layer as a navigable tier. SP-A resolves the one dangling reference; a business-requirement tier is a separate future program.
+- Binding requirements outside the bundle currently being worked. Binding is per-bundle and on demand, in every sub-project including SP-D.
 - Replacing `/review-plans` or the existing evidence surfaces.
 - Any whole-suite or repo-wide test pass rate in the health projection.
 
 ## Open questions, deferred to each sub-project's design
 
-All SP-A structural questions are now ruled (see "Decisions taken"). What remains:
+Every question raised during decomposition has been ruled (see "Decisions
+taken"). What each sub-project's own design must still work out:
 
-- **SP-A:** what ordering signal the Python-computed bundle order uses; how the agent's bundle proposal is presented for ruling; whether `spec:`/`plan:` artifacts count toward coverage or only `sr:`/`task:`/`adr:`.
-- **SP-B:** what the landing page leads with; how per-bundle readiness is expressed without inventing a score, given the no-synthesized-judgment rule; whether `sr:` scopes remain individually listed once bundles are the primary axis; how the sidebar degrades at 100+ bundles.
-- **SP-C:** the exact operation inventory and its classification; undo semantics for mechanical operations; how a dispatch is handed to an agent from the browser.
-- **Program-level, unruled:** whether the `BR-*` tier stays a non-goal. SP-A currently resolves only the single dangling `BR-002` reference, leaving the V truncated at SR level for the whole program.
+- **SP-A:** how the agent's per-bundle proposal is presented for ruling, given that SP-B's review surface does not exist yet; what counts as a member artifact "touched" by a commit; whether an empty bundle is legal.
+- **SP-B:** the concrete sidebar behaviour at 100+ bundles (the shape proposed above is a starting point, not a ruling); how the health summary presents a denominator-of-one ratio like `SR validated 1/1` without reading as success; how the `system-page.ts` split is staged so the DOM tests stay green throughout.
+- **SP-C:** confirmation of the operation inventory; how far undo reaches (last operation, or a session stack); how a dispatched pi agent reports back into the navigator.
+- **SP-D:** BR granularity; whether an SR may have more than one upstream BR; how BR proposals are reviewed through the navigator.
