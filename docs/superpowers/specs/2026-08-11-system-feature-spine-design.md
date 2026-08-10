@@ -53,7 +53,7 @@ wiring in the product repo.
 
 ```
 factory.system.bundles     _parse_member_ref  +adr:
-                           bundle_coverage()             <- new
+factory.system.coverage    bundle_coverage(), member_target()  <- new module
 factory.system.adr         parse_adr(), load_adrs()      <- new module
 factory.system.ordering    bundle_recency()              <- new module, uses GitOps
 factory.system.queries     _SCOPE_KINDS +adr, list_scopes +adr, adr brief
@@ -72,6 +72,11 @@ cool_physical_ai_project   docs/adr/000{1,2}-*.md        <- migrated to frontmat
 The existing behaviour is preserved exactly: an unresolvable member records a
 reason (`bundles.py:114`) and never drops the bundle.
 
+Coverage lives in its own module, `factory.system.coverage`, rather than inside
+`bundles.py`: `bundles.py` loads one declared file, coverage reasons about the
+whole artifact population. Separating them keeps `bundles.py` free of a
+dependency on `factory.trace`.
+
 ```python
 @dataclass(frozen=True)
 class KindCoverage:
@@ -85,12 +90,22 @@ class Coverage:
     kinds: list[KindCoverage]
     total: int
     bundled: int
+    unbundled: list[str]   # every kind's unbundled refs, for the gate
 
 def bundle_coverage(repo_root: Path) -> Coverage: ...
+def member_target(repo_root: Path, member_ref: str) -> Path | None: ...
 ```
 
-A pure function over existing loaders. No persisted index, no cache — projections
-are computed on demand, as everywhere else in the navigator.
+Pure functions over existing loaders — `trace.model.load_nodes` for
+sr/task/spec/plan, `load_adrs` for ADRs. No persisted index, no cache;
+projections are computed on demand, as everywhere else in the navigator.
+
+**Refs are not uniform, so comparison is by path.** `sr:`, `task:` and `adr:`
+are id-based; `spec:` and `plan:` are repo-relative paths
+(`queries.py:177`). Task filenames carry slugs (`T-030-missionstate.md`), so an
+id cannot be concatenated into a path. `member_target` resolves any member ref to
+the artifact path it names — the one representation all five kinds share — and
+returns `None` when the ref is well-formed but names nothing that exists.
 
 ### `factory.system.adr`
 
@@ -109,12 +124,13 @@ superseded_by: null       # an ADR id, when status is superseded
 ```python
 @dataclass(frozen=True)
 class AdrDocument:
-    id: str
     path: Path
+    id: str | None                     # None when frontmatter is absent
     title: str | None
     status: str | None
     superseded_by: str | None
     sections: list[tuple[str, str]]    # (## heading, body), in file order
+    schema_errors: list[str]           # empty when valid
 
 def parse_adr(path: Path) -> AdrDocument: ...
 def load_adrs(repo_root: Path) -> dict[str, AdrDocument]: ...   # by id
@@ -131,15 +147,31 @@ substituted default. Both existing ADRs are migrated as part of this step.
 ### `factory.system.ordering`
 
 ```python
-def bundle_recency(
-    repo_root: Path, bundles: list[Bundle], git: GitOps
-) -> dict[str, str | None]: ...
+class RecencySource(Protocol):
+    def last_commit_iso(self, repo_root: Path, paths: list[Path]) -> str | None: ...
+
+class GitRecency: ...      # real subprocess git
+class FixedRecency: ...    # test double: a path -> timestamp table
+
+def bundle_recency(repo_root: Path, git: RecencySource) -> dict[str, str | None]: ...
+def ordered_bundle_ids(repo_root: Path, git: RecencySource) -> tuple[list[str], bool]: ...
 ```
 
-Returns an ISO timestamp per bundle id — the most recent commit touching any
-member artifact path — or `None` when unknown. Ordering is recency descending,
-then bundle id ascending. The tiebreak is deterministic and never random,
-mirroring `propose.py:129`.
+`bundle_recency` returns an ISO timestamp per bundle id — the most recent commit
+touching any member artifact path — or `None` when unknown. Bundles are loaded
+inside rather than passed in, so callers cannot supply a list inconsistent with
+what is on disk.
+
+`ordered_bundle_ids` returns the order plus `recency_available`. Ordering is
+recency descending, then bundle id ascending; undated bundles sort after every
+dated one. The tiebreak is deterministic and never random, mirroring
+`propose.py:129`, and reversing only the timestamp component keeps the id
+tiebreak ascending.
+
+A narrow `RecencySource` Protocol rather than the full `GitOps` Protocol: this
+needs one read-only query, and depending on an interface that also commits and
+applies patches would be borrowing far more authority than the job requires. The
+Protocol/double shape mirrors `git_ops.py:71` so no test needs a real repository.
 
 ### CLI
 
