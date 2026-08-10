@@ -63,4 +63,31 @@ describe("walkIntentChain", () => {
   test("an unknown task id yields an empty chain stopping at task", () => {
     expect(walkIntentChain(FULL, "T-999")).toEqual({ chain: [], stopsAt: "task" });
   });
+
+  test("a single-edge hop reports no alternatives", () => {
+    const { chain } = walkIntentChain(FULL, "T-001");
+    expect(chain.every((n) => n.alternatives === 0)).toBe(true);
+  });
+
+  test("a second satisfies edge is counted, not silently dropped", () => {
+    const graph = graphOf(
+      [...FULL.nodes, node("SR-020", "sr", "Another requirement")],
+      [...FULL.edges, { src: "T-001", dst: "SR-020", kind: "satisfies" }],
+    );
+    const { chain } = walkIntentChain(graph, "T-001");
+    const sr = chain.find((n) => n.id === "SR-014");
+    expect(sr?.alternatives).toBe(1);
+    // The chain still shows one requirement; the count is how the reviewer
+    // learns a second one exists.
+    expect(chain.filter((n) => n.kind === "sr")).toHaveLength(1);
+  });
+
+  test("a second spec_ref edge is counted on the spec it resolved to", () => {
+    const graph = graphOf(
+      [...FULL.nodes, node("spec:other.md", "spec", "Another spec")],
+      [...FULL.edges, { src: "plan:p.md", dst: "spec:other.md", kind: "spec_ref" }],
+    );
+    const { chain } = walkIntentChain(graph, "T-001");
+    expect(chain.find((n) => n.id === "spec:s.md")?.alternatives).toBe(1);
+  });
 });

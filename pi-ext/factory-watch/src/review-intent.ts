@@ -5,6 +5,12 @@ export interface ReviewChainNode {
   kind: TraceNodeKind;
   title: string;
   path: string;
+  // How many FURTHER edges of the same kind left the same source. A task may
+  // declare several `satisfies` and a plan may reference several specs, but the
+  // chain shows one line per hop. Without this count the reviewer would be
+  // shown a partial chain with no sign anything was omitted -- the exact
+  // failure this pane exists to prevent. 0 in the ordinary single-edge case.
+  alternatives: number;
 }
 
 export interface IntentChain {
@@ -17,8 +23,13 @@ export interface IntentChain {
 // row: an absent `upstream` is only interesting once `satisfies` resolved.
 const HOP_PRECEDENCE = ["satisfies", "upstream", "source_plan", "spec_ref"] as const;
 
-function toChainNode(node: TraceNode): ReviewChainNode {
-  return { id: node.id, kind: node.kind, title: node.title, path: node.path };
+interface Hop {
+  node: TraceNode | undefined;
+  alternatives: number;
+}
+
+function toChainNode(node: TraceNode, alternatives: number): ReviewChainNode {
+  return { id: node.id, kind: node.kind, title: node.title, path: node.path, alternatives };
 }
 
 /** Walk the two branches `factory.trace.model.extract_edges` actually writes:
@@ -37,23 +48,32 @@ export function walkIntentChain(graph: TraceGraph, taskId: string): IntentChain 
   const task = byId.get(taskId);
   if (task === undefined) return { chain: [], stopsAt: "task" };
 
-  const hop = (src: string, kind: TraceEdgeKind): TraceNode | undefined => {
-    const edge = graph.edges.find((each) => each.src === src && each.kind === kind);
-    return edge === undefined ? undefined : byId.get(edge.dst);
+  const NONE: Hop = { node: undefined, alternatives: 0 };
+
+  // Collect every candidate rather than taking the first: the count of the ones
+  // not shown is what the chain reports as "+N more".
+  const hop = (src: string, kind: TraceEdgeKind): Hop => {
+    const edges = graph.edges.filter((each) => each.src === src && each.kind === kind);
+    const first = edges[0];
+    return {
+      node: first === undefined ? undefined : byId.get(first.dst),
+      alternatives: Math.max(0, edges.length - 1),
+    };
   };
 
   const sr = hop(taskId, "satisfies");
-  const br = sr === undefined ? undefined : hop(sr.id, "upstream");
+  const br = sr.node === undefined ? NONE : hop(sr.node.id, "upstream");
   const plan = hop(taskId, "source_plan");
-  const spec = plan === undefined ? undefined : hop(plan.id, "spec_ref");
+  const spec = plan.node === undefined ? NONE : hop(plan.node.id, "spec_ref");
 
-  const resolved: Record<(typeof HOP_PRECEDENCE)[number], TraceNode | undefined> = {
+  const resolved: Record<(typeof HOP_PRECEDENCE)[number], Hop> = {
     satisfies: sr, upstream: br, source_plan: plan, spec_ref: spec,
   };
-  const stopsAt = HOP_PRECEDENCE.find((hopName) => resolved[hopName] === undefined) ?? null;
+  const stopsAt = HOP_PRECEDENCE.find((hopName) => resolved[hopName].node === undefined) ?? null;
 
-  const chain = [br, sr, spec, plan, task]
-    .filter((node): node is TraceNode => node !== undefined)
-    .map(toChainNode);
+  // The task itself was not reached through an edge, so it has no alternatives.
+  const chain = [br, sr, spec, plan, { node: task, alternatives: 0 }]
+    .filter((each): each is { node: TraceNode; alternatives: number } => each.node !== undefined)
+    .map((each) => toChainNode(each.node, each.alternatives));
   return { chain, stopsAt };
 }
