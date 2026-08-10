@@ -28,13 +28,13 @@ export function renderSystemPageHtml(): string {
     --fresh: #3fa14a; --stale: #c8871a; --degraded: #d24b3f; --na: #8a8a8a;
   }
   * { box-sizing: border-box; }
-  body { font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 0 0 48px; }
+  body { font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; height: 100vh; overflow: hidden; }
   header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
   header h1 { font-size: 15px; margin: 0; }
   #banner { padding: 8px 20px; background: color-mix(in srgb, var(--degraded) 15%, transparent); }
   #banner:empty { display: none; }
-  main { max-width: 100ch; margin: 0 auto; padding: 0 20px; }
-  #picker { padding: 16px 0; }
+  #layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 60px); }
+  #picker { border-right: 1px solid var(--line); overflow: auto; padding: 10px 14px 24px; }
   .scope-item { display: block; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; margin: 4px 0; text-decoration: none; color: inherit; }
   .scope-item:hover { background: var(--hover); }
   .scope-error { color: var(--degraded); font-size: 12px; }
@@ -50,16 +50,22 @@ export function renderSystemPageHtml(): string {
   .scope-item { display: block; flex: 1; padding: 3px 8px; border: none; border-radius: 3px; margin: 1px 0; text-decoration: none; color: inherit; font: inherit; text-align: left; width: 100%; }
   .scope-item:hover, .scope-item:focus-visible { background: var(--hover); outline: 2px solid currentColor; outline-offset: 1px; }
   .scope-kind { font-size: 10px; text-transform: uppercase; opacity: .55; margin-right: 6px; }
-  body.focus #scopeList, body.focus .scope-group-title, body.focus #scopeFilter, body.focus #picker h2 { display: none; }
-  #scopeToggle { display: none; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
-  body.focus #scopeToggle { display: inline-block; }
-  body.focus #picker { padding: 6px 0; }
+  /* On wide screens the scope list is always an open, independently
+     scrollable column; the compact-bar collapse (Task 1) applies only on
+     narrow screens via the media query below. */
+  @media (max-width: 760px) {
+    body.focus #scopeList, body.focus .scope-group-title, body.focus #scopeFilter, body.focus #picker h2 { display: none; }
+    #scopeToggle { display: inline-block; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
+    body.focus #scopeToggle { display: inline-block; }
+  }
+  /* Wide screens: the sidebar is always an open column; the toggle + collapse are irrelevant. */
+  #scopeToggle { display: none; }
   /* Task 3 (system nav): a slim meta row under the scope header carries the
      per-scope Refresh button and the "loaded at" timestamp. The spinner is
      its own status element above it, shown only while a scope is loading. */
   .scope-meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; font-size: 11px; opacity: .8; }
   #refresh { font: inherit; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
-  #content { padding: 16px 0; }
+  #content { overflow: auto; padding: 8px 24px 48px; }
   /* Task 4 (system nav): a global visible-focus rule for every interactive
      element so keyboard navigation reveals where focus is. It widens the
      Task 1 .scope-item:focus-visible outline to tabs/buttons/inputs too. */
@@ -121,8 +127,8 @@ export function renderSystemPageHtml(): string {
 <body>
   <nav aria-label="System navigator"><header><h1>System Navigator</h1></header></nav>
   <div id="banner" role="status"></div>
-  <main>
-    <div id="picker">
+  <div id="layout">
+    <aside id="picker">
       <h2>Declared scopes</h2>
       <button id="scopeToggle" aria-expanded="false">All scopes ▾</button>
       <nav aria-label="Scopes">
@@ -130,8 +136,8 @@ export function renderSystemPageHtml(): string {
         <div id="scopeList"></div>
         <div id="scopeErrors"></div>
       </nav>
-    </div>
-    <div id="content" hidden>
+    </aside>
+    <section id="content" hidden>
       <h2 id="scopeHeader"></h2>
       <div id="loading" role="status" hidden>Loading…</div>
       <div class="scope-meta"><button id="refresh">Refresh</button> <span id="loadedAt"></span></div>
@@ -149,8 +155,8 @@ export function renderSystemPageHtml(): string {
       <div id="panelGuide" class="panel" hidden></div>
       <div id="panelStory" class="panel" hidden></div>
       <div id="panelReverse" class="panel" hidden></div>
-    </div>
-  </main>
+    </section>
+  </div>
 <script>
 (async () => {
   const banner = document.getElementById('banner');
