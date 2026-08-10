@@ -54,6 +54,11 @@ export function renderSystemPageHtml(): string {
   #scopeToggle { display: none; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
   body.focus #scopeToggle { display: inline-block; }
   body.focus #picker { padding: 6px 0; }
+  /* Task 3 (system nav): a slim meta row under the scope header carries the
+     per-scope Refresh button and the "loaded at" timestamp. The spinner is
+     its own status element above it, shown only while a scope is loading. */
+  .scope-meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; font-size: 11px; opacity: .8; }
+  #refresh { font: inherit; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
   #content { padding: 16px 0; }
   /* Task 2 (system nav): #tabs is sticky so the Brief/Matrix/Timeline/Guide/
      Story/Reverse switch stays visible while scrolling a long panel. Canvas
@@ -124,6 +129,8 @@ export function renderSystemPageHtml(): string {
     </div>
     <div id="content" hidden>
       <h2 id="scopeHeader"></h2>
+      <div id="loading" role="status" hidden>Loading…</div>
+      <div class="scope-meta"><button id="refresh">Refresh</button> <span id="loadedAt"></span></div>
       <div id="tabs">
         <button id="tabBrief" class="tab" aria-selected="true" aria-controls="panelBrief">Brief</button>
         <button id="tabMatrix" class="tab" aria-selected="false" aria-controls="panelMatrix">Matrix</button>
@@ -152,6 +159,22 @@ export function renderSystemPageHtml(): string {
 
   function clear(el) {
     el.innerHTML = '';
+  }
+
+  // Task 3 (system nav): shows/hides the #loading status row. With ok=true
+  // (a successful load) the #loadedAt timestamp is stamped with the local
+  // time via a text node -- never innerHTML. Loading is cleared on both
+  // success and failure so the spinner never lingers.
+  function setLoading(on, ok) {
+    const loading = document.getElementById('loading');
+    if (loading) loading.hidden = !on;
+    if (ok) {
+      const loadedAt = document.getElementById('loadedAt');
+      if (loadedAt) {
+        loadedAt.textContent = '';
+        loadedAt.appendChild(document.createTextNode(new Date().toLocaleTimeString()));
+      }
+    }
   }
 
   function badge(text, extraClass) {
@@ -807,6 +830,11 @@ export function renderSystemPageHtml(): string {
   document.getElementById('tabStory').onclick = () => showTab('Story');
   document.getElementById('tabReverse').onclick = () => showTab('Reverse');
 
+  // Task 3 (system nav): the Refresh button re-runs the current scope's load
+  // in place (currentScope is set at the top of loadScope), so a stale view
+  // can be re-fetched without navigating away. No-op when no scope is loaded.
+  document.getElementById('refresh').onclick = () => { if (currentScope) loadScope(currentScope); };
+
   // Each of story/reverse/brief+matrix+timeline+guide only resolves one
   // particular scope kind (design increment B: story is task:-only,
   // reverse is file:-only, matching storyScopeRef/reverseScopeRef in
@@ -829,6 +857,7 @@ export function renderSystemPageHtml(): string {
       content.hidden = true;
       picker.hidden = false;
       setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
@@ -840,6 +869,7 @@ export function renderSystemPageHtml(): string {
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
     selectInitialTab('Story');
+    setLoading(false, true);
   }
 
   async function loadReverseScope(scopeRef) {
@@ -850,6 +880,7 @@ export function renderSystemPageHtml(): string {
       content.hidden = true;
       picker.hidden = false;
       setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
@@ -861,6 +892,7 @@ export function renderSystemPageHtml(): string {
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
     selectInitialTab('Reverse');
+    setLoading(false, true);
   }
 
   async function loadBundleScope(scopeRef) {
@@ -881,6 +913,7 @@ export function renderSystemPageHtml(): string {
       content.hidden = true;
       picker.hidden = false;
       setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
@@ -901,6 +934,7 @@ export function renderSystemPageHtml(): string {
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     selectInitialTab('Brief');
+    setLoading(false, true);
   }
 
   async function loadScope(scopeRef) {
@@ -933,6 +967,7 @@ export function renderSystemPageHtml(): string {
       content.hidden = true;
       picker.hidden = false;
       setPickerClass(false);
+      setLoading(false);
     }
   }
 })();

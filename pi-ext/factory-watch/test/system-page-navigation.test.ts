@@ -124,4 +124,24 @@ describe("system-page navigation", () => {
     tab.click();
     expect(tab.getAttribute("aria-selected")).toBe("true");
   });
+
+  // Task 3 (system nav): the loaded scope surface exposes a loading status
+  // element, a per-scope Refresh button, and a "loaded at" timestamp. Once
+  // the scope loads (#content unhidden), all three elements exist and the
+  // successful load has stamped a non-empty time string into #loadedAt.
+  test("shows a loading status element, refresh button, and loaded-at timestamp", async () => {
+    const dom = await loadPage("bundle:evidence-lifecycle");
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("content")!.hidden).toBe(false),
+      { timeout: 2000 },
+    );
+    expect(dom.window.document.getElementById("loading")).not.toBeNull();
+    expect(dom.window.document.getElementById("refresh")).not.toBeNull();
+    expect(dom.window.document.getElementById("loadedAt")).not.toBeNull();
+    // A successful load stamps #loadedAt with a non-empty time string.
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("loadedAt")!.textContent).not.toBe(""),
+      { timeout: 2000 },
+    );
+  });
 });
