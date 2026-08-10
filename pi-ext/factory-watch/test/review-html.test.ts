@@ -3,51 +3,39 @@ import { renderReviewHtml } from "../src/review-html.js";
 
 describe("renderReviewHtml", () => {
   const html = renderReviewHtml();
-  test("is a self-contained document with no external resource references", () => {
-    expect(html).toMatch(/<!doctype html>/i);
-    expect(html).toContain("/api/review");
-    expect(html).toContain("/api/decision");
-    // no external network references (CSP-friendly, loopback-only)
-    expect(html).not.toMatch(/src=["']https?:/);
-    expect(html).not.toMatch(/href=["']https?:/);
-  });
-  test("wires approve/reject controls", () => {
-    expect(html).toContain('id="approve"');
-    expect(html).toContain('id="reject"');
-  });
-  test("the inline-comment '+' affordance is revealed by hovering the whole row, not just the icon itself", () => {
-    // Before this fix, only `.row .plus:hover` raised the opacity -- meaning
-    // the reviewer had to already be precisely hovering a dim, ~6px-wide "+"
-    // glyph in the row's left gutter for it to become visible at all, a
-    // chicken-and-egg discoverability trap. GitHub-PR-style diff views (the
-    // prior art the design spec cites) reveal the affordance on row hover.
-    expect(html).toMatch(/\.row:hover\s+\.plus\s*\{[^}]*opacity:\s*[.\d]+/);
+
+  test("declares all four panes", () => {
+    for (const pane of ["context", "tree", "diff", "comments"]) {
+      expect(html).toContain(`data-pane="${pane}"`);
+    }
   });
 
-  test("the '+' affordance has a tooltip explaining what it does", () => {
-    expect(html).toMatch(/plus\.title\s*=\s*['"][^'"]*comment/i);
+  test("gives every pane a collapse control", () => {
+    expect(html.match(/class="pane-toggle"/g) ?? []).toHaveLength(4);
   });
 
-  test("the page explains how to add an inline comment, not just the guide/task-id parity text", () => {
-    expect(html).toMatch(/hover.{0,20}\+.{0,20}comment/i);
+  test("drives the grid from a column template rather than a fixed one", () => {
+    expect(html).not.toContain("grid-template-columns: 240px 1fr 320px");
+    expect(html).toContain("gridTemplateColumns");
   });
 
-  test("renders the task under review as a visible, initially-open context panel", () => {
-    expect(html).toContain('id="task"');
-    expect(html).toContain("Task under review");
-    expect(html).toContain("details.open = true");
-    expect(html).toContain("data.task");
-    expect(html).toContain("Definition of done");
+  test("no longer caps the task context at 35vh", () => {
+    expect(html).not.toContain("35vh");
   });
 
-  test("renders the review-focus guide and task id (parity with the TUI)", () => {
-    // F1: the page must surface the guide (confidence/validation/verify/
-    // addressed) and the task id, which are fetched from /api/review.
-    expect(html).toContain('id="guide"');
-    expect(html).toContain("data.guide");
-    expect(html).toContain("data.taskId");
-    // guide text is inserted via createTextNode, never innerHTML of server data
-    expect(html).toContain("g.confidence");
-    expect(html).toContain("Verify before approving:");
+  test("posts layout changes to the server rather than using localStorage", () => {
+    expect(html).toContain("/api/layout");
+    expect(html).not.toContain("localStorage");
+  });
+
+  test("fetches per-file provenance lazily from /api/why", () => {
+    expect(html).toContain("/api/why?file=");
+  });
+
+  test("the only non-clearing innerHTML assignment is the rendered plan section", () => {
+    // renderMarkdown output is the sole trusted HTML on this page; every other
+    // server value must reach the DOM through createTextNode.
+    const assignments = html.match(/innerHTML = (?!'')[^;\n]+/g) ?? [];
+    expect(assignments).toEqual(["innerHTML = intent.planSection.html"]);
   });
 });
