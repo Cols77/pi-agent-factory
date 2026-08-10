@@ -628,35 +628,38 @@ const GRAPH: TraceGraph = {
   health: { percent: 0, satisfied: 0, expected: 0, dangling: 0, deferred: 0, proposed: 0, classes: [] },
 };
 
+// The fakes keep their inferred object types; the `as never` cast belongs at
+// each call site. Casting the literal itself would type `deps` as `never`,
+// and a `never` cannot be spread — `{ ...deps }` below would not compile.
 const deps = {
   graph: () => ({ ok: true as const, graph: GRAPH }),
   taskEvidence: () => ({ ok: true as const, value: { runs: [] } }),
   preflight: () => ({ ok: true as const, value: { findings: [] } }),
-} as never;
+};
 
 describe("buildSystemContext", () => {
   test("returns the node, its edges, and its neighbours", () => {
-    const { context } = buildSystemContext("/repo", "T-001", deps);
+    const { context } = buildSystemContext("/repo", "T-001", deps as never);
     expect((context.node as { id: string }).id).toBe("T-001");
     expect(context.edges).toHaveLength(1);
     expect((context.neighbours as { id: string }[]).map((n) => n.id)).toEqual(["plan:p.md"]);
   });
 
   test("also returns the loaded graph so callers need not reload it", () => {
-    const { graph } = buildSystemContext("/repo", "T-001", deps);
+    const { graph } = buildSystemContext("/repo", "T-001", deps as never);
     expect(graph?.nodes).toHaveLength(2);
   });
 
   test("reports an unknown source rather than throwing when the graph fails", () => {
-    const failing = { ...deps, graph: () => ({ ok: false as const, error: "uv missing" }) } as never;
-    const { context, graph } = buildSystemContext("/repo", "T-001", failing);
+    const failing = { ...deps, graph: () => ({ ok: false as const, error: "uv missing" }) };
+    const { context, graph } = buildSystemContext("/repo", "T-001", failing as never);
     expect(context.status).toBe("unknown");
     expect(context.source).toBe("trace");
     expect(graph).toBeNull();
   });
 
   test("reports an unknown source for an id that is not in the graph", () => {
-    const { context } = buildSystemContext("/repo", "T-999", deps);
+    const { context } = buildSystemContext("/repo", "T-999", deps as never);
     expect(context.status).toBe("unknown");
     expect(String(context.error)).toContain("T-999");
   });
@@ -1316,15 +1319,18 @@ const CONTEXT_OK = {
   },
 };
 
+// No cast on the literal: `as never` here would type `okDeps` as `never`, and
+// a `never` cannot be spread — every `{ ...okDeps }` below would fail to
+// compile. Cast at the call site instead.
 const okDeps = {
   story: () => STORY_OK,
   context: () => CONTEXT_OK,
   layout: () => ({ collapsed: [], zoomed: null }),
-} as never;
+};
 
 describe("buildReviewPageData intent", () => {
   test("carries the chain, the DoD and the rendered plan section", () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     expect(data.intent?.chain.map((n) => n.id)).toEqual(["plan:p.md", "T-001"]);
     expect(data.intent?.stopsAt).toBe("satisfies");
     expect(data.intent?.dod).toEqual(["ships"]);
@@ -1332,23 +1338,23 @@ describe("buildReviewPageData intent", () => {
   });
 
   test("a failing story leaves the page renderable without an intent", () => {
-    const deps = { ...okDeps, story: () => ({ ok: false, error: "uv missing" }) } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, story: () => ({ ok: false, error: "uv missing" }) };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent).toBeNull();
     expect(data.files).toEqual(FILES);
   });
 
   test("a failing graph keeps the plan section and empties the chain", () => {
-    const deps = { ...okDeps, context: () => ({ context: {}, graph: null }) } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, context: () => ({ context: {}, graph: null }) };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent?.chain).toEqual([]);
     expect(data.intent?.planSection?.heading).toBe("Task 1: A task");
   });
 
   test("a null plan section still yields a usable intent", () => {
     const story = { ...STORY_OK, value: { ...STORY_OK.value, plan_section: null } };
-    const deps = { ...okDeps, story: () => story } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, story: () => story };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent?.planSection).toBeNull();
     expect(data.intent?.dod).toEqual(["ships"]);
   });
@@ -1356,7 +1362,7 @@ describe("buildReviewPageData intent", () => {
 
 describe("review server endpoints", () => {
   test("/api/why returns the reverse walk for a file", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const reverse = () => ({ ok: true as const, value: { scope: { kind: "file", ref: "file:a.ts" }, paths: [], degraded: false, degraded_reasons: [] } });
     const srv = await startReviewServer(data, { cwd: "/repo", reverse: reverse as never });
     const res = await fetch(`${srv.url}/api/why?file=a.ts`);
@@ -1366,7 +1372,7 @@ describe("review server endpoints", () => {
   });
 
   test("/api/why reports the reason instead of failing the pane", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const reverse = () => ({ ok: false as const, error: "no manifest" });
     const srv = await startReviewServer(data, { cwd: "/repo", reverse: reverse as never });
     const body = await (await fetch(`${srv.url}/api/why?file=a.ts`)).json();
@@ -1375,7 +1381,7 @@ describe("review server endpoints", () => {
   });
 
   test("/api/layout persists a posted layout", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const written: unknown[] = [];
     const srv = await startReviewServer(data, {
       cwd: "/repo",
