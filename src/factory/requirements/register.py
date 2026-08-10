@@ -14,10 +14,12 @@ _REQUIRED = ("id", "title", "statement", "domain")
 
 @dataclass(frozen=True)
 class Binding:
-    harness: str
     experiment: str
     metric: str
     assert_expr: str
+    # A requirement may have a decided measurement before its instrument exists.
+    # `None` is the "no harness named yet" state -- a WARNING, never a blocker.
+    harness: str | None = None
     trials: int = 1
     window: dict | None = None
     cadence: str = "every_iteration"
@@ -38,11 +40,12 @@ class Requirement:
 
 
 def _parse_binding(raw: dict) -> Binding:
+    harness = raw.get("harness")
     return Binding(
-        harness=str(raw["harness"]),
         experiment=str(raw["experiment"]),
         metric=str(raw["metric"]),
         assert_expr=str(raw["assert"]),
+        harness=str(harness) if harness else None,
         trials=int(raw.get("trials", 1)),
         window=raw.get("window"),
         cadence=str(raw.get("cadence", "every_iteration")),
@@ -83,7 +86,7 @@ def content_checksum(req: Requirement) -> str:
     canonical = "\n".join(
         [
             req.statement.strip(),
-            b.harness,
+            b.harness or "",
             b.experiment,
             b.metric,
             b.assert_expr,

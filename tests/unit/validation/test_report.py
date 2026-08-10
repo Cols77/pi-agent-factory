@@ -1,7 +1,13 @@
 import json
 
 import pytest
-from factory.requirements.register import content_checksum, load_register, parse_requirement
+from factory.requirements.register import (
+    Binding,
+    Requirement,
+    content_checksum,
+    load_register,
+    parse_requirement,
+)
 from factory.validation.report import (
     default_harness_for,
     run_requirement_validation,
@@ -140,4 +146,31 @@ def test_a_proposed_requirement_reports_an_error_not_a_crash(proposed_req, tmp_p
     entry = report["requirements"][0]
     assert entry["id"] == proposed_req.id
     assert "proposed" in entry["error"]
+    assert "passed" not in entry
+
+
+def test_a_binding_without_a_harness_reports_an_error(tmp_path):
+    """A binding whose measurement is decided but whose harness doesn't exist yet
+    should report an error, not crash."""
+    req = Requirement(
+        id="SR-050",
+        title="No harness yet",
+        statement="When X, the system shall Y.",
+        domain="behavioral",
+        upstream=[],
+        binding=Binding(
+            harness=None,
+            experiment="e",
+            metric="m",
+            assert_expr=">= 0.9"
+        ),
+        body="",
+        path=tmp_path / "SR-050.md",
+    )
+    report = run_requirement_validation(
+        [req.id], [req], lambda name: None, tmp_path
+    )
+    entry = report["requirements"][0]
+    assert entry["id"] == req.id
+    assert "no harness" in entry["error"]
     assert "passed" not in entry

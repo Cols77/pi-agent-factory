@@ -18,6 +18,12 @@ class FreshnessSeverity(str, Enum):
     WARNING = "warning"
 
 
+# The tiers that fail a gate. Named once so every gate agrees on it -- a gate
+# that filtered on BLOCKING alone would silently pass the *more* severe
+# INTEGRITY tier.
+GATE_FAILING_SEVERITIES = frozenset({FreshnessSeverity.INTEGRITY, FreshnessSeverity.BLOCKING})
+
+
 @dataclass(frozen=True)
 class FreshnessIssue:
     code: str
@@ -36,10 +42,7 @@ class FreshnessReport:
 
     @property
     def ok(self) -> bool:
-        return not any(
-            issue.severity in {FreshnessSeverity.INTEGRITY, FreshnessSeverity.BLOCKING}
-            for issue in self.issues
-        )
+        return not any(issue.severity in GATE_FAILING_SEVERITIES for issue in self.issues)
 
     def to_dict(self) -> dict:
         return {"ok": self.ok, "issues": [asdict(issue) for issue in self.issues]}
