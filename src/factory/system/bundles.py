@@ -29,8 +29,11 @@ from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 _SCHEMA = SCHEMA_DIR / "system_bundle.schema.json"
 
-# The only member kinds a bundle may declare (design §3.3).
-_MEMBER_KINDS = ("spec", "plan", "task", "sr")
+# The only member kinds a bundle may declare (design §3.3, extended by SP-A).
+# `adr` refs are id-based (`adr:ADR-0001`), matching `sr:`/`task:` and unlike
+# `spec:`/`plan:`, which are repo-relative paths. Resolution to a file happens
+# in the caller, never here -- this only parses the ref.
+_MEMBER_KINDS = ("spec", "plan", "task", "sr", "adr")
 
 
 class BundleIdMismatchError(ValueError):
@@ -50,9 +53,9 @@ def _parse_member_ref(raw_ref: str) -> SystemScopeRef | None:
     """Parse a raw member ref string, or return None if it does not resolve.
 
     A member is well-formed only if it has a recognized `spec:`/`plan:`/
-    `task:`/`sr:` prefix and a non-empty identifier after it. Anything else
-    does not resolve (design §3.3) and is reported `missing` by the caller
-    rather than raised, so one bad member never drops the whole bundle.
+    `task:`/`sr:`/`adr:` prefix and a non-empty identifier after it. Anything
+    else does not resolve (design §3.3) and is reported `missing` by the
+    caller rather than raised, so one bad member never drops the whole bundle.
     """
     kind, sep, identifier = raw_ref.partition(":")
     if not sep or kind not in _MEMBER_KINDS or not identifier:
