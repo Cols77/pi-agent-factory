@@ -10,10 +10,12 @@ this increment's Python core.
 ## Goal
 
 A first-class **Goal** with the spec §13 lifecycle, deterministic metric evaluation,
-evidence persistence, goal-reached notification and regression detection. Demonstrate
-one drone requirement progressing `NOT_REACHED → REACHED → REGRESSED` (spec §37 Phase 2
-exit demo). The `/goal` Pi command (agent UX) is Inc 2's command shim over the Python
-`factory.goals` core; evaluation auto-wiring from real runs arrives in Inc 3.
+evidence persistence, goal-reached notification and regression detection, extended by the
+brief §5.3 **measurable contract** (guardrails, population, baseline, confidence, budget,
+stopping rule, versioning) so a goal is an engineering contract, not a natural-language wish.
+Demonstrate one drone requirement progressing `NOT_REACHED → REACHED → REGRESSED`
+(spec §37 Phase 2 exit demo). The `/goal` Pi command (agent UX) is Inc 2's command shim over
+the Python `factory.goals` core; evaluation auto-wiring from real runs arrives in Inc 3.
 
 ## Reuse (do not rebuild)
 
@@ -92,6 +94,14 @@ def transition(f,t):
     id: str; title: str; path: Path; feature: list[str]; requirements: list[str]
     metric: dict; target: dict;  # {operator, value}
     state: GoalState; created_from: str | None; scope_errors: list[str]
+    # brief §5.3 measurable contract (optional in schema, REQUIRED for `/goal create` in Task 6):
+    guardrails: list[dict]   # [{metric, operator, value}] — fail ⇒ target must NOT be REACHED
+    population: dict         # {scenario_pack: [...], occlusions_s: [min,max], held_out: bool}
+    baseline: dict           # {metric, value, commit, state}   comparator anchor
+    confidence: dict         # {min_runs: int, ci_level: float, repeat_count: int}
+    budget: dict             # {max_iterations: int, max_runs: int, budget_units: str}
+    stop_rule: str           # "all_met|budget_exhausted|guardrail_failed|inconclusive"
+    version: int             # bumps on metric/target/population change (brief §5.3 versioning)
 def load_goal(path) -> Goal
 def load_goals(root) -> dict[str, Goal]      # keys by id; duplicate id raises DuplicateGoalIdError
 ```
@@ -132,6 +142,33 @@ def evaluate(goal, value, *, run_id, commit, metrics_path):
                        "commit": commit, "metrics_path": str(metrics_path)})
 ```
 - [ ] **Step 3:** unit suite + lint + commit.
+
+## Task 3b: Measurable goal contract + guardrail gate (brief §5.3)
+
+**Files:** `src/factory/goals/schema.py`, `src/factory/goals/evaluator.py` (extend),
+`src/factory/schemas/goal.schema.json`, `src/factory/commands/goal.py`, `tests/unit/goals/test_contract.py`
+**Ruling (brief §5.3):** a goal is an **engineering contract**, not a wish. It must carry at least a
+guardrail set and a confidence/stop rule before `/goal create` accepts it; a goal is **never marked
+REACHED while a guardrail fails**, the minimum evidence count is unmet, or the baseline is
+incomparable (brief "Specification requirement").
+
+- [ ] **Step 1: Failing tests** —
+  - guardrail gate: `reacquisition_rate=0.93 >= 0.90` but `false_reacquisition=0.05 > 0.03` ⇒
+    evaluator returns `BLOCKED` (never `REACHED`); if the goal was previously REACHED, a broken
+    guardrail returns `REGRESSED` with guardrail evidence recorded.
+  - confidence gate: a `value>=target` single run under `confidence.min_runs` still reports
+    `NOT_REACHED`/`VERIFICATION_PENDING` (never REACHED) — single-run success is not acceptance
+    (brief §5.3 "Avoid single-run success").
+  - versioning: changing `metric|target|population` bumps `version`; a comparison against an
+    older, differently-defined baseline is flagged `baseline_mismatch` (not silently compared).
+  - `/goal create` without a guardrail/stop_rule is rejected with a clear message listing missing
+    contract fields.
+- [ ] **Step 2: Implement** — extend `Goal`/schema with the §5.3 fields; in `evaluate` add a
+  guardrail + confidence + baseline-comparability pre-check that runs *before* the target
+  comparison and short-circuits REACHED; record `guardrail_results` + `confidence_met` in the
+  evidence bundle; wire the contract fields through `parse_goal_cmd` (`guardrails=..,population=..,
+  baseline=..,confidence=..,budget=..,stop=` args) and `goal.schema.json`.
+- [ ] **Step 3:** full suite + lint + commit `feat(goals): add the measurable goal contract + guardrail gate`.
 
 ## Task 4: Persist evidence + transition log
 
@@ -203,4 +240,6 @@ results = [evaluate(g, v, run_id=f"RUN-demo{i}", commit=sha, metrics_path="evide
 - AC-03 (goal creation), AC-04 (evaluation→REACHED), AC-05 (evidence retention), AC-06
   (notification on NOT_REACHED→REACHED), AC-07 (REGRESSED + notified) all pass as unit + demo tests.
 - Lifecycle matches spec §13 exactly; determinism enforced (no LLM for REACHED).
+- brief §5.3 contract: guardrail/confidence/baseline gates block REACHED; `/goal create` requires
+  the contract fields; goal versions bump and stale baselines are flagged (never silently compared).
 - Every v1 test green; no existing verb/command/schema changed.

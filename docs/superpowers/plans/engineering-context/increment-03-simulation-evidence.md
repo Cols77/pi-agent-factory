@@ -133,6 +133,29 @@ def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifes
   (one above, one below, one after a regression) so Inc 4/Inc 6 have real data.
 - [ ] **Step 3:** run `python -m factory.system` queries against the seed runs; full gates green.
 
+## Task 6b: Evidence sensitivity — patch-reversal (brief §5.2)
+
+**Files:** `scripts/run_sensitivity.py` (product), `tests/unit/simulation/test_sensitivity.py`,
+`src/factory/simulation/sensitivity.py`
+**Ruling (brief §5.2 "Tests must prove sensitivity"):** a green simulation is not strong evidence
+for a feature if it stays green after the feature is removed. The reference slice must prove the
+same evidence **fails or materially changes** when the capability under test is disabled, on
+paired seeds.
+
+- [ ] **Step 1: Failing tests** — define the sensitivity harness contract: run scenario on the
+  implementation, then with the behavior disabled, and assert the target metric degrades beyond a
+  threshold on **paired seeds** (same seed both ways).
+  - persistent-belief: disable `target_memory`/belief merge ⇒ duplicate investigations rise or
+    reacquisition_rate drops materially vs the enabled run.
+  - safety governor: inject an invalid/stale planner output ⇒ the governor deterministically
+    rejects it and the fallback is visible in the run trace.
+  - (Inc 6/7 follow-up) visualisation: corrupt/remove one evidence artifact ⇒ only the affected
+    view degrades while the cockpit exposes the missing dependency (honest-incompleteness).
+- [ ] **Step 2: Implement** `sensitivity.evaluate(feature, enabled_evidence, disabled_evidence,
+  keys, tol)` returning per-metric deltas + a `SENSITIVE/INSENSITIVE` verdict; expose via a
+  `sensitivity` subcommand; wire a gate note (not a hard CI block this slice) in the seed runs.
+- [ ] **Step 3:** full suite + lint + commit `feat(sim): add evidence-sensitivity (patch-reversal) check`.
+
 ## Task 7: Review handoff
 
 - [ ] **Step 1:** reviewer sub-agent — compliance vs spec §18–§20, §29–§30 (chain completeness,
@@ -146,3 +169,6 @@ def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifes
 - `query_metric_history` returns deterministic ascending history; `latest_failure` returns the
   right run.
 - v1 manifests continue to load unchanged (D3); full suite green.
+- brief §5.2 sensitivity: disabling persistent belief / injecting an invalid governor output
+  makes the reference evidence fail or degrade materially on paired seeds (patch-reversal
+  principle demonstrated for the slice).

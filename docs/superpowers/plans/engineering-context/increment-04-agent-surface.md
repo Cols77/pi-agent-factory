@@ -41,6 +41,7 @@ and evidence, and present artifacts — without a separate MCP server.
 | `eng_trace_requirement(requirement_id)` | `factory.trace` trace | read |
 | `eng_get_requirement_implementation(requirement_id)` | trace graph | read |
 | `eng_get_verification_status(requirement_id)` | `validation_status` (goal-aware) | read |
+| `eng_get_diagram(diagram_id)` | `query_diagram` (Inc 1 `diag:` kind) | read |
 | `eng_get_recent_feature_changes(feature_id)` | `feature.recent_changes` | read |
 | `eng_get_latest_simulation(feature_id)` | `query_latest_simulation` | read |
 | `eng_get_latest_failure(feature_id)` | `query_latest_failure` | read |
@@ -87,6 +88,13 @@ const TOOLS = {
 - [ ] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Action tools (`eng_evaluate_goal`, `eng_present`) behind policy
+
+- [ ] **Step 0 (read): `eng_get_diagram(diagram_id)`** — resolve a `diag:` stub → return the
+  canonical HTML path + `focus` + `illustrates` refs (D7). Read-only; `present(diag:..)` routes the
+  artifact to the browser via Inc 5. Add the row above to `eng-context-tools.ts` and a `diag:`
+  subcommand backstop in Task 2 if missing. Comprehension verification (D8) is **not** an `eng_*`
+  tool — it is the installed `grill-understanding`/`visual-explainer` skills invoked from the
+  cockpit surfaces (Inc 6/7), keeping the engineering-context surface deterministic and read-only.
 
 - [ ] **Step 1:** `eng_evaluate_goal` calls the Inc 3 auto-eval and returns the resulting
   transition; it is the ONLY tool that writes goal state.

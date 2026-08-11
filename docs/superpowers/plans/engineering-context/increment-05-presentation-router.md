@@ -37,7 +37,7 @@ This sits behind `eng_present` (Inc 4).
 |---|---|
 | `src/factory/presentation/__init__.py` `router.py` | `resolve_intent`, `dispatch(level, intent)`. |
 | `src/factory/presentation/level.py` | INSPECT/PRESENT/REVIEW enum + policy predicates. |
-| `src/factory/presentation/browser.py` | SCC-browser adapter: resolve artifact → the SP-B docs page URL/page for the scope. |
+| `src/factory/presentation/browser.py` | SCC-browser adapter: resolve artifact → the SP-B docs page URL/page for the scope; `diag:` → canonical diagram HTML (D7). |
 | `src/factory/presentation/ide.py` | IDE adapter: `vscode://`/`jetbrains://` line link. |
 | `src/factory/presentation/sim.py` | Simulation adapter: resolve run+focus → viewer/url (stub until Inc 6). |
 | `src/factory/presentation/cli.py` | `present` subcommand (EXPOSE the router for agents/CLI). |
@@ -69,7 +69,10 @@ This sits behind `eng_present` (Inc 4).
   cockpit's existing opener (proven non-exec for non-file inputs).
 - [ ] **Step 2: SCC browser** — resolve to the SP-B docs page for the artifact's scope (V-cycle/
   Feature/Goal page landed in Inc 6); this is the sole human surface (D2). Never error loudly
-  when the page is not yet built — degrade to the scope's Brief page.
+  when the page is not yet built — degrade to the scope's Brief page. **Diagram (D7):**
+  `present(diag:DIAG-NAV-003)` resolves to the canonical `docs/diagrams/DIAG-NAV-003.html`
+  artifact, opened/embedded in the browser at its `focus` node — it links the committed HTML,
+  never re-derives the graph in TS.
 - [ ] **Step 3: Simulation** — resolve run+focus to a viewer URL/entry point; stub returns the
   run's evidence path + a "viewer in Inc 6" marker until Inc 6 lands the viewer.
 - [ ] **Step 4:** full suite + lint + commit.
@@ -91,4 +94,5 @@ This sits behind `eng_present` (Inc 4).
 - `present()` resolves to the correct adapter/level for every spec §22 example with NO accidental
   application focus change at INSPECT, and NO shell/URI injection (guard tested).
 - Adapters are independently replaceable (interface boundary tested).
+- `present(diag:...)` opens the canonical diagram HTML in the browser (D7), never re-derived in TS.
 - v1 suite green; additive only.

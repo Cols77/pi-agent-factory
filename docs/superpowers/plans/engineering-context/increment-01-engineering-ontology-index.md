@@ -40,6 +40,7 @@ markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 | `src/factory/schemas/feat.schema.json` | Feature frontmatter contract. |
 | `src/factory/schemas/metric.schema.json` | Metric frontmatter contract. |
 | `src/factory/schemas/goal.schema.json` | Goal frontmatter contract (v1 subset; lifecycle in Inc 2). |
+| `src/factory/schemas/diag.schema.json` | Diagram frontmatter contract (D7): points at the canonical `.html` artifact. |
 | (_design decisions use SCC SP-A's `adr.schema.json` — no new design schema_) | — |
 | `src/factory/system/vcycle.py` | Vertical-slice traversal over the graph (definition + verification sides). |
 | `src/factory/system/feature.py` | `feature_context` / dossier aggregate (pure functions over loaders). |
@@ -49,9 +50,9 @@ markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 **Modified (in pi-agent-factory):**
 | File | Change |
 |---|---|
-| `src/factory/trace/model.py` | `NodeKind` += `feat,metric,goal,run`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`). Design decisions come from the existing `adr:` kind (SP-A). |
+| `src/factory/trace/model.py` | `NodeKind` += `feat,metric,goal,run,diag`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`), `docs/diagrams` (`DIAG-*.md` stubs). Design decisions come from the existing `adr:` kind (SP-A). |
 | `src/factory/trace/graph.py` | read new edges from frontmatter (`parent_of`, `verified_by`, ...) in `build_graph`. |
-| `src/factory/system/queries.py` | `_SCOPE_KINDS` += `feat,metric,goal`; `parse_scope_ref`; `query_feature_context`; `query_vcycle`; `list_scopes` emits new kinds. |
+| `src/factory/system/queries.py` | `_SCOPE_KINDS` += `feat,metric,goal,diag`; `parse_scope_ref`; `query_feature_context`; `query_vcycle`; `query_diagram`; `list_scopes` emits new kinds. |
 | `src/factory/system/bundles.py` | `_MEMBER_KINDS` += `feat,metric,goal` (id-based, like `sr:`). |
 | `tests/unit/trace/test_model_nodes.py`, `test_model_edges.py`, `tests/unit/system/test_queries.py`, `test_bundles.py` | add coverage for the new kinds/edges. |
 | `pi-ext/factory-watch` | `NodeKind`/type-compat consumers must stay additive — confirm only, do not touch v1 UI. |
@@ -61,7 +62,6 @@ reacquisition), `metrics/MET-NAV-004.md`, `goals/GOAL-NAV-003.md` (declared only
 evaluation is Inc 2). Design decisions use an EXISTING ADR (SCC SP-A `docs/adr/`, e.g.
 `adr:ADR-0001`-style) rather than a new `docs/designs/`. These are the spec's running
 example wired to the real drone scenarios.
-
 ## Task 1: Extend the trace `NodeKind` and `load_nodes`
 
 **Files:** `src/factory/trace/model.py`
@@ -164,6 +164,33 @@ Inc 2.
   `python -m factory.validation.schema_validator`).
 - [ ] **Step 2:** unit tests load the expected schema keys; commit `feat(schemas): add
   feature/metric/goal contracts`.
+
+## Task 3b: Diagram artifact kind (`diag:`) — canonical HTML with a markdown stub (D7)
+
+**Files:** `src/factory/trace/model.py` (kind+glob), `src/factory/schemas/diag.schema.json`,
+`src/factory/system/queries.py` (`query_diagram` + `diag:` scope), `tests/unit/trace/test_model_nodes.py`.
+`diag:` nodes are **markdown stubs** in `docs/diagrams/DIAG-*.md` whose frontmatter points at the
+**canonical self-contained HTML** file (`diagram_file: DIAG-NAV-003.html`) produced by the
+`.pi/skills/diagram-design` skill (D7). The stub keeps the single-markdown-parser reuse rule intact;
+the `.html` is the rendered artifact the browser embeds/launches. TS never re-derives the graph from
+the HTML.
+
+```yaml
+id: DIAG-NAV-003
+kind: diag
+title: Reacquisition V-cycle slice
+focus: [NAV-REQ-021]        # the 1–2 nodes the accent draws the eye to
+illustrates: [FEAT-NAV-017] # the feature/ADR/dossier this picture belongs to
+diagram_file: DIAG-NAV-003.html
+```
+- [ ] **Step 1: Failing tests** — a `docs/diagrams/DIAG-NAV-003.md` stub resolves as a `diag`
+  node; `illustrates:` yields an edge to its feature/ADR; the referenced `.html` exists (missing
+  → recorded `scope_errors`, degraded not dropped); a `diag:` scope parses and lists.
+- [ ] **Step 2: Implement** — extend the `NodeKind` literal + `load_nodes` glob for
+  `docs/diagrams/DIAG-*.md` (kind `diag`); add `diag.schema.json` (id `^DIAG-[A-Z0-9-]+$`,
+  `focus`, `illustrates`, `diagram_file`); wire an `illustrates` edge in `build_graph` and a
+  `query_diagram(root, id)` returning the stub + resolved HTML path; add `diag:` to `_SCOPE_KINDS`.
+- [ ] **Step 3:** full suite + lint + commit `feat(system): add the diagram (diag:) artifact kind`.
 
 ## Task 4: `factory.system.vcycle` — the vertical slice
 

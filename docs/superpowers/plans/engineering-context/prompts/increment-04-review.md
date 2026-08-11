@@ -4,7 +4,7 @@ Act as a strict, read-only compliance reviewer for Engineering-Context Increment
 C:/coding/pi-agent-factory, working from the increment's implementation plan.
 
 Review the committed diff against:
-- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D5)
+- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D8)
 - docs/superpowers/plans/engineering-context/increment-04-*.md (tasks + acceptance)
 - The source spec: C:/coding/Engineering Context, V-Cycle Navigation and Goal-Driven Validation.md
   (the relevant § for this increment) and the v1 modules the plan says to reuse.

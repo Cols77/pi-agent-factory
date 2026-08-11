@@ -139,6 +139,23 @@ Metrics            reacquisition_rate 82% -> 91%
   pure query (reusing trace gaps + goals + simulation), exposed via a `health` subcommand and the Inc 6 surfaces.
 - [ ] **Step 3:** full suite + lint + commit.
 
+## Task 5b: Comprehension hook + delta diagram (D8 / D7)
+
+**Files:** `src/factory/commands/catchup.py` (extend), `src/factory/system/queries.py`
+(`query_catchup` renders `diag:` delta if present), `pi-ext/factory-watch` Catch-me-up view (extend).
+
+- [ ] **Step 1: Failing tests** — `/catchup FEAT-NAV-017` returns its deterministic `ContextDelta`
+  (Task 2) unchanged, and additionally offers an **optional** "Verify my understanding" entry that
+  invokes the installed `grill-understanding` + `visual-explainer` skills on the changed feature
+  (D8). The delta itself stays deterministic — the comprehension step is an explicit, optional,
+  risk-triggered side action, never auto-run and never a stored score.
+- [ ] **Step 2: Implement** — a `--verify-understanding` flag on `/catchup` (and a Catch-me-up
+  view button) that starts the comprehension skill on the feature; where a `diag:` diagram of the
+  feature exists (D7), the Catch-me-up / delta view embeds it so the delta is read against a
+  picture (e.g. the changed V-cycle slice or the goal chart). Reuse `query_diagram` (Inc 1) +
+  rendering from Inc 6.
+- [ ] **Step 3:** full suite + lint + commit.
+
 ## Task 6: Optional rebuildable index
 
 - [ ] **Step 1:** measure. If `query_catchup`/`query_goal_history` on the real repo exceed a
@@ -159,4 +176,6 @@ Metrics            reacquisition_rate 82% -> 91%
 - Requirement status correctly reflects accumulated `VALIDATED/VERIFICATION_STALE/REGRESSED`
   from goals + code freshness (spec §28–§30).
 - `vcycle_health` surfaces the spec §29 inconsistencies through agent + human views.
+- Optional "Verify my understanding" (D8, brief §5.5) invokes the installed comprehension skills;
+  the delta stays deterministic and the comprehension step is never scored or auto-run.
 - v1 suite green; additive only; index (if added) rebuildable (AC-10).

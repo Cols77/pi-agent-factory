@@ -4,7 +4,7 @@ You are the developer subagent for Engineering-Context Increment 04 in
 C:/coding/pi-agent-factory (read-only RFC: work in cool_physical_ai_project only where the plan says so).
 
 Read completely:
-- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D5 locked decisions)
+- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D8 locked decisions)
 - docs/superpowers/plans/engineering-context/increment-04-*.md (this increment's plan)
 - Inc 1–7 plans you depend on, and the v1 modules they reuse.
 
@@ -17,7 +17,7 @@ Implement the plan task-by-task, in strict order:
   factory.validation as the plan directs. Do not fork a parser or re-derive in TS.
 - Deterministic: no random, no mtime ordering, no fuzzy scope refs.
 - Tick each plan checkbox as you complete it. Constrain each commit to its task.
-- If a step is impossible without violating D1–D5 or a Program §6 rule, STOP and escalate —
+- If a step is impossible without violating D1–D8 or a Program §6 rule, STOP and escalate —
   do not improvise a new design direction.
 
 When done: report commit hashes, paths touched, which task checkboxes are ticked, the

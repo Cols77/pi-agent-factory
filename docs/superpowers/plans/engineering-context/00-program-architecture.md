@@ -38,6 +38,75 @@ every v1 primitive that already does the job instead of rebuilding it.
 
 ---
 
+## 3a. Brief-grounded gap matrix (Engineering Cockpit brainstorm)
+
+Reviewed against the **Engineering Cockpit brainstorming brief** (2026-08-11) as the base
+for completing this plan. Ruling: protect settled decisions (D1–D6), pull in only what this
+plan is missing, keep the thin vertical slice — do not turn the brief's six pillars into a
+new program. "Covered" = already planned below; "partial" = planned but missing a brief
+requirement; "missing" = not planned; "outside" = deliberately excluded via an explicit
+non-goal below.
+
+| Brief pillar (§) | Status | What the plan does / what is pulled in |
+|---|---|---|
+| System-level traceability (§5.1) | **covered** | Inc 1 ontology + V-cycle/feature queries, on top of SCC SP-A `adr:`/bundles. |
+| Simulation-backed acceptance (§5.2) | **partial** → **add sensitivity** | Inc 3 chain exists; **pull in §5.2 "tests must prove sensitivity"** (patch-reversal: disable the target capability ⇒ evidence degrades) as an Inc 3 acceptance. |
+| Measurable `/goal` optimization (§5.3) | **partial** → **add contract** | Inc 2 lifecycle exists; **pull in the §5.3 contract fields** (guardrails, population, baseline, confidence, budget, stopping rule, goal/metric versioning) as an additive Inc 2 extension. |
+| Automatic experiment visualisation (§5.4) | **covered** → **add diagrams** | Inc 5 presentation router + Inc 6 human views exist; **add canonical diagram rendering** (see §3b) to Inc 1/5/6. |
+| Mental-model preservation (§5.5) | **covered by existing skills** | Inc 7 `/catchup` computes the deterministic delta; the **active comprehension intervention already exists as installed PI skills** (`grill-understanding` + `visual-explainer`). The plan *references* them (D8), it does not rebuild them. |
+| Durable memory & failure records (§5.6) | **partial** → **add Inc 8** | v1 `kb/` + evidence + decision artifacts partially cover it; **pull in a compact Inc 8** for failure records + durable-memory provenance (no transcript archive). |
+| Evidence before narrative; honest incompleteness; determinism (§3, §14) | **covered** | Carried by every increment's global constraints (D3, §6 reuse rules). |
+
+**Selected explicit non-goals from the brief** (to keep the vertical slice honest):
+
+- Blocking every agent decision or requiring line-by-line human approval (brief §3 non-goal).
+- A general digital twin / simulation platform (§3 non-goal).
+- LLM-generated confidence as acceptance evidence (§3; Inc 2 already forbids LLM for REACHED).
+- A second canonical knowledge store; use `kb/`/`adr:`/`features/` as the single canonical layer (`§6` information model, one source of truth).
+- The brief's E1–E10 epics are *not* adopted verbatim; they are mapped onto the existing Inc 1–8 breakdown below.
+
+## 3b. Diagram generation (integration of `.pi/skills/diagram-design`)
+
+**Goal:** generate proper editorial diagrams (V-cycle, architecture, feature-dossier, ADR,
+goal/metric charts, `/catchup` deltas) as **canonical, committed, self-contained HTML artifacts**
+so the cockpit looks as good as it is correct. `diagram-design` is **already vendored** at
+`cool_physical_ai_project/.pi/skills/diagram-design/` (SKILL.md + 27 type references + asset gallery)
+and is available to coding agents — this increment plans the *integration*, not a rebuild.
+
+**Design (D7 — locked):**
+
+- New typed artifact kind **`diag:`** with stable ids (`DIAG-NAV-003`), files under
+  `docs/diagrams/*.html` (self-contained, no build step, per diagram-design output). A diagram
+  belongs to exactly one feature/ADR scope and may carry an optional `focus` (the 1–2 nodes the
+  accent draws the eye to).
+- Authored **by the coding agent** via the `diagram-design` skill; `.html` is canonical and
+  reviewed like any doc. **TS never re-derives a graph** — it only links/embeds the committed
+  artifact (D7-2, consistent with "Python computes, TS renders" and the brief's "canonical repo
+  artifacts, projections are derived").
+- A `diag:` node is **derived from the same ontology** as the object it illustrates (the V-cycle
+  query, the feature context, the goal result) so the picture never contradicts the canonical
+  state; regenerate by re-running the authoring step, not by hand-editing HTML alone.
+- First-run gate: the skill's `style-guide.md` is onboarded to the project's palette once
+  (editorial skin), stored as a canonical token file, so every diagram is consistent.
+
+**Where it lands (woven in, vertical slice):**
+
+| Surface | Increment |
+|---|---|
+| `diag:` node kind + schema + scope + edges | Inc 1 |
+| `eng_get_diagram` / `present(diag:..)` route | Inc 4 / Inc 5 |
+| Render/embed diagrams in Feature Dossier, V-cycle, ADR, Goal, and `/catchup` views | Inc 6 / Inc 7 |
+| Author the reference feature's V-cycle + goal-chart diagrams end-to-end | Inc 6 (drone slice) |
+| Docs diagrams in the specs/plans themselves (V-cycle, evidence chain) | ongoing (docs) |
+
+**Comprehension (D8 — locked):** the active "verify the developer understands" questionnaire is
+**already implemented** as the installed `grill-understanding` + `visual-explainer` PI skills
+(targeted, one-question-at-a-time, tutors via explainer on wrong answers, triggers `/plan` on
+design divergence; brief §5.5 "retrieval assistance over examination"). The plan **references**
+these skills as the comprehension intervention reachable from `/catchup`, `/system`, and the
+relevant tabs (Inc 6/7); it does not re-implement a quiz engine. It stays **optional and
+risk-triggered** — never a surveillance score.
+
 ## 3. Genuinely new v2 surface (gap analysis)
 
 | New capability | Where it lands | Depends on |
@@ -54,6 +123,9 @@ every v1 primitive that already does the job instead of rebuilding it.
 | **Presentation Router** (`present(artifact, focus)` at INSPECT/PRESENT/REVIEW) | new `factory.presentation` | Inc 5 |
 | Human Engineering Context UI (Feature Dossier, Interactive V-cycle, Goal/metric status, Validation evidence, Simulation-run summaries) | **tabs on top of the SCC browser** (`system-page.ts`, SP-B) — no Obsidian | Inc 6 |
 | **`/catchup`** context-delta + human review checkpoints | `factory.commands.catchup` | Inc 7 |
+| **Diagram artifact generation** (`diag:`), rendered in the cockpit | `factory.trace` `diag:` kind + Inc 5 route + Inc 6 view, authored via vendored `.pi/skills/diagram-design` | Inc 1/5/6 (D7) |
+| **Comprehension intervention** (verify understanding) | reference installed `grill-understanding` + `visual-explainer` skills (D8) | n/a — exists |
+| **Failure records + durable memory** (compact) | new `factory.memory` failure-record tier + durable-memory scoping | Inc 8 |
 
 ---
 
@@ -68,6 +140,10 @@ every v1 primitive that already does the job instead of rebuilding it.
 | **5** | Presentation Router | §37 Phase 5 | `present()` dispatch: browser/IDE/simulation; INSPECT/PRESENT/REVIEW policy | pi-agent-factory |
 | **6** | Human Engineering Context UI | §37 Phase 6 | extend `/system` with **Feature Dossier, Interactive V-cycle, Goal/metric status, Validation evidence, Simulation-run summaries** — additive tabs on the SCC browser (`system-page.ts`, SP-B); all Python-derived; **no Obsidian** | pi-agent-factory (browser) |
 | **7** | Context delta + validation status | §37 Phase 7 | `/catchup`, human checkpoints, goal-aware `VALIDATED`/`VERIFICATION_STALE`/`REGRESSED`, change impact | pi-agent-factory |
+| **8** | Durable memory & failure records | brief §5.6 | failure records (repro, root cause, rejected hypotheses, regression), durable decision/evidence memory w/ provenance; comprehension skill hooks (D8) | pi-agent-factory (+ product) |
+
+**Diagram generation (D7) and comprehension (D8) are woven into Inc 1/4/5/6/7**, not a separate
+increment — see §3b. Inc 8 holds only the compact durable-memory / failure-record surface.
 
 Each increment ships its own spec review → implementation → quality gates, driven by
 developer/reviewer sub-agents (see §6). No increment may start the next until its
@@ -177,6 +253,21 @@ membership map; `feature_context` composes both.
 ### D5 — Requirement-status vocabulary: **spec vocabulary (locked)**
 Adopt `DEFINED/DESIGNED/IMPLEMENTED/VERIFICATION_PENDING/PARTIALLY_VERIFIED/VALIDATED/
 REGRESSED` as an additive layer over the existing v1 validation status.
+
+### D7 — Diagram artifacts: canonical committed HTML, authored by the agent (locked)
+Diagrams are **canonical, committed, self-contained HTML artifacts** (`docs/diagrams/DIAG-*.html`,
+kind `diag:`), produced by the coding agent through the already-vendored `.pi/skills/diagram-design`
+skill, onboarded to one project palette (`style-guide.md`). Derived UI **links/embeds** these
+artifacts; it never re-derives a graph in TS (matches "Python computes, TS renders" and the brief's
+"canonical repo artifacts, projections are derived"). Woven into Inc 1/5/6/7 (vertical slice); no new
+build step, no runtime diagram engine.
+
+### D8 — Comprehension: reuse existing skills (locked)
+The active "verify the developer understands" mechanism is the installed `grill-understanding` +
+`visual-explainer` PI skills (targeted, optional, risk-triggered; tutors via explainer on wrong
+answers; triggers `/plan` on design divergence — brief §5.5). The plan **references** these from
+Inc 6/7 surfaces; it does not build a quiz engine or a mental-model score. Non-goal: surveillance-like
+scoring of the developer.
 
 ### D6 — Coordination with the System Control Center (locked)
 The **System Control Center** program (`docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md`, sub-projects SP-A→SP-B→SP-C→SP-D) is **upstream** to v2.

@@ -60,6 +60,7 @@ separate human surface (D2).
 | `pi-ext/factory-watch/src/system-goal-view.ts` | Goal / metric status widget. |
 | `pi-ext/factory-watch/src/system-validation-view.ts` | Validation evidence widget. |
 | `pi-ext/factory-watch/src/system-sim-view.ts` | Simulation-run summaries widget. |
+| `pi-ext/factory-watch/src/system-diagram-view.ts` | **Diagram** widget: embed/launch canonical `diag:` HTML (D7) + comprehension entry (D8). |
 | `pi-ext/factory-watch/src/system-page.ts` (additive) | register five new tabs + render dispatch. |
 | `pi-ext/factory-watch/test/system-feature-view.test.ts`, `...-vcycle-view.test.ts`, `...-goal-view.test.ts`, `...-validation-view.test.ts`, `...-sim-view.test.ts`, `...-page-additions.test.ts` | widget + registration tests. |
 
@@ -109,6 +110,26 @@ separate human surface (D2).
   the simulation adapter here.
 - [ ] **Step 3:** tests + full suites + lint; commit.
 
+## Task 5b: Diagram rendering + comprehension entry (D7 / D8)
+
+**Files:** `pi-ext/factory-watch/src/system-diagram-view.ts`, `test/system-diagram-view.test.ts`,
+and additive calls in `system-feature-view.ts` / `system-vcycle-view.ts` / `system-goal-view.ts`.
+
+- [ ] **Step 1: Failing tests** — a `diag:` payload (stub + `diagram_file` + `focus` + `illustrates`)
+  renders by **linking/embedding the canonical HTML** (an `<iframe>`/`object` or link target resolved
+  via Inc 5 to `docs/diagrams/DIAG-*.html`); a diagram whose HTML is missing renders as explicitly
+  **"missing diagram"** (honest incompleteness, never a broken blank); a V-cycle view can show the
+  anchor feature's diagram; `focus` surfaces which node to look at first.
+- [ ] **Step 2: Implement** — `system-diagram-view.ts` as a pure data→DOM function that embeds the
+  committed HTML (D7: no TS re-derivation of the graph), reachable from the Feature Dossier,
+  V-cycle and ADR views, and via `present(diag:..)`; register `tabDiagram`.
+- [ ] **Step 3: Comprehension entry (D8)** — from a dossier/V-cycle/`/catchup` view, offer an
+  optional, explicit **"Verify my understanding"** action that invokes the installed
+  `grill-understanding` + `visual-explainer` skills on the focused feature (targeted, one question,
+  tutors via explainer, triggers `/plan` on divergence — brief §5.5). Pure entry point; the skill
+  does the work; no quiz engine built here, no comprehension score surfaced.
+- [ ] **Step 4:** tests + full suites + lint; commit.
+
 ## Task 6: Navigation integration (spec AC-02, AC-09)
 
 - [ ] **Step 1:** from a requirement in the V-cycle view, navigate to parent/child requirements,
@@ -130,4 +151,6 @@ separate human surface (D2).
 - Missing / failed / stale states are distinct and never silently dropped (spec §9.1, §28–§30).
 - AC-02 (V-cycle navigation) and AC-09 (contextual navigation) work; feature dossier is a runnable hub.
 - No Obsidian code, no bridge service (D2). Every pre-existing browser tab test stays green (D3).
+- Canonical diagrams (D7) render by embedding committed HTML; a diagram view degrades honestly when
+  its artifact is missing. Comprehension is an optional, explicit entry to the installed skills (D8).
 - Full Python + TS suites green.
