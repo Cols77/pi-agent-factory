@@ -1,8 +1,8 @@
 # Increment 2 — `/goal` + Goals Core (Implementation Plan)
 
 **Status:** Draft for written review. Assumes locked **D3 (additive, keep v1 working),
-D4 (both), D5 (spec vocabulary)**. D1 (pi-ext)/D2 (Obsidian+browser) do not affect this
-increment's Python core.
+D4 (both), D5 (spec vocabulary)"**. D1 (pi-ext)/D2 (SCC browser; no Obsidian) do not affect
+this increment's Python core.
 **Source phase:** Engineering Context spec §37 **Phase 2 — `/goal`.**
 **Landing repo:** pi-agent-factory (Python core) + cool_physical_ai_project (declared goal values).
 **Sub-agents:** dev=`pi -p prompts/increment-02-dev.md`, review=`pi -p prompts/increment-02-review.md`.

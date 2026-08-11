@@ -43,7 +43,7 @@ every v1 primitive that already does the job instead of rebuilding it.
 | New capability | Where it lands | Depends on |
 |---|---|---|
 | **Feature** artifact kind + Feature Dossier aggregate | `factory.trace.model` new kind `feat`; new `factory.feature` summaries | Inc 1 |
-| **Design / ADR / architecture** kinds already partially exist (`adr` scope + `docs/adr`) | extend `docs/adr` dress to designs `docs/designs` | Inc 1 |
+| **Design / ADR / architecture** — ALREADY DONE by SCC SP-A (`adr:` member kind + scope + `adr.schema.json` + `docs/adr` frontmatter) | **Reuse SP-A's `adr:`** for decisions; a *detailed-design* tier (Distinct from ADRs) is separate and optional | Inc 1 (consume, don't rebuild) |
 | **Metric** artifact kind (`metrics/`) | new `factory.metrics` register + scope `metric:` | Inc 1 |
 | **Goal** artifact kind (`goals/`), lifecycle state machine, evaluation, evidence, regression | new `factory.goals` | Inc 1–2 |
 | Feature-centric **V-cycle vertical slice** query (definition⇄verification run) | new `factory.system` `query_vcycle`, `feature_context` | Inc 1–2 |
@@ -52,7 +52,7 @@ every v1 primitive that already does the job instead of rebuilding it.
 | Simulation **run bundle → metric → evidence** ingestion + goal eval pipeline | extend `factory.evidence`, `SimTestbenchHarness` | Inc 3 |
 | **Engineering Context MCP / agent tools** (`get_feature_context`, `trace_requirement`, `get_goal`, ...) | Pi extension tools (D1) | Inc 4 |
 | **Presentation Router** (`present(artifact, focus)` at INSPECT/PRESENT/REVIEW) | new `factory.presentation` | Inc 5 |
-| Human V-cycle / Feature / Goal views | browser (D2) or Obsidian | Inc 6 |
+| Human Engineering Context UI (Feature Dossier, Interactive V-cycle, Goal/metric status, Validation evidence, Simulation-run summaries) | **tabs on top of the SCC browser** (`system-page.ts`, SP-B) — no Obsidian | Inc 6 |
 | **`/catchup`** context-delta + human review checkpoints | `factory.commands.catchup` | Inc 7 |
 
 ---
@@ -66,12 +66,41 @@ every v1 primitive that already does the job instead of rebuilding it.
 | **3** | Simulation evidence | §37 Phase 3 | run bundle ingestion, `req→goal→exp→run→metric→evidence` chain, drone scenarios bound to goals | cool_physical_ai_project |
 | **4** | Engineering Context agent surface | §37 Phase 4 | `get_feature_context`, `trace_requirement`, `get_goal`, `get_goal_evidence`, `get_latest_failure`, `present` via Pi extension (D1) | pi-agent-factory (pi-ext) |
 | **5** | Presentation Router | §37 Phase 5 | `present()` dispatch: browser/IDE/simulation; INSPECT/PRESENT/REVIEW policy | pi-agent-factory |
-| **6** | Human V-cycle views | §37 Phase 6 | Feature Dossier + V-cycle + Goal status (D2: browser tabs vs Obsidian) | pi-agent-factory (browser) / Obsidian |
+| **6** | Human Engineering Context UI | §37 Phase 6 | extend `/system` with **Feature Dossier, Interactive V-cycle, Goal/metric status, Validation evidence, Simulation-run summaries** — additive tabs on the SCC browser (`system-page.ts`, SP-B); all Python-derived; **no Obsidian** | pi-agent-factory (browser) |
 | **7** | Context delta + validation status | §37 Phase 7 | `/catchup`, human checkpoints, goal-aware `VALIDATED`/`VERIFICATION_STALE`/`REGRESSED`, change impact | pi-agent-factory |
 
 Each increment ships its own spec review → implementation → quality gates, driven by
 developer/reviewer sub-agents (see §6). No increment may start the next until its
 approval questions (§7) are answered.
+
+### Execution order — merged with the System Control Center (SCC) program
+
+These plans share the same repo, the same navigator, and the same product repo, so they run
+as **one coordinated sequence, not two blind parallel tracks**. SCC SP-A/B build the feature
+spine and the browser control center our v2 feature layer and Inc 6 UI sit on.
+
+```
+SCC SP-A   feature spine + coverage + adr: + bundle map + gate    (prereq for v2 Inc 1/2 feature model)
+SCC SP-B   control-center browser (health, sidebar, traversal)    (prereq for v2 Inc 6 UI)
+────────────────────────────────────────────────────────────────
+v2 Inc 1   ontology + V-cycle / feature-context queries   (consume SP-A adr:/bundles)
+v2 Inc 2   /goal + goals core
+v2 Inc 3   simulation evidence                             (drone scenarios -> goals)
+SCC SP-C   system-* remediation tools                     (parallel to v2 Inc 4–5)
+v2 Inc 4   pi-ext agent tools
+v2 Inc 5   presentation router
+v2 Inc 6   Human Engineering Context UI (tabs on SP-B browser)
+v2 Inc 7   context delta + goal-aware validation status
+SCC SP-D   business-requirement tier                        (last; reviews through SP-B)
+```
+
+Constraints that make this safe: every v2 increment is **additive-only** (D3) on the current
+v1 surface, so SCC and v2 never re-write the same line; v2 Inc 6 is the only increment that
+edits `system-page.ts`, and it does so **after SP-B** and only as new additive tabs; SP-A's
+bundle map and `adr:` surface are treated as **already-done upstream dependencies**, not rebuilt.
+
+> **See also:** `00-execution-roadmap.md` (at-a-glance merged order) and
+> `00-scc-dependency-decision.md` (decision that v2 consumes SCC SP-A/SP-B).
 
 ---
 
@@ -125,12 +154,13 @@ Engineering-context operations ship as Pi-extension custom tools (deterministic,
 version-locked, already wired into the cockpit). A standalone MCP server is deferred
 unless a non-Pi client needs it.
 
-### D2 — Human view: **Obsidian primary + browser port (locked)**
-Ship the Obsidian V-cycle/Feature/Goal views (as the source spec §8–§10 intends) AND
-port the equivalent views into the existing v1 browser (`docs-server`/`system-page`)
-for eventual evolution. Both render the **same Python-derived** engineering ontology
-(spec §38); Obsidian never reconstructs the graph itself — it consumes the local
-service/pipe (Inc 6).
+### D2 — Human view: **SCC browser = primary; Obsidian out of scope (locked)**
+The **System Control Center browser** (`docs-server`/`system-page`, built by SCC SP-B) is the
+SOLE primary human engineering-context surface. All v2 human views are additive **tabs on top
+of that navigator** (Feature Dossier, Interactive V-cycle, Goal/metric status, Validation
+evidence, Simulation-run summaries). **Obsidian integration is out of scope** — no plugin, no
+local bridge, no parallel implementation. One human surface, one Python-derived ontology
+(spec §38).
 
 ### D3 — Location & stability: **extend in place, additive-only (locked)**
 All v2 work lands in `pi-agent-factory` (consumed by `cool_physical_ai_project`).
@@ -148,53 +178,25 @@ membership map; `feature_context` composes both.
 Adopt `DEFINED/DESIGNED/IMPLEMENTED/VERIFICATION_PENDING/PARTIALLY_VERIFIED/VALIDATED/
 REGRESSED` as an additive layer over the existing v1 validation status.
 
+### D6 — Coordination with the System Control Center (locked)
+The **System Control Center** program (`docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md`, sub-projects SP-A→SP-B→SP-C→SP-D) is **upstream** to v2.
+SCC SP-A (feature spine: `adr:` kind, bundle map, coverage, ordering, gate) is the basis for
+our v2 feature model (D4); SCC SP-B (control-center browser) is the surface our Inc 6 UI tabs
+on. v2 treats SP-A's `adr:`/bundle map and SP-B's navigator as **already-done dependencies —
+never rebuilt, never re-edited except as additive tabs after SP-B**. Execution order is
+given in §4. No parallel Obsidian work.
+
 ---
 
 Resolved approval questions (now decided):
 
-_These are the taste / technical / UX decisions the program cannot silently choose.
-They gate Increments 4 (D1) and 6 (D2, D3); the rest can proceed under the reuse rules._
-
-### D1 — Agent interface: Pi-extension tools vs standalone MCP server (gates Inc 4)
-Source spec §25/§33 propose an "Engineering Context MCP server". v1 already exposes
-agent tools as Pi-extension custom tools (`trace_tools`, `system_context_tools`),
-which are deterministic, version-locked to the extension, and already wired into the
-cockpit. **Recommendation: reuse the Pi-extension tool route** and expose the
-engineering-context operations as tools there; defer a standalone MCP server unless a
-non-Pi client (Obsidian service, external IDE) proves necessary.
-**Choice needed:** reuse-Pi-ext (recommended) / standalone-MCP / both.
-
-### D2 — Human view: extend v1 browser (`docs-server`) vs build an Obsidian plugin (gates Inc 6)
-Source spec §8–§10 call for an Obsidian extension. But v1 already ships a browser
-human view (`system-page.ts`: scope picker + Brief/Matrix/Timeline/Guide/Story/Reverse/
-Trace + sidebar navigation) served by `docs-server.ts`, and *multiple existing
-repos replace Obsidian with it*. The engineering-context views (Feature Dossier,
-V-cycle, Goal status) are natural **new tabs** in this existing page, sharing the
-exact Python-derived claims — obeying spec §38 (single ontology, no isolated human
-knowledge base) better than a separate Obsidian plugin with its own data path.
-**Recommendation: extend the browser view (new Feature/V-cycle/Goal tabs); drop
-Obsidian unless you specifically require Obsidian's vault/plugins.**
-**Choice needed:** browser-reuse (recommended) / Obsidian-plugin / both.
-
-### D3 — Where v2 code lives (gates all increments)
-**Recommendation: extend `pi-agent-factory` in place** (it is already a standalone,
-reusable repo; `cool_physical_ai_project` consumes it as an editable path dep).
-An entirely new repo would duplicate the orchestrator/system substrate for no reuse win.
-**Choice needed:** in-place (recommended) / new repo.
-
-### D4 — Feature as bundle vs new `feat:` artifact kind (gates Inc 1)
-v1 has bundles (feature-scope labels) as the feature-ish primitive. The source spec
-wants a first-class `Feature` artifact (§5.1, FEAT-NAV-017). **Recommendation: add a
-`feat:` kind in `docs/features/` AND keep bundles as the membership map** — a feature
-file is the dossier root; a bundle maps members; `feature_context` composes both.
-**Choice needed:** both (recommended) / feature-as-bundle-only / feature-file-only.
-
-### D5 — Requirement status vocabulary cadence (gates Inc 2/7)
-Spec §28 wants `DEFINED/DESIGNED/IMPLEMENTED/VERIFICATION_PENDING/PARTIALLY_VERIFIED/
-VALIDATED/REGRESSED`. v1 already has a validation status model + freshness. **Choice
-needed:** adopt spec vocabulary (recommended, additive) / keep v1 vocabulary / map.
+All five questions (D1 agent surface → pi-ext; D2 human view → SCC browser, Obsidian out of
+scope; D3 location → in-place; D4 feature modeling → files AND bundles; D5 status vocabulary →
+spec) are locked in §7 above, plus D6 coordinating with the SCC program. The original written-up
+recommendations and rationale for each are superseded by the locked decisions and live in the
+git/decision history for traceability; they are not restated here to avoid two sources of truth.
 
 ---
 
 Proceed to `increment-01-engineering-ontology-index.md` for the detailed Task plan
-of Increment 1. Increments 2–7 are detailed after D1–D5 are answered.
+of Increment 1. Increments 2–7 are detailed after D1–D6 are answered.

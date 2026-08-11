@@ -12,7 +12,8 @@ consumes it as an editable path dependency, so it is live there as soon as commi
 ## Goal
 
 Give the artifact ontology a **feature-centric vertical slice**: new typed artifact
-kinds (feature, design, metric, goal) and new typed edges, a derived (on-demand)
+kinds (feature, metric, goal) and new typed edges; **design decisions are already owned by
+SCC SP-A's `adr:` kind** (D6) and are consumed, not rebuilt
 V-cycle traversal, and a Feature Context query — without forking v1's single
 markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 `/goal` command yet (Inc 2); this increment is the ontology + indexing backbone only.
@@ -39,7 +40,7 @@ markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 | `src/factory/schemas/feat.schema.json` | Feature frontmatter contract. |
 | `src/factory/schemas/metric.schema.json` | Metric frontmatter contract. |
 | `src/factory/schemas/goal.schema.json` | Goal frontmatter contract (v1 subset; lifecycle in Inc 2). |
-| `src/factory/schemas/design.schema.json` | Design/ADR-frontmatter contract. |
+| (_design decisions use SCC SP-A's `adr.schema.json` — no new design schema_) | — |
 | `src/factory/system/vcycle.py` | Vertical-slice traversal over the graph (definition + verification sides). |
 | `src/factory/system/feature.py` | `feature_context` / dossier aggregate (pure functions over loaders). |
 | `tests/unit/system/test_vcycle.py` | Task 4. |
@@ -48,26 +49,29 @@ markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 **Modified (in pi-agent-factory):**
 | File | Change |
 |---|---|
-| `src/factory/trace/model.py` | `NodeKind` += `feat,design,metric,goal,run`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `docs/designs` (`DES-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`). |
+| `src/factory/trace/model.py` | `NodeKind` += `feat,metric,goal,run`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`). Design decisions come from the existing `adr:` kind (SP-A). |
 | `src/factory/trace/graph.py` | read new edges from frontmatter (`parent_of`, `verified_by`, ...) in `build_graph`. |
 | `src/factory/system/queries.py` | `_SCOPE_KINDS` += `feat,metric,goal`; `parse_scope_ref`; `query_feature_context`; `query_vcycle`; `list_scopes` emits new kinds. |
-| `src/factory/system/bundles.py` | `_MEMBER_KINDS` += `feat,metric,goal`. |
-| `tests/unit/system/test_queries.py`, `test_bundles.py`, `tests/test_trace_model.py` | coverage. |
+| `src/factory/system/bundles.py` | `_MEMBER_KINDS` += `feat,metric,goal` (id-based, like `sr:`). |
+| `tests/unit/trace/test_model_nodes.py`, `test_model_edges.py`, `tests/unit/system/test_queries.py`, `test_bundles.py` | add coverage for the new kinds/edges. |
+| `pi-ext/factory-watch` | `NodeKind`/type-compat consumers must stay additive — confirm only, do not touch v1 UI. |
 
 **Created in cool_physical_ai_project:** `docs/features/FEAT-NAV-017.md` (target
 reacquisition), `metrics/MET-NAV-004.md`, `goals/GOAL-NAV-003.md` (declared only —
-evaluation is Inc 2), `docs/designs/DES-NAV-008.md`. These are the spec's running
+evaluation is Inc 2). Design decisions use an EXISTING ADR (SCC SP-A `docs/adr/`, e.g.
+`adr:ADR-0001`-style) rather than a new `docs/designs/`. These are the spec's running
 example wired to the real drone scenarios.
 
 ## Task 1: Extend the trace `NodeKind` and `load_nodes`
 
 **Files:** `src/factory/trace/model.py`
-**Interfaces:** `NodeKind = Literal["br","sr","spec","plan","task","feat","design","metric","goal","run"]`.
-`load_nodes(root)` additionally globs `docs/features/FEAT-*.md`, `docs/designs/DES-*.md`,
-`metrics/MET-*.md`, `goals/GOAL-*.md`. Runs (`evidence/runs/RUN-*`) are loaded as nodes
+**Interfaces:** `NodeKind = Literal["br","sr","spec","plan","task","feat","metric","goal","run"]`.
+`load_nodes(root)` additionally globs `docs/features/FEAT-*.md`, `metrics/MET-*.md`,
+`goals/GOAL-*.md`. Runs (`evidence/runs/RUN-*`) are loaded as nodes
 in Inc 3 (needs manifest parsing), so this task only reserves the literal.
 
-- [ ] **Step 1: Write failing tests** in `tests/unit/trace/test_model.py`:
+- [ ] **Step 1: Write failing tests** in `tests/unit/trace/test_model_nodes.py` (the existing
+v1 trace-node test module):
 
 ```python
 from factory.trace.model import load_nodes, NodeKind
@@ -93,13 +97,11 @@ def test_feature_and_metric_and_goal_kinds_are_loaded(tmp_path):
 - [ ] **Step 3: Implement.** Extend the literal and add globs:
 
 ```python
-NodeKind = Literal["br","sr","spec","plan","task","feat","design","metric","goal","run"]
+NodeKind = Literal["br","sr","spec","plan","task","feat","metric","goal","run"]
 
 # in load_nodes, after the existing sr/br/task/plan/spec globs:
     for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
         nodes.append(_id_node(path, "feat"))
-    for path in _glob(root, "docs", "designs", pattern="DES-*.md"):
-        nodes.append(_id_node(path, "design"))
     for path in _glob(root, "metrics", pattern="MET-*.md"):
         nodes.append(_id_node(path, "metric"))
     for path in _glob(root, "goals", pattern="GOAL-*.md"):
@@ -108,7 +110,7 @@ NodeKind = Literal["br","sr","spec","plan","task","feat","design","metric","goal
 ```
 
 - [ ] **Step 4:** run `uv run python -m pytest -q && uv run python -m ruff check .`.
-- [ ] **Step 5:** commit `feat(trace): add feat/design/metric/goal node kinds`.
+- [ ] **Step 5:** commit `feat(trace): add feat/metric/goal node kinds` (design stays `adr:`, SP-A).
 
 ## Task 2: Extend `EdgeKind` and read V-cycle edges
 
@@ -149,19 +151,19 @@ Wire into `build_graph` where other id-based edges are added (unresolved dst ids
 through the same resolution/degradation path).
 - [ ] **Step 3:** full suite + lint + commit.
 
-## Task 3: New schemas (feat / metric / goal / design)
+## Task 3: New schemas (feat / metric / goal)
 
-**Files:** `src/factory/schemas/{feat,metric,goal,design}.schema.json`
-Plain JSON-Schema (Draft 2020-12) following `adr.schema.json`: `id` with pattern
-(`^FEAT-[A-Z0-9-]+$`, `^MET-[A-Z0-9-]+$`, `^GOAL-[A-Z0-9-]+$`, `^DES-[A-Z0-9-]+$`),
+**Files:** `src/factory/schemas/{feat,metric,goal}.schema.json`
+Plain JSON-Schema (Draft 2020-12) following `adr.schema.json` (SP-A): `id` with pattern
+(`^FEAT-[A-Z0-9-]+$`, `^MET-[A-Z0-9-]+$`, `^GOAL-[A-Z0-9-]+$`),
 `title`, and per-kind required fields. `goal.schema.json` in Inc 1 only requires
 `id/title/feature/requirements/metric/target` (declared); `state`/lifecycle markup is
 Inc 2.
 
-- [ ] **Step 1:** write the four schemas (validate a draft doc by hand with
+- [ ] **Step 1:** write the three schemas (validate a draft doc by hand with
   `python -m factory.validation.schema_validator`).
 - [ ] **Step 2:** unit tests load the expected schema keys; commit `feat(schemas): add
-  feature/metric/goal/design contracts`.
+  feature/metric/goal contracts`.
 
 ## Task 4: `factory.system.vcycle` — the vertical slice
 
@@ -251,7 +253,7 @@ def feature_context(root, feature_id):
         "id": feat.id, "title": feat.title,
         "intent": _purpose(feat.path),          # from file body; never invented
         "requirements": _reachable(graph, feature_id, "contains", Sr),
-        "design": _reachable(graph, feature_id, "design"),
+        "design": _reachable(graph, feature_id, "adr"),   # SCC SP-A adr: nodes
         "implementation": _implementation_files(graph),
         "verification": _verification_status(root, feature_id),   # v1 validation_status
         "goals": [n.id for n in slice_.goals],
@@ -268,7 +270,8 @@ Add `query_feature_context(root, scope)` and `query_vcycle(root, scope)` to
 ## Task 7: Seed the drone example artifacts in cool_physical_ai_project
 
 **Files:** `docs/features/FEAT-NAV-017.md`, `metrics/MET-NAV-004.md`,
-`goals/GOAL-NAV-003.md`, `docs/designs/DES-NAV-008.md`
+`goals/GOAL-NAV-003.md`, and an existing/added `docs/adr/*.md` (SCC SP-A) for the
+design decision
 Author the spec's running example wired to this product's real scenarios
 (`multiple_threats.yaml` ⇄ reacquisition). Goals are **declared only** in Inc 1
 (`state: declared`) — lifecycle/evaluation is Inc 2.
@@ -290,7 +293,7 @@ Author the spec's running example wired to this product's real scenarios
 
 ## Acceptance for Increment 1
 
-- `load_nodes` returns `feat/design/metric/goal` nodes with stable ids from a single
+- `load_nodes` returns `feat/metric/goal` nodes with stable ids from a single
   parser (AC-10 rebuildability path holds).
 - `python -m factory.system vcycle --scope feat:FEAT-NAV-017` returns a typed
   definition⇄verification vertical slice with goals/metrics.
