@@ -116,10 +116,44 @@ marked decision.
 
 ---
 
-## 7. Open approval questions to escalate BEFORE detail-planning the affected increments
+## 7. Decisions (locked 2026-08-11) + approval questions
 
-These are the taste / technical / UX decisions the program cannot silently choose.
-They gate Increments 4 (D1) and 6 (D2, D3); the rest can proceed under the reuse rules.
+Decisions are **locked** below; the affected increments are planned against them.
+
+### D1 — Agent surface: **pi-ext (locked)**
+Engineering-context operations ship as Pi-extension custom tools (deterministic,
+version-locked, already wired into the cockpit). A standalone MCP server is deferred
+unless a non-Pi client needs it.
+
+### D2 — Human view: **Obsidian primary + browser port (locked)**
+Ship the Obsidian V-cycle/Feature/Goal views (as the source spec §8–§10 intends) AND
+port the equivalent views into the existing v1 browser (`docs-server`/`system-page`)
+for eventual evolution. Both render the **same Python-derived** engineering ontology
+(spec §38); Obsidian never reconstructs the graph itself — it consumes the local
+service/pipe (Inc 6).
+
+### D3 — Location & stability: **extend in place, additive-only (locked)**
+All v2 work lands in `pi-agent-factory` (consumed by `cool_physical_ai_project`).
+Hard constraint: **the current v1 workflow must stay working and un-changed** — no
+breaking edits to existing CLI verbs, commands, schemas, or behaviour; new surface is
+added behind its own modules/commands and fully gated. Backward compatibility is a
+first-class acceptance criterion on every increment. Any change to an existing v1
+surface must be opt-in/behind a flag and proven non-breaking by the full v1 suite.
+
+### D4 — Feature modeling: **feature files AND bundles (locked)**
+`feat:` artifact files (`docs/features/`) are the dossier root; bundles remain the
+membership map; `feature_context` composes both.
+
+### D5 — Requirement-status vocabulary: **spec vocabulary (locked)**
+Adopt `DEFINED/DESIGNED/IMPLEMENTED/VERIFICATION_PENDING/PARTIALLY_VERIFIED/VALIDATED/
+REGRESSED` as an additive layer over the existing v1 validation status.
+
+---
+
+Resolved approval questions (now decided):
+
+_These are the taste / technical / UX decisions the program cannot silently choose.
+They gate Increments 4 (D1) and 6 (D2, D3); the rest can proceed under the reuse rules._
 
 ### D1 — Agent interface: Pi-extension tools vs standalone MCP server (gates Inc 4)
 Source spec §25/§33 propose an "Engineering Context MCP server". v1 already exposes
