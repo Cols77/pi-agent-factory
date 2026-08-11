@@ -364,3 +364,97 @@ def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["scopes"] == [{"kind": "sr", "ref": "sr:SR-001"}]
+
+
+def _repo_with_two_srs(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    for sr_id in ("SR-001", "SR-002"):
+        (tmp_path / "requirements" / f"{sr_id}.md").write_text(
+            f"---\nid: {sr_id}\ntitle: {sr_id}\nstatement: x\ndomain: behavioral\n---\n",
+            encoding="utf-8",
+        )
+    (tmp_path / "bundles").mkdir()
+    return tmp_path
+
+
+def _draft(tmp_path, name, payload):
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return str(path)
+
+
+def test_bundle_check_reports_resolution_and_coverage_delta(tmp_path, capsys):
+    repo = _repo_with_two_srs(tmp_path)
+    draft = _draft(
+        tmp_path, "draft.json", {"id": "one", "label": "One", "members": ["sr:SR-001"]}
+    )
+
+    exit_code = main(["bundle", "check", "--draft", draft, "--repo-root", str(repo), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["members_total"] == 1
+    assert payload["members_resolved"] == 1
+    assert payload["unresolved"] == []
+    assert payload["coverage_before"] == {"bundled": 0, "total": 2}
+    assert payload["coverage_after"] == {"bundled": 1, "total": 2}
+
+
+def test_bundle_check_names_unresolved_members(tmp_path, capsys):
+    repo = _repo_with_two_srs(tmp_path)
+    draft = _draft(
+        tmp_path,
+        "draft.json",
+        {"id": "typo", "label": "Typo", "members": ["sr:SR-999", "adr:ADR-0404"]},
+    )
+
+    main(["bundle", "check", "--draft", draft, "--repo-root", str(repo), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["members_resolved"] == 0
+    assert payload["unresolved"] == ["sr:SR-999", "adr:ADR-0404"]
+
+
+def test_bundle_check_reports_overlap_with_an_existing_bundle(tmp_path, capsys):
+    repo = _repo_with_two_srs(tmp_path)
+    (repo / "bundles" / "existing.json").write_text(
+        json.dumps({"id": "existing", "label": "Existing", "members": ["sr:SR-001"]}),
+        encoding="utf-8",
+    )
+    draft = _draft(
+        tmp_path, "draft.json", {"id": "new", "label": "New", "members": ["sr:SR-001"]}
+    )
+
+    main(["bundle", "check", "--draft", draft, "--repo-root", str(repo), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    # Multi-membership is legal, so this is information, not an error.
+    assert payload["overlaps"] == [{"member": "sr:SR-001", "bundles": ["existing"]}]
+
+
+def test_bundle_check_flags_an_id_that_does_not_match_its_filename(tmp_path, capsys):
+    repo = _repo_with_two_srs(tmp_path)
+    draft = _draft(
+        tmp_path, "misnamed.json", {"id": "other", "label": "Other", "members": []}
+    )
+
+    main(["bundle", "check", "--draft", draft, "--repo-root", str(repo), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id_matches_filename"] is False
+
+
+def test_bundle_check_reads_a_draft_from_stdin(tmp_path, capsys, monkeypatch):
+    repo = _repo_with_two_srs(tmp_path)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(json.dumps({"id": "piped", "label": "Piped", "members": ["sr:SR-002"]})),
+    )
+
+    exit_code = main(["bundle", "check", "--draft", "-", "--repo-root", str(repo), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["members_resolved"] == 1
+    # There is no filename to compare against when the draft is piped.
+    assert payload["id_matches_filename"] is None

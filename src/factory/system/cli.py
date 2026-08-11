@@ -16,7 +16,8 @@ import json
 import sys
 from pathlib import Path
 
-from factory.system.coverage import bundle_coverage
+from factory.system.bundles import list_bundles
+from factory.system.coverage import bundle_coverage, member_target
 from factory.system.guide import export_guide
 from factory.system.models import to_dict
 from factory.system.queries import (
@@ -81,6 +82,68 @@ def cmd_guide(repo_root: Path, scope_raw: str, export_raw: str | None) -> dict:
 
 def cmd_coverage(repo_root: Path) -> dict:
     return to_dict(bundle_coverage(repo_root))
+
+
+def cmd_bundle_check(repo_root: Path, draft_raw: str) -> dict:
+    """Answer four deterministic questions about a draft bundle.
+
+    Resolution, coverage delta, overlap with existing bundles, and
+    id/filename consistency. It proposes nothing and writes nothing -- the
+    draft is judged, not generated. `--draft -` reads stdin, in which case
+    there is no filename to check the id against and `id_matches_filename`
+    is None rather than False.
+    """
+    if draft_raw == "-":
+        raw = json.loads(sys.stdin.read())
+        id_matches_filename: bool | None = None
+    else:
+        draft_path = Path(draft_raw)
+        raw = json.loads(draft_path.read_text(encoding="utf-8"))
+        id_matches_filename = str(raw.get("id")) == draft_path.stem
+
+    members = [str(m) for m in raw.get("members", [])]
+
+    resolved: dict[str, Path] = {}
+    unresolved: list[str] = []
+    for ref in members:
+        target = member_target(repo_root, ref)
+        if target is None:
+            unresolved.append(ref)
+        else:
+            resolved[ref] = target
+
+    before = bundle_coverage(repo_root)
+    already_claimed = {
+        member_target(repo_root, m.ref)
+        for bundle in list_bundles(repo_root / "bundles")
+        for m in bundle.members
+    }
+    newly_claimed = {p for p in resolved.values() if p not in already_claimed}
+
+    overlaps: list[dict] = []
+    for ref, target in resolved.items():
+        containing = [
+            bundle.id
+            for bundle in list_bundles(repo_root / "bundles")
+            if any(member_target(repo_root, m.ref) == target for m in bundle.members)
+        ]
+        if containing:
+            overlaps.append({"member": ref, "bundles": containing})
+
+    return {
+        "id": raw.get("id"),
+        "label": raw.get("label"),
+        "members_total": len(members),
+        "members_resolved": len(resolved),
+        "unresolved": unresolved,
+        "coverage_before": {"bundled": before.bundled, "total": before.total},
+        "coverage_after": {
+            "bundled": before.bundled + len(newly_claimed),
+            "total": before.total,
+        },
+        "overlaps": overlaps,
+        "id_matches_filename": id_matches_filename,
+    }
 
 
 def cmd_scope(repo_root: Path) -> dict:
@@ -186,6 +249,23 @@ def _render_coverage(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_bundle_check(result: dict) -> str:
+    before, after = result["coverage_before"], result["coverage_after"]
+    lines = [
+        f"draft: {result['id']} -- {result['label']}",
+        f"  resolves       {result['members_resolved']}/{result['members_total']} members",
+        f"  coverage       {before['bundled']}/{before['total']} -> "
+        f"{after['bundled']}/{after['total']} bundled",
+    ]
+    for ref in result["unresolved"]:
+        lines.append(f"  ! unresolved   {ref}")
+    for overlap in result["overlaps"]:
+        lines.append(f"  ~ also in      {overlap['member']} -> {', '.join(overlap['bundles'])}")
+    if result["id_matches_filename"] is False:
+        lines.append("  ! id does not match the draft filename (bundles must be named <id>.json)")
+    return "\n".join(lines)
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -225,6 +305,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("scope", parents=[common])
 
+    p_bundle = sub.add_parser("bundle")
+    bundle_sub = p_bundle.add_subparsers(dest="bundle_cmd", required=True)
+    p_bundle_check = bundle_sub.add_parser("check", parents=[common])
+    p_bundle_check.add_argument("--draft", required=True, help="path to a draft bundle, or - for stdin")
+
     p_coverage = sub.add_parser("coverage", parents=[common])
     p_coverage.add_argument(
         "--gate",
@@ -258,6 +343,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "guide":
             result = cmd_guide(args.repo_root, args.scope, args.export)
             rendered = _render_guide(result)
+        elif args.cmd == "bundle":
+            result = cmd_bundle_check(args.repo_root, args.draft)
+            rendered = _render_bundle_check(result)
         elif args.cmd == "coverage":
             result = cmd_coverage(args.repo_root)
             rendered = _render_coverage(result)
