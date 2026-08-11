@@ -1052,3 +1052,86 @@ def test_all_matrix_statuses_are_legal_enum_members(tmp_path):
     result = query_matrix(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
     for row in result["rows"]:
         assert MatrixStatus(row["status"]) in MatrixStatus
+
+
+def _write_adr_fixture(repo_root, filename, text):
+    directory = repo_root / "docs" / "adr"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / filename).write_text(text, encoding="utf-8")
+
+
+_ADR_TEXT = """---
+id: ADR-0001
+title: Typed Contract Spine
+status: accepted
+superseded_by: null
+---
+
+## Decision
+Keep the existing packages.
+
+## Consequences
+No parallel tree exists.
+"""
+
+
+def test_adr_is_a_legal_scope_ref(tmp_path):
+    scope = parse_scope_ref("adr:ADR-0001")
+    assert scope.kind == "adr"
+    assert scope.ref == "adr:ADR-0001"
+
+
+def test_adr_brief_renders_title_status_and_each_section_as_recorded_claims(tmp_path):
+    _write_adr_fixture(tmp_path, "0001-spine.md", _ADR_TEXT)
+
+    result = query_brief(tmp_path, parse_scope_ref("adr:ADR-0001"))
+
+    texts = [c["text"] for c in result["claims"]]
+    assert texts == [
+        "Typed Contract Spine",
+        "status: accepted",
+        "Decision: Keep the existing packages.",
+        "Consequences: No parallel tree exists.",
+    ]
+    assert {c["kind"] for c in result["claims"]} == {"recorded"}
+    assert {c["freshness"]["state"] for c in result["claims"]} == {"fresh"}
+
+
+def test_adr_brief_cites_the_adr_file_with_a_content_hash(tmp_path):
+    _write_adr_fixture(tmp_path, "0001-spine.md", _ADR_TEXT)
+
+    result = query_brief(tmp_path, parse_scope_ref("adr:ADR-0001"))
+
+    citation = result["claims"][0]["citations"][0]
+    assert citation["kind"] == "decision"
+    assert citation["path"].endswith("0001-spine.md")
+    assert citation["sha256"] is not None
+
+
+def test_adr_brief_for_an_unknown_id_raises_scope_not_found(tmp_path):
+    _write_adr_fixture(tmp_path, "0001-spine.md", _ADR_TEXT)
+
+    with pytest.raises(ScopeNotFoundError):
+        query_brief(tmp_path, parse_scope_ref("adr:ADR-9999"))
+
+
+def test_adr_brief_reports_schema_errors_as_a_missing_claim(tmp_path):
+    _write_adr_fixture(
+        tmp_path,
+        "0002-bad.md",
+        "---\nid: ADR-0002\ntitle: Bad\nstatus: rubbish\n---\n\n## Decision\nx.\n",
+    )
+
+    result = query_brief(tmp_path, parse_scope_ref("adr:ADR-0002"))
+
+    missing = [c for c in result["claims"] if c["kind"] == "missing"]
+    assert missing, "a schema violation must be visible, not silently tolerated"
+    assert missing[0]["freshness"]["state"] == "n/a"
+
+
+def test_list_scopes_includes_declared_adrs(tmp_path):
+    _write_adr_fixture(tmp_path, "0001-spine.md", _ADR_TEXT)
+
+    refs = [s.ref for s in list_scopes(tmp_path)]
+
+    assert "adr:ADR-0001" in refs
