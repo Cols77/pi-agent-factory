@@ -288,6 +288,66 @@ def test_guide_with_export_flag_confirms_the_resolved_path_on_stderr_without_jso
     assert str(dest.resolve()) in captured.err
 
 
+def _minimal_repo_with_one_unbundled_sr(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: One\nstatement: x\ndomain: behavioral\n---\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_coverage_json_reports_per_kind_totals(tmp_path, capsys):
+    repo = _minimal_repo_with_one_unbundled_sr(tmp_path)
+
+    exit_code = main(["coverage", "--repo-root", str(repo), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["total"] == 1
+    assert payload["bundled"] == 0
+    assert payload["unbundled"] == ["sr:SR-001"]
+
+
+def test_coverage_without_gate_exits_zero_even_when_artifacts_are_unbundled(tmp_path, capsys):
+    repo = _minimal_repo_with_one_unbundled_sr(tmp_path)
+
+    assert main(["coverage", "--repo-root", str(repo)]) == 0
+
+
+def test_coverage_gate_fails_and_names_every_unbundled_artifact(tmp_path, capsys):
+    repo = _minimal_repo_with_one_unbundled_sr(tmp_path)
+
+    exit_code = main(["coverage", "--repo-root", str(repo), "--gate"])
+
+    assert exit_code == 2
+    assert "sr:SR-001" in capsys.readouterr().out
+
+
+def test_coverage_gate_with_force_exits_zero_and_says_what_it_suppressed(tmp_path, capsys):
+    repo = _minimal_repo_with_one_unbundled_sr(tmp_path)
+
+    exit_code = main(["coverage", "--repo-root", str(repo), "--gate", "--force"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    # A silent override would make the gate decorative. The note goes to
+    # stderr so a `--json` stdout stays pure for machine consumers.
+    assert "forced" in captured.err.lower()
+    assert "sr:SR-001" in captured.out
+    assert captured.err
+
+
+def test_coverage_gate_passes_when_everything_is_bundled(tmp_path, capsys):
+    repo = _minimal_repo_with_one_unbundled_sr(tmp_path)
+    (repo / "bundles").mkdir()
+    (repo / "bundles" / "all.json").write_text(
+        json.dumps({"id": "all", "label": "All", "members": ["sr:SR-001"]}), encoding="utf-8"
+    )
+
+    assert main(["coverage", "--repo-root", str(repo), "--gate"]) == 0
+
+
 def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):
     # Design SS5.1/SS12: invocation is exactly `python -m factory.system`,
     # mirroring factory.trace.__main__ (spawnSync shape trace-cli.ts uses).

@@ -1,5 +1,5 @@
 """`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, `story`,
-`reverse`, `guide`, and `scope`.
+`reverse`, `guide`, `scope`, and `coverage`.
 
 JSON is emitted on stdout only when `--json` is passed; a human-readable
 rendering is printed otherwise. Errors always go to stderr as a structured
@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from factory.system.coverage import bundle_coverage
 from factory.system.guide import export_guide
 from factory.system.models import to_dict
 from factory.system.queries import (
@@ -76,6 +77,10 @@ def cmd_guide(repo_root: Path, scope_raw: str, export_raw: str | None) -> dict:
         # finding: `cmd_guide` previously discarded this return value).
         print(f"guide exported to: {written}", file=sys.stderr)
     return result
+
+
+def cmd_coverage(repo_root: Path) -> dict:
+    return to_dict(bundle_coverage(repo_root))
 
 
 def cmd_scope(repo_root: Path) -> dict:
@@ -171,6 +176,16 @@ def _render_guide(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_coverage(result: dict) -> str:
+    lines = [f"bundle coverage: {result['bundled']}/{result['total']} artifacts"]
+    for kind in result["kinds"]:
+        lines.append(f"  {kind['kind']:<6} {kind['bundled']}/{kind['total']}")
+    if result["unbundled"]:
+        lines.append(f"unbundled ({len(result['unbundled'])}):")
+        lines.extend(f"  - {ref}" for ref in result["unbundled"])
+    return "\n".join(lines)
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -210,6 +225,18 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("scope", parents=[common])
 
+    p_coverage = sub.add_parser("coverage", parents=[common])
+    p_coverage.add_argument(
+        "--gate",
+        action="store_true",
+        help="exit non-zero when any artifact belongs to no bundle",
+    )
+    p_coverage.add_argument(
+        "--force",
+        action="store_true",
+        help="with --gate, report the failure but exit zero anyway",
+    )
+
     args = parser.parse_args(argv)
 
     try:
@@ -231,6 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "guide":
             result = cmd_guide(args.repo_root, args.scope, args.export)
             rendered = _render_guide(result)
+        elif args.cmd == "coverage":
+            result = cmd_coverage(args.repo_root)
+            rendered = _render_coverage(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)
@@ -245,4 +275,18 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
     else:
         print(rendered)
+
+    # The gate runs after rendering so a failure still shows what failed.
+    # `--force` is for manual invocation only: `.factory/factory.yaml` never
+    # passes it, so a pipeline run cannot be silently forced.
+    if args.cmd == "coverage" and args.gate and result["unbundled"]:
+        if args.force:
+            # stderr, not stdout: a `--json` consumer must not see this note
+            # in the payload it parses.
+            print(
+                f"forced: suppressed {len(result['unbundled'])} unbundled artifact(s) listed above",
+                file=sys.stderr,
+            )
+            return 0
+        return 2
     return 0
