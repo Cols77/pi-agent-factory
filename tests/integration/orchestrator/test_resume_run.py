@@ -19,6 +19,7 @@ SKILL_NAMES = [
     "systematic-debugging",
     "receiving-code-review",
     "kb-lookup",
+    "code-documentation",
     "requesting-code-review",
     "coding-principles",
     "session-report",

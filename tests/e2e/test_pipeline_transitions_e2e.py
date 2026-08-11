@@ -49,7 +49,7 @@ SCOPE_GUARD_EXT = REAL_REPO / "pi-ext" / "scope-guard" / "src" / "index.ts"
 _SKILL_NAMES = [
     "verification-before-completion", "context-completeness-audit",
     "test-driven-development", "systematic-debugging", "receiving-code-review",
-    "kb-lookup", "requesting-code-review", "coding-principles", "session-report",
+    "kb-lookup", "code-documentation", "requesting-code-review", "coding-principles", "session-report",
 ]
 
 

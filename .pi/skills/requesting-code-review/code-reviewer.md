@@ -66,6 +66,13 @@ Subagent (general-purpose):
     - Documentation complete?
     - No obvious bugs?
 
+    **Documentation is current (not just present):** for every new or changed
+    file, verify the docstrings describe the implementation as it *currently*
+    stands — Args match the signature, Raises covers what the body raises,
+    Returns matches the return value. Confirm the module's Traceability header
+    (SRs + modifying tasks) is in sync with the work done. A docstring that
+    contradicts the code is a finding, not a style nitpick.
+
     ## Calibration
 
     Categorize issues by actual severity. Not everything is Critical.
