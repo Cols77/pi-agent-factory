@@ -88,6 +88,19 @@ def test_bundles_containing_matches_on_resolved_path_for_spec_member(tmp_path):
     assert bundles_containing(tmp_path, f"spec:{spec.relative_to(tmp_path).as_posix()}") == ["b1"]
 
 
+def test_bundles_containing_matches_on_differently_spelled_equal_ref(tmp_path):
+    # T-301: exercise the `member_target` path-normalisation branch, where the
+    # declared member and the input ref spell the same file differently but
+    # resolve to the same path (e.g. a `./`-prefixed spec path).
+    spec = tmp_path / "docs" / "superpowers" / "specs" / "2026-08-07-y.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# S", encoding="utf-8")
+    declared = "spec:./docs/superpowers/specs/2026-08-07-y.md"
+    _write_bundle(tmp_path / "bundles", "b1", {"id": "b1", "label": "B1", "members": [declared]})
+    canonical = "spec:docs/superpowers/specs/2026-08-07-y.md"
+    assert bundles_containing(tmp_path, canonical) == ["b1"]
+
+
 # ---------------------------------------------------------------------------
 # The schema rejects any status, claim, rationale, or free-prose field
 # ---------------------------------------------------------------------------
