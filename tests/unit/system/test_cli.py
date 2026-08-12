@@ -162,7 +162,8 @@ def test_scope_json_flag_lists_declared_scopes(tmp_path, capsys):
     assert rc == 0
     payload = json.loads(out)
     refs = {s["ref"] for s in payload["scopes"]}
-    assert refs == {"sr:SR-001", "bundle:b1"}
+    # sr: scopes leave the listing (SP-B Task 3); bundle: scopes remain.
+    assert refs == {"bundle:b1"}
 
 
 def test_scope_on_empty_repo_prints_something_sane(tmp_path, capsys):
@@ -355,6 +356,7 @@ def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):
     import sys
 
     write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "Bundle One", ["sr:SR-001"])
     result = subprocess.run(
         [sys.executable, "-m", "factory.system", "scope", "--repo-root", str(tmp_path), "--json"],
         capture_output=True,
@@ -363,7 +365,8 @@ def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["scopes"] == [{"kind": "sr", "ref": "sr:SR-001"}]
+    # sr: is no longer listed (SP-B Task 3); the containing bundle is.
+    assert payload["scopes"] == [{"kind": "bundle", "ref": "bundle:b1"}]
 
 
 def _repo_with_two_srs(tmp_path):

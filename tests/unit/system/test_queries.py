@@ -792,16 +792,30 @@ def test_list_scopes_skips_one_malformed_bundle_without_aborting(tmp_path):
     assert bundle_refs == {"bundle:alpha", "bundle:beta"}
 
 
-def test_list_scopes_includes_srs(tmp_path):
+def test_list_scopes_omits_srs(tmp_path):
     write_sr(tmp_path / "requirements", "SR-001")
     write_sr(tmp_path / "requirements", "SR-002")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", [])
 
     scopes = list_scopes(tmp_path)
 
-    assert SystemScopeRef(kind="sr", ref="sr:SR-001") in scopes
-    assert SystemScopeRef(kind="sr", ref="sr:SR-002") in scopes
+    # sr: scopes leave the sidebar listing (SP-B Task 3) but bundle: remains.
+    assert SystemScopeRef(kind="sr", ref="sr:SR-001") not in scopes
+    assert SystemScopeRef(kind="sr", ref="sr:SR-002") not in scopes
     assert SystemScopeRef(kind="bundle", ref="bundle:b1") in scopes
+
+
+def test_list_scopes_omits_sr_but_parse_resolves(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-007")
+
+    scopes = list_scopes(tmp_path)
+    kinds = {s.kind for s in scopes}
+    assert "sr" not in kinds
+
+    # sr: is still a legal, resolvable top-level scope -- just not listed.
+    ref = parse_scope_ref("sr:SR-007")
+    assert ref.kind == "sr"
+    assert ref.ref == "sr:SR-007"
 
 
 def test_list_scopes_on_empty_repo_is_empty(tmp_path):

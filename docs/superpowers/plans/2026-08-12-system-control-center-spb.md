@@ -408,7 +408,7 @@ and `ordered_bundle_ids(root, recency_source)`.
 **Files:** `src/factory/system/bundles.py`, `src/factory/system/queries.py`,
 `tests/unit/system/test_bundles.py`, `tests/unit/system/test_queries.py`
 
-- [ ] **Step 1: Failing tests** — `bundles_containing` returns every bundle that declares
+- [x] **Step 1: Failing tests** — `bundles_containing` returns every bundle that declares
   the ref (multi-membership), `[]` for a ref in none; `list_scopes` no longer emits `sr:`
   but `parse_scope_ref("sr:SR-007")` still resolves:
 
@@ -431,8 +431,8 @@ def test_list_scopes_omits_sr_but_parse_resolves(tmp_path):
     assert ref.kind == "sr"
 ```
 
-- [ ] **Step 2: Run to verify they fail** (currently `sr` IS listed; `bundles_containing` undefined).
-- [ ] **Step 3: Implement** — in `bundles.py`:
+- [x] **Step 2: Run to verify they fail** (currently `sr` IS listed; `bundles_containing` undefined).
+- [x] **Step 3: Implement** — in `bundles.py`:
 
 ```python
 from factory.system.coverage import member_target
@@ -454,9 +454,9 @@ In `queries.py`, remove the register loop from `list_scopes` (lines ~1252–1254
 emits `bundle:` and `adr:` only. `_SCOPE_KINDS` and `parse_scope_ref` are unchanged —
 `sr:` remains openable, just unlisted.
 
-- [ ] **Step 4:** Update any existing test asserting `sr:` appears in `list_scopes` to
+- [x] **Step 4:** Update any existing test asserting `sr:` appears in `list_scopes` to
   assert the opposite; run full suite + lint.
-- [ ] **Step 5:** Commit `feat(system): sr scopes leave the sidebar; bundles_containing`.
+- [x] **Step 5:** Commit `feat(system): sr scopes leave the sidebar; bundles_containing`.
 
 ---
 

@@ -1240,8 +1240,10 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles, then declared ADRs, then SRs from the requirements
-    register. A malformed bundle file degrades only itself
+    Declared bundles, then declared ADRs. `sr:` scopes are deliberately not
+    listed (SP-B Task 3): requirements are reachable by search, not by
+    listing -- `parse_scope_ref` still resolves `sr:` as a legal top-level
+    scope. A malformed bundle file degrades only itself
     (`bundles.list_bundles` already skips it); it never aborts the rest of
     the listing. An ADR with no declared id has no ref to be opened under and
     is likewise skipped by `load_adrs`.
@@ -1251,8 +1253,6 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
-    for req in register.load_register(_requirements_dir(repo_root)):
-        scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes
 
 
