@@ -61,7 +61,7 @@ def test_readiness_strong_when_all_current_covered_validated(tmp_path, monkeypat
     _write_bundle(tmp_path, "b2", ["sr:SR-002", "sr:SR-003"])
     _write_task_satisfying(tmp_path, "T-001", "SR-002")
     _write_task_satisfying(tmp_path, "T-002", "SR-003")
-    monkeypatch.setattr(health, "_validation_passing", lambda root, sid: True)
+    monkeypatch.setattr(health, "_validation_passing", lambda root, sid, validation=None: True)
     rows = health.bundle_readiness(tmp_path)
     assert rows["b2"].readiness == "strong"
 
@@ -70,6 +70,36 @@ def test_readiness_medium_when_validation_missing(tmp_path, monkeypatch):
     _write_sr(tmp_path, "SR-004", binding=True)
     _write_task_satisfying(tmp_path, "T-003", "SR-004")
     _write_bundle(tmp_path, "b3", ["sr:SR-004"])
-    monkeypatch.setattr(health, "_validation_passing", lambda root, sid: False)
+    monkeypatch.setattr(health, "_validation_passing", lambda root, sid, validation=None: False)
     rows = health.bundle_readiness(tmp_path)
     assert rows["b3"].readiness == "medium"
+
+
+def test_query_health_shapes_the_landing_payload(tmp_path):
+    _write_sr(tmp_path, "SR-001", binding=True)
+    _write_bundle(tmp_path, "b1", ["sr:SR-001"])
+    payload = health.query_health(tmp_path)
+    assert payload["sr_listed"] is False
+    assert {
+        "health", "coverage", "bundles", "unbundled",
+        "ordering_available", "degraded",
+    } <= payload.keys()
+    by_id = {b["id"]: b for b in payload["bundles"]}
+    assert by_id["b1"]["readiness"] in ("strong", "medium", "weak")
+    assert "readiness_counts" in by_id["b1"]
+
+
+def test_query_health_orders_by_recency(tmp_path):
+    from factory.system.ordering import FixedRecency
+
+    _write_sr(tmp_path, "SR-001", binding=True)
+    _write_sr(tmp_path, "SR-002", binding=True)
+    _write_bundle(tmp_path, "older", ["sr:SR-001"])
+    _write_bundle(tmp_path, "newer", ["sr:SR-002"])
+    recency = FixedRecency({
+        (tmp_path / "requirements" / "SR-001.md"): "2026-01-01T00:00:00Z",
+        (tmp_path / "requirements" / "SR-002.md"): "2026-02-01T00:00:00Z",
+    })
+    payload = health.query_health(tmp_path, recency_source=recency)
+    ids = [b["id"] for b in payload["bundles"]]
+    assert ids == ["newer", "older"]
