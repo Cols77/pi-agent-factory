@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import { runReviewLoop } from "../src/review-overlay.js";
 import { readReviewGuide } from "../src/review-guide.js";
 import { reviewDecisionPath, writeReviewDecision } from "../src/review-protocol.js";
 import { resolveSessionPath } from "../src/session-path.js";
+import { grillResultPath } from "../src/grill.js";
 import { stopDocsServer } from "../src/docs-server.js";
 import type { PipelineEntry, StatusRecord } from "../src/status-format.js";
 import type { CommandDef, ExtCommandCtx, PiApi, ReplacedSessionCtx, UiApi } from "../src/pi-types.js";
@@ -853,5 +854,164 @@ describe("factory-watch commands", () => {
     // Claude Code's /clear.
     expect(ctx.newSession).toHaveBeenCalledTimes(1);
     expect(vi.mocked(ctx.newSession).mock.calls[0]![0]).toBeUndefined();
+  });
+
+  // --- grill:blocked detection + interactive grill window (Task 4b) ---
+
+  function writeGrillBlockedStatus(cwd: string, sessionId: string, taskId = "T-001"): void {
+    mkdirSync(join(cwd, "sessions"), { recursive: true });
+    const grillEntry: PipelineEntry = {
+      node: "grill",
+      node_state: "blocked",
+      attempt: 1,
+      max_attempts: 1,
+      snippet: "",
+      outcome: null,
+      handoff: "grill your understanding before implementation (advised)",
+      updated_at: new Date().toISOString(),
+    };
+    const record: StatusRecord = {
+      session_id: sessionId,
+      task_id: taskId,
+      current_node: "grill",
+      current_state: "blocked",
+      pipeline: [grillEntry],
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    writeFileSync(join(cwd, "sessions", ".factory-status.json"), JSON.stringify(record), "utf-8");
+  }
+
+  function writeTask(cwd: string, taskId = "T-001", body = "- Create: src/foo.ts"): void {
+    mkdirSync(join(cwd, "tasks"), { recursive: true });
+    const content = [
+      "---",
+      "id: " + taskId,
+      'title: "Task title"',
+      "status: todo",
+      "dod:",
+      "- 'A definition of done item'",
+      "---",
+      "",
+      body,
+    ].join("\n");
+    writeFileSync(join(cwd, "tasks", `${taskId}-task.md`), content, "utf-8");
+  }
+
+  function writeVendoredGrillSkill(cwd: string): void {
+    const skillDir = join(cwd, ".pi", "skills", "grill-understanding");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "GRILL_SKILL_BODY_MARKER", "utf-8");
+  }
+
+  test("at grill:blocked, entering mission control offers the [Grill now, Skip] select", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grill-offer-"));
+    writeGrillBlockedStatus(cwd, "grill-offer-sess");
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd });
+    vi.mocked(ctx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    expect(ctx.ui.select).toHaveBeenCalledWith(
+      "Grill your understanding of this task?",
+      ["Grill now", "Skip"],
+    );
+    // No choice made -> neither a result file nor a spawned window yet.
+    expect(spawnTerminalWindow).not.toHaveBeenCalled();
+    expect(existsSync(grillResultPath(cwd, "grill-offer-sess"))).toBe(false);
+  });
+
+  test("[Skip] writes a skipped grill-result.json at the transcript path and does not spawn a window", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grill-skip-"));
+    writeGrillBlockedStatus(cwd, "grill-skip-sess");
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue("Skip"),
+      confirm: vi.fn(async () => true), editor: vi.fn(async () => undefined), custom: vi.fn(),
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd, ui });
+    vi.mocked(ctx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    const written = JSON.parse(readFileSync(grillResultPath(cwd, "grill-skip-sess"), "utf-8"));
+    expect(written.decision).toBe("skipped");
+    expect(written.summary).toBeNull();
+    expect(written.explainers).toBe(0);
+    expect(typeof written.updated_at).toBe("string");
+    expect(spawnTerminalWindow).not.toHaveBeenCalled();
+  });
+
+  test("[Grill now] builds the seed from the task, writes a fresh session file, and spawns a tunnel window", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grill-now-"));
+    writeGrillBlockedStatus(cwd, "grill-now-sess");
+    writeTask(cwd, "T-001", "- Create: src/foo.ts\n- Touch: src/bar.ts");
+    writeVendoredGrillSkill(cwd);
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue("Grill now"),
+      confirm: vi.fn(async () => true), editor: vi.fn(async () => undefined), custom: vi.fn(),
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd, ui });
+    vi.mocked(ctx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    const transcriptDir = join(cwd, "sessions", ".factory-transcripts", "grill-now-sess");
+    const sessionFiles = readdirSync(transcriptDir).filter((f) => f.startsWith("grill-") && f.endsWith(".jsonl"));
+    expect(sessionFiles.length).toBe(1);
+    const sessionText = readFileSync(join(transcriptDir, sessionFiles[0]!), "utf-8");
+    // seed carries the task scope (body / touched code paths) and the skill block
+    expect(sessionText).toContain("src/foo.ts");
+    expect(sessionText).toContain("GRILL_SKILL_BODY_MARKER");
+    expect(spawnTerminalWindow).toHaveBeenCalledWith(
+      "pi",
+      ["--session", join(transcriptDir, sessionFiles[0]!)],
+      { cwd },
+    );
+  });
+
+  test("existing grill-result.json for the run prevents re-offering (no nag, no duplicate window)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grill-nag-"));
+    writeGrillBlockedStatus(cwd, "grill-nag-sess");
+    mkdirSync(join(cwd, "sessions", ".factory-transcripts", "grill-nag-sess"), { recursive: true });
+    writeFileSync(
+      grillResultPath(cwd, "grill-nag-sess"),
+      JSON.stringify({ decision: "agreed", summary: null, explainers: 0, updated_at: new Date().toISOString() }),
+      "utf-8",
+    );
+    const ui: UiApi = {
+      notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
+      select: vi.fn().mockResolvedValue("Grill now"), // must NOT be consulted
+      confirm: vi.fn(async () => true), editor: vi.fn(async () => undefined), custom: vi.fn(),
+    };
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd, ui });
+    vi.mocked(ctx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+
+    await commands.get("factory-watch")!.handler("", ctx);
+
+    expect(ctx.ui.select).not.toHaveBeenCalled();
+    expect(spawnTerminalWindow).not.toHaveBeenCalled();
+  });
+
+  test("an offer already made for the run is not re-raised on re-entry (in-process no-nag)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "grill-dup-"));
+    writeGrillBlockedStatus(cwd, "grill-dup-sess");
+    const { commands } = capture();
+    const firstCtx = fakeCtx({ cwd });
+    vi.mocked(firstCtx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+    await commands.get("factory-watch")!.handler("", firstCtx);
+    expect(firstCtx.ui.select).toHaveBeenCalledWith(expect.anything(), ["Grill now", "Skip"]);
+
+    // Re-enter mission control for the same run: the select must NOT be offered again.
+    const secondCtx = fakeCtx({ cwd });
+    vi.mocked(secondCtx.ui.custom).mockResolvedValueOnce({ type: "quit" });
+    await commands.get("factory-watch")!.handler("", secondCtx);
+    expect(secondCtx.ui.select).not.toHaveBeenCalled();
+    expect(spawnTerminalWindow).not.toHaveBeenCalled();
   });
 });

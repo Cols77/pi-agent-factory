@@ -2,8 +2,8 @@
 // (project-local auto-discovery via .pi/extensions/ also works once installed there)
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isPidAlive, parseLock } from "./lock-status.js";
 import {
   buildListCommand,
@@ -15,9 +15,10 @@ import {
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
+import type { StatusRecord } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
+import { buildGrillSeedPrompt, buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
@@ -31,7 +32,7 @@ import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
 import { registerWriteChunkGuard } from "./write-chunk-guard.js";
 import { computeImplementingFiles, computeReviewFiles } from "./review-diff.js";
-import { reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
+import { atomicWriteWithRetry, reviewDecisionPath, writeReviewDecision } from "./review-protocol.js";
 import { PolishOverlay } from "./polish-overlay.js";
 import type { PolishAction } from "./polish-overlay.js";
 import type { PolishStateFile } from "./polish-model.js";
@@ -62,6 +63,12 @@ import type { MissionControlAction } from "./mission-control-dashboard.js";
 import { parseSessionTranscript } from "./session-transcript.js";
 import { SessionTranscriptView } from "./session-transcript-view.js";
 import { resolveSessionPath } from "./session-path.js";
+import {
+  freshSessionJsonl,
+  grillResultPath,
+  grillSessionPath,
+  readFreshExplainerSummary,
+} from "./grill.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -111,6 +118,113 @@ function readFileIfExists(path: string): string | null {
   }
 }
 
+// Grill de-dup for the current process: once a grill has been offered (or its
+// verdict written) for a given run, never re-raise the same select for it.
+// Keyed by session id so a later run (new session) can still be offered its
+// own grill. This is the in-process half of "avoid nagging"; the on-disk half
+// is checking that grill-result.json already exists for the run.
+const offeredGrillFor = new Set<string>();
+
+// Read the task file that `taskId` refers to, resolving the authoritative
+// frontmatter `id` rather than guessing at a filename convention (mirrors
+// review-server.ts's readTaskContext). Returns the full raw task markdown so
+// the seed carries body, DoD, `satisfies:` targets and touched code paths.
+function readTaskText(cwd: string, taskId: string): string | null {
+  let names: string[];
+  try {
+    names = readdirSync(join(cwd, "tasks"));
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".md") || !name.startsWith("T-")) continue;
+    const raw = readFileIfExists(join(cwd, "tasks", name));
+    if (raw === null) continue;
+    const task = parseTaskFrontmatter(raw);
+    if (task === null || task.id !== taskId) continue;
+    return raw;
+  }
+  return null;
+}
+
+// Resolve the grill-understanding skill via findSkillFile. Missing skill is NOT
+// a hard error (design ruling): notify and fall back to the inline protocol
+// instructions buildGrillSeedPrompt already carries.
+function buildGrillSkillBlocks(ctx: ExtCommandCtx): string[] {
+  const filePath = findSkillFile(ctx.cwd, "grill-understanding");
+  if (filePath === null) {
+    ctx.ui.notify(
+      "grill-understanding skill not found (looked in " +
+        `${ctx.cwd}/.pi/skills and ${factorySkillsDir()}) -- using inline protocol instructions`,
+      "warning",
+    );
+    return [];
+  }
+  const body = stripFrontmatter(readFileSync(filePath, "utf-8")).trim();
+  return [buildSkillBlock({ name: "grill-understanding", location: filePath, body })];
+}
+
+function writeGrillSkipped(path: string): void {
+  const payload = {
+    decision: "skipped",
+    summary: null,
+    explainers: 0,
+    updated_at: new Date().toISOString(),
+  };
+  atomicWriteWithRetry(path, JSON.stringify(payload));
+}
+
+// Build the grill seed and open the standalone grill window (a fresh pi session
+// seeded with the prompt), mirroring the existing spawnTerminalWindow sites.
+function openGrillWindow(ctx: ExtCommandCtx, rec: StatusRecord): void {
+  const taskText = readTaskText(ctx.cwd, rec.task_id);
+  const skillBlocks = buildGrillSkillBlocks(ctx);
+  const freshSummary = readFreshExplainerSummary(ctx.cwd);
+  const resultPath = grillResultPath(ctx.cwd, rec.session_id);
+  const seed = buildGrillSeedPrompt(
+    taskText ?? `(task file for ${rec.task_id} not found)`, 
+    skillBlocks,
+    freshSummary,
+    resultPath,
+  );
+  const sessionPath = grillSessionPath(ctx.cwd, rec.session_id);
+  mkdirSync(dirname(sessionPath), { recursive: true });
+  writeFileSync(sessionPath, freshSessionJsonl(seed, ctx.cwd), "utf-8");
+  ctx.ui.notify("grill window opened", "info");
+  spawnTerminalWindow("pi", ["--session", sessionPath], { cwd: ctx.cwd });
+}
+
+// Detect grill:blocked on the run's pipeline entry and, if it has not already
+// been handled, raise the ["Grill now", "Skip"] select. Returns true when a
+// grill was offered/handled so callers can distinguish "not our turn" from
+// "settled". Never nags: an existing grill-result.json or a prior offer for
+// this run short-circuits before the select is raised.
+async function maybeOfferGrill(
+  ctx: ExtCommandCtx,
+  readRecord: () => StatusRecord | null,
+): Promise<boolean> {
+  const rec = readRecord();
+  const grill = rec?.pipeline.find((e) => e.node === "grill");
+  if (!rec || !grill || grill.node_state !== "blocked") return false;
+  if (readFileIfExists(grillResultPath(ctx.cwd, rec.session_id)) !== null) return false;
+  if (offeredGrillFor.has(rec.session_id)) return false;
+
+  const choice = await ctx.ui.select("Grill your understanding of this task?", [
+    "Grill now",
+    "Skip",
+  ]);
+  // Record regardless of choice (or even a cancelled select) so a re-entry or
+  // a later poll tick cannot re-nag this run.
+  offeredGrillFor.add(rec.session_id);
+  if (choice === "Grill now") {
+    openGrillWindow(ctx, rec);
+  } else if (choice === "Skip") {
+    writeGrillSkipped(grillResultPath(ctx.cwd, rec.session_id));
+    ctx.ui.notify("grill skipped", "info");
+  }
+  return true;
+}
+
 // The in-session mission control action loop. Opens the dashboard overlay,
 // dispatches on whatever action it resolves with, and reopens until "quit".
 // Review is Enter-driven only -- this loop's own poll (inside the dashboard
@@ -122,6 +236,14 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
     const raw = readFileIfExists(statusPath);
     return raw === null ? null : parseStatus(raw);
   };
+
+  // A grill:blocked run is offered its one-time ["Grill now", "Skip"] select
+  // as soon as mission control opens (the grill sits right after context-gather,
+  // before dev). maybeOfferGrill self-guards against re-nagging this run, so
+  // re-entering mission control later (e.g. after a job spawns the next node)
+  // is safe. The grill is strongly-advised but never a hard block: both choices
+  // resolve, and a missing/abandoned grill simply waits on the gate timeout.
+  await maybeOfferGrill(ctx, readRecord);
 
   loop: for (;;) {
     const action = await ctx.ui.custom<MissionControlAction>((tui, theme, _keybindings, done) => {
@@ -434,7 +556,9 @@ export default function factoryWatch(pi: PiApi): void {
         const record = raw === null ? null : parseStatus(raw);
         const lines = formatStatusLines(record);
         const hrBlocked = (record?.pipeline ?? []).some((e) => e.node === "human-review" && e.node_state === "blocked");
+        const grillBlocked = (record?.pipeline ?? []).some((e) => e.node === "grill" && e.node_state === "blocked");
         if (hrBlocked) lines.push("⚠ human review needed — /factory-watch");
+        if (grillBlocked) lines.push("⚠ grill needed — /factory-watch");
         if (devEscalated(record)) lines.push("⚠ dev stuck — /factory-watch to pair");
         ctx.ui.setWidget("factory", lines);
         if (readFileIfExists(lockPath) === null) {
