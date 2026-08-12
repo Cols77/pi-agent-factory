@@ -8,6 +8,18 @@ export interface ReviewGuide {
   verify?: VerifyItem[];
   validation?: GateResult[];
   addressed?: string[];
+  grill?: { verdict: "agreed" | "not-agreed" | "skipped"; summary?: string | null };
+}
+
+// Returns a short, clear Markdown warning when the pre-implementation grill
+// came back not-agreed (the author did not demonstrate understanding). Empty
+// for every other case so callers can append it to a banner unconditionally.
+export function grillReviewWarning(guide: ReviewGuide | null | undefined): string {
+  if (!guide || guide.grill?.verdict !== "not-agreed") return "";
+  const base =
+    "⚠ You did not demonstrate understanding in the pre-implementation grill (not-agreed). Reviews should get extra scrutiny.";
+  if (guide.grill.summary) return `${base}\n\nGrill summary: ${guide.grill.summary}`;
+  return base;
 }
 
 export function reviewGuidePath(cwd: string, sessionId: string): string {

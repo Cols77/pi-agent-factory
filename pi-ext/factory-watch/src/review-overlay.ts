@@ -14,6 +14,7 @@ import type { FileStat } from "./review-diff.ts";
 import { resolveEditorLaunch } from "./review-editor-launch.ts";
 import type { UiApi } from "./pi-types.js";
 import type { ReviewGuide } from "./review-guide.ts";
+import { grillReviewWarning } from "./review-guide.ts";
 import { annotationsForFile, anchorForRow, findAnnotation, mapDiffRows } from "./review-model.ts";
 import type { Annotation, DiffRowMeta } from "./review-model.ts";
 
@@ -338,8 +339,11 @@ export class ReviewOverlay {
   render(width: number): string[] {
     if (this.view.mode === "summary") {
       const lines: string[] = [...this.guideLines(width)];
-      if (this.banner) {
-        lines.push(this.banner, "");
+      const banner = [this.banner, grillReviewWarning(this.guide)]
+        .filter((s) => s.length > 0)
+        .join("\n\n");
+      if (banner) {
+        lines.push(banner, "");
       }
       lines.push(`Task: ${this.files.length} files changed`, "");
       this.files.forEach((f, i) => {

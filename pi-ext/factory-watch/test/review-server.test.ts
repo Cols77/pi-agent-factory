@@ -56,6 +56,32 @@ describe("buildReviewPageData", () => {
     const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-missing" });
     expect(data.task).toBeNull();
   });
+
+  test("appends a pairing warning to the banner for a not-agreed grill guide", () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, {
+      taskId: "T-1",
+      guide: { grill: { verdict: "not-agreed", summary: "no understanding shown" } },
+    });
+    expect(data.banner).toContain("not-agreed");
+    expect(data.banner).toContain("Grill summary: no understanding shown");
+  });
+
+  test("keeps the banner unchanged when the guide has no not-agreed grill", () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, {
+      taskId: "T-1",
+      banner: "This task appears already complete",
+      guide: { grill: { verdict: "agreed" } },
+    });
+    expect(data.banner).toBe("This task appears already complete");
+  });
+
+  test("leaves the banner empty for a guide with no grill field", () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, {
+      taskId: "T-1",
+      guide: { confidence: "high" },
+    });
+    expect(data.banner).toBe("");
+  });
 });
 
 import { startReviewServer } from "../src/review-server.js";
