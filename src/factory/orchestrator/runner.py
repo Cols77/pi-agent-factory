@@ -368,6 +368,14 @@ def run_task(
                 "requirements": read_requirements_report(transcript_dir),
                 "addressed": list(dict.fromkeys(addressed)),  # dedup, keep order
             }
+            if grill_result is not None and grill_result.decision == "not-agreed":
+                # Pairing warning: the human reviewer is the same person who
+                # could not demonstrate understanding in the grill, so flag it
+                # so the extension urges extra scrutiny (Task 5a).
+                guide["grill"] = {
+                    "verdict": "not-agreed",
+                    "summary": grill_result.summary or None,
+                }
             write_review_guide(transcript_dir / "review-guide.json", guide)
         status.report(
             task_id=task.id,

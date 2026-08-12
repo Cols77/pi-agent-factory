@@ -149,6 +149,75 @@ def test_human_present_but_no_grill_gate_skips_grill(tmp_path):
     assert path is not None
 
 
+def test_grill_not_agreed_flags_review_guide(tmp_path):
+    """A not-agreed grill verdict surfaces a pairing warning in the guide."""
+    import json
+
+    repo = _repo(tmp_path)
+    td = repo / "sessions" / ".factory-transcripts" / "s1"
+    td.mkdir(parents=True)
+    scripts = _scripts()
+    scripts[AgentRole.REVIEW] = [
+        AgentResult(
+            True,
+            {
+                "dod_met": True,
+                "findings": [],
+                "confidence": "medium",
+                "verify": [{"item": "check X"}],
+            },
+        )
+    ]
+    run_next(
+        repo,
+        FakeAgentBackend(scripts),
+        FakeGateRunner(),
+        session_id="s1",
+        git_info={"branch": "main"},
+        human_review=_approve_human(),
+        grill_gate=FakeGrillGate([GrillResult("not-agreed", "couldn't explain the delta")]),
+        transcript_dir=td,
+    )
+    guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
+    assert guide["grill"] == {
+        "verdict": "not-agreed",
+        "summary": "couldn't explain the delta",
+    }
+
+
+def test_grill_agreed_adds_no_grill_key_to_review_guide(tmp_path):
+    """Agreed/skipped verdicts must NOT emit the pairing warning."""
+    import json
+
+    repo = _repo(tmp_path)
+    td = repo / "sessions" / ".factory-transcripts" / "s1"
+    td.mkdir(parents=True)
+    scripts = _scripts()
+    scripts[AgentRole.REVIEW] = [
+        AgentResult(
+            True,
+            {
+                "dod_met": True,
+                "findings": [],
+                "confidence": "medium",
+                "verify": [{"item": "check X"}],
+            },
+        )
+    ]
+    run_next(
+        repo,
+        FakeAgentBackend(scripts),
+        FakeGateRunner(),
+        session_id="s1",
+        git_info={"branch": "main"},
+        human_review=_approve_human(),
+        grill_gate=FakeGrillGate([GrillResult("agreed", None)]),
+        transcript_dir=td,
+    )
+    guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
+    assert "grill" not in guide
+
+
 def test_grill_uses_real_git_ops_head_commit(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("not-agreed")])
