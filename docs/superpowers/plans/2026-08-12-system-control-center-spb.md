@@ -282,7 +282,7 @@ and `_sr_flags` calls `health._validation_passing(root, req_id, validation)`.
 Compose `compute_health` + `bundle_coverage` + `ordered_bundle_ids` + readiness into the
 browser's single landing document. No duplicated logic.
 
-- [ ] **Step 1: Failing test** — `query_health` payload carries every key the browser renders:
+- [x] **Step 1: Failing test** — `query_health` payload carries every key the browser renders:
 
 (This task also folds in the Task 1 quality note: hoist the per-SR `load_register`/`load_validation` loads in `bundle_readiness` so they are parsed once, not once per member SR — same public behaviour, same tests green.)
 
@@ -305,8 +305,8 @@ def test_query_health_shapes_the_landing_payload(tmp_path):
     assert "readiness_counts" in payload["bundles"]["b1"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**.
-- [ ] **Step 3: Implement** — add to `health.py`:
+- [x] **Step 2: Run test to verify it fails**.
+- [x] **Step 3: Implement** — add to `health.py`:
 
 ```python
 from factory.system.coverage import bundle_coverage
@@ -370,7 +370,7 @@ def query_health(root: Path) -> dict:
     }
 ```
 
-- [ ] **Step 4:** Add an ordering test using `FixedRecency` by injecting into
+- [x] **Step 4:** Add an ordering test using `FixedRecency` by injecting into
   `query_health(repo_root, recency_source=None)`:
 
 ```python
@@ -397,8 +397,8 @@ def test_query_health_orders_by_recency(tmp_path):
 Implement by threading `recency_source` through `query_health` (default `GitRecency()`)
 and `ordered_bundle_ids(root, recency_source)`.
 
-- [ ] **Step 5:** full suite + lint.
-- [ ] **Step 6:** Commit `feat(system): composed health projection for the landing page`.
+- [x] **Step 5:** full suite + lint.
+- [x] **Step 6:** Commit `feat(system): composed health projection for the landing page`.
 
 ---
 
