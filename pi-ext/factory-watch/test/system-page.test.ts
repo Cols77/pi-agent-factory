@@ -147,9 +147,12 @@ describe("renderSystemPageHtml", () => {
 
   test("renders every claim kind distinctly, from the payload's own kind field", () => {
     // The label must come straight from claim.kind -- no TypeScript-side
-    // remapping or filtering of recorded/derived/synthesized/missing.
+    // remapping or filtering of recorded/derived/synthesized/missing. The kind
+    // class is built by concatenating 'claim claim-' with the payload field;
+    // the regex tolerates the compiler's whitespace choices in the assembled
+    // inline script (SP-B Task 5 split embeds module sources).
     expect(html).toContain("claim.kind");
-    expect(html).toContain("claim-' + claim.kind");
+    expect(html).toMatch(/claim claim-[\"']\s*\+\s*claim\.kind/);
   });
 
   test("never hides missing rows", () => {
