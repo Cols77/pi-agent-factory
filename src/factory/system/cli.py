@@ -156,8 +156,8 @@ def cmd_health(repo_root: Path, recency_source=None) -> dict:
 def cmd_memberships(repo_root: Path, ref: str) -> dict:
     """Every bundle that declares `ref` as a member (deterministic order).
 
-    arXiv: a `/system` member-of affordance needs the answer on the command
-    line too, for scripting and for the docs-server endpoint to reuse.
+    A `/system` member-of affordance needs the answer on the command line too,
+    for scripting and for the docs-server endpoint to reuse.
     """
     return {"ref": ref, "bundles": bundles_module.bundles_containing(repo_root, ref)}
 
