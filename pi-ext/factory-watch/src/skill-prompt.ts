@@ -17,6 +17,23 @@ export function buildPlanSeedPrompt(topic: string, skillBlocks: string[]): strin
   return [...skillBlocks, instructions, `Topic: ${topic}`].join("\n\n");
 }
 
+export function buildVisualExplainSeedPrompt(focus: string, skillBlocks: string[]): string {
+  const instructions = [
+    "You are producing a visual explanation of parts of this repo's system, using the loaded `diagram-design` skill.",
+    "Deliverables — always BOTH: (1) a standalone `.svg` diagram of the system parts, and (2) a markdown `.md` note that explains each part and references the SVG with a relative image link.",
+    "Workflow:",
+    "  1. Read the loaded skill content. The style guide, per-type references and the export procedure live next to SKILL.md under `references/`; load the ones you need — `style-guide.md` always, the type reference for the diagram type you pick, and `export.md` for the SVG step.",
+    "  2. Identify the parts of the system to explain. If a focus was given, explain those parts; otherwise inspect the repo (README, `src/`, `requirements/`, `docs/`) and choose the most instructive parts to explain.",
+    "  3. Pick one diagram type from the skill's 27 types that best fits the parts. Respect the skill's density rules: target density 4/10, ≤9 nodes, ≤12 arrows, ≤2 coral accents, orthogonal rounded connectors (r=8), masked arrow labels with a 6–10px gap. Run the §9 pre-output checklist before producing anything.",
+    "  4. Build the diagram as a self-contained HTML file per the skill (inline SVG + embedded CSS; Google Fonts is the only external resource). Skip the first-run style-guide gate: proceed with the default skin unless the focus text explicitly provides custom style tokens.",
+    "  5. Export the SVG: follow `references/export.md` — extract the first `<svg>` block from the HTML, make it standalone (add `xmlns`, keep the `viewBox`, merge the Google Fonts `@import` into `<defs>`, prepend the `<?xml?>` prolog). SVG only; do NOT produce a PNG.",
+    "  6. Write the markdown note: one section per part (what it is, its role, and how it connects to the others), then reference the SVG with a relative image link.",
+    "  7. Report the two saved file paths when done.",
+    "Output: save both files under `docs/visual-explain/` (create the directory if needed) with a slug derived from the topic, e.g. `docs/visual-explain/<topic-slug>.svg` and `docs/visual-explain/<topic-slug>.md`.",
+  ].join("\n\n");
+  return [...skillBlocks, instructions, `Focus: ${focus}`].join("\n\n");
+}
+
 export function buildTraceFixSeedPrompt(skillBlocks: string[], gapReport: string): string {
   const instructions = [
     "You are closing traceability gaps for this repo. Use the loaded `trace-fix` skill.",

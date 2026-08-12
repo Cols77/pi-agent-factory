@@ -17,7 +17,12 @@ import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "./skill-prompt.js";
+import {
+  buildPlanSeedPrompt,
+  buildSkillBlock,
+  buildTraceFixSeedPrompt,
+  buildVisualExplainSeedPrompt,
+} from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
@@ -857,4 +862,39 @@ export default function factoryWatch(pi: PiApi): void {
     },
   };
   pi.registerCommand("system", systemCommand);
+
+  // /visual-explain: explain parts of the system with a diagram-design SVG +
+  // markdown note. Same pattern as /trace-fix: resolve the vendored skill
+  // (project .pi/skills first, then the factory's own copy), seed a fresh
+  // session with the full skill content plus the workflow instructions, and
+  // let the agent do the design + export + note writing. newSession() makes
+  // ctx stale, so nothing may touch ctx after this call (see /clear).
+  pi.registerCommand("visual-explain", {
+    description:
+      "Explain parts of the system: diagram-design SVG + markdown note (docs/visual-explain/)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const filePath = findSkillFile(ctx.cwd, "diagram-design");
+      if (filePath === null) {
+        ctx.ui.notify(
+          `/visual-explain: diagram-design skill not found (looked in ${ctx.cwd}/.pi/skills and ${factorySkillsDir()})`,
+          "error",
+        );
+        return;
+      }
+      const body = stripFrontmatter(readFileSync(filePath, "utf-8")).trim();
+      const skillBlocks = [
+        buildSkillBlock({ name: "diagram-design", location: filePath, body }),
+      ];
+      const focus =
+        args.trim() === ""
+          ? "no specific focus — inspect the repo and choose the most instructive parts"
+          : args.trim();
+      const seed = buildVisualExplainSeedPrompt(focus, skillBlocks);
+      await ctx.newSession({
+        withSession: async (session: ReplacedSessionCtx) => {
+          await session.sendUserMessage(seed, { deliverAs: "followUp" });
+        },
+      });
+    },
+  });
 }
