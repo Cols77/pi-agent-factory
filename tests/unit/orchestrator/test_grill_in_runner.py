@@ -238,3 +238,71 @@ def test_grill_uses_real_git_ops_head_commit(tmp_path):
         "blocked",
         "completed",
     ]
+
+
+def _checkpoint(manifest, *, with_grill: bool, start_commit: str):
+    from factory.orchestrator.journal import RunCheckpoint
+
+    completed = [
+        {
+            "node": "context-gather",
+            "data": {
+                "outcome": "pass",
+                "manifest": manifest,
+                "event": {"node": "context-gather", "result": "pass", "attempts": 1, "extra": {}},
+            },
+        }
+    ]
+    if with_grill:
+        completed.append({"node": "grill", "data": {"decision": "agreed"}})
+    return RunCheckpoint(
+        schema_version=1,
+        run_id="run-1",
+        task_id="T-001",
+        node="dev",
+        attempt=1,
+        remaining={"dev": 3, "review": 3},
+        start_commit=start_commit,
+        head_commit=start_commit,
+        worktree_fingerprint="",
+        patch_path=None,
+        completed=completed,
+        agent_sessions={},
+        pending_human_round=None,
+        artifacts=[],
+        interruption=None,
+    )
+
+
+def test_resume_past_grill_skips_re_grilling(tmp_path):
+    repo = _repo(tmp_path)
+    grill = FakeGrillGate([GrillResult("agreed")])
+    manifest = _scripts()[AgentRole.CONTEXT_GATHERER][0].output
+
+    path = run_next(
+        repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=_approve_human(), grill_gate=grill,
+        resume=_checkpoint(manifest, with_grill=True,
+                           start_commit=SubprocessGitOps().head_commit(repo)),
+    )
+    assert path is not None
+    # The checkpoint already has a completed "grill" record -> a resumed run
+    # past the grill must NOT re-question the human.
+    assert grill.requests == []
+
+
+def test_resume_without_grill_record_grills_again(tmp_path):
+    repo = _repo(tmp_path)
+    grill = FakeGrillGate([GrillResult("agreed")])
+    manifest = _scripts()[AgentRole.CONTEXT_GATHERER][0].output
+
+    run_next(
+        repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        human_review=_approve_human(), grill_gate=grill,
+        resume=_checkpoint(manifest, with_grill=False,
+                           start_commit=SubprocessGitOps().head_commit(repo)),
+    )
+    # No "grill" in the checkpoint's completed nodes -> the grill is offered again.
+    assert grill.requests == ["T-001"]

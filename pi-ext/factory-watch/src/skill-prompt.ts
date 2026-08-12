@@ -46,7 +46,7 @@ export function buildGrillSeedPrompt(
 
   const content = [
     `Task to grill about (scope: body, DoD, satisfies: trace targets, touched code paths):\n${taskText}`,
-    `Fresh visual explainers currently available (list_fresh_explainers summary):\n${freshExplainerSummary}`,
+    `Visual explainers to consider (from docs/visual-explain/; verify each one's dependency fingerprint is current before reusing it, else generate a new one):\n${freshExplainerSummary}`,
   ].join("\n\n");
 
   return [...skillBlocks, instructions, content].join("\n\n");

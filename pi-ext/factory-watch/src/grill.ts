@@ -20,11 +20,11 @@ const NONE_SUMMARY =
   "No visual explainers present yet -- generate one via visual-explainer/diagram-design.";
 
 /**
- * Summary of the fresh visual explainers currently under docs/visual-explain/.
- * The grill seed uses this to route a wrong concept to an existing up-to-date
- * explainer, or to fall back to generating a new one. Pure and local by design
- * (extension-side only): it just lists the *.md files, it does not run any
- * Python subprocess.
+ * Summary of the visual explainers present under docs/visual-explain/ (the
+ * grill session verifies each one's dependency fingerprint is current before
+ * reusing it; otherwise it falls back to generating a new one). Pure and local
+ * by design (extension-side only): it just lists the *.md files, it does not
+ * run any Python subprocess.
  */
 export function readFreshExplainerSummary(cwd: string): string {
   let names: string[];

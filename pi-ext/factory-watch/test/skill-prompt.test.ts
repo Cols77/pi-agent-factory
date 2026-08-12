@@ -83,9 +83,9 @@ describe("buildGrillSeedPrompt", () => {
     expect(prompt).toContain("grill-understanding");
   });
 
-  test("contains a header/label for the fresh explainer summary", () => {
+  test("contains a header/label for the explainer summary", () => {
     const prompt = buildGrillSeedPrompt(taskText, skillBlocks, freshExplainers, resultPath);
-    expect(prompt).toContain("Fresh visual explainers currently available");
+    expect(prompt).toContain("Visual explainers to consider");
     expect(prompt).toContain(freshExplainers);
   });
 });
