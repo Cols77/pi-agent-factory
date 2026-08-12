@@ -12,6 +12,7 @@ from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import GitOps, SubprocessGitOps, ensure_factory_ignores
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
+from factory.orchestrator.grill import GrillGate, GrillResult
 from factory.orchestrator.ledger import (
     Task,
     TaskNotFoundError,
@@ -90,6 +91,7 @@ def run_task(
     max_human_rounds: int = 3,
     status: StatusReporter = NullStatusReporter(),
     human_review: HumanReviewGate | None = None,
+    grill_gate: GrillGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
     start_commit: str | None = None,
@@ -151,6 +153,51 @@ def run_task(
     resume_at = resume.node if resume is not None else None
     addressed: list[str] = []
 
+    # Grill node: blocking human comprehension gate, after context-gather and
+    # before dev. Runs only when a human is in the loop (interactive); skipped
+    # in --auto and on a resume that already passed the grill. Verdicts never
+    # hard-block -- agreed/not-agreed/skipped all proceed to dev; a not-agreed
+    # verdict is carried forward to flag the human-review stage (Task 5).
+    grill_result: GrillResult | None = None
+    _already_grilled = resume is not None and any(
+        item.get("node") == "grill" for item in resume.completed if isinstance(item, dict)
+    )
+    if human_review is not None and grill_gate is not None and not _already_grilled:
+        status.report(
+            task_id=task.id,
+            node="grill",
+            node_state="blocked",
+            attempt=1,
+            max_attempts=1,
+            handoff="grill your understanding before implementation (advised)",
+        )
+        if execution is not None:
+            execution.record(
+                node="grill",
+                state="started",
+                attempt=1,
+                next_node="dev",
+                remaining={},
+            )
+        grill_result = grill_gate.request_grill(task.id)
+        status.report(
+            task_id=task.id,
+            node="grill",
+            node_state="completed",
+            attempt=1,
+            max_attempts=1,
+            handoff=f"grill verdict: {grill_result.decision}",
+        )
+        if execution is not None:
+            execution.record(
+                node="grill",
+                state="completed",
+                attempt=1,
+                next_node="dev",
+                remaining={},
+                data={"decision": grill_result.decision, "explainers": grill_result.explainers},
+            )
+
     # Outer loop = human rounds; each human reject grants a FRESH inner (LLM)
     # review budget. --auto (no human) runs the inner loop once, then completes
     # or escalates -- there is no human to fall back to.
@@ -185,7 +232,9 @@ def run_task(
                         node="dev",
                         state="completed" if d_outcome is not NodeOutcome.ESCALATE else "failed",
                         attempt=d_ev.attempts,
-                        next_node="validation" if d_outcome is not NodeOutcome.ESCALATE else "closed",
+                        next_node="validation"
+                        if d_outcome is not NodeOutcome.ESCALATE
+                        else "closed",
                         remaining={
                             "dev": max(0, max_dev_iters - d_ev.attempts),
                             "review": max(0, max_review_cycles - _cycle),
@@ -430,6 +479,7 @@ def run_next(
     status: StatusReporter = NullStatusReporter(),
     task_id: str | None = None,
     human_review: HumanReviewGate | None = None,
+    grill_gate: GrillGate | None = None,
     git_ops: GitOps = SubprocessGitOps(),
     transcript_dir: Path | None = None,
     force: bool = False,
@@ -488,6 +538,7 @@ def run_next(
         repo_root,
         status=status,
         human_review=human_review,
+        grill_gate=grill_gate,
         git_ops=git_ops,
         transcript_dir=transcript_dir,
         start_commit=start_commit,
@@ -534,9 +585,7 @@ def run_next(
         raise ValueError("artifact_store and evidence_dir must be configured together")
     manifest_path: Path | None = None
     if artifact_store is not None and evidence_dir is not None:
-        runtime_dir = transcript_dir or (
-            repo_root / "sessions" / ".factory-transcripts" / sid
-        )
+        runtime_dir = transcript_dir or (repo_root / "sessions" / ".factory-transcripts" / sid)
         manifest_path = finalize_run_evidence(
             repo_root=repo_root,
             run_id=sid,

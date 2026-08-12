@@ -14,6 +14,7 @@ from factory.freshness.model import FreshnessSeverity
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
+from factory.orchestrator.grill import FileGrillGate
 from factory.orchestrator.journal import RunCheckpoint
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
@@ -28,9 +29,14 @@ from factory.preflight.checks import run_preflight
 
 def _git_info(repo_root: Path) -> dict:
     def _cmd(args: list[str]) -> str:
-        return subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, capture_output=True, text=True
+        ).stdout.strip()
 
-    return {"branch": _cmd(["rev-parse", "--abbrev-ref", "HEAD"]), "head": _cmd(["rev-parse", "HEAD"])}
+    return {
+        "branch": _cmd(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "head": _cmd(["rev-parse", "HEAD"]),
+    }
 
 
 def _now_id() -> str:
@@ -43,12 +49,7 @@ def _session_review_line(repo_root: Path, run_id: str) -> str:
     no artifact (no session-review or already surfaced).
     """
     artifact = (
-        repo_root
-        / "sessions"
-        / ".factory-runs"
-        / "by-session"
-        / run_id
-        / "session-review.json"
+        repo_root / "sessions" / ".factory-runs" / "by-session" / run_id / "session-review.json"
     )
     if not artifact.exists():
         return ""
@@ -79,9 +80,7 @@ def _repo_from_run_state_args(argv: list[str]) -> Path:
 
 def _resume_run(repo_root: Path, checkpoint: RunCheckpoint) -> None:
     """Execute a previously assessed checkpoint without silently starting a new run."""
-    transcript_dir = (
-        repo_root / "sessions" / ".factory-transcripts" / checkpoint.run_id
-    )
+    transcript_dir = repo_root / "sessions" / ".factory-transcripts" / checkpoint.run_id
     gates = ConfigGateRunner(
         repo_root,
         require_gates(load_config(repo_root), repo_root),
@@ -109,9 +108,7 @@ def _resume_run(repo_root: Path, checkpoint: RunCheckpoint) -> None:
             human_review=None,
             transcript_dir=transcript_dir,
             force=True,
-            artifact_store=LocalArtifactStore(
-                repo_root / ".factory" / "artifacts" / "objects"
-            ),
+            artifact_store=LocalArtifactStore(repo_root / ".factory" / "artifacts" / "objects"),
             evidence_dir=repo_root / "evidence",
             checkpoint_runs=True,
             resume=checkpoint,
@@ -138,13 +135,17 @@ def main() -> None:
     parser.add_argument("--provider", default=None, help="Pi provider, e.g. openrouter")
     parser.add_argument("--model", default=None, help="Pi model id, e.g. anthropic/claude-opus-4")
     parser.add_argument("--task", default=None, help="Task id to run (default: next todo task)")
-    parser.add_argument("--json", action="store_true", help="list command only: output tasks as JSON")
     parser.add_argument(
-        "--auto", action="store_true",
+        "--json", action="store_true", help="list command only: output tasks as JSON"
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
         help="skip the human review gate; fully automated (today's behavior)",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="re-run --task even if it is not 'todo' (e.g. resume the pipeline after manual work)",
     )
     args = parser.parse_args()
@@ -154,14 +155,20 @@ def main() -> None:
     if args.command == "list":
         tasks = load_tasks(repo_root / "tasks")
         if args.json:
-            print(json.dumps([
-                {
-                    "id": t.id, "title": t.title, "status": t.status,
-                    "already_done": deliverables_exist(t.body, repo_root),
-                    "last_run": read_last_run(repo_root, t.id),
-                }
-                for t in tasks
-            ]))
+            print(
+                json.dumps(
+                    [
+                        {
+                            "id": t.id,
+                            "title": t.title,
+                            "status": t.status,
+                            "already_done": deliverables_exist(t.body, repo_root),
+                            "last_run": read_last_run(repo_root, t.id),
+                        }
+                        for t in tasks
+                    ]
+                )
+            )
         else:
             print(format_task_board(tasks))
         return
@@ -175,10 +182,7 @@ def main() -> None:
             )
         code = (
             3
-            if any(
-                issue.severity is FreshnessSeverity.INTEGRITY
-                for issue in preflight.issues
-            )
+            if any(issue.severity is FreshnessSeverity.INTEGRITY for issue in preflight.issues)
             else 2
         )
         raise SystemExit(code)
@@ -215,19 +219,33 @@ def main() -> None:
     try:
         acquire_lock(lock_path, os.getpid(), session_id)
     except AlreadyRunningError as exc:
-        print(f"factory orchestrator already running (pid {exc.pid}); refusing to start a second run", file=sys.stderr)
+        print(
+            f"factory orchestrator already running (pid {exc.pid}); refusing to start a second run",
+            file=sys.stderr,
+        )
         raise SystemExit(1) from exc
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
     human_review = None if args.auto else FileHumanReviewGate(transcript_dir, repo_root=repo_root)
+    grill_gate = None if args.auto else FileGrillGate(transcript_dir)
     artifact_store = LocalArtifactStore(repo_root / ".factory" / "artifacts" / "objects")
     try:
         path = run_next(
-            repo_root, backend, gates, git_info=_git_info(repo_root),
-            session_id=session_id, status=status, task_id=args.task,
-            human_review=human_review, transcript_dir=transcript_dir, force=args.force,
-            artifact_store=artifact_store, evidence_dir=repo_root / "evidence",
-            checkpoint_runs=True, **kwargs,
+            repo_root,
+            backend,
+            gates,
+            git_info=_git_info(repo_root),
+            session_id=session_id,
+            status=status,
+            task_id=args.task,
+            human_review=human_review,
+            grill_gate=grill_gate,
+            transcript_dir=transcript_dir,
+            force=args.force,
+            artifact_store=artifact_store,
+            evidence_dir=repo_root / "evidence",
+            checkpoint_runs=True,
+            **kwargs,
         )
         print("no todo tasks" if path is None else f"session written: {path}", file=sys.stderr)
         if path is not None:
@@ -240,8 +258,12 @@ def main() -> None:
         # exception -- re-raise the original error regardless.
         try:
             status.report(
-                task_id="", node="orchestrator", node_state="error",
-                attempt=0, max_attempts=0, snippet=str(exc),
+                task_id="",
+                node="orchestrator",
+                node_state="error",
+                attempt=0,
+                max_attempts=0,
+                snippet=str(exc),
             )
         except Exception:
             pass
