@@ -539,20 +539,20 @@ Modify `pi-ext/factory-watch/src/system-page.ts`, `docs-server.ts`.
 This task is a **mechanical move with zero behaviour change** — the split is verified by
 the existing DOM tests staying green at each commit, exactly as the decomposition requires.
 
-- [ ] **Step 1: Read the seams.** In `system-page.ts`:
+- [x] **Step 1: Read the seams.** In `system-page.ts`:
   - lines 1–~171: the `renderSystemPageHtml()` shell + CSS + HTML template.
   - line ~172: `(async () => {` … end: the client script containing `showBanner`,
     `clear`, `setLoading`, the `render*` per-tab functions, and the scope-loading logic.
-- [ ] **Step 2: Create `system-shell.ts`** — move `renderSystemPageHtml()` and its
+- [x] **Step 2: Create `system-shell.ts`** — move `renderSystemPageHtml()` and its
   template/CSS verbatim. It must render the same HTML string exactly as today (the DOM
   tests parse that string). Export `renderSystemPageHtml`.
-- [ ] **Step 3: Create `system-renderers.ts`** — move the per-tab DOM renderers
+- [x] **Step 3: Create `system-renderers.ts`** — move the per-tab DOM renderers
   (`renderBrief`, `renderMatrix`, `renderTimeline`, `renderGuide`, `renderStory`,
   `renderReverse`, `renderTrace`, and their helpers) verbatim, exporting each.
-- [ ] **Step 4: Create `system-bootstrap.ts`** — move the client IIFE body: the
+- [x] **Step 4: Create `system-bootstrap.ts`** — move the client IIFE body: the
   `document.getElementById` grabs, tab wiring, `loadScope`, and the calls into the
   renderers. Import the renderers from `./system-renderers.js`.
-- [ ] **Step 5: Rewrite `system-page.ts`** as a thin re-export so `docs-server.ts:27`
+- [x] **Step 5: Rewrite `system-page.ts`** as a thin re-export so `docs-server.ts:27`
   keeps importing it:
 
 ```ts
@@ -564,13 +564,13 @@ export { renderSystemPageHtml } from "./system-shell.js";
   `docs-server.ts` only to serve the new client modules (check how the inline script is
   injected today and mirror the package's existing module-serving mechanism — the DOM
   tests import `renderSystemPageHtml` directly and do not need this).
-- [ ] **Step 6:** This step stages the move so behavior is pinned. Run the browser tests:
+- [x] **Step 6:** This step stages the move so behavior is pinned. Run the browser tests:
   `cd pi-ext/factory-watch && npx vitest run test/system-page-dom.test.ts test/system-page-navigation.test.ts test/system-page-sidebar.test.ts test/system-page-trace.test.ts test/system-page-implementation-summary.test.ts`
   **All must stay green** — they are the verification that the split changed nothing.
-- [ ] **Step 7:** If any renderer is not exercised by the DOM tests, add a small
+- [x] **Step 7:** If any renderer is not exercised by the DOM tests, add a small
   regression assertion to `system-page-dom.test.ts` for it (the tests are the seam
   guarantee). Run the full vitest suite.
-- [ ] **Step 8:** Commit `refactor(system): split system-page.ts into shell/renderers/bootstrap`.
+- [x] **Step 8:** Commit `refactor(system): split system-page.ts into shell/renderers/bootstrap`.
 
 ---
 
