@@ -232,9 +232,7 @@ def run_task(
                         node="dev",
                         state="completed" if d_outcome is not NodeOutcome.ESCALATE else "failed",
                         attempt=d_ev.attempts,
-                        next_node="validation"
-                        if d_outcome is not NodeOutcome.ESCALATE
-                        else "closed",
+                        next_node="validation" if d_outcome is not NodeOutcome.ESCALATE else "closed",
                         remaining={
                             "dev": max(0, max_dev_iters - d_ev.attempts),
                             "review": max(0, max_review_cycles - _cycle),
@@ -593,7 +591,9 @@ def run_next(
         raise ValueError("artifact_store and evidence_dir must be configured together")
     manifest_path: Path | None = None
     if artifact_store is not None and evidence_dir is not None:
-        runtime_dir = transcript_dir or (repo_root / "sessions" / ".factory-transcripts" / sid)
+        runtime_dir = transcript_dir or (
+            repo_root / "sessions" / ".factory-transcripts" / sid
+        )
         manifest_path = finalize_run_evidence(
             repo_root=repo_root,
             run_id=sid,
