@@ -464,7 +464,7 @@ emits `bundle:` and `adr:` only. `_SCOPE_KINDS` and `parse_scope_ref` are unchan
 
 **Files:** `src/factory/system/cli.py`, `tests/unit/system/test_cli.py`
 
-- [ ] **Step 1: Failing test** — the subcommands exist and shape their output:
+- [x] **Step 1: Failing test** — the subcommands exist and shape their output:
 
 ```python
 def test_health_subcommand(tmp_path, capsys):
@@ -487,8 +487,8 @@ def test_memberships_subcommand(tmp_path, capsys):
     assert isinstance(out["bundles"], list)
 ```
 
-- [ ] **Step 2: Run to verify they fail**.
-- [ ] **Step 3: Implement** — add handlers after `cmd_coverage`:
+- [x] **Step 2: Run to verify they fail**.
+- [x] **Step 3: Implement** — add handlers after `cmd_coverage`:
 
 ```python
 def cmd_health(repo_root: Path, recency_source=None) -> dict:
@@ -525,8 +525,8 @@ and in the dispatch chain:
 >JSON; otherwise text. Verify how `main()` decides text-vs-json by reading the tail of
 >`main()` and use the same mechanism for `health`/`memberships`.
 
-- [ ] **Step 4:** full suite + lint.
-- [ ] **Step 5:** Commit `feat(system): health --json and memberships subcommands`.
+- [x] **Step 4:** full suite + lint.
+- [x] **Step 5:** Commit `feat(system): health --json and memberships subcommands`.
 
 ---
 
