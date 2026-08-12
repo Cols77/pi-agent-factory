@@ -179,3 +179,28 @@ Metrics            reacquisition_rate 82% -> 91%
 - Optional "Verify my understanding" (D8, brief §5.5) invokes the installed comprehension skills;
   the delta stays deterministic and the comprehension step is never scored or auto-run.
 - v1 suite green; additive only; index (if added) rebuildable (AC-10).
+
+---
+
+## Additional requirements — grill node + traced explainer staleness (added 2026-08-12)
+
+Folded in from the grill design (`docs/superpowers/specs/2026-08-12-grill-understanding-node-design.md`) after re-grounding against **current main**. These ADD to the locked scope; the existing tasks above are unchanged. **Dependency note:** the SR↔code staleness engine already exists on main — `factory.freshness` fingerprints files/trees/values (sha256), and `factory.evidence.reconcile` reports `ReconcileKind.STALE_VALIDATION`. New work REUSES it; it does not build a parallel checksum.
+
+### A. Grill as an orchestrator node (additive)
+
+Unlike Task 5b's *optional, on-demand* `/catchup --verify-understanding`, this makes the grill a **blocking, human-in-the-loop node** that fires for every interactive run:
+
+- In `run_task` (`src/factory/orchestrator/{nodes,runner}.py`), **after `context-gather`, before `dev`**; skipped in `--auto` (no `HumanReviewGate`), mirroring the `human-review` gate (`FileHumanReviewGate`, which now archives diffs and takes `repo_root`).
+- `GrillGate` polls `<transcript_dir>/grill-result.json`; verdicts `agreed` / `not-agreed` / `skipped` — **never a hard block**; `not-agreed`/abandoned flags the human-review banner (pairing suggestion).
+- Extension (`pi-ext/factory-watch`): watcher flags `grill:blocked`; mission-control raises `[Grill now] / [Skip]`; the grill is hosted in an interactive `pi --session` terminal window seeded by hard-loading the skill + task content (`findSkillFile`, which gains a global fallback).
+- Skills: `grill-understanding` + `visual-explainer` + `diagram-design` installed globally under `~/.agents/skills/` (siblings, preserving `visual-explainer/../diagram-design` and `scripts/open_in_obsidian.py`).
+
+### B. Explainer as a traced, SR-linked artifact (additive)
+
+- New `explainer` node kind in `src/factory/trace/` (loaded from `docs/visual-explain/*.md`), with an `explains:` edge (SR-ID linked) — respecting the trace rule “declared edges only; never infer an edge.”
+- Explainer staleness couples **SR content AND the code behind it**: reuse `fingerprint_file`/`fingerprint_value`/`fingerprint_git_tree` to derive an `explainer_stale` gap, consistent with `STALE_VALIDATION`. Regeneration stays **on-demand** (mark-stale is automatic/deterministic; regeneration is an explicit step, never auto-run).
+- Resolution via **on-edit refresh** (no persistent daemon); surfaced through the existing widget/report, and reflected in the derived index (AC-10 rebuildable if built).
+
+### C. Open decision — surface conflict (RESOLVED 2026-08-12)
+
+The generic-skill + **Obsidian** path (visual-explainer) chosen for the grill conflicts with this program’s locked D1–D6 (“SCC browser sole human surface; **no Obsidian**”). **Resolution: SCC / `diagram-design` is canonical and automated; Obsidian is a personal, manual view of the same artifacts.** The factory/extension never auto-opens Obsidian — the `docs/visual-explain/<slug>.md` files stay Obsidian-compatible (frontmatter + relative SVG links) so the human may open them in their own registered vault at will, but the deterministic surface is the SCC browser / file paths. §B authoring therefore targets `diagram-design`-style explainers under `docs/visual-explain/`; no automated `open_in_obsidian.py` step.
