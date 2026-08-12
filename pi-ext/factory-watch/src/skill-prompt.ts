@@ -29,3 +29,25 @@ export function buildTraceFixSeedPrompt(skillBlocks: string[], gapReport: string
   ].join("\n\n");
   return [...skillBlocks, instructions, `Current gap report:\n${gapReport}`].join("\n\n");
 }
+
+export function buildGrillSeedPrompt(
+  taskText: string,
+  skillBlocks: string[],
+  freshExplainerSummary: string,
+  grillResultPath: string,
+): string {
+  const instructions = [
+    "You are running the grill for this task BEFORE it is implemented. Use the loaded `grill-understanding` skill. Your job is to verify the user genuinely understands the task, its definition of done, and the code they will later review — not to rubber-stamp it. This grill is strongly-advised but never a hard block.",
+    "Ask the user ONE question at a time. After every answer, verify it against the actual code and the task before accepting it: read the relevant files, check the DoD, the `satisfies:` trace targets, and the touched code paths, and confirm the claim actually holds before moving on. Never take the user's word over the code.",
+    "When the user gets a concept wrong, if the fresh explainer summary below lists a matching fresh visual explainer, have the user READ that explainer's .md and VIEW its .svg. Otherwise generate a NEW visual explainer via the `visual-explainer`/`diagram-design` skills across the scope below.",
+    "Require the user to state their understanding in their own words before you consider a concept resolved and move on to the next question. Do not accept a paraphrase of your own wording.",
+    `When the grill is done, the session MUST write the result file at ${grillResultPath} as JSON in exactly this shape: {"decision":"agreed"|"not-agreed"|"skipped","summary":<user summary or null>,"explainers":<number reused-or-generated>,"updated_at":<ISO-timestamp>}. Count in "explainers" every fresh explainer reused or generated during this session.`,
+  ].join("\n\n");
+
+  const content = [
+    `Task to grill about (scope: body, DoD, satisfies: trace targets, touched code paths):\n${taskText}`,
+    `Fresh visual explainers currently available (list_fresh_explainers summary):\n${freshExplainerSummary}`,
+  ].join("\n\n");
+
+  return [...skillBlocks, instructions, content].join("\n\n");
+}

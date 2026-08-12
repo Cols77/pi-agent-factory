@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { buildPlanSeedPrompt, buildSkillBlock, buildTraceFixSeedPrompt } from "../src/skill-prompt.js";
+import {
+  buildGrillSeedPrompt,
+  buildPlanSeedPrompt,
+  buildSkillBlock,
+  buildTraceFixSeedPrompt,
+} from "../src/skill-prompt.js";
 
 describe("buildSkillBlock", () => {
   test("wraps skill content in the same <skill> shape Pi's native /skill:name expansion produces", () => {
@@ -44,6 +49,44 @@ describe("buildTraceFixSeedPrompt", () => {
 
   test("forbids editing frontmatter directly", () => {
     expect(prompt.toLowerCase()).toContain("never edit");
+  });
+});
+
+describe("buildGrillSeedPrompt", () => {
+  const skillBlocks = ['<skill name="grill-understanding">body</skill>'];
+  const taskText = "Task: add battery-aware RTB\nDoD: ...\nsatisfies: rtb-1\nTouched: src/a.ts";
+  const freshExplainers = "battery.fetch: explains rtb-1 fetch path";
+  const resultPath = "/repo/grill-result.json";
+
+  test("renders the supplied skill blocks verbatim", () => {
+    const prompt = buildGrillSeedPrompt(
+      taskText,
+      ['<skill name="grill-understanding">body</skill>'],
+      freshExplainers,
+      resultPath,
+    );
+    expect(prompt).toContain('<skill name="grill-understanding">body</skill>');
+  });
+
+  test("contains the task text and directs the session to write grillResultPath as JSON", () => {
+    const prompt = buildGrillSeedPrompt(taskText, skillBlocks, freshExplainers, resultPath);
+    expect(prompt).toContain(taskText);
+    expect(prompt).toContain("/repo/grill-result.json");
+    expect(prompt).toContain("decision");
+    expect(prompt).toContain("updated_at");
+  });
+
+  test("works with an empty skillBlocks array and still contains the core instructions", () => {
+    const prompt = buildGrillSeedPrompt(taskText, [], freshExplainers, resultPath);
+    expect(prompt).toContain("ONE question at a time");
+    expect(prompt).toContain("state their understanding in their own words");
+    expect(prompt).toContain("grill-understanding");
+  });
+
+  test("contains a header/label for the fresh explainer summary", () => {
+    const prompt = buildGrillSeedPrompt(taskText, skillBlocks, freshExplainers, resultPath);
+    expect(prompt).toContain("Fresh visual explainers currently available");
+    expect(prompt).toContain(freshExplainers);
   });
 });
 
