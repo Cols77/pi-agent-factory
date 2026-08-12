@@ -167,7 +167,9 @@ def _sr_flags(root: Path, req_id: str, sr_gaps: dict[str, list[gaps_module.Gap]]
         g.kind == "sr_unsatisfied" and g.disposition != "exempt"
         for g in sr_gaps.get(req_id, [])
     )
-    current = req is not None and req.checksum is not None
+    # `current` = not proposed: the SR has a decided binding. Staleness is
+    # carried by `validated`, not by `current` (ruled during Task 1).
+    current = req is not None and req.binding is not None
     deferred = any(g.disposition == "deferred" for g in sr_gaps.get(req_id, []))
     status = validation.get(req_id)
     validated = status is not None and status.state == "passed" and not status.stale

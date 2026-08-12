@@ -135,7 +135,7 @@ Signals per SR, all from existing sources:
 |---|---|
 | `bound` | `register.load_register` → `req.binding is not None` and **not** `sr_proposed` gap |
 | `covered` | **no** `sr_unsatisfied` gap with pending disposition for this SR |
-| `current` | `req.checksum` present and current (not proposed, not stale-binding) |
+| `current` | the SR has a decided binding (`register` binding present), i.e. it is not `proposed`. Staleness is carried by `validated` (non-stale), not by `current`. |
 | `deferred` | `sr_proposed` gap has `deferred` disposition, or an `sr_unsatisfied`/`sr_unvalidated` gap carries `deferred` |
 | `validated` | `load_validation` entry `state == "passed"` and `stale is False` |
 
