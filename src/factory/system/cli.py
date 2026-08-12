@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+from factory.system import bundles as bundles_module
+from factory.system import health as health_module
 from factory.system.bundles import list_bundles
 from factory.system.coverage import bundle_coverage, member_target
 from factory.system.guide import export_guide
@@ -146,6 +148,20 @@ def cmd_bundle_check(repo_root: Path, draft_raw: str) -> dict:
     }
 
 
+def cmd_health(repo_root: Path, recency_source=None) -> dict:
+    """The composed health projection: the single landing document."""
+    return health_module.query_health(repo_root, recency_source=recency_source)
+
+
+def cmd_memberships(repo_root: Path, ref: str) -> dict:
+    """Every bundle that declares `ref` as a member (deterministic order).
+
+    arXiv: a `/system` member-of affordance needs the answer on the command
+    line too, for scripting and for the docs-server endpoint to reuse.
+    """
+    return {"ref": ref, "bundles": bundles_module.bundles_containing(repo_root, ref)}
+
+
 def cmd_scope(repo_root: Path) -> dict:
     # A bundle that fails to load is not a scope, but it must still be
     # visible -- an operator who typos a bundle file gets feedback here
@@ -266,6 +282,38 @@ def _render_bundle_check(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_health(result: dict) -> str:
+    h = result["health"]
+    lines = [
+        f"health: {h['satisfied']}/{h['expected']} SR ({h['percent']}%) "
+        f"[dangling {h['dangling']}, deferred {h['deferred']}, proposed {h['proposed']}]"
+    ]
+    for cls in h["classes"]:
+        suffix = f" (exempt {cls['exempt']})" if cls["exempt"] else ""
+        lines.append(f"  {cls['name']}: {cls['satisfied']}/{cls['expected']}{suffix}")
+    lines.append(f"bundles: {len(result['bundles'])}")
+    for b in result["bundles"]:
+        counts = b["readiness_counts"]
+        lines.append(
+            f"  {b['id']}: {b['readiness']} "
+            f"({counts['sr_total']} SR, {counts['bound']} bound)"
+        )
+    unbundled_total = sum(len(v) for v in result["unbundled"].values())
+    if unbundled_total:
+        lines.append(f"unbundled ({unbundled_total}):")
+        for refs in result["unbundled"].values():
+            lines.extend(f"  - {ref}" for ref in refs)
+    for reason in result["degraded"]:
+        lines.append(f"  ! degraded: {reason}")
+    return "\n".join(lines)
+
+
+def _render_memberships(result: dict) -> str:
+    if not result["bundles"]:
+        return f"{result['ref']} in no bundle"
+    return f"{result['ref']} in bundles: {', '.join(result['bundles'])}"
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -304,6 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     p_guide.add_argument("--export", default=None)
 
     sub.add_parser("scope", parents=[common])
+
+    sub.add_parser("health", parents=[common])
+
+    p_memberships = sub.add_parser("memberships", parents=[common])
+    p_memberships.add_argument("ref")
 
     p_bundle = sub.add_parser("bundle")
     bundle_sub = p_bundle.add_subparsers(dest="bundle_cmd", required=True)
@@ -349,6 +402,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "coverage":
             result = cmd_coverage(args.repo_root)
             rendered = _render_coverage(result)
+        elif args.cmd == "health":
+            result = cmd_health(args.repo_root)
+            rendered = _render_health(result)
+        elif args.cmd == "memberships":
+            result = cmd_memberships(args.repo_root, args.ref)
+            rendered = _render_memberships(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

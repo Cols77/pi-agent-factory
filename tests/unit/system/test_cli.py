@@ -349,6 +349,67 @@ def test_coverage_gate_passes_when_everything_is_bundled(tmp_path, capsys):
     assert main(["coverage", "--repo-root", str(repo), "--gate"]) == 0
 
 
+def test_health_subcommand_emits_composed_projection(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+
+    rc = main(["health", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert "bundles" in payload and "health" in payload
+    assert "coverage" in payload
+    assert payload["sr_listed"] is False
+
+
+def test_health_without_json_flag_prints_human_readable_text(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+
+    rc = main(["health", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
+    assert "health:" in out
+    assert "b1" in out
+
+
+def test_memberships_subcommand_reports_containing_bundles(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    write_bundle(tmp_path / "bundles", "b2", "B2", ["sr:SR-001"])
+
+    rc = main(["memberships", "sr:SR-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["ref"] == "sr:SR-001"
+    assert payload["bundles"] == ["b1", "b2"]
+
+
+def test_memberships_for_ref_in_no_bundle_is_empty(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+
+    rc = main(["memberships", "sr:SR-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert json.loads(out)["bundles"] == []
+
+
+def test_memberships_without_json_flag_prints_human_readable_text(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+
+    rc = main(["memberships", "sr:SR-001", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
+    assert "sr:SR-001" in out
+    assert "b1" in out
+
+
 def test_module_invocation_matches_python_dash_m_factory_system(tmp_path):
     # Design SS5.1/SS12: invocation is exactly `python -m factory.system`,
     # mirroring factory.trace.__main__ (spawnSync shape trace-cli.ts uses).
