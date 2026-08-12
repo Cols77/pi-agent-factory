@@ -57,7 +57,7 @@
 Derive the published Strong/Medium/Weak readiness predicate per bundle from existing
 signals only (register, gaps, validation_status). No new parsing.
 
-- [ ] **Step 1: Write the failing test** — a Weak bundle (one unbound SR):
+- [x] **Step 1: Write the failing test** — a Weak bundle (one unbound SR):
 
 ```python
 import pytest
@@ -102,8 +102,8 @@ def test_readiness_weak_when_sr_unbound(tmp_path):
     assert rows["b1"].sr_total == 1
 ```
 
-- [ ] **Step 2: Run test to verify it fails** (`ModuleNotFoundError: No module named 'factory.system.health'`).
-- [ ] **Step 3: Implement** — first the signal helper, then readiness:
+- [x] **Step 2: Run test to verify it fails** (`ModuleNotFoundError: No module named 'factory.system.health'`).
+- [x] **Step 3: Implement** — first the signal helper, then readiness:
 
 ```python
 from __future__ import annotations
@@ -227,7 +227,7 @@ def bundle_readiness(root: Path) -> dict[str, BundleReadinessRow]:
 > module and use the real loader (do **not** invent a signature). The test only needs
 > `find_gaps` to run with the loaded edges.
 
-- [ ] **Step 4:** Add tests for Strong and Medium:
+- [x] **Step 4:** Add tests for Strong and Medium:
 
 ```python
 def test_readiness_strong_when_all_current_covered_validated(tmp_path, monkeypatch):
@@ -269,9 +269,9 @@ def _validation_passing(root: Path, req_id: str, validation: dict[str, SrStatus]
 
 and `_sr_flags` calls `health._validation_passing(root, req_id, validation)`.
 
-- [ ] **Step 5:** Run the full suite + lint:
+- [x] **Step 5:** Run the full suite + lint:
   `cd pi-agent-factory && uv run python -m pytest -q -m 'unit or integration' && uv run python -m ruff check .`
-- [ ] **Step 6:** Commit `feat(system): bundle readiness predicate (strong/medium/weak)`.
+- [x] **Step 6:** Commit `feat(system): bundle readiness predicate (strong/medium/weak)`.
 
 ---
 
@@ -283,6 +283,8 @@ Compose `compute_health` + `bundle_coverage` + `ordered_bundle_ids` + readiness 
 browser's single landing document. No duplicated logic.
 
 - [ ] **Step 1: Failing test** — `query_health` payload carries every key the browser renders:
+
+(This task also folds in the Task 1 quality note: hoist the per-SR `load_register`/`load_validation` loads in `bundle_readiness` so they are parsed once, not once per member SR — same public behaviour, same tests green.)
 
 ```python
 from factory.system import health
