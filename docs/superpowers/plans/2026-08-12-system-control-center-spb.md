@@ -301,8 +301,9 @@ def test_query_health_shapes_the_landing_payload(tmp_path):
     payload = health.query_health(tmp_path)
     assert payload["sr_listed"] is False
     assert {"health", "coverage", "bundles", "unbundled", "ordering_available", "degraded"} <= payload.keys()
-    assert payload["bundles"]["b1"]["readiness"] in ("strong", "medium", "weak")
-    assert "readiness_counts" in payload["bundles"]["b1"]
+    by_id = {b["id"]: b for b in payload["bundles"]}
+    assert by_id["b1"]["readiness"] in ("strong", "medium", "weak")
+    assert "readiness_counts" in by_id["b1"]
 ```
 
 - [x] **Step 2: Run test to verify it fails**.
