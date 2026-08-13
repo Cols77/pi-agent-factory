@@ -27,7 +27,8 @@
     },
     "diagram_file": {
       "type": "string",
-      "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9._-]*\\.html$"
+      "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9._-]*\\.html$",
+      "not": {"pattern": "[\\r\\n]"}
     }
   }
 }

@@ -65,6 +65,8 @@ INVALID_ARTIFACT_DOCUMENT_CASES = [
     ("diag", "parent traversal diagram file", {"diagram_file": "../escape.html"}),
     ("diag", "Windows drive diagram file", {"diagram_file": "C:escape.html"}),
     ("diag", "dot segment diagram file", {"diagram_file": "sub/../ok.html"}),
+    ("diag", "trailing newline diagram file", {"diagram_file": "ok.html\n"}),
+    ("diag", "trailing carriage return diagram file", {"diagram_file": "ok.html\r"}),
     ("diag", "unknown property", {"unknown": True}),
     ("feat", "unknown property", {"unknown": True}),
     ("metric", "unknown property", {"unknown": True}),
