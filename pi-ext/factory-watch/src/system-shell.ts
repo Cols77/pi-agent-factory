@@ -325,9 +325,13 @@ export function renderSystemPageHtml(): string {
   .feature-readiness { justify-self: end; color: var(--stale); font: 650 11px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .feature-members { color: var(--text-muted); font-size: 12px; }
   .readiness-ready { border-left-color: var(--fresh); }
+  .readiness-strong { border-left-color: var(--fresh); }
+  .readiness-medium { border-left-color: var(--signal); }
   .readiness-weak { border-left-color: var(--stale); }
   .readiness-blocked { border-left-color: var(--degraded); }
   .readiness-missing { border-left-color: var(--na); }
+  .readiness-strong .feature-readiness { color: var(--fresh); }
+  .readiness-medium .feature-readiness { color: var(--signal); }
   @media (max-width: 760px) {
     .app-header { min-height: 94px; padding: 12px 16px 13px; }
     .app-header p { font-size: 13px; }

@@ -20,6 +20,8 @@ describe("system navigator visual identity", () => {
     expect(html).toContain("--font-display:");
     expect(html).toContain("--font-mono:");
     expect(html).toContain("prefers-reduced-motion: reduce");
+    expect(html).toContain(".readiness-strong { border-left-color: var(--fresh); }");
+    expect(html).toContain(".readiness-medium { border-left-color: var(--signal); }");
   });
 
   it("becomes one column on narrow viewports", () => {
@@ -111,6 +113,8 @@ describe("system navigator landing and focus modes", () => {
     expect(doc.querySelector(".scope-group-title")?.tagName).toBe("BUTTON");
 
     (feature as HTMLElement).click();
+    expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("true");
+    expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(false);
     await vi.waitFor(() => expect(doc.querySelector("#scopeWorkspace")?.hasAttribute("hidden")).toBe(false));
     expect(doc.querySelector("#landingPanel")?.hasAttribute("hidden")).toBe(true);
     expect(feature?.getAttribute("aria-current")).toBe("page");
@@ -182,5 +186,22 @@ describe("system navigator landing and focus modes", () => {
     doc.querySelector<HTMLElement>("#searchGo")!.click();
     await vi.waitFor(() => expect(calls).toContain("/api/system/brief?scope=sr%3ASR-137"));
     expect(calls).not.toContain("sr:SR-137");
+  });
+
+  it("returns to the browse state when a scope request rejects", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      return Promise.reject(new Error("scope transport failed"));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+    await vi.waitFor(() => expect(doc.querySelector("#banner")?.textContent).toContain("could not resolve scope"));
+    expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false");
   });
 });

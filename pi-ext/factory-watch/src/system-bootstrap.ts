@@ -93,6 +93,11 @@ export async function systemBootstrap(): Promise<void> {
     landingPanel.hidden = false;
     scopeWorkspace.hidden = true;
     content.setAttribute('aria-busy', 'false');
+    currentScope = null;
+    document.querySelectorAll('.scope-item, .feature-row').forEach((item: Element) => {
+      item.classList.remove('is-active');
+      item.removeAttribute('aria-current');
+    });
     setPickerClass(false);
   }
 
@@ -196,7 +201,7 @@ export async function systemBootstrap(): Promise<void> {
         a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
-          loadScope('bundle:' + b.id);
+          void loadScope('bundle:' + b.id);
         });
         row.appendChild(a);
         group.appendChild(row);
@@ -241,7 +246,7 @@ export async function systemBootstrap(): Promise<void> {
         a.appendChild(document.createTextNode(ref));
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
-          loadScope(ref);
+          void loadScope(ref);
         });
         row.appendChild(a);
         group.appendChild(row);
@@ -542,16 +547,25 @@ export async function systemBootstrap(): Promise<void> {
   async function loadScope(scopeRef: string): Promise<void> {
     currentScope = scopeRef;
     pushScope(scopeRef);
-    const kind = scopeKind(scopeRef);
-    if (kind === 'task') {
-      await loadStoryScope(scopeRef);
-      return;
+    content.setAttribute('aria-busy', 'true');
+    setLoading(true);
+    try {
+      const kind = scopeKind(scopeRef);
+      if (kind === 'task') {
+        await loadStoryScope(scopeRef);
+        return;
+      }
+      if (kind === 'file') {
+        await loadReverseScope(scopeRef);
+        return;
+      }
+      await loadBundleScope(scopeRef);
+    } catch (err) {
+      showBanner('could not resolve scope ' + scopeRef + ': ' + String(err));
+      picker.hidden = false;
+      showLanding();
+      setLoading(false);
     }
-    if (kind === 'file') {
-      await loadReverseScope(scopeRef);
-      return;
-    }
-    await loadBundleScope(scopeRef);
   }
 
   // Task B (system nav): the lazy trace loader. Fetches /api/graph only on the
@@ -676,7 +690,7 @@ export async function systemBootstrap(): Promise<void> {
       row.appendChild(counts);
       row.addEventListener('click', (clickEvent: Event) => {
         clickEvent.preventDefault();
-        loadScope('bundle:' + b.id);
+        void loadScope('bundle:' + b.id);
       });
       list.appendChild(row);
     });
