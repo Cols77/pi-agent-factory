@@ -42,7 +42,7 @@
 - Test: `tests/unit/system/test_health.py`
 - Test: `tests/unit/system/test_queries.py`
 
-- [ ] **Step 1: Write failing coverage regression test**
+- [x] **Step 1: Write failing coverage regression test**
 
   Add this test next to the existing coverage tests. It must patch the loader after fixtures are
   written, exercise multiple `sr:`/`task:` members, and assert a single full node load:
@@ -73,14 +73,14 @@
       assert calls == 1
   ```
 
-- [ ] **Step 2: Run the new test and verify RED**
+- [x] **Step 2: Run the new test and verify RED**
 
   Run: `uv run python -m pytest tests/unit/system/test_coverage.py::test_bundle_coverage_loads_nodes_once_for_many_members -q`
 
   Expected: FAIL because the current implementation calls `trace_model.load_nodes` once for
   artifact collection plus once per `sr:`/`task:` bundle member.
 
-- [ ] **Step 3: Implement the lookup with compatibility-preserving signatures**
+- [x] **Step 3: Implement the lookup with compatibility-preserving signatures**
 
   In `coverage.py`, add an immutable local lookup type and helpers. Its maps contain exact
   references and resolved paths from the supplied/load-once nodes and ADRs:
@@ -126,13 +126,13 @@
   `build_artifact_lookup(repo_root, nodes=nodes)` once and thread it through
   `_traversal_for_sr` into `bundles_containing`.
 
-- [ ] **Step 4: Run the coverage test and verify GREEN**
+- [x] **Step 4: Run the coverage test and verify GREEN**
 
   Run: `uv run python -m pytest tests/unit/system/test_coverage.py::test_bundle_coverage_loads_nodes_once_for_many_members -q`
 
   Expected: PASS.
 
-- [ ] **Step 5: Add sharing tests for health and traversal**
+- [x] **Step 5: Add sharing tests for health and traversal**
 
   Add tests that monkeypatch the public dependent functions rather than timing filesystem
   operations. The health test asserts the identical `ArtifactLookup` instance received by
@@ -187,13 +187,13 @@
   Use the existing fixture helpers and real health/trace objects from their respective files;
   do not add test-only production APIs.
 
-- [ ] **Step 6: Run focused Python tests**
+- [x] **Step 6: Run focused Python tests**
 
   Run: `uv run python -m pytest tests/unit/system/test_coverage.py tests/unit/system/test_bundles.py tests/unit/system/test_health.py tests/unit/system/test_queries.py -q`
 
   Expected: PASS.
 
-- [ ] **Step 7: Commit the Python projection repair**
+- [x] **Step 7: Commit the Python projection repair**
 
   ```bash
   git add src/factory/system/coverage.py src/factory/system/bundles.py src/factory/system/ordering.py src/factory/system/health.py src/factory/system/queries.py tests/unit/system/test_coverage.py tests/unit/system/test_health.py tests/unit/system/test_queries.py
@@ -209,7 +209,7 @@
 - Test: `pi-ext/factory-watch/test/cli-runner.test.ts`
 - Test: `pi-ext/factory-watch/test/system-page.test.ts`
 
-- [ ] **Step 1: Write failing async runner tests**
+- [x] **Step 1: Write failing async runner tests**
 
   Extend the child-process mock to export `spawn` alongside `spawnSync`. Add tests that make a
   fake child process emit `stdout`, `stderr`, `error`, and `close`, then assert the Promise-based
@@ -232,13 +232,13 @@
 
   Cover non-zero exit and invalid JSON with the same fake child helper.
 
-- [ ] **Step 2: Run the new runner tests and verify RED**
+- [x] **Step 2: Run the new runner tests and verify RED**
 
   Run: `npx vitest run test/cli-runner.test.ts`
 
   Expected: FAIL because `runJsonCliAsync` does not exist.
 
-- [ ] **Step 3: Implement `runJsonCliAsync`**
+- [x] **Step 3: Implement `runJsonCliAsync`**
 
   Import `spawn` and `ChildProcess` from `node:child_process`. Implement a Promise that captures
   UTF-8 stdout/stderr chunks, resolves once on `error` or `close`, and delegates successful
@@ -253,13 +253,13 @@
   practical output limit by stopping collection and resolving an error if either stream exceeds
   `64 * 1024 * 1024` bytes.
 
-- [ ] **Step 4: Run runner tests and verify GREEN**
+- [x] **Step 4: Run runner tests and verify GREEN**
 
   Run: `npx vitest run test/cli-runner.test.ts`
 
   Expected: PASS.
 
-- [ ] **Step 5: Write failing docs-server async route tests**
+- [x] **Step 5: Write failing docs-server async route tests**
 
   In `system-page.test.ts`, mock `spawn` so a `traversal` child remains open until the test
   releases it, while a `health` child immediately writes valid health JSON and closes. Start the
@@ -287,13 +287,13 @@
   Add direct tests that `/api/system/health` and `/api/system/traversal` return their JSON via
   async loader success and return 503 for an async non-zero CLI result.
 
-- [ ] **Step 6: Run route tests and verify RED**
+- [x] **Step 6: Run route tests and verify RED**
 
   Run: `npx vitest run test/system-page.test.ts`
 
   Expected: FAIL because the routes still call synchronous loaders and block the server.
 
-- [ ] **Step 7: Implement asynchronous health/traversal loading and awaiting routes**
+- [x] **Step 7: Implement asynchronous health/traversal loading and awaiting routes**
 
   In `system-cli.ts`, export:
 
@@ -323,13 +323,13 @@
 
   Leave all remaining endpoint calls synchronous in this increment.
 
-- [ ] **Step 8: Run TypeScript tests and typecheck**
+- [x] **Step 8: Run TypeScript tests and typecheck**
 
   Run: `npx vitest run test/cli-runner.test.ts test/system-page.test.ts && npx tsc --noEmit`
 
   Expected: PASS.
 
-- [ ] **Step 9: Commit the async docs-server repair**
+- [x] **Step 9: Commit the async docs-server repair**
 
   ```bash
   git add pi-ext/factory-watch/src/cli-runner.ts pi-ext/factory-watch/src/system-cli.ts pi-ext/factory-watch/src/docs-server.ts pi-ext/factory-watch/test/cli-runner.test.ts pi-ext/factory-watch/test/system-page.test.ts
@@ -346,7 +346,7 @@
 
   Expected: PASS with no lint violations.
 
-- [ ] **Step 2: Run complete extension suite and typecheck**
+- [x] **Step 2: Run complete extension suite and typecheck**
 
   Run: `npx vitest run && npx tsc --noEmit`
 
@@ -354,7 +354,7 @@
 
   Expected: PASS.
 
-- [ ] **Step 3: Smoke the real product health command**
+- [x] **Step 3: Smoke the real product health command**
 
   Run: `uv run python -m factory.system health --json`
 
@@ -363,7 +363,7 @@
   Expected: JSON output containing `health`, `coverage`, `bundles`, `unbundled`, and
   `sr_listed: false`, without timing out.
 
-- [ ] **Step 4: Use browser automation against the live `/system` page**
+- [x] **Step 4: Use browser automation against the live `/system` page**
 
   Open the extension-provided `/system` URL and verify, from a fresh DOM snapshot and screenshot:
   `#content` is visible, `#healthSummary` has text, and `#scopeList` contains at least one
