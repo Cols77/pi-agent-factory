@@ -703,6 +703,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     `"degraded_reasons": list[str]` -- true, with each reason named, when any
     declared member (syntactically bad, per Task 1, or simply nonexistent,
     resolved here) failed to resolve.
+
+    `sr:` scopes additionally carry `"member_of": list[str]` -- the ids of
+    every bundle that declares the requirement as a member (multi-membership
+    is otherwise invisible; Task 8). Other scope kinds omit the key.
     """
     if scope.kind == "adr":
         return _adr_brief(repo_root, scope)
@@ -776,9 +780,13 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
         claims = _sr_brief_claims(repo_root, req)
+        # Member-of affordance (Task 8): every bundle that declares this
+        # requirement as a member, so a shared requirement reads as shared on
+        # its own page. Multi-membership stays visible, in load order.
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
             "claims": [to_dict(c) for c in claims],
+            "member_of": bundles.bundles_containing(repo_root, scope.ref),
         }
 
     raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")

@@ -128,6 +128,42 @@ def test_sr_scope_absent_requirements_dir_is_not_found_not_error(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Member-of affordance: a sr: brief lists every bundle that contains it
+# ---------------------------------------------------------------------------
+
+
+def test_brief_includes_member_bundles_for_sr_scope(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    assert brief["member_of"] == ["b1"]
+
+
+def test_brief_member_of_lists_all_containing_bundles_multimembership(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "alpha", "A", ["sr:SR-001"])
+    write_bundle(tmp_path / "bundles", "gamma", "G", ["sr:SR-001", "sr:SR-002"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Deterministic load order: alpha is written first.
+    assert brief["member_of"] == ["alpha", "gamma"]
+
+
+def test_brief_member_of_is_empty_when_sr_in_no_bundle(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-998"])
+    write_bundle(tmp_path / "bundles", "b2", "B2", ["sr:SR-999"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Present but empty: this sr is not a member of any bundle.
+    assert brief["member_of"] == []
+
+
+def test_brief_member_of_absent_for_bundle_scope(tmp_path):
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+    assert "member_of" not in brief
+
+
+# ---------------------------------------------------------------------------
 # Stale evidence downgrades a row but does not crash the query
 # ---------------------------------------------------------------------------
 
