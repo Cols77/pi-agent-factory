@@ -8,13 +8,140 @@
   "properties": {
     "id": {"type": "string", "pattern": "^GOAL-[A-Z0-9-]+$"},
     "title": {"type": "string", "minLength": 1},
-    "feature": {"type": "string", "pattern": "^FEAT-[A-Z0-9-]+$"},
+    "feature": {
+      "oneOf": [
+        {"type": "string", "pattern": "^FEAT-[A-Z0-9-]+$"},
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^FEAT-[A-Z0-9-]+$"}
+        }
+      ]
+    },
     "requirements": {
       "type": "array",
       "minItems": 1,
       "items": {"type": "string", "pattern": "^SR-[A-Z0-9-]+$"}
     },
-    "metric": {"type": "string", "pattern": "^MET-[A-Z0-9-]+$"},
-    "target": {"type": "string", "minLength": 1}
+    "metric": {
+      "oneOf": [
+        {"type": "string", "pattern": "^MET-[A-Z0-9-]+$"},
+        {
+          "type": "object",
+          "required": ["name", "source_experiment"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "source_experiment": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "target": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "required": ["operator", "value"],
+          "properties": {
+            "operator": {"type": "string", "enum": [">=", "<=", ">", "<", "=="]},
+            "value": {"type": "number"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": ["DECLARED", "ACTIVE", "EVALUATING", "NOT_REACHED", "REACHED", "REGRESSED", "BLOCKED"],
+      "default": "DECLARED"
+    },
+    "version": {"type": "integer", "minimum": 1, "default": 1},
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "experiment": {"type": "string"},
+        "run": {"type": "string"},
+        "commit": {"type": "string"},
+        "metrics": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "state": {"type": "string"},
+          "value": {"type": "number"},
+          "target": {"type": "number"},
+          "operator": {"type": "string"},
+          "run": {"type": "string"},
+          "commit": {"type": "string"},
+          "recorded_at": {"type": "string"}
+        },
+        "required": ["state", "recorded_at"],
+        "additionalProperties": false
+      }
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["metric", "operator", "value"],
+        "properties": {
+          "metric": {"type": "string", "minLength": 1},
+          "operator": {"type": "string", "enum": [">=", "<=", ">", "<", "=="]},
+          "value": {"type": "number"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "population": {
+      "type": "object",
+      "properties": {
+        "scenario_pack": {"type": "array", "items": {"type": "string"}},
+        "occlusions_s": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "number"}
+        },
+        "held_out": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "baseline": {
+      "type": "object",
+      "properties": {
+        "metric": {"type": "string"},
+        "value": {"type": "number"},
+        "commit": {"type": "string"},
+        "state": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "confidence": {
+      "type": "object",
+      "properties": {
+        "min_runs": {"type": "integer", "minimum": 1},
+        "ci_level": {"type": "number", "minimum": 0, "maximum": 1},
+        "repeat_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_iterations": {"type": "integer", "minimum": 1},
+        "max_runs": {"type": "integer", "minimum": 1},
+        "budget_units": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "stop_rule": {
+      "type": "string",
+      "enum": ["all_met", "budget_exhausted", "guardrail_failed", "inconclusive"]
+    }
   }
 }
