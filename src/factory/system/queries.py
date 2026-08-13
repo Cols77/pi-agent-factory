@@ -69,7 +69,7 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
@@ -90,7 +90,8 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>` and `adr:<id>` are
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>`, `adr:<id>`, and
+    `diag:<id>` are
     legal top-level scopes. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
@@ -99,7 +100,7 @@ def parse_scope_ref(raw: str) -> SystemScopeRef:
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
             f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, "
-            f"task:<id>, file:<path> or adr:<id>)"
+            f"task:<id>, file:<path>, adr:<id> or diag:<id>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -152,6 +153,46 @@ def _load_requirement_or_raise(repo_root: Path, sr_id: str) -> Requirement:
     if req is None:
         raise ScopeNotFoundError(f"sr not found: {sr_id!r}")
     return req
+
+
+def _load_diagram_or_raise(repo_root: Path, diagram_id: str) -> trace_model.Node:
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind == "diag" and node.id == diagram_id:
+            return node
+    raise ScopeNotFoundError(f"diagram not found: {diagram_id!r}")
+
+
+def query_diagram(repo_root: Path, diagram_id: str) -> dict:
+    """Return one diagram stub and its declared diagram-file availability.
+
+    Diagram stubs are loaded through ``trace_model.load_nodes`` so the
+    navigator and trace graph share the sole Markdown-frontmatter parser.
+    A missing diagram file only degrades this payload: the stub remains
+    addressable and its recorded title is returned.
+    """
+    diagram = _load_diagram_or_raise(repo_root, diagram_id)
+    if diagram.diagram_file is None:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"diagram stub has no diagram_file: {diagram.path}"],
+        }
+
+    path = diagram.path.parent / diagram.diagram_file
+    if path.is_file():
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": str(path),
+            "errors": [],
+        }
+    return {
+        "id": diagram.id,
+        "title": diagram.title,
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {path}"],
+    }
 
 
 @dataclass(frozen=True)
@@ -1251,6 +1292,9 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind == "diag":
+            scopes.append(SystemScopeRef(kind="diag", ref=f"diag:{node.id}"))
     for req in register.load_register(_requirements_dir(repo_root)):
         scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes

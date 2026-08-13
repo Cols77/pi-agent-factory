@@ -70,6 +70,21 @@ def test_loads_feature_metric_and_goal_nodes_with_declared_ids_and_titles(tmp_pa
     )
 
 
+def test_loads_diagram_stub_with_declared_id_and_title(tmp_path):
+    _write(
+        tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.mmd\n---\n",
+    )
+
+    nodes = {node.id: node for node in load_nodes(tmp_path)}
+
+    assert (nodes["DIAG-NAV-001"].kind, nodes["DIAG-NAV-001"].title) == (
+        "diag",
+        "Navigator overview",
+    )
+
+
 def test_build_graph_adapts_scc_adr_records_to_trace_nodes(tmp_path):
     path = _write(
         tmp_path / "docs" / "adr" / "ADR-0001.md",

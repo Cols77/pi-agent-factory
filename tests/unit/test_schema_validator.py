@@ -33,6 +33,19 @@ ARTIFACT_SCHEMA_CASES = [
             "target": ">= 0.90",
         },
     ),
+    (
+        "diag",
+        "^DIAG-[A-Z0-9-]+$",
+        ["id", "title", "focus", "illustrates", "diagram_file"],
+        {
+            "id": "DIAG-NAV-001",
+            "kind": "diag",
+            "title": "Navigator overview",
+            "focus": "Traceability",
+            "illustrates": "FEAT-NAV-017",
+            "diagram_file": "overview.mmd",
+        },
+    ),
 ]
 
 ARTIFACT_DOCUMENTS = {kind: document for kind, _, _, document in ARTIFACT_SCHEMA_CASES}
@@ -46,6 +59,9 @@ INVALID_ARTIFACT_DOCUMENT_CASES = [
     ("goal", "non-metric metric reference", {"metric": "FEAT-NAV-017"}),
     ("goal", "blank target", {"target": ""}),
     ("goal", "non-string target", {"target": 0.9}),
+    ("diag", "bad diagram id", {"id": "FEAT-NAV-001"}),
+    ("diag", "wrong kind", {"kind": "feat"}),
+    ("diag", "unknown property", {"unknown": True}),
     ("feat", "unknown property", {"unknown": True}),
     ("metric", "unknown property", {"unknown": True}),
     ("goal", "unknown property", {"unknown": True}),

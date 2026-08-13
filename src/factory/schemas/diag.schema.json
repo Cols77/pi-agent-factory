@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/diag.schema.json",
+  "title": "Diagram frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "focus", "illustrates", "diagram_file"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^DIAG-[A-Z0-9-]+$"},
+    "kind": {"const": "diag"},
+    "title": {"type": "string", "minLength": 1},
+    "focus": {"type": "string", "minLength": 1},
+    "illustrates": {"type": "string", "pattern": "^(FEAT|ADR)-[A-Z0-9-]+$"},
+    "diagram_file": {"type": "string", "minLength": 1}
+  }
+}

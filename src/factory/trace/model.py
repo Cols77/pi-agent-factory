@@ -33,6 +33,7 @@ class Node:
     exempt: bool = False
     deferred: str | None = None
     proposed: bool = False
+    diagram_file: str | None = None
 
 
 def _load_post(path: Path) -> frontmatter.Post | None:
@@ -70,6 +71,9 @@ def _id_node(path: Path, kind: NodeKind) -> Node:
         # The absence of a binding IS the proposed state -- read here rather than
         # from the register so build_graph never loads config or imports target code.
         proposed=kind == "sr" and "binding" not in post.metadata,
+        diagram_file=str(post.metadata["diagram_file"])
+        if kind == "diag" and "diagram_file" in post.metadata
+        else None,
     )
 
 
@@ -103,6 +107,8 @@ def load_nodes(root: Path) -> list[Node]:
         nodes.append(_id_node(path, "br"))
     for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
         nodes.append(_id_node(path, "feat"))
+    for path in _glob(root, "docs", "diagrams", pattern="DIAG-*.md"):
+        nodes.append(_id_node(path, "diag"))
     for path in _glob(root, "metrics", pattern="MET-*.md"):
         nodes.append(_id_node(path, "metric"))
     for path in _glob(root, "goals", pattern="GOAL-*.md"):

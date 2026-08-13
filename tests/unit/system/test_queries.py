@@ -21,6 +21,7 @@ from factory.system.queries import (
     parse_scope_ref,
     query_brief,
     query_guide,
+    query_diagram,
     query_matrix,
     query_timeline,
 )
@@ -72,6 +73,12 @@ def test_parse_scope_ref_rejects_anything_else(raw):
 def test_task_and_file_are_now_openable_scopes():
     assert parse_scope_ref("task:T-059").kind == "task"
     assert parse_scope_ref("file:src/drone/planning/reactive.py").kind == "file"
+
+
+def test_diag_is_an_openable_scope():
+    assert parse_scope_ref("diag:DIAG-NAV-001") == SystemScopeRef(
+        kind="diag", ref="diag:DIAG-NAV-001"
+    )
 
 
 def test_spec_and_plan_are_still_not_openable_scopes():
@@ -1135,3 +1142,55 @@ def test_list_scopes_includes_declared_adrs(tmp_path):
     refs = [s.ref for s in list_scopes(tmp_path)]
 
     assert "adr:ADR-0001" in refs
+
+
+def test_list_scopes_includes_diagram_stubs(tmp_path):
+    path = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.mmd\n---\n",
+        encoding="utf-8",
+    )
+
+    assert SystemScopeRef(kind="diag", ref="diag:DIAG-NAV-001") in list_scopes(tmp_path)
+
+
+def test_query_diagram_resolves_declared_path_relative_to_the_stub(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    diagram = stub.parent / "assets" / "overview.mmd"
+    diagram.parent.mkdir(parents=True)
+    diagram.write_text("flowchart LR\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: assets/overview.mmd\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-001") == {
+        "id": "DIAG-NAV-001",
+        "title": "Navigator overview",
+        "diagram_path": str(diagram),
+        "errors": [],
+    }
+
+
+def test_query_diagram_reports_a_missing_declared_path_without_discarding_the_stub(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-002.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-002\nkind: diag\ntitle: Missing asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: assets/missing.mmd\n---\n",
+        encoding="utf-8",
+    )
+    missing = stub.parent / "assets" / "missing.mmd"
+
+    result = query_diagram(tmp_path, "DIAG-NAV-002")
+
+    assert result == {
+        "id": "DIAG-NAV-002",
+        "title": "Missing asset",
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {missing}"],
+    }
+    assert "scope_errors" not in result

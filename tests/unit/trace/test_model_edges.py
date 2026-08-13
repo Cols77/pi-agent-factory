@@ -101,3 +101,13 @@ def test_feature_vcycle_frontmatter_fields_produce_typed_edges(tmp_path):
         Edge("FEAT-NAV-017", "MET-001", "evaluates"),
         Edge("FEAT-NAV-017", "ADR-0001", "illustrates"),
     } <= set(edges)
+
+
+def test_diagram_stub_illustrates_target_with_a_typed_edge(tmp_path):
+    _write(
+        tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: overview.mmd\n---\n",
+    )
+
+    assert Edge("DIAG-NAV-001", "ADR-0001", "illustrates") in _edges(tmp_path)
