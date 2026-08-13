@@ -632,14 +632,23 @@ export async function systemBootstrap(): Promise<void> {
       }
     }
     clear(node);
-    const row = document.createElement('div');
-    row.className = 'health-line';
-    row.appendChild(document.createTextNode(
-      trav.requirement + ' → tasks: ' + (trav.tasks.join(', ') || '(none)') +
-      ' → design: ' + (trav.design.join(', ') || '(none)') +
-      ' → files: ' + (trav.files.join(', ') || '(none)')
-    ));
-    node.appendChild(row);
+    function addStep(label: string, values: string[]): void {
+      const step = document.createElement('div');
+      step.className = 'trace-spine-step';
+      const stepLabel = document.createElement('div');
+      stepLabel.className = 'trace-spine-label';
+      stepLabel.appendChild(document.createTextNode(label));
+      const stepValue = document.createElement('div');
+      stepValue.className = 'trace-spine-value';
+      stepValue.appendChild(document.createTextNode(values.join(', ') || 'Not recorded'));
+      step.appendChild(stepLabel);
+      step.appendChild(stepValue);
+      node!.appendChild(step);
+    }
+    addStep('Requirement', [trav.requirement]);
+    addStep('Tasks', trav.tasks);
+    addStep('Design', trav.design);
+    addStep('Files', trav.files);
   }
 
   function renderBundleList(payload: any): void {

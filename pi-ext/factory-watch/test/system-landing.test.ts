@@ -230,21 +230,20 @@ describe("system landing page", () => {
     expect(dom.window.location.search).toContain("scope=bundle%3Ab1");
   });
 
-  // SP-B Task 7: search resolves a bare artifact ref by posting the exact
-  // ref (SR-137 -> sr:SR-137) to the docs server, which answers with the
-  // scope it opens. The browser never invents matching logic.
-  test("search resolves a bare artifact ref and posts the exact ref", async () => {
-    let resolveCall: string | undefined;
+  // Search normalizes a bare artifact id and lets the scope-specific API
+  // validate it; it never treats `sr:...` as a fetchable URL.
+  test("search resolves a bare artifact ref through the scope API", async () => {
+    let briefCall: string | undefined;
     const fetchMock = vi.fn((input: string | URL) => {
       const url = new URL(String(input), "http://localhost/");
       if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
       if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
       if (url.pathname === "/api/system/brief" || url.pathname === "/api/system/matrix" ||
           url.pathname === "/api/system/timeline" || url.pathname === "/api/system/guide") {
+        if (url.pathname === "/api/system/brief") briefCall = String(input);
         return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-137" }, claims: [], rows: [], events: [], sections: [], degraded: false, degraded_reasons: [] });
       }
-      resolveCall = String(input);
-      return jsonResponse({ scope: { kind: "sr", ref: String(input) } });
+      return jsonResponse({});
     });
     const dom = new JSDOM(renderSystemPageHtml(), {
       runScripts: "dangerously",
@@ -262,9 +261,12 @@ describe("system landing page", () => {
     const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
     input.value = "SR-137";
     input.dispatchEvent(new dom.window.Event("input"));
-    // Go resolves the exact ref and opens the scope it maps to.
+    // Go opens the normalized ref through the declared API.
     doc.querySelector<HTMLElement>("#searchGo")!.click();
-    await vi.waitFor(() => expect(resolveCall).toBe("sr:SR-137"), { timeout: 2000, interval: 10 });
+    await vi.waitFor(
+      () => expect(briefCall).toBe("/api/system/brief?scope=sr%3ASR-137"),
+      { timeout: 2000, interval: 10 },
+    );
     await vi.waitFor(
       () => expect(doc.getElementById("scopeHeader")!.textContent).toBe("sr:SR-137"),
       { timeout: 2000, interval: 10 },
@@ -299,6 +301,9 @@ describe("SP-B Task 9 working traversal", () => {
       { timeout: 2000, interval: 10 },
     );
     const path = dom.window.document.querySelector("#traversalPath")!;
+    const labels = Array.from(path.querySelectorAll(".trace-spine-label")).map((node) => node.textContent);
+    expect(labels).toEqual(["Requirement", "Tasks", "Design", "Files"]);
+    expect(path.querySelectorAll(".trace-spine-step")).toHaveLength(4);
     expect(path.textContent).toContain("SR-001");
     expect(path.textContent).toContain("T-001");
     expect(path.textContent).toContain("src/a.py");
