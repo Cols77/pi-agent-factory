@@ -32,3 +32,6 @@ sessions/.factory-runs/
 # Subagent-driven-development scratch: ledgers, briefs, review packages.
 # Per-plan working state; the git history is the durable record.
 .superpowers/
+
+# Obsidian per-window UI state (churns constantly; not project config)
+.obsidian/workspace.json
