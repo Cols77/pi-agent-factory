@@ -1,0 +1,203 @@
+"""Tests for the deterministic feature dossier and its query adapters."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from factory.system.feature import feature_context
+from factory.system.models import SystemScopeRef
+from factory.system.queries import (
+    ScopeKindError,
+    ScopeNotFoundError,
+    query_feature_context,
+    query_vcycle,
+)
+
+from ._fixtures import write_run_manifest, write_validation_report
+
+pytestmark = pytest.mark.unit
+
+
+def _write(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _feature_repo(root: Path) -> None:
+    _write(
+        root / "docs" / "features" / "FEAT-CONTEXT-001.md",
+        "---\n"
+        "id: FEAT-CONTEXT-001\n"
+        "title: Feature dossier\n"
+        "contains: [SR-002, SR-001]\n"
+        "illustrates: [ADR-001]\n"
+        "---\n\n"
+        "Provide a trace-backed implementation dossier.\n",
+    )
+    _write(
+        root / "requirements" / "SR-001.md",
+        "---\n"
+        "id: SR-001\n"
+        "title: Connected requirement\n"
+        "statement: The system shall connect the dossier.\n"
+        "domain: behavioral\n"
+        "---\n",
+    )
+    _write(
+        root / "requirements" / "SR-002.md",
+        "---\n"
+        "id: SR-002\n"
+        "title: Second connected requirement\n"
+        "statement: The system shall retain validation state.\n"
+        "domain: behavioral\n"
+        "---\n",
+    )
+    _write(
+        root / "tasks" / "T-001.md",
+        "---\n"
+        "id: T-001\n"
+        "title: Implement connected requirement\n"
+        "status: done\n"
+        "dod: []\n"
+        "source_plan: docs/superpowers/plans/feature-context.md\n"
+        "satisfies: [SR-001]\n"
+        "---\n",
+    )
+    _write(
+        root / "tasks" / "T-999.md",
+        "---\n"
+        "id: T-999\n"
+        "title: Do not leak this task\n"
+        "status: done\n"
+        "dod: []\n"
+        "satisfies: [SR-UNRELATED]\n"
+        "---\n",
+    )
+    _write(
+        root / "docs" / "adr" / "ADR-001.md",
+        "---\n"
+        "id: ADR-001\n"
+        "title: Follow the trace graph\n"
+        "status: accepted\n"
+        "---\n\n"
+        "## Decision\n\nUse recorded graph links.\n",
+    )
+    _write(
+        root / "docs" / "superpowers" / "plans" / "feature-context.md",
+        "# Feature context plan\n\nSee docs/superpowers/specs/feature-context.md.\n",
+    )
+    _write(
+        root / "docs" / "superpowers" / "specs" / "feature-context.md",
+        "# Feature context specification\n",
+    )
+    _write(
+        root / "goals" / "GOAL-001.md",
+        "---\n"
+        "id: GOAL-001\n"
+        "title: Dossier goal\n"
+        "demonstrates: [SR-001]\n"
+        "evaluates: [MET-001]\n"
+        "---\n",
+    )
+    _write(
+        root / "metrics" / "MET-001.md",
+        "---\n"
+        "id: MET-001\n"
+        "title: Dossier metric\n"
+        "---\n",
+    )
+    _write(root / "src" / "connected.py", "VALUE = 1\n")
+    _write(root / "src" / "unrelated.py", "VALUE = 2\n")
+    write_run_manifest(root, task_id="T-001", changed_files=["src/connected.py"])
+    write_run_manifest(
+        root,
+        run_id="run-unrelated",
+        task_id="T-999",
+        changed_files=["src/unrelated.py"],
+    )
+    write_validation_report(
+        root,
+        [
+            {"id": "SR-001", "passed": True, "stale": False, "artifacts": []},
+            {"id": "SR-002", "passed": False, "stale": False, "artifacts": []},
+        ],
+    )
+
+
+def test_feature_context_contains_only_connected_recorded_facts(tmp_path):
+    _feature_repo(tmp_path)
+    _write(tmp_path / "docs" / "features" / "FEAT-BROKEN.md", "---\nnot: [valid\n")
+
+    result = feature_context(tmp_path, "FEAT-CONTEXT-001")
+
+    assert result["id"] == "FEAT-CONTEXT-001"
+    assert result["title"] == "Feature dossier"
+    assert result["intent"] == "Provide a trace-backed implementation dossier."
+    assert [requirement["id"] for requirement in result["requirements"]] == ["SR-001", "SR-002"]
+    assert [record["id"] for record in result["design_records"]] == [
+        "ADR-001",
+        "plan:feature-context.md",
+        "spec:feature-context.md",
+    ]
+    assert [entry["task"]["id"] for entry in result["implementation"]] == ["T-001"]
+    assert result["implementation"][0]["runs"][0]["implementation"]["changed_files"] == [
+        "src/connected.py"
+    ]
+    assert result["implementation_files"] == ["src/connected.py"]
+    assert result["verification"] == [
+        {"id": "SR-001", "state": "passed", "stale": False},
+        {"id": "SR-002", "state": "failed", "stale": False},
+    ]
+    assert result["goal_ids"] == ["GOAL-001"]
+    assert result["metric_ids"] == ["MET-001"]
+    assert result["latest_simulation_evidence"] is None
+    assert result["recent_changes"] == []
+
+
+def test_feature_queries_preserve_scope_shape_and_exact_resolution(tmp_path):
+    _feature_repo(tmp_path)
+    feature_scope = SystemScopeRef(kind="feat", ref="feat:FEAT-CONTEXT-001")
+
+    dossier = query_feature_context(tmp_path, feature_scope)
+    feature_vcycle = query_vcycle(tmp_path, feature_scope)
+    sr_vcycle = query_vcycle(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    assert dossier["scope"] == {"kind": "feat", "ref": "feat:FEAT-CONTEXT-001"}
+    assert dossier["dossier"]["id"] == "FEAT-CONTEXT-001"
+    assert feature_vcycle["scope"] == {"kind": "feat", "ref": "feat:FEAT-CONTEXT-001"}
+    assert feature_vcycle["vcycle"]["anchor"] == "feat:FEAT-CONTEXT-001"
+    assert sr_vcycle["vcycle"]["anchor"] == "sr:SR-001"
+
+    with pytest.raises(ScopeKindError):
+        feature_context(tmp_path, "feat:FEAT-CONTEXT-001")
+    with pytest.raises(ScopeKindError):
+        query_feature_context(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    with pytest.raises(ScopeKindError):
+        query_vcycle(tmp_path, SystemScopeRef(kind="task", ref="task:T-001"))
+    with pytest.raises(ScopeNotFoundError):
+        query_feature_context(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-UNKNOWN"))
+    with pytest.raises(ScopeNotFoundError):
+        query_vcycle(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-UNKNOWN"))
+
+
+def test_feature_context_recent_changes_is_empty_without_git_history(tmp_path):
+    _feature_repo(tmp_path)
+
+    result = feature_context(tmp_path, "FEAT-CONTEXT-001")
+
+    assert result["implementation_files"] == ["src/connected.py"]
+    assert result["recent_changes"] == []
+
+
+def test_feature_context_never_treats_missing_validation_as_a_pass(tmp_path):
+    _feature_repo(tmp_path)
+    (tmp_path / "validation" / "validation-report.json").unlink()
+
+    result = feature_context(tmp_path, "FEAT-CONTEXT-001")
+
+    assert result["verification"] == [
+        {"id": "SR-001", "state": "never_validated", "stale": False},
+        {"id": "SR-002", "state": "never_validated", "stale": False},
+    ]

@@ -1389,3 +1389,32 @@ def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
     from factory.system import guide as _guide
 
     return _guide.query_guide(repo_root, scope)
+
+
+def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the trace-backed dossier for one exact ``feat:`` scope."""
+    if scope.kind != "feat":
+        raise ScopeKindError(f"query_feature_context only supports a feat scope, got: {scope.kind!r}")
+    feature_id = _scope_identifier(scope)
+    from factory.system.feature import feature_context
+
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "dossier": feature_context(repo_root, feature_id),
+    }
+
+
+def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the typed V-cycle slice for one exact ``feat:`` or ``sr:`` scope."""
+    if scope.kind not in {"feat", "sr"}:
+        raise ScopeKindError(f"query_vcycle only supports feat or sr scopes, got: {scope.kind!r}")
+    _scope_identifier(scope)
+    from factory.system.vcycle import vcycle_slice
+
+    try:
+        slice_ = vcycle_slice(repo_root, scope.ref)
+    except ValueError as exc:
+        if str(exc) == f"vcycle anchor does not resolve: {scope.ref!r}":
+            raise ScopeNotFoundError(f"{scope.kind} not found: {_scope_identifier(scope)!r}") from exc
+        raise
+    return {"scope": {"kind": scope.kind, "ref": scope.ref}, "vcycle": to_dict(slice_)}
