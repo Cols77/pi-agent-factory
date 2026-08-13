@@ -74,7 +74,7 @@ def test_loads_diagram_stub_with_declared_id_and_title(tmp_path):
     _write(
         tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",
         "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
-        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.mmd\n---\n",
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.html\n---\n",
     )
 
     nodes = {node.id: node for node in load_nodes(tmp_path)}

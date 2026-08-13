@@ -1149,21 +1149,21 @@ def test_list_scopes_includes_diagram_stubs(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
-        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.mmd\n---\n",
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.html\n---\n",
         encoding="utf-8",
     )
 
     assert SystemScopeRef(kind="diag", ref="diag:DIAG-NAV-001") in list_scopes(tmp_path)
 
 
-def test_query_diagram_resolves_declared_path_relative_to_the_stub(tmp_path):
+def test_query_diagram_resolves_relative_html_path_without_optional_focus(tmp_path):
     stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
-    diagram = stub.parent / "assets" / "overview.mmd"
+    diagram = stub.parent / "assets" / "overview.html"
     diagram.parent.mkdir(parents=True)
-    diagram.write_text("flowchart LR\n", encoding="utf-8")
+    diagram.write_text("<html></html>\n", encoding="utf-8")
     stub.write_text(
         "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
-        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: assets/overview.mmd\n---\n",
+        "illustrates: FEAT-NAV-017\ndiagram_file: assets/overview.html\n---\n",
         encoding="utf-8",
     )
 
@@ -1180,10 +1180,10 @@ def test_query_diagram_reports_a_missing_declared_path_without_discarding_the_st
     stub.parent.mkdir(parents=True, exist_ok=True)
     stub.write_text(
         "---\nid: DIAG-NAV-002\nkind: diag\ntitle: Missing asset\n"
-        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: assets/missing.mmd\n---\n",
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: assets/missing.html\n---\n",
         encoding="utf-8",
     )
-    missing = stub.parent / "assets" / "missing.mmd"
+    missing = stub.parent / "assets" / "missing.html"
 
     result = query_diagram(tmp_path, "DIAG-NAV-002")
 

@@ -36,14 +36,14 @@ ARTIFACT_SCHEMA_CASES = [
     (
         "diag",
         "^DIAG-[A-Z0-9-]+$",
-        ["id", "kind", "title", "focus", "illustrates", "diagram_file"],
+        ["id", "kind", "title", "illustrates", "diagram_file"],
         {
             "id": "DIAG-NAV-001",
             "kind": "diag",
             "title": "Navigator overview",
             "focus": "Traceability",
             "illustrates": "FEAT-NAV-017",
-            "diagram_file": "overview.mmd",
+            "diagram_file": "DIAG-NAV-003.html",
         },
     ),
 ]
@@ -61,6 +61,7 @@ INVALID_ARTIFACT_DOCUMENT_CASES = [
     ("goal", "non-string target", {"target": 0.9}),
     ("diag", "bad diagram id", {"id": "FEAT-NAV-001"}),
     ("diag", "wrong kind", {"kind": "feat"}),
+    ("diag", "non-HTML diagram file", {"diagram_file": "diagram.mmd"}),
     ("diag", "unknown property", {"unknown": True}),
     ("feat", "unknown property", {"unknown": True}),
     ("metric", "unknown property", {"unknown": True}),
@@ -100,14 +101,20 @@ def test_diag_schema_requires_kind():
     assert validate(document, schema_path)
 
 
-def test_diag_schema_accepts_canonical_list_frontmatter():
+def test_diag_schema_accepts_an_omitted_optional_focus():
+    document = {key: value for key, value in ARTIFACT_DOCUMENTS["diag"].items() if key != "focus"}
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
+
+
+def test_diag_schema_accepts_canonical_list_frontmatter_with_html_artifact():
     document = {
         "id": "DIAG-NAV-001",
         "kind": "diag",
         "title": "Navigator overview",
         "focus": ["NAV-REQ-021"],
         "illustrates": ["FEAT-NAV-017"],
-        "diagram_file": "overview.html",
+        "diagram_file": "DIAG-NAV-003.html",
     }
 
     assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
