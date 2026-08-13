@@ -29,6 +29,7 @@ import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { registerFactoryInit } from "./factory-init-command.js";
+import { registerSessionMemory } from "./session-memory-command.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -490,6 +491,9 @@ export default function factoryWatch(pi: PiApi): void {
   // The deterministic project bootstrap: /factory-init, /factory-doctor, and the
   // subagent tool with its prompt metadata.
   registerFactoryInit(pi);
+  // The volatile session-continuity layer: /remember, session_shutdown prune,
+  // and before_agent_start rollup injection.
+  registerSessionMemory(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 

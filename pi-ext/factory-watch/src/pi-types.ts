@@ -97,6 +97,12 @@ export interface BeforeAgentStartEventResult {
   systemPrompt?: string;
 }
 
+export interface SessionShutdownEvent {
+  type: "session_shutdown";
+  reason: string;
+  targetSessionFile?: string;
+}
+
 export interface PiApi {
   registerCommand(name: string, def: CommandDef): void;
   // Imported rather than hand-declared, for the same reason as TUI/Theme above:
@@ -114,5 +120,9 @@ export interface PiApi {
   on(
     event: "before_agent_start",
     handler: (event: BeforeAgentStartEvent, ctx: EventCtx) => BeforeAgentStartEventResult | void,
+  ): void;
+  on(
+    event: "session_shutdown",
+    handler: (event: SessionShutdownEvent, ctx: EventCtx) => void,
   ): void;
 }
