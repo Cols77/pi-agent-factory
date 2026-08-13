@@ -217,6 +217,8 @@ def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_firs
         "src/connected.py",
         *[f"src/evidenced-{number}.py" for number in range(1, 7)],
         "src/evidenced-6-extra.py",
+        "src/offset-early.py",
+        "src/offset-late.py",
     ]
     for path in evidenced_paths[1:]:
         _write(tmp_path / path, "VERSION = 0\n")
@@ -248,6 +250,20 @@ def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_firs
         "2026-01-02T00:00:06+00:00",
         ["src/evidenced-6.py", "src/evidenced-6-extra.py"],
     )
+    _write(tmp_path / "src" / "offset-early.py", "OFFSET = 'early'\n")
+    _commit(
+        tmp_path,
+        "offset early",
+        "2026-01-03T00:00:00+10:00",
+        ["src/offset-early.py"],
+    )
+    _write(tmp_path / "src" / "offset-late.py", "OFFSET = 'late'\n")
+    _commit(
+        tmp_path,
+        "offset late",
+        "2026-01-02T20:00:00+00:00",
+        ["src/offset-late.py"],
+    )
     _write(tmp_path / "src" / "unrelated.py", "VALUE = 3\n")
     _commit(
         tmp_path,
@@ -260,11 +276,11 @@ def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_firs
 
     assert len(changes) == 5
     assert [change["subject"] for change in changes] == [
+        "offset late",
+        "offset early",
         "evidenced change 6",
         "evidenced change 5",
         "evidenced change 4",
-        "evidenced change 3",
-        "evidenced change 2",
     ]
     assert len({change["commit"] for change in changes}) == len(changes)
     assert {change["path"] for change in changes}.isdisjoint({"src/unrelated.py"})

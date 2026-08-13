@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.system.models import SystemScopeRef
@@ -151,7 +152,9 @@ def _recent_changes(root: Path, implementation_files: list[str], limit: int = 5)
     return sorted(
         changes_by_commit.values(),
         key=lambda change: (
-            change["authored_at"],
+            datetime.fromisoformat(change["authored_at"].replace("Z", "+00:00")).astimezone(
+                timezone.utc
+            ),
             change["commit"],
             change["subject"],
             change["path"],
