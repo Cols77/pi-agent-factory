@@ -183,6 +183,7 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
     if (
         declared_path.is_absolute()
         or PureWindowsPath(diagram.diagram_file).is_absolute()
+        or bool(PureWindowsPath(diagram.diagram_file).root)
         or PurePosixPath(diagram.diagram_file).is_absolute()
     ):
         return {

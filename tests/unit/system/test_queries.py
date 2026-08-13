@@ -1231,3 +1231,20 @@ def test_query_diagram_rejects_a_posix_rooted_declared_path(tmp_path):
         "diagram_path": None,
         "errors": ["absolute diagram file is not allowed: /outside.html"],
     }
+
+
+def test_query_diagram_rejects_a_windows_rooted_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-005.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-005\nkind: diag\ntitle: Windows-rooted asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: \\outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-005") == {
+        "id": "DIAG-NAV-005",
+        "title": "Windows-rooted asset",
+        "diagram_path": None,
+        "errors": ["absolute diagram file is not allowed: \\outside.html"],
+    }
