@@ -20,7 +20,7 @@ export const CONTEXT_SCHEMA = 1;
 export const CONTEXT_STEM = "session-context.json";
 export const DEFAULT_CONFIG_DIR = ".pi";
 
-export type FeedName = "memory" | "head" | "trace_health";
+export type FeedName = "memory" | "head" | "trace_health" | "ledger";
 
 export interface SessionContext {
   schema: number;
@@ -32,13 +32,13 @@ export interface SessionContext {
 
 export const DEFAULT_CONTEXT: SessionContext = {
   schema: CONTEXT_SCHEMA,
-  enabledFeeds: ["memory", "head"],
+  enabledFeeds: ["memory", "head", "ledger"],
   memory: { ...MEMORY_DEFAULTS },
   head: { maxCommits: 5 },
   updated_at: "",
 };
 
-export const ALL_FEEDS: FeedName[] = ["memory", "head", "trace_health"];
+export const ALL_FEEDS: FeedName[] = ["memory", "head", "ledger", "trace_health"];
 
 export function contextPath(root: string, configDir = DEFAULT_CONFIG_DIR): string {
   return join(root, configDir, "factory", CONTEXT_STEM);

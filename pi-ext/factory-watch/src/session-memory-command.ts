@@ -51,6 +51,7 @@ function formatContextReport(ctx: SessionContext): string[] {
   const lines = [`factory-context on (feeds: ${ctx.enabledFeeds.join(", ") || "(none)"})`];
   lines.push(`  memory:  ${ctx.enabledFeeds.includes("memory") ? "ON" : "off"} (ttl ${ctx.memory.ttlHours}h, max ${ctx.memory.maxEntries} notes, ${ctx.memory.maxTokens} tok rollup)`);
   lines.push(`  head:    ${ctx.enabledFeeds.includes("head") ? "ON" : "off"} (last ${ctx.head.maxCommits} commits)`);
+  lines.push(`  ledger:  ${ctx.enabledFeeds.includes("ledger") ? "ON" : "off"} (task statuses, first 6 active)`);
   lines.push(`  trace_health (opt-in, slowest): ${ctx.enabledFeeds.includes("trace_health") ? "ON" : "off"}`);
   lines.push(`  available: ${ALL_FEEDS.join(", ")}`);
   lines.push(`  updated: ${ctx.updated_at ?? "(never)"}`);

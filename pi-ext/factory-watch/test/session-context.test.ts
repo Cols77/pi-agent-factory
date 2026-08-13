@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { DEFAULT_CONTEXT, readContext, setFeed, writeContext } from "../src/session-policy.js";
-import { composeContext, headFeed } from "../src/session-feeds.js";
+import { composeContext, headFeed, ledgerFeed } from "../src/session-feeds.js";
 import { addNote, emptyMemory, memoryPath, writeMemory } from "../src/session-memory.js";
 
 const dirs: string[] = [];
@@ -37,7 +37,7 @@ describe("session-policy", () => {
   test("absent policy returns the deterministic default", () => {
     const c = readContext(makeDir());
     expect(c.schema).toBe(1);
-    expect(c.enabledFeeds).toEqual(["memory", "head"]);
+    expect(c.enabledFeeds).toEqual(["memory", "head", "ledger"]);
     expect(c.memory.ttlHours).toBe(24);
   });
 
@@ -46,13 +46,13 @@ describe("session-policy", () => {
     const c = setFeed(readContext(root), "head", false);
     writeContext(root, c);
     const back = readContext(root);
-    expect(back.enabledFeeds).toEqual(["memory"]);
+    expect(back.enabledFeeds).toEqual(["memory", "ledger"]);
   });
 
   test("setFeed toggles deterministically and preserves when unchanged", () => {
     const c = readContext(makeDir());
     const off = setFeed(c, "head", false);
-    expect(off.enabledFeeds).toEqual(["memory"]);
+    expect(off.enabledFeeds).toEqual(["memory", "ledger"]);
     // flipping again to the same state returns the same object (no-op)
     expect(setFeed(off, "head", false)).toBe(off);
   });
@@ -74,11 +74,34 @@ describe("session-feeds", () => {
   });
 
   test("composeContext assembles only enabled feeds and skips empty ones", () => {
-    const root = makeDir(); // non-git, no memory store, no factory markers
-    const all = composeContext(root, ["memory", "head", "trace_health"], DEFAULT_CONTEXT.memory, 5, "2026-08-14T10:00:00.000Z");
-    // no feed produces content (trace_health guard skips an unmarked repo) => no injection
+    const root = makeDir(); // non-git, no memory store, no factory markers, no tasks
+    const all = composeContext(root, ["memory", "head", "trace_health", "ledger"], DEFAULT_CONTEXT.memory, 5, "2026-08-14T10:00:00.000Z");
+    // no feed produces content (trace_health/ledger guards skip unmarked repo) => no injection
     expect(all.markdown).toBeNull();
-    expect(all.skipped.sort()).toEqual(["head", "memory", "trace_health"]);
+    expect(all.skipped.sort()).toEqual(["head", "ledger", "memory", "trace_health"]);
+  });
+
+  test("ledgerFeed returns null when there is no tasks dir", () => {
+    expect(ledgerFeed(makeDir(), "2026-08-14T10:00:00.000Z", 6)).toBeNull();
+  });
+
+  test("ledgerFeed groups task statuses and lists active tasks", () => {
+    const root = makeDir();
+    mkdirSync(join(root, "tasks"), { recursive: true });
+    writeFileSync(
+      join(root, "tasks", "T-042.md"),
+      '---\nid: T-042\ntitle: "validation next"\nstatus: todo\ndod:\n- x\n---\nbody\n',
+      "utf-8");
+    writeFileSync(
+      join(root, "tasks", "T-041.md"),
+      '---\nid: T-041\ntitle: "hooks wired"\nstatus: done\ndod:\n- x\n---\nbody\n',
+      "utf-8");
+    const block = ledgerFeed(root, "2026-08-14T10:00:00.000Z", 6);
+    expect(block).not.toBeNull();
+    expect(block).toContain("done: 1");
+    expect(block).toContain("todo: 1");
+    expect(block).toContain("T-042");
+    expect(block).not.toContain("T-041"); // done tasks are counts-only, not listed
   });
 
   test("composeContext includes a memory note when present and head is off", () => {

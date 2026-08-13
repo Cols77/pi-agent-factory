@@ -7,10 +7,11 @@
 // stall it — an error means "skip this feed this turn", never an exception.
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildMemoryRollup, readMemory, type MemoryConfig } from "./session-memory.js";
 import { runTraceCheck } from "./trace-cli.js";
+import { parseTaskFrontmatter } from "./task-header.js";
 
 /** git branch + HEAD + last N one-line commits. Deterministic and quick. */
 export function headFeed(root: string, maxCommits: number, now: string): string | null {
@@ -43,6 +44,53 @@ export function memoryFeed(root: string, cfg: MemoryConfig, now: string): string
 }
 
 const FACTORY_MARKERS = [".factory/factory.yaml", "requirements"];
+
+/**
+ * ledger feed: current task statuses, read directly from tasks/T-*.md (cheap,
+ * no subprocess). Lists the active (non-done) tasks with counts across statuses.
+ */
+export function ledgerFeed(root: string, now: string, maxTasks: number): string | null {
+  const tasksDir = join(root, "tasks");
+  if (!existsSync(tasksDir)) return null;
+  let names: string[];
+  try {
+    names = readdirSync(tasksDir);
+  } catch {
+    return null;
+  }
+  const rows: { id: string; title: string; status: string }[] = [];
+  const counts: Record<string, number> = {};
+  for (const name of names) {
+    if (!name.endsWith(".md") || !name.startsWith("T-")) continue;
+    let content: string;
+    try {
+      content = readFileSync(join(tasksDir, name), "utf-8");
+    } catch {
+      continue;
+    }
+    const parsed = parseTaskFrontmatter(content);
+    if (!parsed) continue;
+    counts[parsed.status] = (counts[parsed.status] ?? 0) + 1;
+    if (parsed.status !== "done") {
+      rows.push({ id: parsed.id, title: parsed.title, status: parsed.status });
+    }
+  }
+  if (rows.length === 0 && Object.keys(counts).length === 0) return null;
+  const summary = Object.keys(counts)
+    .sort()
+    .map((s) => `${s}: ${counts[s]}`)
+    .join(" · ");
+  const active = rows
+    .slice(0, maxTasks)
+    .map((r) => `  - ${r.id} (${r.status}) ${r.title}`)
+    .join("\n");
+  return [
+    `# Task ledger (as of ${now.slice(0, 16).replace("T", " ")})`,
+    summary || "(no tasks)",
+    active ? `${rows.length > maxTasks ? `active (${rows.length}, first ${maxTasks}):` : `active:`}\n${active}` : "no active tasks",
+    "(detail via /factory-tasks or /factory-run)",
+  ].join("\n");
+}
 
 /**
  * trace_health feed: open traceability gap counts (opt-in; the slowest feed).
@@ -91,6 +139,7 @@ export function composeContext(
     if (feed === "head") block = headFeed(root, maxCommits, now);
     else if (feed === "memory") block = memoryFeed(root, memoryCfg, now);
     else if (feed === "trace_health") block = traceHealthFeed(root, now);
+    else if (feed === "ledger") block = ledgerFeed(root, now, 6);
     if (block) {
       parts.push(block);
       included.push(feed);

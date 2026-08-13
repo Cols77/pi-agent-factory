@@ -55,7 +55,7 @@
 
 ### Task 4 — Policy + feeds (landed)
 - [x] `session-policy.ts`: `SessionContext` (schema 1), `readContext`/`writeContext` in `.pi/factory/session-context.json`, `setFeed` (pure), `ALL_FEEDS=["memory","head"]`, defaults.
-- [x] `session-feeds.ts`: `headFeed` (git branch/short HEAD/last N one-line commits, skip-on-error), `memoryFeed` (reuses store rollup), `traceHealthFeed` (opt-in, guarded so it never spawns the Python CLI on a non-factory repo), `composeContext` (assemble only enabled feeds, bounded, return included/skipped).
+- [x] `session-feeds.ts`: `headFeed` (git branch/short HEAD/last N one-line commits, skip-on-error), `memoryFeed` (reuses store rollup), `ledgerFeed` (task-status counts + active tasks, direct fs), `traceHealthFeed` (opt-in, guarded so it never spawns the Python CLI on a non-factory repo), `composeContext` (assemble only enabled feeds, bounded, return included/skipped).
 - [x] Wire policy into `session-memory-command.ts`: `before_agent_start` composes enabled feeds; `session_shutdown` prunes with policy caps; `/remember` respects memory-on/off; new `/factory-context` command (report + interactive feed toggle + non-interactive `on`/off).
 - [x] `test/session-context.test.ts`: policy default/round-trip/toggle, headFeed null-on-non-git and content-on-git, composeContext include/skip gating.
 - [x] **DoD:** `tsc --noEmit` clean; full `npm test` green (62 files / 729).
