@@ -131,8 +131,11 @@ def _recent_changes(root: Path, implementation_files: list[str], limit: int = 5)
     changes_by_commit: dict[str, dict] = {}
     for path in paths:
         try:
+            # A global top-N commit must be among the newest N commits for any
+            # evidenced path it touched; otherwise that path alone has N newer
+            # commits, which excludes it from the global top N.
             completed = subprocess.run(
-                ["git", "log", "--format=%H%x00%aI%x00%s", "--", path],
+                ["git", "log", "-n", str(limit), "--format=%H%x00%aI%x00%s", "--", path],
                 cwd=root,
                 capture_output=True,
                 text=True,

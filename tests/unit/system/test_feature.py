@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from factory.system.feature import feature_context
+from factory.system.feature import _recent_changes, feature_context
 from factory.system.models import SystemScopeRef
 from factory.system.queries import (
     ScopeKindError,
@@ -197,6 +197,22 @@ def test_feature_context_recent_changes_is_empty_without_git_history(tmp_path):
 
     assert result["implementation_files"] == ["src/connected.py"]
     assert result["recent_changes"] == []
+
+
+def test_recent_changes_bounds_each_evidenced_path_history(tmp_path, monkeypatch):
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="")
+
+    monkeypatch.setattr("factory.system.feature.subprocess.run", run)
+
+    assert _recent_changes(tmp_path, ["src/second.py", "src/first.py"], limit=3) == []
+    assert calls == [
+        ["git", "log", "-n", "3", "--format=%H%x00%aI%x00%s", "--", "src/first.py"],
+        ["git", "log", "-n", "3", "--format=%H%x00%aI%x00%s", "--", "src/second.py"],
+    ]
 
 
 def test_feature_context_never_treats_missing_validation_as_a_pass(tmp_path):
