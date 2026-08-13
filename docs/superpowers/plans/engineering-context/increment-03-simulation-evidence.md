@@ -22,7 +22,12 @@ metrics feed goal evaluation (Inc 2) and requirement status (Inc 2 Task 7).
 **Available requirement evidence today:** the product already exposes a measured
 state-machine slice for this chain — SR-066 + SR-067/068/071/076/080/081/082 bound to
 `sim-testbench` (`unit_pass_rate`, `assert "== 1.0"`) through the evolved harness's pytest
-trial source, plus SR-001/066 frame-trace and SR-086/087/088/101 planner contracts. Inc 3's
+trial source, plus SR-001/066 frame-trace and SR-086/087/088/101 planner contracts. A later,
+additive batch also bound the observation/relevance/belief family (SR-040/041/042/043/044/045/
+047/048) and the mission-trigger + event-store families (SR-032/036/092/135/164/166/167/174) the
+same way, taking the measured set to **29 bound requirements** (each `value 1.0, passed true`,
+`trials == declared`) with real per-SR tests driving `RelevanceGate`, `legacy_adapter`,
+`TriggerManager`, `MissionManager`, and `JsonlEventStore`. Inc 3's
 seed-run work can lift these concrete requirement-level measurements as the
 `requirement → ... → evidence` input for the run chain and Inc 7's goal-aware status.
 
