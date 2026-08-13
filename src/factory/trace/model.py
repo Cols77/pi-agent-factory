@@ -7,7 +7,19 @@ from typing import Literal
 
 import frontmatter
 
-NodeKind = Literal["br", "sr", "spec", "plan", "task"]
+NodeKind = Literal[
+    "br",
+    "sr",
+    "spec",
+    "plan",
+    "task",
+    "adr",
+    "feat",
+    "metric",
+    "goal",
+    "run",
+    "diag",
+]
 
 _HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
@@ -89,6 +101,12 @@ def load_nodes(root: Path) -> list[Node]:
         nodes.append(_id_node(path, "sr"))
     for path in _glob(root, "requirements", pattern="BR-*.md"):
         nodes.append(_id_node(path, "br"))
+    for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
+        nodes.append(_id_node(path, "feat"))
+    for path in _glob(root, "metrics", pattern="MET-*.md"):
+        nodes.append(_id_node(path, "metric"))
+    for path in _glob(root, "goals", pattern="GOAL-*.md"):
+        nodes.append(_id_node(path, "goal"))
     for path in _glob(root, "tasks", pattern="T-*.md"):
         nodes.append(_id_node(path, "task"))
     for path in _glob(root, "docs", "superpowers", "plans", pattern="*.md"):

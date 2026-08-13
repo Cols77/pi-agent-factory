@@ -39,6 +39,36 @@ def test_loads_sr_task_plan_and_spec_nodes(tmp_path):
     assert nodes["spec:s1.md"].title == "Sim Design"
 
 
+def test_loads_feature_metric_and_goal_nodes_with_declared_ids_and_titles(tmp_path):
+    _write(
+        tmp_path / "docs" / "features" / "FEAT-NAV-017.md",
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\nstatus: implemented\n---\n# FEAT\n",
+    )
+    _write(
+        tmp_path / "metrics" / "MET-NAV-004.md",
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n# MET\n",
+    )
+    _write(
+        tmp_path / "goals" / "GOAL-NAV-003.md",
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n# GOAL\n",
+    )
+
+    nodes = {node.id: node for node in load_nodes(tmp_path)}
+
+    assert (nodes["FEAT-NAV-017"].kind, nodes["FEAT-NAV-017"].title) == (
+        "feat",
+        "Target Reacquisition",
+    )
+    assert (nodes["MET-NAV-004"].kind, nodes["MET-NAV-004"].title) == (
+        "metric",
+        "reacquisition_rate",
+    )
+    assert (nodes["GOAL-NAV-003"].kind, nodes["GOAL-NAV-003"].title) == (
+        "goal",
+        "reacquire >= 90%",
+    )
+
+
 def test_malformed_task_degrades_to_filename_instead_of_raising(tmp_path):
     _write(tmp_path / "tasks" / "T-099-broken.md", "---\nnot: valid: yaml: at all\n")
 

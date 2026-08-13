@@ -98,7 +98,7 @@ example wired to the real drone scenarios.
 `goals/GOAL-*.md`. Runs (`evidence/runs/RUN-*`) are loaded as nodes
 in Inc 3 (needs manifest parsing), so this task only reserves the literal.
 
-- [ ] **Step 1: Write failing tests** in `tests/unit/trace/test_model_nodes.py` (the existing
+- [x] **Step 1: Write failing tests** in `tests/unit/trace/test_model_nodes.py` (the existing
 v1 trace-node test module):
 
 ```python
@@ -120,9 +120,9 @@ def test_feature_and_metric_and_goal_kinds_are_loaded(tmp_path):
     assert {"feat", "metric", "goal"} <= kinds
 ```
 
-- [ ] **Step 2: Run tests, expect fail** (`NodeKind` doesn't accept `feat` type-check at
+- [x] **Step 2: Run tests, expect fail** (`NodeKind` doesn't accept `feat` type-check at
   runtime but `load_nodes` returns nothing for those globs — assert the missing kinds).
-- [ ] **Step 3: Implement.** Extend the literal and add globs:
+- [x] **Step 3: Implement.** Extend the literal and add globs:
 
 ```python
 NodeKind = Literal["br","sr","spec","plan","task","adr","feat","metric","goal","run","diag"]
@@ -138,7 +138,9 @@ NodeKind = Literal["br","sr","spec","plan","task","adr","feat","metric","goal","
 ```
 
 - [ ] **Step 4:** run `uv run python -m pytest -q && uv run python -m ruff check .`.
-- [ ] **Step 5:** commit `feat(trace): add feat/metric/goal node kinds` (design stays `adr:`, SP-A).
+  Focused verification completed: `tests/unit/trace/test_model_nodes.py` (9 passed) and
+  Ruff; the full suite exceeded the environment command limit and remains a final gate.
+- [x] **Step 5:** commit `feat(trace): add feat/metric/goal node kinds` (design stays `adr:`, SP-A).
 
 ## Task 1b: Adapt SCC ADR records into trace-graph nodes
 
