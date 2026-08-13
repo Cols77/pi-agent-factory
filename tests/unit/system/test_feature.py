@@ -27,8 +27,19 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-def _commit(root: Path, subject: str, timestamp: str, paths: list[str]) -> None:
-    env = {**os.environ, "GIT_AUTHOR_DATE": timestamp, "GIT_COMMITTER_DATE": timestamp}
+def _commit(
+    root: Path,
+    subject: str,
+    author_timestamp: str,
+    paths: list[str],
+    *,
+    committer_timestamp: str | None = None,
+) -> None:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": author_timestamp,
+        "GIT_COMMITTER_DATE": committer_timestamp or author_timestamp,
+    }
     subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", subject], cwd=root, env=env, check=True)
 
@@ -210,8 +221,74 @@ def test_recent_changes_bounds_each_evidenced_path_history(tmp_path, monkeypatch
 
     assert _recent_changes(tmp_path, ["src/second.py", "src/first.py"], limit=3) == []
     assert calls == [
-        ["git", "log", "-n", "3", "--format=%H%x00%aI%x00%s", "--", "src/first.py"],
-        ["git", "log", "-n", "3", "--format=%H%x00%aI%x00%s", "--", "src/second.py"],
+        [
+            "git",
+            "log",
+            "--author-date-order",
+            "-n",
+            "3",
+            "--format=%H%x00%aI%x00%s",
+            "--",
+            "src/first.py",
+        ],
+        [
+            "git",
+            "log",
+            "--author-date-order",
+            "-n",
+            "3",
+            "--format=%H%x00%aI%x00%s",
+            "--",
+            "src/second.py",
+        ],
+    ]
+
+
+def test_recent_changes_uses_author_date_order_for_divergent_commit_dates(tmp_path, monkeypatch):
+    _write(tmp_path / "src" / "evidenced.py", "VERSION = 0\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+    _commit(tmp_path, "base", "2026-01-01T00:00:00+00:00", ["."])
+    _write(tmp_path / "src" / "evidenced.py", "VERSION = 1\n")
+    _commit(
+        tmp_path,
+        "author newest",
+        "2026-01-03T00:00:00+00:00",
+        ["src/evidenced.py"],
+        committer_timestamp="2026-01-01T01:00:00+00:00",
+    )
+    _write(tmp_path / "src" / "unrelated.py", "VALUE = 1\n")
+    _commit(
+        tmp_path,
+        "later committer",
+        "2026-01-02T00:00:00+00:00",
+        ["src/unrelated.py"],
+        committer_timestamp="2026-01-04T00:00:00+00:00",
+    )
+    actual_run = subprocess.run
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **kwargs):
+        calls.append(command)
+        return actual_run(command, **kwargs)
+
+    monkeypatch.setattr("factory.system.feature.subprocess.run", run)
+
+    changes = _recent_changes(tmp_path, ["src/evidenced.py"], limit=1)
+
+    assert [change["subject"] for change in changes] == ["author newest"]
+    assert calls == [
+        [
+            "git",
+            "log",
+            "--author-date-order",
+            "-n",
+            "1",
+            "--format=%H%x00%aI%x00%s",
+            "--",
+            "src/evidenced.py",
+        ]
     ]
 
 
