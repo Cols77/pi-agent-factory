@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from factory.trace.graph import Graph, build_graph
+from factory.trace.model import Edge
 from factory.system.vcycle import vcycle_slice
 
 pytestmark = pytest.mark.unit
@@ -304,3 +306,53 @@ def test_verification_bands_follow_subsystem_and_architecture_roles(tmp_path):
     nodes = _nodes_by_band(result)
     assert nodes["SIMULATION_VERIFICATION"] == ["T-SUBSYSTEM"]
     assert nodes["INTEGRATION_VERIFICATION"] == ["T-ARCHITECTURE"]
+
+
+def test_plan_verification_reached_from_a_scoped_requirement_is_unit_evidence(
+    tmp_path, monkeypatch
+):
+    _write(
+        tmp_path / "requirements" / "SR-001.md",
+        "---\n"
+        "id: SR-001\n"
+        "title: Scoped requirement\n"
+        "statement: s\n"
+        "domain: behavior\n"
+        "---\n",
+    )
+    _write(
+        tmp_path / "tasks" / "T-IMPLEMENT.md",
+        "---\n"
+        "id: T-IMPLEMENT\n"
+        "title: Implement the plan\n"
+        "status: done\n"
+        "dod: []\n"
+        "source_plan: docs/superpowers/plans/detail.md\n"
+        "satisfies: [SR-001]\n"
+        "---\n",
+    )
+    _write(tmp_path / "docs" / "superpowers" / "plans" / "detail.md", "# Detail\n")
+    _write(
+        tmp_path / "tasks" / "T-PLAN-VERIFY.md",
+        "---\n"
+        "id: T-PLAN-VERIFY\n"
+        "title: Verify detailed plan\n"
+        "status: done\n"
+        "dod: []\n"
+        "---\n",
+    )
+    graph = build_graph(tmp_path)
+    graph = Graph(
+        nodes=graph.nodes,
+        edges=[*graph.edges, Edge("plan:detail.md", "T-PLAN-VERIFY", "verified_by")],
+        gaps=graph.gaps,
+        validation=graph.validation,
+        health=graph.health,
+    )
+    monkeypatch.setattr("factory.system.vcycle.build_graph", lambda _root: graph)
+
+    result = vcycle_slice(tmp_path, "sr:SR-001")
+
+    nodes = _nodes_by_band(result)
+    assert nodes["DETAILED_DESIGN"] == ["T-IMPLEMENT", "plan:detail.md"]
+    assert nodes["UNIT_VERIFICATION"] == ["T-PLAN-VERIFY"]

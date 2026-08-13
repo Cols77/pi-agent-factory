@@ -175,10 +175,10 @@ def _verification_band(
     source_id: str,
     architecture_ids: set[str],
     subsystem_ids: set[str],
-    task_ids: set[str],
+    unit_source_ids: set[str],
 ) -> str:
     """Place evidence by the recorded scope role it verifies, never by a guessed type."""
-    if source_id in task_ids:
+    if source_id in unit_source_ids:
         return "UNIT_VERIFICATION"
     if source_id in architecture_ids:
         return "INTEGRATION_VERIFICATION"
@@ -191,16 +191,18 @@ def _verification_bands(
     graph: Graph,
     requirement_ids: set[str],
     scope_ids: set[str],
-    task_ids: set[str],
+    detailed_design_ids: set[str],
     architecture_ids: set[str],
     subsystem_ids: set[str],
     nodes: dict[str, Node],
 ) -> tuple[dict[str, set[str]], set[str], set[str]]:
     bands = _empty_bands(_VERIFICATION_LABELS)
     for edge in _edges(graph, "verified_by"):
-        if edge.src in (scope_ids | task_ids | architecture_ids) and edge.dst in nodes:
+        if edge.src in (scope_ids | detailed_design_ids | architecture_ids) and edge.dst in nodes:
             bands[
-                _verification_band(edge.src, architecture_ids, subsystem_ids, task_ids)
+                _verification_band(
+                    edge.src, architecture_ids, subsystem_ids, detailed_design_ids
+                )
             ].add(edge.dst)
 
     goals: set[str] = set()
@@ -240,7 +242,7 @@ def _slice(graph: Graph, anchor_ref: str) -> VCycleSlice:
         graph,
         requirement_ids,
         scope_ids,
-        task_ids,
+        definition["DETAILED_DESIGN"],
         definition["ARCHITECTURE_DESIGN"],
         definition["SUBSYSTEM_REQUIREMENTS"],
         nodes,
