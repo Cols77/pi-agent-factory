@@ -636,7 +636,7 @@ test("landing shows the health summary with a verbatim small denominator", async
 **Files:** `pi-ext/factory-watch/src/system-bootstrap.ts`,
 `pi-ext/factory-watch/test/system-landing.test.ts`
 
-- [ ] **Step 1: Failing tests** —
+- [x] **Step 1: Failing tests** —
   - bundles group under Weak/Medium/
 Strong in payload order; Weak expanded, others collapsed but count-bearing;
   - the readiness label never renders alone (always beside its counts);
@@ -684,8 +684,8 @@ test("search resolves a bare artifact ref", async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**.
-- [ ] **Step 3: Implement** — in `system-bootstrap.ts`:
+- [x] **Step 2: Run to verify they fail**.
+- [x] **Step 3: Implement** — in `system-bootstrap.ts`:
   - render the sidebar from `payload.bundles`, grouping by `readiness` in the order the
     payload gives (Weak, then Medium, then Strong — the payload is already ordered by
     recency within group); never `.sort()` client-side;
@@ -696,8 +696,8 @@ test("search resolves a bare artifact ref", async () => {
     bare ref (`SR-137` → `sr:SR-137`) posts the exact ref to the docs-server scope
     endpoint to open it. Normalise a typed ref exactly as today's resolver does
     (prepend the right kind prefix for a bare id); do not do fuzzy matching.
-- [ ] **Step 4:** vitest + full suite + lint.
-- [ ] **Step 5:** Commit `feat(system): feature-first sidebar with readiness and search`.
+- [x] **Step 4:** vitest + full suite + lint.
+- [x] **Step 5:** Commit `feat(system): feature-first sidebar with readiness and search`.
 
 ---
 
