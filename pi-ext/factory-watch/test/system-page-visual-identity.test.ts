@@ -92,6 +92,28 @@ function loadDom(fetchMock: ReturnType<typeof vi.fn>): JSDOM {
 afterEach(() => vi.restoreAllMocks());
 
 describe("system navigator landing and focus modes", () => {
+  it("aborts a stalled health scan and exposes an actionable retry", async () => {
+    vi.useFakeTimers();
+    let healthSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname !== "/api/system/health") return scopeResponse(url.pathname);
+      healthSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        healthSignal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(healthSignal?.aborted).toBe(true);
+    expect(doc.querySelector("#healthStatus")?.textContent).toContain("taking longer than expected");
+    expect((doc.querySelector("#retryHealth") as HTMLButtonElement).hidden).toBe(false);
+    expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false");
+    vi.useRealTimers();
+  });
+
   it("renders honest zero metrics and an actionable feature directory", async () => {
     const fetchMock = vi.fn((input: string | URL) => {
       const url = new URL(String(input), "http://localhost/");

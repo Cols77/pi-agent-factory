@@ -65,6 +65,8 @@ export async function systemBootstrap(): Promise<void> {
   let traceLoaded = false;
   let traceData: any = null;
   let healthBundles: any[] = [];
+  let healthController: AbortController | null = null;
+  const HEALTH_TIMEOUT_MS = 15_000;
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
   let currentScope: string | null = null;
@@ -697,10 +699,18 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   async function loadHealth(): Promise<void> {
+    healthController?.abort();
+    const controller = new AbortController();
+    healthController = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, HEALTH_TIMEOUT_MS);
     content.setAttribute('aria-busy', 'true');
     setHealthStatus('Reading project evidence…', false);
     try {
-      const res = await fetch('/api/system/health');
+      const res = await fetch('/api/system/health', { signal: controller.signal });
       if (!res.ok) {
         throw new Error(String(res.status));
       }
@@ -713,10 +723,20 @@ export async function systemBootstrap(): Promise<void> {
       showLanding();
     } catch (err) {
       showLanding();
-      setHealthStatus(
-        'Project evidence is unavailable. The navigator is still running; retry the health scan.',
-        true
-      );
+      if (timedOut) {
+        setHealthStatus(
+          'Project evidence is taking longer than expected. The scan was stopped; retry when ready.',
+          true
+        );
+      } else {
+        setHealthStatus(
+          'Project evidence is unavailable. The navigator is still running; retry the health scan.',
+          true
+        );
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (healthController === controller) healthController = null;
     }
   }
 
