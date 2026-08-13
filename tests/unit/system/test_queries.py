@@ -123,6 +123,49 @@ def test_query_brief_raises_for_nonexistent_sr(tmp_path):
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-999"))
 
 
+def test_bundle_brief_resolves_feature_metric_and_goal_members_in_declared_order(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    write_bundle(
+        tmp_path / "bundles",
+        "navigator",
+        "Navigator",
+        ["feat:FEAT-NAV-017", "metric:MET-NAV-004", "goal:GOAL-NAV-003"],
+    )
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:navigator"))
+
+    member_claims = result["claims"][1:]
+    assert [claim["text"] for claim in member_claims] == [
+        "feat:FEAT-NAV-017",
+        "metric:MET-NAV-004",
+        "goal:GOAL-NAV-003",
+    ]
+    assert [claim["citations"][0]["path"] for claim in member_claims] == [
+        str(feature),
+        str(metric),
+        str(goal),
+    ]
+    assert all(claim["citations"][0]["kind"] == "trace" for claim in member_claims)
+    assert result["degraded"] is False
+
+
 def test_query_brief_does_not_fuzzy_match_sr_id(tmp_path):
     # "SR-1" must not resolve to "SR-001" -- exact refs only.
     write_sr(tmp_path / "requirements", "SR-001")

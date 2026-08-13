@@ -73,6 +73,7 @@ _SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric",
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
+_TRACE_MEMBER_KINDS = ("feat", "metric", "goal")
 
 
 class ScopeError(Exception):
@@ -288,6 +289,31 @@ def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identi
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
         text=_member_label(repo_root, path, member.ref),
+        freshness=_fresh(),
+        citations=[citation],
+    )
+    return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
+
+
+def _resolve_trace_member(
+    member: SystemScopeRef, identifier: str, nodes: list[trace_model.Node]
+) -> _MemberResolution:
+    """Resolve an id-based trace member through the existing trace-node loader."""
+    node = next(
+        (node for node in nodes if node.kind == member.kind and node.id == identifier),
+        None,
+    )
+    if node is None:
+        claim = _missing(member.ref, "bundle member does not exist in repo")
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+    citation = SystemCitation(
+        kind=CitationKind.TRACE,
+        path=str(node.path),
+        sha256=_sha256_file(node.path),
+    )
+    claim = SystemClaim(
+        kind=ClaimClass.RECORDED,
+        text=member.ref,
         freshness=_fresh(),
         citations=[citation],
     )
@@ -810,6 +836,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         report_corrupt = _validation_report_is_corrupt(repo_root)
         statuses = _load_validation_statuses(repo_root, report_corrupt)
         report_citation = _validation_report_citation(repo_root)
+        trace_nodes: list[trace_model.Node] | None = None
 
         unresolved_member_count = 0
         unreadable_summary_count = 0
@@ -829,6 +856,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 resolution = _resolve_sr_member(
                     repo_root, member, identifier, reqs, statuses, report_citation, report_corrupt
                 )
+            elif member.kind in _TRACE_MEMBER_KINDS:
+                if trace_nodes is None:
+                    trace_nodes = trace_model.load_nodes(repo_root)
+                resolution = _resolve_trace_member(member, identifier, trace_nodes)
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)
