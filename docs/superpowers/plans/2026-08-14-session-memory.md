@@ -57,6 +57,8 @@
 - [x] `session-policy.ts`: `SessionContext` (schema 1), `readContext`/`writeContext` in `.pi/factory/session-context.json`, `setFeed` (pure), `ALL_FEEDS=["memory","head"]`, defaults.
 - [x] `session-feeds.ts`: `headFeed` (git branch/short HEAD/last N one-line commits, skip-on-error), `memoryFeed` (reuses store rollup), `ledgerFeed` (task-status counts + active tasks, direct fs), `traceHealthFeed` (opt-in, guarded so it never spawns the Python CLI on a non-factory repo), `composeContext` (assemble only enabled feeds, bounded, return included/skipped).
 - [x] Wire policy into `session-memory-command.ts`: `before_agent_start` composes enabled feeds; `session_shutdown` prunes with policy caps; `/remember` respects memory-on/off; new `/factory-context` command (report + interactive feed toggle + non-interactive `on`/off).
+- [x] **Feed seeding at `/factory-init`**: on the plain init path with no `session-context.json` yet, `/factory-init` presents the same feed multi-select once and writes the first policy via `seedContext`/`hasContext` (in `session-policy.ts`) + `seedContextFeeds` (in `factory-init-command.ts`); non-interactive runs write the default `memory`/`head`/`ledger`.
+- [x] **Redefine the stream set in `/factory-context`**: add `setFeeds` (pure) in `session-policy.ts` and rework `/factory-context` to support `/factory-context set <f...>` / `all` / `none` / `<feed>` toggle / interactive multi-select (flip each then `done`), replacing the old confirm-then-report flow.
 - [x] `test/session-context.test.ts`: policy default/round-trip/toggle, headFeed null-on-non-git and content-on-git, composeContext include/skip gating.
 - [x] **DoD:** `tsc --noEmit` clean; full `npm test` green (62 files / 729).
 

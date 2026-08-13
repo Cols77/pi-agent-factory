@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { DEFAULT_CONTEXT, readContext, setFeed, writeContext } from "../src/session-policy.js";
+import { DEFAULT_CONTEXT, hasContext, readContext, seedContext, setFeed, setFeeds, writeContext } from "../src/session-policy.js";
 import { composeContext, headFeed, ledgerFeed } from "../src/session-feeds.js";
 import { addNote, emptyMemory, memoryPath, writeMemory } from "../src/session-memory.js";
 
@@ -55,6 +55,36 @@ describe("session-policy", () => {
     expect(off.enabledFeeds).toEqual(["memory", "ledger"]);
     // flipping again to the same state returns the same object (no-op)
     expect(setFeed(off, "head", false)).toBe(off);
+  });
+
+  test("seedContext writes exactly the picked feeds at defaults", () => {
+    const s = seedContext(["head", "ledger"]);
+    expect(s.schema).toBe(1);
+    expect(s.enabledFeeds).toEqual(["head", "ledger"]);
+    expect(s.memory.ttlHours).toBe(24); // defaults preserved
+  });
+
+  test("seedContext filters unknown feeds", () => {
+    const s = seedContext(["head", "bogus" as never]);
+    expect(s.enabledFeeds).toEqual(["head"]);
+  });
+
+  test("hasContext reflects whether the policy file exists", () => {
+    const root = makeDir();
+    expect(hasContext(root)).toBe(false);
+    writeContext(root, seedContext(["memory"]));
+    expect(hasContext(root)).toBe(true);
+  });
+
+  test("setFeeds replaces the exact stream set and preserves other settings", () => {
+    const root = makeDir();
+    writeContext(root, seedContext(["memory", "head", "ledger"]));
+    const c = readContext(root);
+    const next = setFeeds(c, ["head", "ledger", "trace_health"]);
+    expect(next.enabledFeeds).toEqual(["head", "ledger", "trace_health"]);
+    expect(next.memory.ttlHours).toBe(24); // untouched
+    expect(setFeeds(c, []).enabledFeeds).toEqual([]); // none
+    expect(setFeeds(c, ["head", "bogus" as never]).enabledFeeds).toEqual(["head"]); // filter
   });
 });
 

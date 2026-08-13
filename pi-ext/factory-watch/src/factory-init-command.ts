@@ -18,6 +18,14 @@ import {
   type InitResult,
 } from "./factory-init.js";
 import { subagentTool } from "./subagent-tool.js";
+import {
+  ALL_FEEDS,
+  hasContext,
+  readContext,
+  seedContext,
+  writeContext,
+  type FeedName,
+} from "./session-policy.js";
 
 function parseArgs(args: string): { refresh: boolean; check: boolean } {
   const refresh = /(^|\s)--refresh(\s|$)/.test(args);
@@ -45,6 +53,34 @@ function renderBlockPreview(root: string): string {
 }
 
 // A tiny report adapter keeping command output consistent.
+
+// Pick which context feeds ("streams") deterministically inject into every
+// future session. Mirrors /factory-context interactivity and writes the very
+// first session-context.json during /factory-init bootstrap.
+async function seedContextFeeds(ctx: ExtCommandCtx, root: string): Promise<void> {
+  const cctx = readContext(root); // absent file -> deterministic defaults
+  let feeds = cctx.enabledFeeds;
+  if (ctx.hasUI) {
+    // Interactive multi-select: flip each stream, then "done".
+    for (;;) {
+      const selection = await ctx.ui.select(
+        "Bootstrap: which context streams inject into future sessions? (choose one to flip, then done)",
+        [
+          ...ALL_FEEDS.map((f) => `${f} (${feeds.includes(f) ? "ON" : "off"})`),
+          ALL_FEEDS.join(","),
+          "done",
+        ],
+      );
+      if (selection === undefined || selection === "done") break;
+      const name = selection.split(" ")[0] as FeedName;
+      feeds = feeds.includes(name) ? feeds.filter((f) => f !== name) : [...feeds, name];
+    }
+  }
+  writeContext(root, seedContext(feeds));
+  ctx.ui.notify(`factory-init: seeded session-context feeds: ${feeds.join(", ") || "(none)"}`, "info");
+  ctx.ui.notify("  later change any stream with /factory-context", "info");
+}
+
 function reportLines(result: InitResult): string[] {
   const lines = result.report.split("\n");
   return lines.length <= 24 ? lines : [...lines.slice(0, 22), `... (${lines.length - 22} more lines)`];
@@ -66,6 +102,15 @@ export function registerFactoryInit(pi: PiApi): void {
 
       const mode = check ? "check" : refresh ? "refresh" : "init";
       const result = runFactoryInit({ root, mode, configDir: DEFAULT_CONFIG_DIR });
+
+      // Seed the session-context policy (which streams inject into every future
+      // session) on the plain-init path when none exists yet. Kept entirely in
+      // session-context.json so /factory-init --refresh (which regenerates
+      // project-profile.json) never wipes it. Interactive pick via ctrl-t;
+      // non-interactive falls back to the deterministic default feed set.
+      if (mode === "init" && !hasContext(root)) {
+        await seedContextFeeds(ctx, root);
+      }
 
       if (mode === "check") {
         for (const line of reportLines(result)) ctx.ui.notify(line, "info");

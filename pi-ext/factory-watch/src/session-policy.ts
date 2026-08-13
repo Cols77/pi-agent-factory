@@ -46,6 +46,25 @@ export function contextPath(root: string, configDir = DEFAULT_CONFIG_DIR): strin
   return join(root, configDir, "factory", CONTEXT_STEM);
 }
 
+/** Whether a session-context policy file has been seeded yet. */
+export function hasContext(root: string, configDir = DEFAULT_CONFIG_DIR): boolean {
+  return existsSync(contextPath(root, configDir));
+}
+
+/**
+ * A seed policy with exactly *feeds* enabled, everything else at defaults.
+ * Used by /factory-init to write the very first session-context.json during
+ * bootstrap (the human picks which streams inject into future sessions).
+ */
+export function seedContext(feeds: FeedName[]): SessionContext {
+  const valid = feeds.filter((f): f is FeedName => ALL_FEEDS.includes(f as FeedName));
+  return {
+    ...DEFAULT_CONTEXT,
+    memory: { ...DEFAULT_CONTEXT.memory },
+    enabledFeeds: valid,
+  };
+}
+
 /** Read the policy; return the deterministic default when absent/malformed. */
 export function readContext(root: string, configDir = DEFAULT_CONFIG_DIR): SessionContext {
   const p = contextPath(root, configDir);
@@ -88,4 +107,15 @@ export function setFeed(ctx: SessionContext, feed: FeedName, enabled: boolean): 
     ? [...ctx.enabledFeeds, feed]
     : ctx.enabledFeeds.filter((f) => f !== feed);
   return { ...ctx, enabledFeeds };
+}
+
+/**
+ * Replace the enabled feed set with exactly *feeds* (preserving every other
+ * setting). Unknown names are filtered. This is the "redefine the streams"
+ * primitive behind /factory-context set|all|none -- a single-pass set, not a
+ * one-at-a-time toggle.
+ */
+export function setFeeds(ctx: SessionContext, feeds: FeedName[]): SessionContext {
+  const valid = feeds.filter((f): f is FeedName => ALL_FEEDS.includes(f as FeedName));
+  return { ...ctx, enabledFeeds: valid };
 }

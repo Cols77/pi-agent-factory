@@ -32,6 +32,7 @@ import {
   DEFAULT_CONTEXT,
   readContext,
   setFeed,
+  setFeeds,
   writeContext,
   type FeedName,
   type SessionContext,
@@ -123,11 +124,12 @@ export function registerSessionMemory(pi: PiApi): void {
 
   pi.registerCommand("factory-context", {
     description:
-      "Show and toggle which session-context feeds inject into future sessions: /factory-context [memory|head]",
+      "Show/redefine which session-context feeds (streams) inject into future sessions: " +
+      "/factory-context  (report) | <feed> (toggle) | set <f...> | all | none",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const arg = args.trim();
+      const tokens = args.trim().split(/\s+/).filter(Boolean);
       // Read-only audit view: the last pruned entries (newest first).
-      if (/^--audit/.test(arg)) {
+      if (tokens[0] === "--audit") {
         const entries = recentAudit(readAudit(ctx.cwd), 10);
         if (entries.length === 0) {
           ctx.ui.notify("audit: no pruned entries yet", "info");
@@ -141,38 +143,68 @@ export function registerSessionMemory(pi: PiApi): void {
         }
         return;
       }
-      if (arg !== "" && (ALL_FEEDS.includes(arg as FeedName) || arg === "all")) {
-        // Non-interactive toggle: turn the named feed(s) on for all, or off via
-        // "off", determined by the current state for a single named feed.
-        const cctx = readContext(ctx.cwd);
-        if (arg === "all") {
-          const next: SessionContext = { ...cctx, enabledFeeds: [...ALL_FEEDS] };
-          writeContext(ctx.cwd, next);
-          ctx.ui.notify(`factory-context: all feeds enabled (${ALL_FEEDS.join(", ")})`, "info");
-        } else {
-          const feedName = arg as FeedName;
-          const on = !cctx.enabledFeeds.includes(feedName);
-          writeContext(ctx.cwd, setFeed(cctx, feedName, on));
-          ctx.ui.notify(`factory-context: ${feedName} feed ${on ? "ON" : "off"}`, "info");
-        }
-        return;
-      }
-      // Interactive: toggle any subset of feeds via a multi-select.
       const cctx = readContext(ctx.cwd);
-      if (ctx.hasUI) {
-        const selection = await ctx.ui.select("Toggle context feeds (choose one to flip)", [
-          ...ALL_FEEDS.map((f) => `${f} (${cctx.enabledFeeds.includes(f) ? "ON" : "off"})`),
-          ALL_FEEDS.join(","),
-          "done",
-        ]);
-        if (selection === undefined || selection === "done") {
-          for (const l of formatContextReport(readContext(ctx.cwd))) ctx.ui.notify(l, "info");
+      if (tokens.length > 0) {
+        const first = tokens[0];
+        // Redefine the exact stream set (the "pick what injects" path).
+        if (first === "set") {
+          const feeds = tokens.slice(1) as FeedName[];
+          writeContext(ctx.cwd, setFeeds(cctx, feeds));
+          ctx.ui.notify(`factory-context set: streams → ${feeds.join(", ") || "(none)"}`, "info");
           return;
         }
-        const name = selection.split(" ")[0] as FeedName;
-        const on = !cctx.enabledFeeds.includes(name);
-        writeContext(ctx.cwd, setFeed(cctx, name, on));
-        ctx.ui.notify(`factory-context: ${name} feed ${on ? "ON" : "off"}`, "info");
+        if (first === "none" || first === "off") {
+          writeContext(ctx.cwd, setFeeds(cctx, []));
+          ctx.ui.notify("factory-context: all streams off (nothing injected)", "info");
+          return;
+        }
+        if (first === "all" || first === "on") {
+          writeContext(ctx.cwd, setFeeds(cctx, ALL_FEEDS));
+          ctx.ui.notify(`factory-context: all streams on (${ALL_FEEDS.join(", ")})`, "info");
+          return;
+        }
+        // Backwards-compatible single-feed toggle.
+        if (ALL_FEEDS.includes(first as FeedName)) {
+          const on = !cctx.enabledFeeds.includes(first as FeedName);
+          writeContext(ctx.cwd, setFeed(cctx, first as FeedName, on));
+          ctx.ui.notify(`factory-context: ${first} stream ${on ? "ON" : "off"}`, "info");
+          return;
+        }
+        ctx.ui.notify(
+          `usage: /factory-context [set <f...> | all | none | <feed> | --audit]  (feeds: ${ALL_FEEDS.join(", ")})`,
+          "error",
+        );
+        return;
+      }
+      // Interactive: multi-select to redefine the whole stream set.
+      if (ctx.hasUI) {
+        let feeds = cctx.enabledFeeds;
+        for (;;) {
+          const selection = await ctx.ui.select(
+            "Redefine context streams (flip each, then done)",
+            [
+              ...ALL_FEEDS.map((f) => `${f} (${feeds.includes(f) ? "ON" : "off"})`),
+              ALL_FEEDS.join(","),
+              "none",
+              "done",
+            ],
+          );
+          if (selection === undefined || selection === "done") break;
+          if (selection === "none") {
+            feeds = [];
+            ctx.ui.notify("factory-context: all streams off (choose again or done)", "info");
+            continue;
+          }
+          if (selection === ALL_FEEDS.join(",")) {
+            feeds = [...ALL_FEEDS];
+            ctx.ui.notify("factory-context: all streams on (choose again or done)", "info");
+            continue;
+          }
+          const name = selection.split(" ")[0] as FeedName;
+          feeds = feeds.includes(name) ? feeds.filter((f) => f !== name) : [...feeds, name];
+        }
+        writeContext(ctx.cwd, setFeeds(cctx, feeds));
+        ctx.ui.notify(`factory-context: streams → ${feeds.join(", ") || "(none)"}`, "info");
         return;
       }
       for (const l of formatContextReport(cctx)) ctx.ui.notify(l, "info");

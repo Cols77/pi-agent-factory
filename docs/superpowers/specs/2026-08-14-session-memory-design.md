@@ -100,6 +100,10 @@ The spec originally proposed the policy live in `project-profile.json`. **Deviat
 
 The hook **must stay deterministic, fast and non-interactive** — interactivity lives in `/factory-context` (show policy, toggle feeds via `select`), which writes the policy the hook reads. Omitted feeds mean "not injected — query on demand". `/remember` warns when the `memory` feed is off.
 
+**First-bootstrap seeding (added):** on the plain `/factory-init` (init) path, when no `session-context.json` exists yet, `/factory-init` offers the same feed multi-select once and writes the very first policy (`seedContext`). This is the "pick the streams I want deterministically injected on a new session" on-ramp. Non-interactive runs write the deterministic default feed set (`memory`/`head`/`ledger`); `/factory-context` remains the ongoing way to change feeds, and `/factory-init --refresh` never touches `session-context.json`.
+
+**Redefine the set (added):** `/factory-context` now supports defining the exact stream set in one pass, not just one-at-a-time toggling: `/factory-context set <f...>` (replace with exactly these), `all`, `none`, plus backwards-compatible `<feed>` toggle and the interactive multi-select (flip each, then `done`). `setFeeds` is the pure primitive that replaces the enabled set while preserving memory/head/audit settings.
+
 ## 9. Audit trail (append-only, capped) — LANDED
 
 Pruning is correct for the inject path but loses replayability. A capped, **append-only** audit (`.pi/factory/session-memory-audit.json`) records every pruned entry with `pruned_at` and a reason — `expired` (TTL), `superseded` (same-topic rewrite), or `capped` (count/budget drop) — so "why did the store stop telling me about X?" is answerable. It is **never injected** (a human/analyst record, not session context) and is **capped** to `audit.maxEntries` (default 200), dropping the oldest prunes. View the last 10 with `/factory-context --audit`.
