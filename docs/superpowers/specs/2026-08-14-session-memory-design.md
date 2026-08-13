@@ -100,16 +100,20 @@ The spec originally proposed the policy live in `project-profile.json`. **Deviat
 
 The hook **must stay deterministic, fast and non-interactive** — interactivity lives in `/factory-context` (show policy, toggle feeds via `select`), which writes the policy the hook reads. Omitted feeds mean "not injected — query on demand". `/remember` warns when the `memory` feed is off.
 
-## 9. Open design decision
+## 9. Audit trail (append-only, capped) — LANDED
 
-Whether `session_shutdown` **deletes** pruned entries outright, or keeps a capped append-only audit file while pruning only the *injectable* view. Recommendation: prune the injectable view; treat a compact audit trail as optional and out of the inject path. Prototype deletes (simplest); revisit if replayability is wanted.
+Pruning is correct for the inject path but loses replayability. A capped, **append-only** audit (`.pi/factory/session-memory-audit.json`) records every pruned entry with `pruned_at` and a reason — `expired` (TTL), `superseded` (same-topic rewrite), or `capped` (count/budget drop) — so "why did the store stop telling me about X?" is answerable. It is **never injected** (a human/analyst record, not session context) and is **capped** to `audit.maxEntries` (default 200), dropping the oldest prunes. View the last 10 with `/factory-context --audit`.
 
-## 10. Risks
+## 10. Open design decision — RESOLVED
+
+The earlier "delete vs. capped audit" question is resolved in favor of **both**: prune the injectable view, keep a capped append-only audit for replayability.
+
+## 11. Risks
 
 - **Double-log on mid-session replacement** (`reload`/`new`/`fork` also fire `session_shutdown`). Mitigation: notes are written only explicitly (`/remember`), and the shutdown hook only *prunes*; a no-op prune produces no duplicate. An automatic per-session summary (future) must dedupe by `actor`+topic.
 - **Stale-injection harm** — mitigated by as-of-dating + "verify first" framing + TTL/supersede/cap.
 - **API drift** — new hooks guarded by the existing `type-compat-check.ts` pin (minimal `PiApi` ⊇ assigned to real `ExtensionFactory`).
 
-## 11. Prototype evidence
+## 12. Prototype evidence
 
 Landed and green: `session-memory.ts` (pure store), `session-policy.ts` (policy), `session-feeds.ts` (memory + head feeds + composer), `session-memory-command.ts` (wiring: `/remember`, `/factory-context`, `session_shutdown` prune, `before_agent_start` inject), `pi-types.ts` extended with `session_shutdown`, wired from `index.ts`. Full extension suite: **62 files / 729 tests pass**, `tsc --noEmit` clean. Demonstrated: supersede retires the older `task:T-042` note; expired notes never reach a new session's rollup; rollup is bounded and as-of-dated; `head` feed renders branch/HEAD/commits and skips non-git roots; policy gates which feeds inject.

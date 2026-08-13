@@ -20,6 +20,14 @@ import {
   writeMemory,
 } from "./session-memory.js";
 import {
+  appendAudit,
+  readAudit,
+  recentAudit,
+  removedNotes,
+  writeAudit,
+  type AuditReason,
+} from "./session-audit.js";
+import {
   ALL_FEEDS,
   DEFAULT_CONTEXT,
   readContext,
@@ -44,7 +52,17 @@ function parseRemember(args: string): { ttlHours?: number; text: string } {
 function pruneStore(root: string, cfg: SessionContext): void {
   const now = new Date().toISOString();
   const file = readMemory(root);
-  writeMemory(root, enforceCap(pruneExpired(file, now), cfg.memory.maxEntries));
+  const pruned = enforceCap(pruneExpired(file, now), cfg.memory.maxEntries);
+  writeMemory(root, pruned);
+  // Audit: record what was removed (expired by TTL, else dropped by cap).
+  const removed = removedNotes(file.entries, pruned.entries);
+  if (removed.length === 0) return;
+  const at = Date.parse(now);
+  const notes = removed.map((note) => ({
+    note,
+    reason: (Date.parse(note.expires) <= at ? "expired" : "capped") as AuditReason,
+  }));
+  writeAudit(root, appendAudit(readAudit(root), notes, now, cfg.audit.maxEntries));
 }
 
 function formatContextReport(ctx: SessionContext): string[] {
@@ -53,6 +71,7 @@ function formatContextReport(ctx: SessionContext): string[] {
   lines.push(`  head:    ${ctx.enabledFeeds.includes("head") ? "ON" : "off"} (last ${ctx.head.maxCommits} commits)`);
   lines.push(`  ledger:  ${ctx.enabledFeeds.includes("ledger") ? "ON" : "off"} (task statuses, first 6 active)`);
   lines.push(`  trace_health (opt-in, slowest): ${ctx.enabledFeeds.includes("trace_health") ? "ON" : "off"}`);
+  lines.push(`  audit: cap ${ctx.audit.maxEntries} (append-only; see /factory-context --audit)`);
   lines.push(`  available: ${ALL_FEEDS.join(", ")}`);
   lines.push(`  updated: ${ctx.updated_at ?? "(never)"}`);
   return lines;
@@ -80,6 +99,18 @@ export function registerSessionMemory(pi: PiApi): void {
       const file = readMemory(ctx.cwd);
       const next = addNote(file, { topic, text: note, actor: "manual", ttlHours }, cctx.memory, now);
       writeMemory(ctx.cwd, next);
+      // Audit: the note about to be written may supersede a live one (and the
+      // compose step may have capped/expired others) — record what was removed.
+      const removed = removedNotes(file.entries, next.entries);
+      if (removed.length > 0) {
+        const wrote = next.entries[next.entries.length - 1];
+        const supId = wrote?.supersedes ?? null;
+        const notes = removed.map((n) => ({
+          note: n,
+          reason: (n.id === supId ? "superseded" : "capped") as AuditReason,
+        }));
+        writeAudit(ctx.cwd, appendAudit(readAudit(ctx.cwd), notes, now, cctx.audit.maxEntries));
+      }
       const written = next.entries[next.entries.length - 1];
       ctx.ui.notify(
         written
@@ -95,6 +126,21 @@ export function registerSessionMemory(pi: PiApi): void {
       "Show and toggle which session-context feeds inject into future sessions: /factory-context [memory|head]",
     handler: async (args: string, ctx: ExtCommandCtx) => {
       const arg = args.trim();
+      // Read-only audit view: the last pruned entries (newest first).
+      if (/^--audit/.test(arg)) {
+        const entries = recentAudit(readAudit(ctx.cwd), 10);
+        if (entries.length === 0) {
+          ctx.ui.notify("audit: no pruned entries yet", "info");
+          return;
+        }
+        for (const e of entries) {
+          ctx.ui.notify(
+            `[${e.pruned_at.slice(0, 16).replace("T", " ")}] ${e.reason}: ${e.topic} (${e.actor}) ${e.text}`,
+            "info",
+          );
+        }
+        return;
+      }
       if (arg !== "" && (ALL_FEEDS.includes(arg as FeedName) || arg === "all")) {
         // Non-interactive toggle: turn the named feed(s) on for all, or off via
         // "off", determined by the current state for a single named feed.

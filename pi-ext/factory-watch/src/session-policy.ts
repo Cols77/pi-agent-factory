@@ -27,6 +27,7 @@ export interface SessionContext {
   enabledFeeds: FeedName[];
   memory: MemoryConfig;
   head: { maxCommits: number };
+  audit: { maxEntries: number };
   updated_at: string;
 }
 
@@ -35,6 +36,7 @@ export const DEFAULT_CONTEXT: SessionContext = {
   enabledFeeds: ["memory", "head", "ledger"],
   memory: { ...MEMORY_DEFAULTS },
   head: { maxCommits: 5 },
+  audit: { maxEntries: 200 },
   updated_at: "",
 };
 
@@ -61,6 +63,7 @@ export function readContext(root: string, configDir = DEFAULT_CONFIG_DIR): Sessi
       enabledFeeds: feeds,
       memory: { ...DEFAULT_CONTEXT.memory, ...(raw.memory ?? {}) },
       head: { maxCommits: raw.head?.maxCommits ?? DEFAULT_CONTEXT.head.maxCommits },
+      audit: { maxEntries: raw.audit?.maxEntries ?? DEFAULT_CONTEXT.audit.maxEntries },
       updated_at: raw.updated_at ?? new Date().toISOString(),
     };
   } catch {

@@ -60,7 +60,13 @@
 - [x] `test/session-context.test.ts`: policy default/round-trip/toggle, headFeed null-on-non-git and content-on-git, composeContext include/skip gating.
 - [x] **DoD:** `tsc --noEmit` clean; full `npm test` green (62 files / 729).
 
+### Task 5 — Append-only audit trail (landed)
+- [x] `session-audit.ts`: `AuditFile` (schema 1), `readAudit`/`writeAudit` in `.pi/factory/session-memory-audit.json`, `appendAudit` (stamp `pruned_at`+reason), `capAudit` (keep newest), `removedNotes` (id-diff), `recentAudit` (newest-first view).
+- [x] `session-policy.ts`: `audit.maxEntries` (default 200).
+- [x] `session-memory-command.ts`: `/remember` audits superseded/capped removals; `session_shutdown` prune audits expired/capped removals; `/factory-context --audit` shows the last 10.
+- [x] `test/session-audit.test.ts`: round-trip, reason stamping, newest-keeping cap, id-diff, integration with the store's supersede.
+- [x] **DoD:** `tsc --noEmit` clean; full `npm test` green.
+
 ## Out of scope (follow-ups, noted in the spec)
-- Additional feeds beyond `memory`/`head` (`ledger`, `trace_health`, plan/task status) — `composeContext` is feed-agnostic; add each as a deterministic `session-feeds.ts` function plus a policy entry.
+- Additional feeds beyond `memory`/`head`/`ledger`/`trace_health` — `composeContext` is feed-agnostic; add each as a deterministic `session-feeds.ts` function plus a policy entry.
 - Auto per-session summary at shutdown (needs a summarizer + dedupe by `actor`/topic; risks transcript bloat — deliberate).
-- Optional capped append-only audit trail (vs. deleting pruned entries).
