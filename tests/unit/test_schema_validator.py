@@ -62,6 +62,9 @@ INVALID_ARTIFACT_DOCUMENT_CASES = [
     ("diag", "bad diagram id", {"id": "FEAT-NAV-001"}),
     ("diag", "wrong kind", {"kind": "feat"}),
     ("diag", "non-HTML diagram file", {"diagram_file": "diagram.mmd"}),
+    ("diag", "parent traversal diagram file", {"diagram_file": "../escape.html"}),
+    ("diag", "Windows drive diagram file", {"diagram_file": "C:escape.html"}),
+    ("diag", "dot segment diagram file", {"diagram_file": "sub/../ok.html"}),
     ("diag", "unknown property", {"unknown": True}),
     ("feat", "unknown property", {"unknown": True}),
     ("metric", "unknown property", {"unknown": True}),
@@ -116,6 +119,12 @@ def test_diag_schema_accepts_canonical_list_frontmatter_with_html_artifact():
         "illustrates": ["FEAT-NAV-017"],
         "diagram_file": "DIAG-NAV-003.html",
     }
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
+
+
+def test_diag_schema_accepts_a_canonical_nested_relative_html_artifact():
+    document = {**ARTIFACT_DOCUMENTS["diag"], "diagram_file": "assets/DIAG-NAV-003.html"}
 
     assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
 
