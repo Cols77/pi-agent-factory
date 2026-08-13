@@ -247,3 +247,60 @@ def test_goal_and_metric_evidence_only_follow_the_declared_direction(tmp_path):
     }
     assert {"GOAL-VALID", "MET-VALID"} <= verification_ids
     assert {"GOAL-REVERSE", "MET-REVERSE"}.isdisjoint(verification_ids)
+
+
+def test_verification_bands_follow_subsystem_and_architecture_roles(tmp_path):
+    _write(
+        tmp_path / "docs" / "features" / "FEAT-001.md",
+        "---\n"
+        "id: FEAT-001\n"
+        "title: Scoped feature\n"
+        "contains: [SR-001]\n"
+        "---\n",
+    )
+    _write(
+        tmp_path / "requirements" / "SR-001.md",
+        "---\n"
+        "id: SR-001\n"
+        "title: Parent requirement\n"
+        "statement: p\n"
+        "domain: behavior\n"
+        "parent_of: [SR-002]\n"
+        "---\n",
+    )
+    _write(
+        tmp_path / "requirements" / "SR-002.md",
+        "---\n"
+        "id: SR-002\n"
+        "title: Child requirement\n"
+        "statement: c\n"
+        "domain: behavior\n"
+        "verified_by: [T-SUBSYSTEM]\n"
+        "---\n",
+    )
+    _write(
+        tmp_path / "docs" / "diagrams" / "DIAG-001.md",
+        "---\n"
+        "id: DIAG-001\n"
+        "title: Architecture diagram\n"
+        "diagram_file: architecture.html\n"
+        "illustrates: [FEAT-001]\n"
+        "verified_by: [T-ARCHITECTURE]\n"
+        "---\n",
+    )
+    for task_id in ("T-SUBSYSTEM", "T-ARCHITECTURE"):
+        _write(
+            tmp_path / "tasks" / f"{task_id}.md",
+            "---\n"
+            f"id: {task_id}\n"
+            "title: Verification task\n"
+            "status: done\n"
+            "dod: []\n"
+            "---\n",
+        )
+
+    result = vcycle_slice(tmp_path, "feat:FEAT-001")
+
+    nodes = _nodes_by_band(result)
+    assert nodes["SIMULATION_VERIFICATION"] == ["T-SUBSYSTEM"]
+    assert nodes["INTEGRATION_VERIFICATION"] == ["T-ARCHITECTURE"]
