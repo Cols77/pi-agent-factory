@@ -310,6 +310,21 @@ describe("GET /system and /api/system/*", () => {
     expect((await res.json()).error).toContain("health unavailable");
   });
 
+  test("reports an async traversal CLI failure as JSON", async () => {
+    spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
+    spawn.mockImplementation((_bin: string, args: string[]) => {
+      const child = childProcess();
+      expect(args).toEqual(["run", "python", "-m", "factory.system", "traversal", "--json", "--scope", "bundle:one"]);
+      closeChild(child, "", 1, "traversal unavailable");
+      return child;
+    });
+    const server = await ensureDocsServer(repo());
+
+    const res = await fetch(`${server.url}/api/system/traversal?scope=bundle:one`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("traversal unavailable");
+  });
+
   test("serves health before a held traversal child releases", async () => {
     spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
     let heldTraversal: ReturnType<typeof childProcess> | undefined;
