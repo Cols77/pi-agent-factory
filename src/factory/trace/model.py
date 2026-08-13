@@ -203,6 +203,15 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
             post = _load_post(node.path)
             if post is None:
                 continue
+            if node.kind == "feat":
+                for requirement_id in as_str_list(post.metadata.get("requirements")):
+                    add(Edge(node.id, requirement_id, "contains"))
+            elif node.kind == "goal":
+                for requirement_id in as_str_list(post.metadata.get("requirements")):
+                    add(Edge(node.id, requirement_id, "demonstrates"))
+                metric_id = post.metadata.get("metric")
+                if isinstance(metric_id, str):
+                    add(Edge(node.id, metric_id, "evaluates"))
             for edge in edges_from_frontmatter(node.id, post.metadata):
                 add(edge)
         elif node.kind == "plan":
