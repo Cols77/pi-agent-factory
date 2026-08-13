@@ -100,6 +100,19 @@ def test_diag_schema_requires_kind():
     assert validate(document, schema_path)
 
 
+def test_diag_schema_accepts_canonical_list_frontmatter():
+    document = {
+        "id": "DIAG-NAV-001",
+        "kind": "diag",
+        "title": "Navigator overview",
+        "focus": ["NAV-REQ-021"],
+        "illustrates": ["FEAT-NAV-017"],
+        "diagram_file": "overview.html",
+    }
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
+
+
 def test_valid_manifest_passes():
     obj = {
         "task_id": "T-001",

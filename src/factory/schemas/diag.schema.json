@@ -9,8 +9,22 @@
     "id": {"type": "string", "pattern": "^DIAG-[A-Z0-9-]+$"},
     "kind": {"const": "diag"},
     "title": {"type": "string", "minLength": 1},
-    "focus": {"type": "string", "minLength": 1},
-    "illustrates": {"type": "string", "pattern": "^(FEAT|ADR)-[A-Z0-9-]+$"},
+    "focus": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      ]
+    },
+    "illustrates": {
+      "oneOf": [
+        {"type": "string", "pattern": "^(FEAT|ADR)-[A-Z0-9-]+$"},
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^(FEAT|ADR)-[A-Z0-9-]+$"}
+        }
+      ]
+    },
     "diagram_file": {"type": "string", "minLength": 1}
   }
 }

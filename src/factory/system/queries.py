@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
@@ -180,7 +180,11 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
         }
 
     declared_path = Path(diagram.diagram_file)
-    if declared_path.is_absolute():
+    if (
+        declared_path.is_absolute()
+        or PureWindowsPath(diagram.diagram_file).is_absolute()
+        or PurePosixPath(diagram.diagram_file).is_absolute()
+    ):
         return {
             "id": diagram.id,
             "title": diagram.title,
