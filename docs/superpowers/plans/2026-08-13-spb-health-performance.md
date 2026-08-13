@@ -141,18 +141,45 @@
 
   ```python
   def test_query_health_shares_one_artifact_lookup(tmp_path, monkeypatch):
+      from factory.system.coverage import Coverage
+      from factory.system.ordering import FixedRecency
+
+      _write_sr(tmp_path, "SR-001", binding=True)
+      _write_bundle(tmp_path, "b1", ["sr:SR-001"])
       seen = []
-      monkeypatch.setattr(health, "bundle_coverage", lambda root, lookup=None: seen.append(lookup) or _coverage())
-      monkeypatch.setattr(health, "ordered_bundle_ids", lambda root, source, lookup=None: (seen.append(lookup) or [], True))
-      health.query_health(tmp_path)
+      original_coverage = health.bundle_coverage
+      original_order = health.ordered_bundle_ids
+
+      def capture_coverage(root, *, lookup=None):
+          seen.append(lookup)
+          return original_coverage(root, lookup=lookup)
+
+      def capture_order(root, source, *, lookup=None):
+          seen.append(lookup)
+          return original_order(root, source, lookup=lookup)
+
+      monkeypatch.setattr(health, "bundle_coverage", capture_coverage)
+      monkeypatch.setattr(health, "ordered_bundle_ids", capture_order)
+      health.query_health(tmp_path, recency_source=FixedRecency({}))
       assert len(seen) == 2
       assert seen[0] is seen[1]
 
 
   def test_traversal_reuses_one_lookup_for_bundle_members(tmp_path, monkeypatch):
-      # Create a bundle containing two SRs, then capture each lookup supplied
-      # to bundles_containing while querying bundle traversal.
-      ...
+      write_sr(tmp_path / "requirements", "SR-001")
+      write_sr(tmp_path / "requirements", "SR-002")
+      _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+      _write_task_traversal(tmp_path, "T-002", "SR-002", "2026-08-12-P.md")
+      write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+      seen = []
+      original = queries.bundles.bundles_containing
+
+      def capture(root, ref, *, lookup=None):
+          seen.append(lookup)
+          return original(root, ref, lookup=lookup)
+
+      monkeypatch.setattr(queries.bundles, "bundles_containing", capture)
+      query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
       assert len(seen) == 2
       assert seen[0] is seen[1]
   ```
@@ -241,11 +268,18 @@
 
   ```ts
   test("serves health while traversal is still running", async () => {
-    mockAsyncSystemCli({ traversal: "held", health: HEALTH });
+    const held = deferredChildProcess();
+    spawn.mockImplementation((_bin: string, args: string[]) => {
+      if (args[4] === "traversal") return held.child;
+      if (args[4] === "health") return childThatCloses(0, JSON.stringify(HEALTH), "");
+      throw new Error(`unexpected subcommand: ${String(args[4])}`);
+    });
     const server = await ensureDocsServer(repo());
     const traversal = fetch(`${server.url}/api/system/traversal?scope=bundle:one`);
-    await expect(fetch(`${server.url}/api/system/health`)).resolves.toMatchObject({ status: 200 });
-    releaseHeldTraversal();
+    const health = await fetch(`${server.url}/api/system/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual(HEALTH);
+    held.close(0, JSON.stringify(TRAVERSAL), "");
     expect((await traversal).status).toBe(200);
   });
   ```
