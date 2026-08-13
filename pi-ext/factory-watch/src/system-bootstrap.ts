@@ -89,8 +89,21 @@ export async function systemBootstrap(): Promise<void> {
 
   function setPickerClass(focused: boolean): void {
     document.body.classList.toggle('focus', !!focused);
+    document.body.classList.remove('picker-open');
     const toggle = document.getElementById('scopeToggle');
-    if (toggle) toggle.setAttribute('aria-expanded', String(!focused));
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.textContent = 'Browse scopes';
+    }
+  }
+
+  function setPickerOpen(open: boolean): void {
+    document.body.classList.toggle('picker-open', open);
+    const toggle = document.getElementById('scopeToggle');
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.textContent = open ? 'Close scopes' : 'Browse scopes';
+    }
   }
 
   function showLanding(): void {
@@ -321,7 +334,9 @@ export async function systemBootstrap(): Promise<void> {
 
   // The toggle re-opens the collapsed list (removes body.focus).
   if (scopeToggle) {
-    scopeToggle.addEventListener('click', () => setPickerClass(false));
+    scopeToggle.addEventListener('click', () => {
+      setPickerOpen(!document.body.classList.contains('picker-open'));
+    });
   }
 
   const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];

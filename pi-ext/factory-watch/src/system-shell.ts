@@ -338,7 +338,8 @@ export function renderSystemPageHtml(): string {
     #layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 94px); }
     #picker { max-height: 42vh; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
     body.focus #picker nav, body.focus #picker h2 { display: none; }
-    body.focus #picker { max-height: none; }
+    body.focus.picker-open #picker nav, body.focus.picker-open #picker h2 { display: block; }
+    body.focus:not(.picker-open) #picker { max-height: none; }
     body.focus #scopeToggle { display: inline-flex; }
     #content { min-width: 0; padding: 18px 16px 44px; }
     #tabs { overflow-x: auto; scrollbar-width: thin; }

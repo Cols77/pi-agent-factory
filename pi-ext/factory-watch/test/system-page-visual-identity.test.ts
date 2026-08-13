@@ -27,6 +27,7 @@ describe("system navigator visual identity", () => {
   it("becomes one column on narrow viewports", () => {
     expect(html).toMatch(/@media \(max-width: 760px\)[\s\S]*#layout\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
     expect(html).toMatch(/@media \(max-width: 760px\)[\s\S]*#tabs\s*\{[^}]*overflow-x:\s*auto/);
+    expect(html).toMatch(/body\.focus\.picker-open #picker nav[\s\S]*display:\s*block/);
   });
 
   it("relates tabs and panels accessibly", () => {
@@ -196,6 +197,32 @@ describe("system navigator landing and focus modes", () => {
     expect(traversalSignal?.aborted).toBe(true);
     expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(true);
     expect(doc.querySelector("#panelBrief")?.textContent).toContain("No claims recorded");
+  });
+
+  it("keeps a truthful close control visible while the mobile scope sheet is open", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+    await vi.waitFor(() => expect(doc.body.classList.contains("focus")).toBe(true));
+
+    const toggle = doc.querySelector("#scopeToggle") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toBe("Browse scopes");
+    toggle.click();
+    expect(doc.body.classList.contains("focus")).toBe(true);
+    expect(doc.body.classList.contains("picker-open")).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Close scopes");
+    toggle.click();
+    expect(doc.body.classList.contains("picker-open")).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toBe("Browse scopes");
   });
 
   it("keeps the landing available and retries a failed health scan", async () => {
