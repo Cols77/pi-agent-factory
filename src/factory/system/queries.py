@@ -179,7 +179,16 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
             "errors": [f"diagram stub has no diagram_file: {diagram.path}"],
         }
 
-    path = diagram.path.parent / diagram.diagram_file
+    declared_path = Path(diagram.diagram_file)
+    if declared_path.is_absolute():
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"absolute diagram file is not allowed: {diagram.diagram_file}"],
+        }
+
+    path = diagram.path.parent / declared_path
     if path.is_file():
         return {
             "id": diagram.id,

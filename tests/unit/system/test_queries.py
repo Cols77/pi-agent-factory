@@ -1194,3 +1194,23 @@ def test_query_diagram_reports_a_missing_declared_path_without_discarding_the_st
         "errors": [f"missing diagram file: {missing}"],
     }
     assert "scope_errors" not in result
+
+
+def test_query_diagram_rejects_an_absolute_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-003.md"
+    absolute_diagram = tmp_path / "outside.html"
+    absolute_diagram.write_text("<svg />\n", encoding="utf-8")
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    declared_path = absolute_diagram.as_posix()
+    stub.write_text(
+        "---\nid: DIAG-NAV-003\nkind: diag\ntitle: Absolute asset\n"
+        f"focus: Traceability\nillustrates: ADR-0001\ndiagram_file: {declared_path}\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-003") == {
+        "id": "DIAG-NAV-003",
+        "title": "Absolute asset",
+        "diagram_path": None,
+        "errors": [f"absolute diagram file is not allowed: {declared_path}"],
+    }
