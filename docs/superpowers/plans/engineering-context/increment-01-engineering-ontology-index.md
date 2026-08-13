@@ -151,18 +151,18 @@ for each record returned by `factory.system.adr.load_adrs(root)`. The adapter us
 ADR parser's declared `id`, `title` and `path`; it never calls `frontmatter.load` on an
 ADR itself.
 
-- [ ] **Step 1: Write a failing test** that creates a schema-valid
+- [x] **Step 1: Write a failing test** that creates a schema-valid
   `docs/adr/ADR-0001.md`, calls `build_graph(tmp_path)`, and asserts exactly one
   `Node(id="ADR-0001", kind="adr")` with the declared title and path.
-- [ ] **Step 2: Run the focused test**, expecting no ADR node because the graph only
+- [x] **Step 2: Run the focused test**, expecting no ADR node because the graph only
   contains `load_nodes()` output.
-- [ ] **Step 3: Implement** a private `_adr_nodes(root: Path) -> list[Node]` in
+- [x] **Step 3: Implement** a private `_adr_nodes(root: Path) -> list[Node]` in
   `factory.trace.graph` using `adr_module.load_adrs(root)`, sorted by ADR id. Extend
   the node list passed to `extract_edges` with `_adr_nodes(root)`.
 - [ ] **Step 4: Run the focused trace tests** and the full suite plus Ruff; assert a
   malformed ADR remains isolated by the existing ADR loader rather than preventing
   unrelated trace nodes from loading.
-- [ ] **Step 5: Commit** `feat(trace): adapt SCC ADRs into graph nodes`.
+- [x] **Step 5: Commit** `feat(trace): adapt SCC ADRs into graph nodes`.
 
 ## Task 2: Extend `EdgeKind` and read V-cycle edges
 

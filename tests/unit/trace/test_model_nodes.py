@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from factory.trace.graph import build_graph
 from factory.trace.model import load_nodes
 
 pytestmark = pytest.mark.unit
@@ -67,6 +68,34 @@ def test_loads_feature_metric_and_goal_nodes_with_declared_ids_and_titles(tmp_pa
         "goal",
         "reacquire >= 90%",
     )
+
+
+def test_build_graph_adapts_scc_adr_records_to_trace_nodes(tmp_path):
+    path = _write(
+        tmp_path / "docs" / "adr" / "ADR-0001.md",
+        "---\nid: ADR-0001\ntitle: Use the existing ADR parser\nstatus: accepted\n---\n\n"
+        "## Decision\n\nKeep one source of truth.\n",
+    )
+
+    adr_nodes = [node for node in build_graph(tmp_path).nodes if node.id == "ADR-0001"]
+
+    assert len(adr_nodes) == 1
+    assert adr_nodes[0].kind == "adr"
+    assert adr_nodes[0].title == "Use the existing ADR parser"
+    assert adr_nodes[0].path == path
+
+
+def test_malformed_adr_does_not_block_ordinary_trace_nodes(tmp_path):
+    _write(tmp_path / "docs" / "adr" / "ADR-0009.md", "# ADR-0009: Legacy\n")
+    _write(
+        tmp_path / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: Remain available\nstatus: todo\ndod: []\n---\n",
+    )
+
+    nodes = {node.id: node for node in build_graph(tmp_path).nodes}
+
+    assert "ADR-0009" not in nodes
+    assert nodes["T-001"].kind == "task"
 
 
 def test_malformed_task_degrades_to_filename_instead_of_raising(tmp_path):
