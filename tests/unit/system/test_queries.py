@@ -1248,3 +1248,63 @@ def test_query_diagram_rejects_a_windows_rooted_declared_path(tmp_path):
         "diagram_path": None,
         "errors": ["absolute diagram file is not allowed: \\outside.html"],
     }
+
+
+def test_query_diagram_rejects_a_parent_traversal_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-006.md"
+    outside = stub.parent.parent / "outside.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-006\nkind: diag\ntitle: Traversal asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: ../outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-006") == {
+        "id": "DIAG-NAV-006",
+        "title": "Traversal asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: ../outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_symlink_that_escapes_the_stub_directory(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-007.md"
+    outside = tmp_path / "outside.html"
+    link = stub.parent / "escape.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    stub.write_text(
+        "---\nid: DIAG-NAV-007\nkind: diag\ntitle: Symlink asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: escape.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-007") == {
+        "id": "DIAG-NAV-007",
+        "title": "Symlink asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: escape.html"],
+    }
+
+
+def test_query_diagram_rejects_a_windows_drive_relative_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-008.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-008\nkind: diag\ntitle: Drive-relative asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: C:outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-008") == {
+        "id": "DIAG-NAV-008",
+        "title": "Drive-relative asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: C:outside.html"],
+    }

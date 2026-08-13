@@ -180,10 +180,11 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
         }
 
     declared_path = Path(diagram.diagram_file)
+    windows_path = PureWindowsPath(diagram.diagram_file)
     if (
         declared_path.is_absolute()
-        or PureWindowsPath(diagram.diagram_file).is_absolute()
-        or bool(PureWindowsPath(diagram.diagram_file).root)
+        or windows_path.is_absolute()
+        or bool(windows_path.root)
         or PurePosixPath(diagram.diagram_file).is_absolute()
     ):
         return {
@@ -193,7 +194,26 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
             "errors": [f"absolute diagram file is not allowed: {diagram.diagram_file}"],
         }
 
-    path = diagram.path.parent / declared_path
+    if windows_path.drive:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    directory = diagram.path.parent.resolve()
+    path = (directory / declared_path).resolve()
+    try:
+        path.relative_to(directory)
+    except ValueError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
     if path.is_file():
         return {
             "id": diagram.id,
