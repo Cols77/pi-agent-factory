@@ -70,3 +70,10 @@ PHASE 5  SCC SP-D   business-requirement tier   (last; reviews through SP-B)
   committed v2 increment is live there as soon as it lands — no reinstall step.
 - The bundle map + `adr:` (SP-A) and the `Catch me up`/Human UI (v2) all render against the
   same product repo.
+- `cool_physical_ai_project` already ships a **measured requirement slice** the v2 chain can
+  consume: 13 requirements are bound to the `sim-testbench` harness and pass
+  `validate_task_requirements` with `value 1.0, passed true`. This includes a deterministic
+  mission state-machine family — SR-066 + SR-067/068/071/076/080/081/082 — measured via the
+  evolved harness's pytest trial source (`unit_pass_rate`, `== 1.0`), plus SR-001/066
+  (frame-trace) and SR-086/087/088/101 (planner contracts). Inc 3 / Inc 7 can treat these as
+  available `requirement → ... → evidence` inputs and goal/status material.
