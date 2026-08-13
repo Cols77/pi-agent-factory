@@ -77,6 +77,16 @@ def test_dangling_references_are_counted_but_not_scored():
     assert _by_name(health)["SR satisfied"].expected == 1
 
 
+def test_dangling_vcycle_reference_is_counted_but_not_scored():
+    gaps = [Gap("FEAT-001", "dangling_reference", "contains target missing", "pending")]
+    feature = Node("FEAT-001", "feat", "Feature", Path("docs/features/FEAT-001.md"))
+
+    health = compute_health([feature], gaps)
+
+    assert health.dangling == 1
+    assert health.expected == 0
+
+
 def test_upstream_is_never_an_expected_slot():
     # A top-level SR legitimately has no parent; penalising that would be wrong.
     health = compute_health([_sr("SR-001")], [])

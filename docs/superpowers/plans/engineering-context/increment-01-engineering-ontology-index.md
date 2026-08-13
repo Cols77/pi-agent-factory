@@ -175,13 +175,13 @@ ADR itself.
 Edges are retained whether or not either endpoint resolves; unresolved new references
 report a `dangling_reference` gap on their known endpoint.
 
-- [ ] **Step 1: Failing tests** — a feature file with `contains: [NAV-REQ-021]` yields
+- [x] **Step 1: Failing tests** — a feature file with `contains: [NAV-REQ-021]` yields
   an edge `FEAT-NAV-017 → NAV-REQ-021` of kind `contains`; an unknown target remains
   in `graph.edges` and produces `Gap("FEAT-NAV-017", "dangling_reference", ... )`.
   Repeat once for a diagram's `illustrates: [FEAT-NAV-017]` relation and once for
   `child_of: [MISSING-PARENT]`, which inverse-normalizes to an edge with a missing
   source but still reports the gap on the declaring node.
-- [ ] **Step 2: Implement** a shared helper:
+- [x] **Step 2: Implement** a shared helper:
 
 ```python
 def _edge_fields(meta: dict, kind: EdgeKind, field: str) -> list[Edge]:
@@ -211,6 +211,8 @@ Wire into `extract_edges`; in `find_gaps`, add `dangling_reference` for every mi
 endpoint of a new id-reference edge, attached to the edge's known endpoint. Add it to
 the deterministic gap ordering and have `compute_health` include it in `Health.dangling`.
 - [ ] **Step 3:** full suite + lint + commit `feat(trace): model V-cycle relations`.
+  Focused verification completed: model-edge/gap/health tests (40 passed) and Ruff; the
+  full suite remains a final gate because it exceeds the environment command limit.
 
 ## Task 3: New schemas (feat / metric / goal)
 
