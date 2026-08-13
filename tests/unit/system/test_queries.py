@@ -65,6 +65,27 @@ def test_parse_scope_ref_accepts_bundle_and_sr():
     assert parse_scope_ref("sr:SR-001") == SystemScopeRef(kind="sr", ref="sr:SR-001")
 
 
+@pytest.mark.parametrize(
+    ("raw", "kind"),
+    [
+        ("feat:FEAT-NAV-017", "feat"),
+        ("metric:MET-NAV-004", "metric"),
+        ("goal:GOAL-NAV-003", "goal"),
+    ],
+)
+def test_parse_scope_ref_accepts_feature_metric_and_goal(raw, kind):
+    assert parse_scope_ref(raw) == SystemScopeRef(kind=kind, ref=raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["Feat:FEAT-NAV-017", "Metric:MET-NAV-004", "Goal:GOAL-NAV-003", "feature:FEAT-NAV-017"],
+)
+def test_parse_scope_ref_rejects_feature_metric_and_goal_aliases_and_capitalization(raw):
+    with pytest.raises(ScopeKindError):
+        parse_scope_ref(raw)
+
+
 @pytest.mark.parametrize("raw", ["spec:x.md", "nonsense", "bundle:", "sr:", ":x", ""])
 def test_parse_scope_ref_rejects_anything_else(raw):
     with pytest.raises(ScopeKindError):
@@ -810,6 +831,36 @@ def test_list_scopes_includes_srs(tmp_path):
     assert SystemScopeRef(kind="sr", ref="sr:SR-001") in scopes
     assert SystemScopeRef(kind="sr", ref="sr:SR-002") in scopes
     assert SystemScopeRef(kind="bundle", ref="bundle:b1") in scopes
+
+
+def test_list_scopes_includes_feature_metric_and_goal_trace_nodes(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    (feature.parent / "FEAT-broken.md").write_text("---\nnot: valid: yaml: at all\n", encoding="utf-8")
+
+    scopes = list_scopes(tmp_path)
+
+    assert {
+        SystemScopeRef(kind="feat", ref="feat:FEAT-NAV-017"),
+        SystemScopeRef(kind="metric", ref="metric:MET-NAV-004"),
+        SystemScopeRef(kind="goal", ref="goal:GOAL-NAV-003"),
+    }.issubset(scopes)
 
 
 def test_list_scopes_on_empty_repo_is_empty(tmp_path):

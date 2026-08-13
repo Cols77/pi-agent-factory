@@ -69,7 +69,7 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric", "goal")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
@@ -90,8 +90,8 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>`, `adr:<id>`, and
-    `diag:<id>` are
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>`, `adr:<id>`,
+    `diag:<id>`, `feat:<id>`, `metric:<id>`, and `goal:<id>` are
     legal top-level scopes. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
@@ -100,7 +100,8 @@ def parse_scope_ref(raw: str) -> SystemScopeRef:
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
             f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, "
-            f"task:<id>, file:<path>, adr:<id> or diag:<id>)"
+                f"task:<id>, file:<path>, adr:<id>, diag:<id>, feat:<id>, "
+                f"metric:<id> or goal:<id>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -1324,11 +1325,11 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles, then declared ADRs, then SRs from the requirements
-    register. A malformed bundle file degrades only itself
-    (`bundles.list_bundles` already skips it); it never aborts the rest of
-    the listing. An ADR with no declared id has no ref to be opened under and
-    is likewise skipped by `load_adrs`.
+    Declared bundles, then declared ADRs, trace-model feature/metric/goal/
+    diagram nodes, then SRs from the requirements register. A malformed
+    bundle file degrades only itself (`bundles.list_bundles` already skips
+    it); it never aborts the rest of the listing. An ADR with no declared id
+    has no ref to be opened under and is likewise skipped by `load_adrs`.
     """
     scopes: list[SystemScopeRef] = []
     for bundle in bundles.list_bundles(_bundles_dir(repo_root)):
@@ -1336,8 +1337,8 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
     for node in trace_model.load_nodes(repo_root):
-        if node.kind == "diag":
-            scopes.append(SystemScopeRef(kind="diag", ref=f"diag:{node.id}"))
+        if node.kind in ("diag", "feat", "metric", "goal"):
+            scopes.append(SystemScopeRef(kind=node.kind, ref=f"{node.kind}:{node.id}"))
     for req in register.load_register(_requirements_dir(repo_root)):
         scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes
