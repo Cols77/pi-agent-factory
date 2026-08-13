@@ -7,15 +7,23 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderSystemPageHtml } from "../src/system-page.js";
 
-const SCOPE_LIST = {
-  scopes: [
-    { kind: "bundle", ref: "bundle:evidence-lifecycle" },
-    { kind: "sr", ref: "sr:SR-001" },
-    { kind: "sr", ref: "sr:SR-002" },
-    { kind: "task", ref: "task:T-001" },
-    { kind: "file", ref: "file:src/a.py" },
+const HEALTH = {
+  // SP-B Task 7: the sidebar renders from the health payload, not list_scopes.
+  health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
+  coverage: { total: 1, bundled: 1, unbundled: [], kinds: [] },
+  bundles: [
+    {
+      id: "evidence-lifecycle",
+      label: "Evidence lifecycle",
+      readiness: "weak",
+      readiness_counts: { sr_total: 1, bound: 0, covered: 0, current: 0, deferred: 0, validated: 0 },
+      members: 1,
+    },
   ],
-  errors: [],
+  unbundled: { sr: ["sr:SR-999"] },
+  ordering_available: true,
+  sr_listed: false,
+  degraded: [],
 };
 const EMPTY = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, rows: [] };
 const EMPTY_TL = {
@@ -36,7 +44,7 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
 function mockFetch() {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
-    if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
+    if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
     if (url.pathname === "/api/system/matrix") return jsonResponse(EMPTY);
     if (url.pathname === "/api/system/timeline") return jsonResponse(EMPTY_TL);
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: EMPTY.scope, sections: [] });
@@ -63,20 +71,24 @@ afterEach(() => {
 });
 
 describe("system-page navigation", () => {
-  test("groups scopes by kind and provides a filter input", async () => {
+  test("groups bundles by readiness with counts, unbundled visible, and a filter input", async () => {
     const dom = await loadPage();
     await vi.waitFor(
-      () => expect(dom.window.document.querySelectorAll("#scopeList .scope-item").length).toBe(5),
+      () => expect(dom.window.document.querySelectorAll("#scopeList .scope-group").length).toBe(2),
       { timeout: 2000 },
     );
     const list = dom.window.document.getElementById("scopeList")!;
     expect(dom.window.document.getElementById("scopeFilter")).not.toBeNull();
-    // Refs render in payload order, each exactly equal to the raw ref.
-    expect(Array.from(list.querySelectorAll(".scope-item")).map((e) => e.textContent))
-      .toEqual(["bundle:evidence-lifecycle", "sr:SR-001", "sr:SR-002", "task:T-001", "file:src/a.py"]);
-    // Each group gets its own title in payload order.
-    expect(Array.from(list.querySelectorAll(".scope-group-title")).map((e) => e.textContent))
-      .toEqual(["bundle", "sr", "task", "file"]);
+    expect(dom.window.document.getElementById("searchGo")).not.toBeNull();
+    // The bundle sits under its readiness group with its counts beside the
+    // label, and the unbundled remainder renders at the bottom, visible.
+    const weak = list.querySelector('[data-readiness="weak"]')!;
+    expect(weak.textContent).toContain("Evidence lifecycle");
+    expect(weak.textContent).toContain("1 SR");
+    expect(list.textContent).toContain("sr:SR-999");
+    expect(Array.from(list.querySelectorAll(".scope-group")).map((g) =>
+      (g as HTMLElement).dataset.readiness ?? (g as HTMLElement).dataset.group))
+      .toEqual(["weak", "unbundled"]);
   });
 
   test("collapses the scope list into a compact bar once a scope loads", async () => {
@@ -98,10 +110,14 @@ describe("system-page navigation", () => {
   test("scope items navigate via the SPA loader and pushState, not a full reload", async () => {
     const dom = await loadPage();
     await vi.waitFor(
-      () => expect(dom.window.document.querySelectorAll("#scopeList .scope-item").length).toBe(5),
+      () => expect(dom.window.document.querySelectorAll("#scopeList .scope-item").length).toBe(2),
       { timeout: 2000 },
     );
-    const click = dom.window.document.querySelector("#scopeList .scope-item") as unknown as HTMLElement;
+    // The feature-first sidebar (Task 7) shows the one bundle plus the visible
+    // unbundled remainder as scope-items; click the bundle specifically.
+    const click = Array.from(dom.window.document.querySelectorAll("#scopeList .scope-item"))
+      .find((el) => el.textContent.includes("Evidence lifecycle")) as unknown as HTMLElement;
+    expect(click.textContent).toContain("Evidence lifecycle");
     click.click();
     await vi.waitFor(
       () => expect(dom.window.document.getElementById("content")!.hidden).toBe(false),

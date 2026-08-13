@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from factory.system.bundles import BundleIdMismatchError, list_bundle_errors, list_bundles, load_bundle
+from factory.system.bundles import (
+    BundleIdMismatchError,
+    bundles_containing,
+    list_bundle_errors,
+    list_bundles,
+    load_bundle,
+)
 from factory.system.models import ClaimClass, CitationKind, FreshnessState
 
 pytestmark = pytest.mark.unit
@@ -22,6 +28,19 @@ def _write_bundle(bundles_dir: Path, bundle_id: str, payload: dict) -> Path:
     path = bundles_dir / f"{bundle_id}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+# ---------------------------------------------------------------------------
+# bundles_containing: every bundle that declares a member ref (multi-membership)
+# ---------------------------------------------------------------------------
+
+
+def test_bundles_containing_multi_membership(tmp_path):
+    _write_bundle(tmp_path / "bundles", "a", {"id": "a", "label": "A", "members": ["sr:SR-001"]})
+    _write_bundle(tmp_path / "bundles", "b", {"id": "b", "label": "B", "members": ["sr:SR-001", "sr:SR-002"]})
+
+    assert bundles_containing(tmp_path, "sr:SR-001") == ["a", "b"]
+    assert bundles_containing(tmp_path, "sr:SR-999") == []
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +77,28 @@ def test_bundle_parses_label_and_members(tmp_path):
     assert [m.kind for m in bundle.members] == ["spec", "plan", "task", "sr"]
     assert bundle.unresolved == []
     assert bundle.degraded is False
+
+
+def test_bundles_containing_matches_on_resolved_path_for_spec_member(tmp_path):
+    spec = tmp_path / "docs" / "superpowers" / "specs" / "2026-08-07-x.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# S", encoding="utf-8")
+    _write_bundle(tmp_path / "bundles", "b1", {"id": "b1", "label": "B1", "members": [f"spec:{spec.relative_to(tmp_path).as_posix()}"]})
+
+    assert bundles_containing(tmp_path, f"spec:{spec.relative_to(tmp_path).as_posix()}") == ["b1"]
+
+
+def test_bundles_containing_matches_on_differently_spelled_equal_ref(tmp_path):
+    # T-301: exercise the `member_target` path-normalisation branch, where the
+    # declared member and the input ref spell the same file differently but
+    # resolve to the same path (e.g. a `./`-prefixed spec path).
+    spec = tmp_path / "docs" / "superpowers" / "specs" / "2026-08-07-y.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# S", encoding="utf-8")
+    declared = "spec:./docs/superpowers/specs/2026-08-07-y.md"
+    _write_bundle(tmp_path / "bundles", "b1", {"id": "b1", "label": "B1", "members": [declared]})
+    canonical = "spec:docs/superpowers/specs/2026-08-07-y.md"
+    assert bundles_containing(tmp_path, canonical) == ["b1"]
 
 
 # ---------------------------------------------------------------------------

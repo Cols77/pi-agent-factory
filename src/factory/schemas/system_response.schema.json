@@ -16,7 +16,8 @@
         "scope": {"$ref": "#/$defs/topScopeRef"},
         "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
         "degraded": {"type": "boolean"},
-        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}},
+        "member_of": {"type": "array", "items": {"type": "string"}}
       }
     },
     "matrix": {

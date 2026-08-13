@@ -23,6 +23,7 @@ from factory.system.queries import (
     query_guide,
     query_matrix,
     query_timeline,
+    query_traversal,
 )
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
@@ -35,6 +36,7 @@ from ._fixtures import (
     write_decision_artifact,
     write_non_dict_validation_report,
     write_plan,
+    write_run_manifest,
     write_spec,
     write_sr,
     write_task,
@@ -125,6 +127,42 @@ def test_sr_scope_absent_requirements_dir_is_not_found_not_error(tmp_path):
     # than raising, so this must surface as "not found", not a crash.
     with pytest.raises(ScopeNotFoundError):
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+
+# ---------------------------------------------------------------------------
+# Member-of affordance: a sr: brief lists every bundle that contains it
+# ---------------------------------------------------------------------------
+
+
+def test_brief_includes_member_bundles_for_sr_scope(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    assert brief["member_of"] == ["b1"]
+
+
+def test_brief_member_of_lists_all_containing_bundles_multimembership(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "alpha", "A", ["sr:SR-001"])
+    write_bundle(tmp_path / "bundles", "gamma", "G", ["sr:SR-001", "sr:SR-002"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Deterministic load order: alpha is written first.
+    assert brief["member_of"] == ["alpha", "gamma"]
+
+
+def test_brief_member_of_is_empty_when_sr_in_no_bundle(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-998"])
+    write_bundle(tmp_path / "bundles", "b2", "B2", ["sr:SR-999"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Present but empty: this sr is not a member of any bundle.
+    assert brief["member_of"] == []
+
+
+def test_brief_member_of_absent_for_bundle_scope(tmp_path):
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+    assert "member_of" not in brief
 
 
 # ---------------------------------------------------------------------------
@@ -792,16 +830,30 @@ def test_list_scopes_skips_one_malformed_bundle_without_aborting(tmp_path):
     assert bundle_refs == {"bundle:alpha", "bundle:beta"}
 
 
-def test_list_scopes_includes_srs(tmp_path):
+def test_list_scopes_omits_srs(tmp_path):
     write_sr(tmp_path / "requirements", "SR-001")
     write_sr(tmp_path / "requirements", "SR-002")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", [])
 
     scopes = list_scopes(tmp_path)
 
-    assert SystemScopeRef(kind="sr", ref="sr:SR-001") in scopes
-    assert SystemScopeRef(kind="sr", ref="sr:SR-002") in scopes
+    # sr: scopes leave the sidebar listing (SP-B Task 3) but bundle: remains.
+    assert SystemScopeRef(kind="sr", ref="sr:SR-001") not in scopes
+    assert SystemScopeRef(kind="sr", ref="sr:SR-002") not in scopes
     assert SystemScopeRef(kind="bundle", ref="bundle:b1") in scopes
+
+
+def test_list_scopes_omits_sr_but_parse_resolves(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-007")
+
+    scopes = list_scopes(tmp_path)
+    kinds = {s.kind for s in scopes}
+    assert "sr" not in kinds
+
+    # sr: is still a legal, resolvable top-level scope -- just not listed.
+    ref = parse_scope_ref("sr:SR-007")
+    assert ref.kind == "sr"
+    assert ref.ref == "sr:SR-007"
 
 
 def test_list_scopes_on_empty_repo_is_empty(tmp_path):
@@ -1135,3 +1187,82 @@ def test_list_scopes_includes_declared_adrs(tmp_path):
     refs = [s.ref for s in list_scopes(tmp_path)]
 
     assert "adr:ADR-0001" in refs
+
+
+# ---------------------------------------------------------------------------
+# Working traversal: requirement -> satisfying tasks -> design -> files
+# ---------------------------------------------------------------------------
+
+
+def _write_task_traversal(root, task_id, sr_id, source_plan):
+    """A task with a `satisfies` link and a `source_plan`, for the traversal."""
+    tasks_dir = root / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / f"{task_id}-traversal.md").write_text(
+        f"---\nid: {task_id}\ntitle: T\nstatus: done\ndod: []\n"
+        f"satisfies:\n- {sr_id}\nsource_plan: docs/superpowers/plans/{source_plan}\n"
+        f"---\nbody\n",
+        encoding="utf-8",
+    )
+    return task_id
+
+
+def _write_adr(root, filename, adr_id):
+    adr_dir = root / "docs" / "adr"
+    adr_dir.mkdir(parents=True, exist_ok=True)
+    (adr_dir / filename).write_text(
+        f"---\nid: {adr_id}\ntitle: T\nstatus: accepted\n---\nbody\n",
+        encoding="utf-8",
+    )
+    return adr_id
+
+
+def test_traversal_chain_requirement_and_tasks(tmp_path):
+    """The sr: anchor yields its satisfying tasks; design/files are lists."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    _write_task_traversal(tmp_path, "T-002", "SR-001", "2026-08-12-P.md")
+    trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert trav["requirement"] == "SR-001"
+    assert "T-001" in trav["tasks"]
+    assert "T-002" in trav["tasks"]
+    assert isinstance(trav["design"], list)
+    assert isinstance(trav["files"], list)
+
+
+def test_traversal_full_chain_plan_spec_design_files(tmp_path):
+    """The full chain: task -> source_plan -> spec_ref -> bundle ADR + files."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    # a plan whose body names its spec (trace spec_ref edge source)
+    plans = tmp_path / "docs" / "superpowers" / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    (plans / "2026-08-12-P.md").write_text(
+        "# Plan P\n\nSpec: docs/superpowers/specs/2026-08-12-S.md\n",
+        encoding="utf-8",
+    )
+    write_spec(tmp_path, "2026-08-12-S.md")
+    # a bundle that declares the sr and the design ADR; the ADR loader reads
+    # it from docs/adr (masked so list_scopes does not also list it).
+    _write_adr(tmp_path, "0001-spine.md", "ADR-0001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "adr:ADR-0001"])
+    # a recorded evidence manifest naming the file T-001 changed
+    write_run_manifest(tmp_path, run_id="run-001", task_id="T-001", changed_files=["src/a.py"])
+    trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert "T-001" in trav["tasks"]
+    assert "adr:ADR-0001" in trav["design"]
+    assert "src/a.py" in trav["files"]
+
+
+def test_traversal_bundle_scope_aggregates_sr_members(tmp_path):
+    """A bundle: anchor unions the traversal over its sr members."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    _write_task_traversal(tmp_path, "T-002", "SR-002", "2026-08-12-P.md")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+    trav = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+    assert "SR-001" in trav["requirement"]
+    assert "SR-002" in trav["requirement"]
+    assert "T-001" in trav["tasks"]
+    assert "T-002" in trav["tasks"]

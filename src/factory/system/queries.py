@@ -703,6 +703,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     `"degraded_reasons": list[str]` -- true, with each reason named, when any
     declared member (syntactically bad, per Task 1, or simply nonexistent,
     resolved here) failed to resolve.
+
+    `sr:` scopes additionally carry `"member_of": list[str]` -- the ids of
+    every bundle that declares the requirement as a member (multi-membership
+    is otherwise invisible; Task 8). Other scope kinds omit the key.
     """
     if scope.kind == "adr":
         return _adr_brief(repo_root, scope)
@@ -776,9 +780,13 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
         claims = _sr_brief_claims(repo_root, req)
+        # Member-of affordance (Task 8): every bundle that declares this
+        # requirement as a member, so a shared requirement reads as shared on
+        # its own page. Multi-membership stays visible, in load order.
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
             "claims": [to_dict(c) for c in claims],
+            "member_of": bundles.bundles_containing(repo_root, scope.ref),
         }
 
     raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
@@ -1240,8 +1248,10 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles, then declared ADRs, then SRs from the requirements
-    register. A malformed bundle file degrades only itself
+    Declared bundles, then declared ADRs. `sr:` scopes are deliberately not
+    listed (SP-B Task 3): requirements are reachable by search, not by
+    listing -- `parse_scope_ref` still resolves `sr:` as a legal top-level
+    scope. A malformed bundle file degrades only itself
     (`bundles.list_bundles` already skips it); it never aborts the rest of
     the listing. An ADR with no declared id has no ref to be opened under and
     is likewise skipped by `load_adrs`.
@@ -1251,8 +1261,6 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
-    for req in register.load_register(_requirements_dir(repo_root)):
-        scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes
 
 
@@ -1270,3 +1278,115 @@ def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
     from factory.system import guide as _guide
 
     return _guide.query_guide(repo_root, scope)
+
+
+def _traversal_for_sr(
+    repo_root: Path, sr_id: str, edges: list, evidence_dir: Path
+) -> tuple[list[str], list[str], list[str]]:
+    """One `sr:` chain from the real trace graph (Task 9, working traversal).
+
+    Walks the same `factory.trace.model.extract_edges` edges `build_graph`
+    already loads -- never a second parser:
+
+    - `tasks`: `satisfies`-in edges whose `dst` is this SR (edges carry the
+      bare `SR-001` id, matching `extract_edges`'s own `satisfies` dst);
+    - the task's own `source_plan` -> plan ids, each plan's `spec_ref` ->
+      spec ids (traversed so the design surface is reachable), and any
+      `adr:`/design node the chain references -- here, the design decisions
+      the requirement's feature actually records, i.e. the `adr:` members of
+      every bundle that declares this SR (ADRs connect to the rest of the
+      graph only through bundle membership; SP-A's bundle map is their sole
+      link, so this reads that link rather than guessing one);
+    - `files`: changed files recorded in the evidence manifests of the
+      satisfying tasks -- the reverse of the same `changed_files` link
+      `factory.system.reverse`/`story` read (task -> run -> files).
+
+    All values come from recorded loaders; nothing is invented.
+    """
+    tasks = sorted(
+        edge.src for edge in edges if edge.kind == "satisfies" and edge.dst == sr_id
+    )
+
+    plans: list[str] = []
+    specs: list[str] = []
+    for task_id in tasks:
+        for edge in edges:
+            if edge.kind == "source_plan" and edge.src == task_id:
+                plans.append(edge.dst)
+    for plan_id in plans:
+        for edge in edges:
+            if edge.kind == "spec_ref" and edge.src == plan_id:
+                specs.append(edge.dst)
+
+    # Design decisions = the `adr:` members of the bundles that declare this
+    # SR (the only recorded link from a requirement to its design decisions).
+    design: list[str] = []
+    for bundle_id in bundles.bundles_containing(repo_root, f"sr:{sr_id}"):
+        try:
+            bundle = bundles.load_bundle(_bundles_dir(repo_root), bundle_id)
+        except (FileNotFoundError, ValueError):
+            # A bundle that lists itself but fails to load degrades only its
+            # own contribution -- never the whole traversal (standing rule).
+            continue
+        for member in bundle.members:
+            if member.kind == "adr" and member.ref not in design:
+                design.append(member.ref)
+
+    # Changed files from the reverse walk on the satisfying tasks: the union
+    # of the recorded `changed_files` across those tasks' evidence manifests.
+    files: list[str] = []
+    for task_id in tasks:
+        for manifest in evidence_manifests.list_run_manifests(evidence_dir, task_id=task_id):
+            for changed in manifest["implementation"]["changed_files"]:
+                if changed not in files:
+                    files.append(changed)
+    return tasks, design, files
+
+
+def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Working traversal: requirement -> satisfying tasks -> design -> files.
+
+    Anchored on an `sr:` scope, walks the real trace graph (no parser, no
+    synthesis). A `bundle:` scope aggregates the traversal over its `sr:`
+    members (the bundle's requirements), unioning tasks/design/files and
+    naming every requirement. Returns a plain dict
+    `{"requirement", "tasks", "design", "files"}`. Raises
+    `ScopeKindError` for any other scope kind.
+    """
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    evidence_dir = _evidence_dir(repo_root)
+
+    if scope.kind == "sr":
+        sr_id = _scope_identifier(scope)
+        tasks, design, files = _traversal_for_sr(repo_root, sr_id, edges, evidence_dir)
+        return {"requirement": sr_id, "tasks": tasks, "design": design, "files": files}
+
+    if scope.kind == "bundle":
+        bundle_id = _scope_identifier(scope)
+        bundle = _load_bundle_or_raise(repo_root, bundle_id)
+        sr_ids = sorted(m.ref.split(":", 1)[1] for m in bundle.members if m.kind == "sr")
+        all_tasks: list[str] = []
+        all_design: list[str] = []
+        all_files: list[str] = []
+        for sr_id in sr_ids:
+            tasks, design, files = _traversal_for_sr(repo_root, sr_id, edges, evidence_dir)
+            for t in tasks:
+                if t not in all_tasks:
+                    all_tasks.append(t)
+            for d in design:
+                if d not in all_design:
+                    all_design.append(d)
+            for f in files:
+                if f not in all_files:
+                    all_files.append(f)
+        return {
+            "requirement": ", ".join(sr_ids),
+            "tasks": all_tasks,
+            "design": all_design,
+            "files": all_files,
+        }
+
+    raise ScopeKindError(
+        f"query_traversal supports an sr: or bundle: anchor, got: {scope.kind!r}"
+    )

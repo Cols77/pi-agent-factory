@@ -16,9 +16,22 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderSystemPageHtml } from "../src/system-page.js";
 
-const SCOPE_LIST = {
-  scopes: [{ kind: "bundle", ref: "bundle:evidence-lifecycle" }],
-  errors: [{ path: "bundles/bad.yaml", bundle_id: "bad", error: "missing label" }],
+const HEALTH = {
+  health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
+  coverage: { total: 1, bundled: 1, unbundled: [], kinds: [] },
+  bundles: [
+    {
+      id: "evidence-lifecycle",
+      label: "Evidence lifecycle",
+      readiness: "weak",
+      readiness_counts: { sr_total: 1, bound: 0, covered: 0, current: 0, deferred: 0, validated: 0 },
+      members: 1,
+    },
+  ],
+  unbundled: { sr: ["sr:SR-999"] },
+  ordering_available: true,
+  sr_listed: false,
+  degraded: [],
 };
 
 const BRIEF = {
@@ -118,7 +131,7 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
 function mockFetch(guideFails = false) {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
-    if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
+    if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
     if (url.pathname === "/api/system/brief") return jsonResponse(BRIEF);
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
@@ -178,15 +191,16 @@ afterEach(() => {
 });
 
 describe("system-page.ts client script, executed against a real DOM", () => {
-  test("renders the scope picker from the fetched scope list", async () => {
+  test("renders the feature-first sidebar from the health payload", async () => {
     const dom = await loadPage();
     const doc = dom.window.document;
-    const items = doc.querySelectorAll("#scopeList .scope-item");
-    expect(items.length).toBe(1);
-    expect(items[0]?.textContent).toBe("bundle:evidence-lifecycle");
-    const errors = doc.querySelectorAll("#scopeErrors .scope-error");
-    expect(errors.length).toBe(1);
-    expect(errors[0]?.textContent).toContain("bad");
+    const weak = doc.querySelector('#scopeList [data-readiness="weak"]');
+    expect(weak).not.toBeNull();
+    expect(weak?.textContent).toContain("Evidence lifecycle");
+    // The readiness label always renders beside its counts.
+    expect(weak?.textContent).toContain("1 SR");
+    // The unbundled remainder is visible at the bottom, not hidden.
+    expect(doc.querySelector('#scopeList [data-group="unbundled"]')?.textContent).toContain("sr:SR-999");
   });
 
   test("renders every brief claim kind distinctly, and never hides the missing row", async () => {
