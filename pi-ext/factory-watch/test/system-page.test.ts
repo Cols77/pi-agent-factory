@@ -1,10 +1,13 @@
 import { mkdtempSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const spawnSync = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", () => ({ spawnSync }));
+const spawn = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", () => ({ spawn, spawnSync }));
 
 import { ensureDocsServer, stopDocsServer } from "../src/docs-server.js";
 import { renderSystemPageHtml } from "../src/system-page.js";
@@ -85,6 +88,51 @@ const GUIDE = {
     },
   ],
 };
+
+const HEALTH = {
+  health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
+  coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+  bundles: [],
+  unbundled: {},
+  ordering_available: true,
+  sr_listed: true,
+  degraded: [],
+};
+
+const TRAVERSAL = {
+  requirement: "sr:SR-001",
+  tasks: ["task:T-001"],
+  design: ["design:DD-001"],
+  files: ["src/example.ts"],
+};
+
+function childProcess(): EventEmitter & { stdout: PassThrough; stderr: PassThrough } {
+  return Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+}
+
+function closeChild(
+  child: ReturnType<typeof childProcess>,
+  stdout: string,
+  status = 0,
+  stderr = "",
+): void {
+  queueMicrotask(() => {
+    child.stdout.end(stdout);
+    child.stderr.end(stderr);
+    child.emit("close", status);
+  });
+}
+
+function mockAsyncSystemCli(): void {
+  spawn.mockImplementation((_bin: string, args: string[]) => {
+    const child = childProcess();
+    const sub = args[4];
+    if (sub === "health") closeChild(child, JSON.stringify(HEALTH));
+    else if (sub === "traversal") closeChild(child, JSON.stringify(TRAVERSAL));
+    else closeChild(child, "", 1, `unexpected sub: ${String(sub)}`);
+    return child;
+  });
+}
 
 function mockSystemCli(): void {
   spawnSync.mockImplementation((_bin: string, args: string[]) => {
@@ -221,6 +269,75 @@ describe("GET /system and /api/system/*", () => {
     const server = await ensureDocsServer(repo());
     const body = await (await fetch(`${server.url}/api/system/scope`)).json();
     expect(body).toEqual(SCOPE_LIST);
+  });
+
+  test("serves health and traversal JSON from async child processes", async () => {
+    spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
+    mockAsyncSystemCli();
+    const server = await ensureDocsServer(repo());
+
+    const health = await fetch(`${server.url}/api/system/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual(HEALTH);
+    const traversal = await fetch(`${server.url}/api/system/traversal?scope=sr:SR-001`);
+    expect(traversal.status).toBe(200);
+    expect(await traversal.json()).toEqual(TRAVERSAL);
+    expect(spawn).toHaveBeenNthCalledWith(
+      1,
+      "uv",
+      ["run", "python", "-m", "factory.system", "health", "--json"],
+      { cwd: expect.any(String), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(spawn).toHaveBeenNthCalledWith(
+      2,
+      "uv",
+      ["run", "python", "-m", "factory.system", "traversal", "--json", "--scope", "sr:SR-001"],
+      { cwd: expect.any(String), stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
+  test("reports an async system CLI failure as JSON", async () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(HEALTH), stderr: "" });
+    spawn.mockImplementation(() => {
+      const child = childProcess();
+      closeChild(child, "", 1, "health unavailable");
+      return child;
+    });
+    const server = await ensureDocsServer(repo());
+
+    const res = await fetch(`${server.url}/api/system/health`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("health unavailable");
+  });
+
+  test("serves health before a held traversal child releases", async () => {
+    spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
+    let heldTraversal: ReturnType<typeof childProcess> | undefined;
+    spawn.mockImplementation((_bin: string, args: string[]) => {
+      const child = childProcess();
+      if (args[4] === "traversal") {
+        heldTraversal = child;
+      } else if (args[4] === "health") {
+        closeChild(child, JSON.stringify(HEALTH));
+      } else {
+        closeChild(child, "", 1, `unexpected sub: ${String(args[4])}`);
+      }
+      return child;
+    });
+    const server = await ensureDocsServer(repo());
+    const traversal = fetch(`${server.url}/api/system/traversal?scope=sr:SR-001`);
+    await vi.waitFor(() => expect(heldTraversal).toBeDefined());
+    const child = heldTraversal;
+    if (child === undefined) throw new Error("traversal child was not started");
+
+    try {
+      const health = await fetch(`${server.url}/api/system/health`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toEqual(HEALTH);
+    } finally {
+      closeChild(child, JSON.stringify(TRAVERSAL));
+      expect((await traversal).status).toBe(200);
+    }
   });
 
   test("serves brief/matrix/timeline/guide JSON for a scope", async () => {
