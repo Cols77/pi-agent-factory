@@ -35,6 +35,10 @@ export async function systemBootstrap(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
   const picker = document.getElementById('picker') as HTMLElement;
   const content = document.getElementById('content') as HTMLElement;
+  const landingPanel = document.getElementById('landingPanel') as HTMLElement;
+  const scopeWorkspace = document.getElementById('scopeWorkspace') as HTMLElement;
+  const healthStatus = document.getElementById('healthStatus') as HTMLElement;
+  const retryHealth = document.getElementById('retryHealth') as HTMLButtonElement;
 
   function showBanner(text: string): void {
     banner.textContent = text || '';
@@ -85,8 +89,48 @@ export async function systemBootstrap(): Promise<void> {
     if (toggle) toggle.setAttribute('aria-expanded', String(!focused));
   }
 
+  function showLanding(): void {
+    landingPanel.hidden = false;
+    scopeWorkspace.hidden = true;
+    content.setAttribute('aria-busy', 'false');
+    setPickerClass(false);
+  }
+
+  function showWorkspace(): void {
+    landingPanel.hidden = true;
+    scopeWorkspace.hidden = false;
+    content.setAttribute('aria-busy', 'false');
+    setPickerClass(true);
+  }
+
+  function setHealthStatus(message: string, retry: boolean): void {
+    healthStatus.textContent = message;
+    healthStatus.hidden = message === '';
+    retryHealth.hidden = !retry;
+  }
+
   function scopeHref(ref: string): string {
     return '/system?scope=' + encodeURIComponent(ref);
+  }
+
+  function markActiveScope(scopeRef: string): void {
+    document.querySelectorAll('.scope-item, .feature-row').forEach((item: Element) => {
+      const active = item.getAttribute('href') === scopeHref(scopeRef);
+      item.classList.toggle('is-active', active);
+      if (active) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+  }
+
+  function setScopeHeading(scopeRef: string): void {
+    const kind = scopeKind(scopeRef);
+    const bundle = kind === 'bundle'
+      ? healthBundles.find((candidate) => candidate.id === scopeRef.slice('bundle:'.length))
+      : null;
+    (document.getElementById('scopeKind') as HTMLElement).textContent = kind + ' scope';
+    (document.getElementById('scopeHeader') as HTMLElement).textContent = bundle?.label || scopeRef;
+    (document.getElementById('scopeRef') as HTMLElement).textContent = scopeRef;
+    markActiveScope(scopeRef);
   }
 
   // SP-B Task 7: the feature-first sidebar. Python's `health` projection owns
@@ -346,16 +390,14 @@ export async function systemBootstrap(): Promise<void> {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      content.hidden = true;
       picker.hidden = false;
-      setPickerClass(false);
+      showLanding();
       setLoading(false);
       return;
     }
     showBanner('');
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
+    showWorkspace();
+    setScopeHeading(scopeRef);
     scopeSrRefs = [];
     renderStory(await res.json());
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
@@ -370,16 +412,14 @@ export async function systemBootstrap(): Promise<void> {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      content.hidden = true;
       picker.hidden = false;
-      setPickerClass(false);
+      showLanding();
       setLoading(false);
       return;
     }
     showBanner('');
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
+    showWorkspace();
+    setScopeHeading(scopeRef);
     scopeSrRefs = [];
     renderReverse(await res.json());
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
@@ -403,9 +443,8 @@ export async function systemBootstrap(): Promise<void> {
     if (failed) {
       const body = await failed.json().catch(() => ({}));
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || failed.status));
-      content.hidden = true;
       picker.hidden = false;
-      setPickerClass(false);
+      showLanding();
       setLoading(false);
       return;
     }
@@ -413,9 +452,8 @@ export async function systemBootstrap(): Promise<void> {
     const [brief, matrix, timeline] = await Promise.all([
       briefRes.json(), matrixRes.json(), timelineRes.json(),
     ]);
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
+    showWorkspace();
+    setScopeHeading(scopeRef);
     renderBrief(brief);
     renderMatrix(matrix);
     renderTimeline(timeline);
@@ -500,16 +538,31 @@ export async function systemBootstrap(): Promise<void> {
     const summary = document.getElementById('healthSummary') as HTMLElement;
     clear(summary);
     const h = payload.health || {};
-    const pct = document.createElement('div');
-    pct.className = 'health-line';
-    pct.appendChild(document.createTextNode('Overall ' + h.satisfied + '/' + h.expected + ' satisfied (' + h.percent + '%)'));
-    summary.appendChild(pct);
+    const overall = document.createElement('div');
+    overall.className = 'health-overall';
+    if (h.expected === 0) {
+      overall.appendChild(document.createTextNode('No measurable evidence · 0 / 0'));
+    } else {
+      overall.appendChild(document.createTextNode(
+        'Overall ' + h.satisfied + '/' + h.expected + ' satisfied · ' + h.percent + '%'
+      ));
+    }
+    summary.appendChild(overall);
+    const metrics = document.createElement('div');
+    metrics.className = 'health-metrics';
     (h.classes || []).forEach((c: any) => {
       const line = document.createElement('div');
-      line.className = 'health-line';
-      line.appendChild(document.createTextNode(c.name + ' ' + c.satisfied + '/' + c.expected));
-      summary.appendChild(line);
+      line.className = 'health-metric';
+      const label = document.createElement('span');
+      label.className = 'health-metric-label';
+      label.appendChild(document.createTextNode(c.name));
+      const ratio = document.createElement('strong');
+      ratio.appendChild(document.createTextNode(c.satisfied + '/' + c.expected));
+      line.appendChild(label);
+      line.appendChild(ratio);
+      metrics.appendChild(line);
     });
+    summary.appendChild(metrics);
   }
 
   // Minimal Task 6 bundle list (label per bundle). The feature-first grouping
@@ -542,42 +595,61 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   function renderBundleList(payload: any): void {
-    let list = document.getElementById('bundleList') as HTMLElement;
-    if (!list) {
-      list = document.createElement('div');
-      list.id = 'bundleList';
-      const scopeHeader = document.getElementById('scopeHeader');
-      if (scopeHeader) {
-        scopeHeader.parentElement!.insertBefore(list, scopeHeader);
-      } else {
-        content.appendChild(list);
-      }
-    }
+    const list = document.getElementById('bundleList') as HTMLElement;
     clear(list);
     (payload.bundles || []).forEach((b: any) => {
-      const row = document.createElement('div');
-      row.className = 'bundle-row';
-      row.appendChild(document.createTextNode(b.label || b.id));
+      const row = document.createElement('a');
+      row.className = 'feature-row readiness-' + b.readiness;
+      row.href = scopeHref('bundle:' + b.id);
+      row.dataset.readiness = b.readiness;
+      const heading = document.createElement('strong');
+      heading.appendChild(document.createTextNode(b.label || b.id));
+      const readiness = document.createElement('span');
+      readiness.className = 'feature-readiness';
+      readiness.appendChild(document.createTextNode(b.readiness));
+      const members = document.createElement('span');
+      members.className = 'feature-members';
+      members.appendChild(document.createTextNode(String(b.members) + ' artifacts'));
+      const counts = document.createElement('span');
+      counts.className = 'readiness-counts';
+      counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+      row.appendChild(heading);
+      row.appendChild(readiness);
+      row.appendChild(members);
+      row.appendChild(counts);
+      row.addEventListener('click', (clickEvent: Event) => {
+        clickEvent.preventDefault();
+        loadScope('bundle:' + b.id);
+      });
       list.appendChild(row);
     });
   }
 
   async function loadHealth(): Promise<void> {
+    content.setAttribute('aria-busy', 'true');
+    setHealthStatus('Reading project evidence…', false);
     try {
       const res = await fetch('/api/system/health');
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showBanner('could not load project health: ' + (body.error || res.status));
-        return;
+        throw new Error(String(res.status));
       }
       const payload = await res.json();
       renderHealthSummary(payload);
       renderBundleList(payload);
       renderFeatureSidebar(payload);
+      setHealthStatus('', false);
+      showBanner('');
+      showLanding();
     } catch (err) {
-      showBanner('could not load project health: ' + String(err));
+      showLanding();
+      setHealthStatus(
+        'Project evidence is unavailable. The navigator is still running; retry the health scan.',
+        true
+      );
     }
   }
+
+  retryHealth.addEventListener('click', () => { void loadHealth(); });
 
   // Boot sequence: the landing page opens on the health projection (summary,
   // bundle list, feature-first sidebar); scope choice navigates into focus
@@ -591,15 +663,14 @@ export async function systemBootstrap(): Promise<void> {
       await loadScope(requestedScope);
     } catch (err) {
       showBanner('could not resolve scope ' + requestedScope + ': ' + String(err));
-      content.hidden = true;
       picker.hidden = false;
-      setPickerClass(false);
+      showLanding();
       setLoading(false);
     }
   } else {
     // Landing: no scope chosen, so the health summary + bundle list + the
     // existing tabs are the page. Python composes the projection; this only
     // renders it.
-    content.hidden = false;
+    showLanding();
   }
 }

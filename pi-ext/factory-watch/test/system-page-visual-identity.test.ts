@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderSystemPageHtml } from "../src/system-page.js";
 
 describe("system navigator visual identity", () => {
@@ -30,5 +31,113 @@ describe("system navigator visual identity", () => {
     expect(html).toContain('id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"');
     expect(html).toContain('id="tabBrief" class="tab" role="tab" tabindex="0"');
     expect(html).toContain('id="tabMatrix" class="tab" role="tab" tabindex="-1"');
+  });
+});
+
+const HEALTH = {
+  health: {
+    classes: ["bound", "covered", "current", "deferred", "validated"].map((name) => ({
+      name,
+      satisfied: 0,
+      expected: 0,
+      exempt: 0,
+    })),
+    satisfied: 0,
+    expected: 0,
+    percent: 100,
+  },
+  bundles: [{
+    id: "safety-governor",
+    label: "Deterministic safety governor",
+    readiness: "weak",
+    readiness_counts: {
+      sr_total: 15,
+      bound: 8,
+      covered: 5,
+      current: 3,
+      deferred: 1,
+      validated: 2,
+    },
+    members: 15,
+  }],
+  unbundled: {},
+};
+
+function jsonResponse(body: unknown): Promise<Response> {
+  return Promise.resolve({ ok: true, status: 200, json: async () => body } as Response);
+}
+
+function scopeResponse(pathname: string): Promise<Response> {
+  const scope = { kind: "bundle", ref: "bundle:safety-governor" };
+  if (pathname === "/api/system/brief") return jsonResponse({ scope, claims: [], degraded: false, degraded_reasons: [] });
+  if (pathname === "/api/system/matrix") return jsonResponse({ scope, rows: [] });
+  if (pathname === "/api/system/timeline") return jsonResponse({ scope, events: [], degraded: false, degraded_reasons: [] });
+  if (pathname === "/api/system/guide") return jsonResponse({ scope, sections: [] });
+  return Promise.reject(new Error(`unmocked fetch: ${pathname}`));
+}
+
+function loadDom(fetchMock: ReturnType<typeof vi.fn>): JSDOM {
+  return new JSDOM(renderSystemPageHtml(), {
+    runScripts: "dangerously",
+    resources: "usable",
+    url: "http://localhost/system",
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+    },
+  });
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("system navigator landing and focus modes", () => {
+  it("renders honest zero metrics and an actionable feature directory", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+
+    await vi.waitFor(() => expect(doc.querySelectorAll(".health-metric")).toHaveLength(5));
+    expect(doc.querySelector("#landingPanel")?.hasAttribute("hidden")).toBe(false);
+    expect(doc.querySelector("#scopeWorkspace")?.hasAttribute("hidden")).toBe(true);
+    expect(doc.querySelector("#healthSummary")?.textContent).toContain("No measurable evidence");
+    const feature = doc.querySelector(".feature-row");
+    expect(feature?.textContent).toContain("Deterministic safety governor");
+    expect(feature?.textContent).toContain("15 artifacts");
+    expect(feature?.textContent).toContain("15 SR");
+    expect(feature?.textContent).toContain("weak");
+
+    (feature as HTMLElement).click();
+    await vi.waitFor(() => expect(doc.querySelector("#scopeWorkspace")?.hasAttribute("hidden")).toBe(false));
+    expect(doc.querySelector("#landingPanel")?.hasAttribute("hidden")).toBe(true);
+    expect(feature?.getAttribute("aria-current")).toBe("page");
+    expect(doc.querySelector("#scopeHeader")?.textContent).toBe("Deterministic safety governor");
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:safety-governor");
+  });
+
+  it("keeps the landing available and retries a failed health scan", async () => {
+    let healthAttempts = 0;
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") {
+        healthAttempts += 1;
+        return healthAttempts === 1 ? Promise.reject(new Error("health unavailable")) : jsonResponse(HEALTH);
+      }
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+
+    await vi.waitFor(() => expect(doc.querySelector("#healthStatus")?.textContent).toContain("Project evidence is unavailable"));
+    const retry = doc.querySelector("#retryHealth") as HTMLButtonElement;
+    expect(retry.hidden).toBe(false);
+    expect(doc.querySelector("#landingPanel")?.hasAttribute("hidden")).toBe(false);
+
+    retry.click();
+    await vi.waitFor(() => expect(doc.querySelector("#healthStatus")?.hasAttribute("hidden")).toBe(true));
+    expect(retry.hidden).toBe(true);
+    expect(healthAttempts).toBe(2);
   });
 });

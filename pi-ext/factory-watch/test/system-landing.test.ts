@@ -223,9 +223,10 @@ describe("system landing page", () => {
     input.dispatchEvent(new dom.window.Event("input"));
     doc.querySelector<HTMLElement>("#searchGo")!.click();
     await vi.waitFor(
-      () => expect(doc.getElementById("scopeHeader")!.textContent).toBe("bundle:b1"),
+      () => expect(doc.getElementById("scopeHeader")!.textContent).toBe("B1"),
       { timeout: 2000, interval: 10 },
     );
+    expect(doc.getElementById("scopeRef")!.textContent).toBe("bundle:b1");
     expect(dom.window.location.search).toContain("scope=bundle%3Ab1");
   });
 

@@ -294,11 +294,19 @@ export function renderSystemPageHtml(): string {
   .requirement { padding: 1px 0; }
   .trace-upstream { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
   #healthSummary { margin: 4px 0 16px; }
+  .health-overall { margin: 4px 0 12px; padding: 18px 20px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 650 clamp(18px, 2.4vw, 27px)/1.2 var(--font-display); }
+  .health-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+  .health-metric { display: flex; flex-direction: column; min-width: 0; padding: 10px 11px; border-top: 1px solid var(--line); background: rgba(13, 26, 32, .5); }
+  .health-metric-label { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+  .health-metric strong { margin-top: 2px; color: var(--text); font: 650 13px/1.4 var(--font-mono); }
   .health-line { padding: 2px 0; }
   .bundle-group { margin: 14px 0 4px; color: var(--text-muted); font: 650 11px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .readiness-counts { margin-left: 6px; color: var(--text-muted); font: 11px/1.4 var(--font-mono); }
   .feature-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; margin: 7px 0; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .72); color: var(--text); text-decoration: none; }
   .feature-row:hover { border-color: var(--line-strong); background: var(--surface-raised); }
+  .feature-row > strong { min-width: 0; font: 650 16px/1.35 var(--font-display); overflow-wrap: anywhere; }
+  .feature-readiness { justify-self: end; color: var(--stale); font: 650 11px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+  .feature-members { color: var(--text-muted); font-size: 12px; }
   .readiness-ready { border-left-color: var(--fresh); }
   .readiness-weak { border-left-color: var(--stale); }
   .readiness-blocked { border-left-color: var(--degraded); }
@@ -314,6 +322,8 @@ export function renderSystemPageHtml(): string {
     #content { min-width: 0; padding: 18px 16px 44px; }
     #tabs { overflow-x: auto; scrollbar-width: thin; }
     .matrix-row, .feature-row { grid-template-columns: minmax(0, 1fr); }
+    .health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .feature-readiness { justify-self: start; }
     .landing-intro h2, .scope-heading h2 { font-size: 30px; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -359,7 +369,7 @@ export function renderSystemPageHtml(): string {
         <div class="scope-heading"><div id="scopeKind" class="eyebrow"></div><h2 id="scopeHeader"></h2><div id="scopeRef"></div></div>
         <div id="loading" role="status" hidden>Loading…</div>
         <div class="scope-meta"><button id="refresh" type="button">Refresh</button> <span id="loadedAt"></span></div>
-        <nav aria-label="Evidence views"><div id="tabs" role="tablist">
+        <nav aria-label="System navigator"><div id="tabs" role="tablist">
           <button id="tabBrief" class="tab" role="tab" tabindex="0" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
           <button id="tabMatrix" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
           <button id="tabTimeline" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
