@@ -706,7 +706,7 @@ test("search resolves a bare artifact ref", async () => {
 **Files:** `src/factory/system/bundles.py` (done in Task 3), `src/factory/system/queries.py`,
 `pi-ext/factory-watch/src/system-bootstrap.ts`, `pi-ext/factory-watch/test/system-membership.test.ts`
 
-- [ ] **Step 1: Failing test (Python)** — the brief for a `sr:`/`task:` scope carries the
+- [x] **Step 1: Failing test (Python)** — the brief for a `sr:`/`task:` scope carries the
   bundles that contain it:
 
 ```python
@@ -720,11 +720,11 @@ def test_brief_includes_member_bundles(tmp_path):
     assert brief["member_of"] == ["b1"]
 ```
 
-- [ ] **Step 2: Run to verify it fails**.
-- [ ] **Step 3: Implement** — `query_brief` adds a `member_of` key for `sr:`/`task:`
+- [x] **Step 2: Run to verify it fails**.
+- [x] **Step 3: Implement** — `query_brief` adds a `member_of` key for `sr:`/`task:`
   scopes via `bundles.bundles_containing(repo_root, f"{scope.kind}:{scope.ref}")`. For
   other kinds it is absent. Do not touch the claim/render plumbing.
-- [ ] **Step 4: Failing test (browser)** — the brief renders the member-of list:
+- [x] **Step 4: Failing test (browser)** — the brief renders the member-of list:
 
 ```ts
 test("requirement brief lists its member bundles", async () => {
@@ -745,11 +745,11 @@ test("requirement brief lists its member bundles", async () => {
 });
 ```
 
-- [ ] **Step 5: Implement** — `system-renderers.ts`'s `renderBrief` renders `member_of`
+- [x] **Step 5: Implement** — `system-renderers.ts`'s `renderBrief` renders `member_of`
   into a `#memberOf` node via `createTextNode` when present; `system-bootstrap.ts` passes
   it through. Absent → no node.
-- [ ] **Step 6:** vitest + full suite + lint.
-- [ ] **Step 7:** Commit `feat(system): member-of bundles on requirement and task pages`.
+- [x] **Step 6:** vitest + full suite + lint.
+- [x] **Step 7:** Commit `feat(system): member-of bundles on requirement and task pages`.
 
 ---
 
