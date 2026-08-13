@@ -49,6 +49,7 @@ export async function systemBootstrap(): Promise<void> {
   function setLoading(on: boolean, ok?: boolean): void {
     const loading = document.getElementById('loading');
     if (loading) loading.hidden = !on;
+    content.setAttribute('aria-busy', String(on));
     if (ok) {
       const loadedAt = document.getElementById('loadedAt');
       if (loadedAt) {
@@ -67,6 +68,7 @@ export async function systemBootstrap(): Promise<void> {
   let healthBundles: any[] = [];
   let healthController: AbortController | null = null;
   const HEALTH_TIMEOUT_MS = 15_000;
+  const TRAVERSAL_TIMEOUT_MS = 8_000;
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
   let currentScope: string | null = null;
@@ -106,7 +108,6 @@ export async function systemBootstrap(): Promise<void> {
   function showWorkspace(): void {
     landingPanel.hidden = true;
     scopeWorkspace.hidden = false;
-    content.setAttribute('aria-busy', 'false');
     setPickerClass(true);
   }
 
@@ -533,15 +534,23 @@ export async function systemBootstrap(): Promise<void> {
     traceData = null;
     // SP-B Task 9: working traversal for this sr:/bundle: scope (best-effort;
     // a missing/unavailable endpoint degrades only the #traversalPath node).
+    const traversalController = new AbortController();
+    const traversalTimeout = window.setTimeout(
+      () => traversalController.abort(),
+      TRAVERSAL_TIMEOUT_MS
+    );
     try {
-      const travRes = await fetch('/api/system/traversal?scope=' + scopeParam);
+      const travRes = await fetch('/api/system/traversal?scope=' + scopeParam, {
+        signal: traversalController.signal,
+      });
       if (travRes.ok) {
         renderTraversal(await travRes.json());
       }
     } catch {
       /* traversal is best-effort; failure degrades only its own node */
+    } finally {
+      window.clearTimeout(traversalTimeout);
     }
-    configureTabs(scopeKind(scopeRef));
     selectInitialTab('Brief');
     setLoading(false, true);
   }
@@ -549,10 +558,10 @@ export async function systemBootstrap(): Promise<void> {
   async function loadScope(scopeRef: string): Promise<void> {
     currentScope = scopeRef;
     pushScope(scopeRef);
-    content.setAttribute('aria-busy', 'true');
     setLoading(true);
     try {
       const kind = scopeKind(scopeRef);
+      configureTabs(kind);
       if (kind === 'task') {
         await loadStoryScope(scopeRef);
         return;

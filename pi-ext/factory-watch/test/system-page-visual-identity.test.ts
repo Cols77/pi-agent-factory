@@ -89,7 +89,10 @@ function loadDom(fetchMock: ReturnType<typeof vi.fn>): JSDOM {
   });
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("system navigator landing and focus modes", () => {
   it("aborts a stalled health scan and exposes an actionable retry", async () => {
@@ -160,6 +163,39 @@ describe("system navigator landing and focus modes", () => {
     expect(doc.activeElement).toBe(doc.querySelector("#tabTrace"));
     (doc.activeElement as HTMLElement).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     expect(doc.activeElement).toBe(brief);
+  });
+
+  it("shows contextual bundle content while bounding the optional traversal", async () => {
+    vi.useFakeTimers();
+    let traversalSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/traversal") {
+        traversalSignal = init?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          traversalSignal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+    await vi.waitFor(() => expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false));
+    expect((doc.querySelector("#tabBrief") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#tabStory") as HTMLElement).hidden).toBe(true);
+    expect((doc.querySelector("#tabReverse") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("true");
+    expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(traversalSignal?.aborted).toBe(true);
+    expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#panelBrief")?.textContent).toContain("No claims recorded");
   });
 
   it("keeps the landing available and retries a failed health scan", async () => {
