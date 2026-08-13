@@ -31,6 +31,7 @@ from factory.system.queries import (
     query_guide,
     query_matrix,
     query_timeline,
+    query_traversal,
 )
 from factory.system.reverse import query_reverse
 from factory.system.story import query_story
@@ -160,6 +161,16 @@ def cmd_memberships(repo_root: Path, ref: str) -> dict:
     for scripting and for the docs-server endpoint to reuse.
     """
     return {"ref": ref, "bundles": bundles_module.bundles_containing(repo_root, ref)}
+
+
+def cmd_traversal(repo_root: Path, scope_raw: str) -> dict:
+    """The core working-traversal chain for an sr:/bundle: anchor.
+
+    requirement -> satisfying tasks -> design decisions -> changed files,
+    walked over the real trace graph by `queries.query_traversal` (no parser,
+    no synthesis).
+    """
+    return query_traversal(repo_root, parse_scope_ref(scope_raw))
 
 
 def cmd_scope(repo_root: Path) -> dict:
@@ -314,6 +325,14 @@ def _render_memberships(result: dict) -> str:
     return f"{result['ref']} in bundles: {', '.join(result['bundles'])}"
 
 
+def _render_traversal(result: dict) -> str:
+    lines = [f"requirement: {result['requirement']}"]
+    lines.append("tasks: " + (", ".join(result["tasks"]) if result["tasks"] else "(none)"))
+    lines.append("design: " + (", ".join(result["design"]) if result["design"] else "(none)"))
+    lines.append("files: " + (", ".join(result["files"]) if result["files"] else "(none)"))
+    return "\n".join(lines)
+
+
 def _render_scope(result: dict) -> str:
     scopes = result["scopes"]
     lines = [s["ref"] for s in scopes] if scopes else ["no scopes declared"]
@@ -350,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
     p_guide = sub.add_parser("guide", parents=[common])
     p_guide.add_argument("--scope", required=True)
     p_guide.add_argument("--export", default=None)
+
+    p_traversal = sub.add_parser("traversal", parents=[common])
+    p_traversal.add_argument("--scope", required=True)
 
     sub.add_parser("scope", parents=[common])
 
@@ -408,6 +430,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)
+        elif args.cmd == "traversal":
+            result = cmd_traversal(args.repo_root, args.scope)
+            rendered = _render_traversal(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

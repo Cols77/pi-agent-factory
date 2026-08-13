@@ -439,6 +439,16 @@ export async function systemBootstrap(): Promise<void> {
     }
     traceLoaded = false;
     traceData = null;
+    // SP-B Task 9: working traversal for this sr:/bundle: scope (best-effort;
+    // a missing/unavailable endpoint degrades only the #traversalPath node).
+    try {
+      const travRes = await fetch('/api/system/traversal?scope=' + scopeParam);
+      if (travRes.ok) {
+        renderTraversal(await travRes.json());
+      }
+    } catch {
+      /* traversal is best-effort; failure degrades only its own node */
+    }
     selectInitialTab('Brief');
     setLoading(false, true);
   }
@@ -504,6 +514,33 @@ export async function systemBootstrap(): Promise<void> {
 
   // Minimal Task 6 bundle list (label per bundle). The feature-first grouping
   // and readiness counts are Task 7; this only establishes the container.
+  // SP-B Task 9: working traversal -- requirement -> satisfying tasks -> design
+  // decisions -> changed files, rendered from `factory.system traversal --json`
+  // (non-fatal: a failure degrades only this node). Text nodes only.
+  function renderTraversal(trav: any): void {
+    let node = document.getElementById('traversalPath') as HTMLElement | null;
+    if (!node) {
+      node = document.createElement('div');
+      node.id = 'traversalPath';
+      node.className = 'traversal-path';
+      const meta = document.querySelector('.scope-meta');
+      if (meta) {
+        meta.after(node);
+      } else {
+        document.getElementById('content')?.appendChild(node);
+      }
+    }
+    clear(node);
+    const row = document.createElement('div');
+    row.className = 'health-line';
+    row.appendChild(document.createTextNode(
+      trav.requirement + ' → tasks: ' + (trav.tasks.join(', ') || '(none)') +
+      ' → design: ' + (trav.design.join(', ') || '(none)') +
+      ' → files: ' + (trav.files.join(', ') || '(none)')
+    ));
+    node.appendChild(row);
+  }
+
   function renderBundleList(payload: any): void {
     let list = document.getElementById('bundleList') as HTMLElement;
     if (!list) {

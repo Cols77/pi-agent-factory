@@ -270,3 +270,36 @@ describe("system landing page", () => {
     );
   });
 });
+
+describe("SP-B Task 9 working traversal", () => {
+  test("traversal path renders requirement -> tasks -> design -> files", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/brief" || url.pathname === "/api/system/matrix" ||
+          url.pathname === "/api/system/timeline" || url.pathname === "/api/system/guide") {
+        return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, claims: [], rows: [], events: [], sections: [], degraded: false, degraded_reasons: [] });
+      }
+      if (url.pathname === "/api/system/traversal")
+        return jsonResponse({ requirement: "SR-001", tasks: ["T-001"], design: ["adr:ADR-0001"], files: ["src/a.py"] });
+      throw new Error(`unmocked fetch: ${String(input)}`);
+    });
+    const dom = new JSDOM(renderSystemPageHtml(), {
+      runScripts: "dangerously",
+      resources: "usable",
+      url: "http://localhost/system?scope=sr%3ASR-001",
+      beforeParse(window) {
+        (window as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+      },
+    });
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("traversalPath")).not.toBeNull(),
+      { timeout: 2000, interval: 10 },
+    );
+    const path = dom.window.document.querySelector("#traversalPath")!;
+    expect(path.textContent).toContain("SR-001");
+    expect(path.textContent).toContain("T-001");
+    expect(path.textContent).toContain("src/a.py");
+  });
+});

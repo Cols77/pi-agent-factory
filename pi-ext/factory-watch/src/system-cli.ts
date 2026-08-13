@@ -241,6 +241,20 @@ export function loadSystemHealth(cwd: string): CliResult<SystemHealth> {
   return runJsonCli<SystemHealth>(cwd, cmd.bin, cmd.args);
 }
 
+// SP-B Task 9 -- working traversal. Mirrors `factory.system.traversal --json`
+// (requirement -> satisfying tasks -> design decisions -> changed files).
+export interface SystemTraversal {
+  requirement: string;
+  tasks: string[];
+  design: string[];
+  files: string[];
+}
+
+export function loadSystemTraversal(cwd: string, scope: string): CliResult<SystemTraversal> {
+  const cmd = buildSystemCommand(["traversal", "--json", "--scope", scope]);
+  return runJsonCli<SystemTraversal>(cwd, cmd.bin, cmd.args);
+}
+
 // The rest of this file mirrors `factory.system.story.query_story` /
 // `factory.system.reverse.query_reverse` (increment B, V-cycle) exactly --
 // same discipline as every type above: this file renders, it never
