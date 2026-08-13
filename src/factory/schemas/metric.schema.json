@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/metric.schema.json",
+  "title": "Metric frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^MET-[A-Z0-9-]+$"},
+    "title": {"type": "string", "minLength": 1}
+  }
+}
