@@ -118,8 +118,8 @@ def _safe_evidenced_path(root: Path, path: str) -> str | None:
         return None
 
 
-def _recent_changes(root: Path, implementation_files: list[str]) -> list[dict]:
-    """The latest git record per evidenced implementation path, or no records."""
+def _recent_changes(root: Path, implementation_files: list[str], limit: int = 5) -> list[dict]:
+    """Recent recorded commits for evidenced paths, or no records when git cannot answer."""
     paths = sorted(
         {
             safe_path
@@ -127,11 +127,11 @@ def _recent_changes(root: Path, implementation_files: list[str]) -> list[dict]:
             if (safe_path := _safe_evidenced_path(root, path)) is not None
         }
     )
-    changes: list[dict] = []
+    changes_by_commit: dict[str, dict] = {}
     for path in paths:
         try:
             completed = subprocess.run(
-                ["git", "log", "-1", "--format=%H%x00%aI%x00%s", "--", path],
+                ["git", "log", "--format=%H%x00%aI%x00%s", "--", path],
                 cwd=root,
                 capture_output=True,
                 text=True,
@@ -139,14 +139,25 @@ def _recent_changes(root: Path, implementation_files: list[str]) -> list[dict]:
             )
         except (OSError, subprocess.CalledProcessError):
             return []
-        commit, separator, remainder = completed.stdout.strip().partition("\x00")
-        authored_at, separator, subject = remainder.partition("\x00")
-        if not commit or not separator:
-            continue
-        changes.append(
-            {"path": path, "commit": commit, "authored_at": authored_at, "subject": subject}
-        )
-    return changes
+        for line in completed.stdout.splitlines():
+            commit, separator, remainder = line.partition("\x00")
+            authored_at, separator, subject = remainder.partition("\x00")
+            if not commit or not separator:
+                continue
+            changes_by_commit.setdefault(
+                commit,
+                {"path": path, "commit": commit, "authored_at": authored_at, "subject": subject},
+            )
+    return sorted(
+        changes_by_commit.values(),
+        key=lambda change: (
+            change["authored_at"],
+            change["commit"],
+            change["subject"],
+            change["path"],
+        ),
+        reverse=True,
+    )[:limit]
 
 
 def feature_context(root: Path, feature_id: str) -> dict:

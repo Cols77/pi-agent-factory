@@ -1,6 +1,8 @@
 """Tests for the deterministic feature dossier and its query adapters."""
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -23,6 +25,12 @@ def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _commit(root: Path, subject: str, timestamp: str, paths: list[str]) -> None:
+    env = {**os.environ, "GIT_AUTHOR_DATE": timestamp, "GIT_COMMITTER_DATE": timestamp}
+    subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", subject], cwd=root, env=env, check=True)
 
 
 def _feature_repo(root: Path) -> None:
@@ -201,3 +209,62 @@ def test_feature_context_never_treats_missing_validation_as_a_pass(tmp_path):
         {"id": "SR-001", "state": "never_validated", "stale": False},
         {"id": "SR-002", "state": "never_validated", "stale": False},
     ]
+
+
+def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_first(tmp_path):
+    _feature_repo(tmp_path)
+    evidenced_paths = [
+        "src/connected.py",
+        *[f"src/evidenced-{number}.py" for number in range(1, 7)],
+        "src/evidenced-6-extra.py",
+    ]
+    for path in evidenced_paths[1:]:
+        _write(tmp_path / path, "VERSION = 0\n")
+    write_run_manifest(
+        tmp_path,
+        run_id="run-many",
+        task_id="T-001",
+        changed_files=evidenced_paths,
+    )
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+    _commit(tmp_path, "base", "2026-01-01T00:00:00+00:00", ["."])
+    for number in range(1, 6):
+        path = f"src/evidenced-{number}.py"
+        _write(tmp_path / path, f"VERSION = {number}\n")
+        _commit(
+            tmp_path,
+            f"evidenced change {number}",
+            f"2026-01-02T00:00:0{number}+00:00",
+            [path],
+        )
+    _write(tmp_path / "src" / "evidenced-6.py", "VERSION = 6\n")
+    _write(tmp_path / "src" / "evidenced-6-extra.py", "VERSION = 6\n")
+    _commit(
+        tmp_path,
+        "evidenced change 6",
+        "2026-01-02T00:00:06+00:00",
+        ["src/evidenced-6.py", "src/evidenced-6-extra.py"],
+    )
+    _write(tmp_path / "src" / "unrelated.py", "VALUE = 3\n")
+    _commit(
+        tmp_path,
+        "unrelated change",
+        "2026-01-03T00:00:00+00:00",
+        ["src/unrelated.py"],
+    )
+
+    changes = feature_context(tmp_path, "FEAT-CONTEXT-001")["recent_changes"]
+
+    assert len(changes) == 5
+    assert [change["subject"] for change in changes] == [
+        "evidenced change 6",
+        "evidenced change 5",
+        "evidenced change 4",
+        "evidenced change 3",
+        "evidenced change 2",
+    ]
+    assert len({change["commit"] for change in changes}) == len(changes)
+    assert {change["path"] for change in changes}.isdisjoint({"src/unrelated.py"})
