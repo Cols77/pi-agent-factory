@@ -582,7 +582,7 @@ export { renderSystemPageHtml } from "./system-shell.js";
 The browser now fetches `health` on load (no scope chosen) and renders the landing page:
 `#content` is shown, carrying the health summary + bundle list + existing tabs.
 
-- [ ] **Step 1: Failing test** — the landing renders a health summary from a fixture
+- [x] **Step 1: Failing test** — the landing renders a health summary from a fixture
   payload before any scope is chosen, with the `1/1` denominator shown verbatim (not a
   checkmark):
 
@@ -619,15 +619,15 @@ test("landing shows the health summary with a verbatim small denominator", async
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**.
-- [ ] **Step 3: Implement** — in `system-bootstrap.ts`, add a `loadHealth()` that fetches
+- [x] **Step 2: Run to verify it fails**.
+- [x] **Step 3: Implement** — in `system-bootstrap.ts`, add a `loadHealth()` that fetches
   `health` and renders a `#healthSummary` node (percent + each class rendered verbatim via
   `createTextNode`, e.g. `"SR validated 1/1"`). Show `#content` on load when no scope is
   chosen; keep `#content` hidden-state semantics for focus mode unchanged.
-- [ ] **Step 4:** Add an assertion the landing shows the bundle list container and the
+- [x] **Step 4:** Add an assertion the landing shows the bundle list container and the
   navigation tabs when `bundles` is non-empty.
-- [ ] **Step 5:** vitest + full Python suite + lint.
-- [ ] **Step 6:** Commit `feat(system): health landing summary`.
+- [x] **Step 5:** vitest + full Python suite + lint.
+- [x] **Step 6:** Commit `feat(system): health landing summary`.
 
 ---
 
