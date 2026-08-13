@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "generated_at": "2026-08-13T01:18:03.854Z",
+  "project_root": "C:\\coding\\pi-agent-factory",
+  "project": {
+    "name": "pi-agent-factory",
+    "purpose": "pi-agent-factory"
+  },
+  "components": [
+    "factory orchestrator",
+    "evidence model",
+    "traceability CLI",
+    "requirements doctor",
+    "requirement register",
+    "system navigator",
+    "polish workflow",
+    "sim/validation harnesses",
+    "pi extension (commands + tools)"
+  ],
+  "packages": [],
+  "source_dirs": [
+    "src",
+    "pi-ext",
+    "scripts",
+    "tests",
+    "tasks",
+    "docs"
+  ],
+  "docs": {
+    "specs": [
+      "docs/superpowers/specs"
+    ],
+    "plans": [
+      "docs/superpowers/plans"
+    ],
+    "requirements": null,
+    "adrs": [],
+    "tasks": "tasks",
+    "evidence": [
+      "sessions"
+    ]
+  },
+  "commands": [
+    {
+      "name": "factory gate",
+      "cmd": "{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py",
+      "kind": "validation",
+      "evidence": "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml"
+    },
+    {
+      "name": "factory gate",
+      "cmd": "{python} -m pytest -m sim -q",
+      "kind": "other",
+      "evidence": "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml"
+    },
+    {
+      "name": "factory gate",
+      "cmd": "{python} -m pytest tests/integration/ -q -m integration",
+      "kind": "other",
+      "evidence": "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml"
+    },
+    {
+      "name": "factory gate",
+      "cmd": "{python} -m ruff check .",
+      "kind": "other",
+      "evidence": "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml"
+    },
+    {
+      "name": "unit",
+      "cmd": "uv run python -m pytest -m unit -q",
+      "kind": "test",
+      "evidence": "C:\\coding\\pi-agent-factory\\pyproject.toml"
+    },
+    {
+      "name": "integration",
+      "cmd": "uv run python -m pytest -m integration -q",
+      "kind": "test",
+      "evidence": "C:\\coding\\pi-agent-factory\\pyproject.toml"
+    },
+    {
+      "name": "lint",
+      "cmd": "uv run ruff check .",
+      "kind": "lint",
+      "evidence": "C:\\coding\\pi-agent-factory\\pyproject.toml"
+    },
+    {
+      "name": "typecheck",
+      "cmd": "uv run pyright",
+      "kind": "typecheck",
+      "evidence": "C:\\coding\\pi-agent-factory\\pyproject.toml"
+    },
+    {
+      "name": "extension test",
+      "cmd": "npm test --prefix pi-ext/factory-watch",
+      "kind": "test",
+      "evidence": "C:\\coding\\pi-agent-factory\\pi-ext\\factory-watch\\package.json"
+    }
+  ],
+  "invariants": [
+    {
+      "text": "The gate vocabulary is fixed: unit, sim, integration, full.",
+      "evidence": "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml"
+    },
+    {
+      "text": "Python is 3.11-3.12, ruff line-length 100, pyright standard mode.",
+      "evidence": "C:\\coding\\pi-agent-factory\\pyproject.toml"
+    },
+    {
+      "text": "The deterministic factory pipeline is documented in engineering-context plans.",
+      "evidence": "C:\\coding\\pi-agent-factory\\docs\\superpowers\\plans\\engineering-context\\00-program-architecture.md"
+    }
+  ],
+  "hashes": {
+    "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml": "a39d593b65079e95",
+    "C:\\coding\\pi-agent-factory\\README.md": "b33206436ca09839",
+    "C:\\coding\\pi-agent-factory\\docs\\superpowers\\plans\\engineering-context\\00-program-architecture.md": "98457a1a40993141",
+    "C:\\coding\\pi-agent-factory\\pi-ext\\factory-watch\\package.json": "7a3ddd42e37f4f1f",
+    "C:\\coding\\pi-agent-factory\\pyproject.toml": "2040d28586a3bce0"
+  },
+  "_source_files": [
+    "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml",
+    "C:\\coding\\pi-agent-factory\\README.md",
+    "C:\\coding\\pi-agent-factory\\docs\\superpowers\\plans\\engineering-context\\00-program-architecture.md",
+    "C:\\coding\\pi-agent-factory\\pi-ext\\factory-watch\\package.json",
+    "C:\\coding\\pi-agent-factory\\pyproject.toml"
+  ]
+}
