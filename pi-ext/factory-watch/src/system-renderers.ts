@@ -129,6 +129,17 @@ export function renderClaim(claim: any): HTMLElement {
 export function renderBrief(brief: any): void {
   const panel = document.getElementById('panelBrief') as HTMLElement;
   clear(panel);
+  // Member-of affordance (Task 8): every bundle that declares this sr:/task: as
+  // a member, so a shared requirement reads as shared on its own page. Rendered
+  // as a text node when present (multi-membership stays visible, in payload
+  // order); absent -> no node.
+  if (brief.member_of && brief.member_of.length) {
+    const member = document.createElement('div');
+    member.id = 'memberOf';
+    member.className = 'member-of';
+    member.appendChild(document.createTextNode('member of bundles: ' + brief.member_of.join(', ')));
+    panel.appendChild(member);
+  }
   if (brief.degraded) {
     const banner2 = document.createElement('div');
     banner2.className = 'degraded-banner';
