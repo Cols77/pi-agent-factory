@@ -143,7 +143,7 @@ async function loadPage(opts: { scope?: string } = {}): Promise<JSDOM> {
   if (opts.scope) {
     await vi.waitFor(
       () => {
-        expect(dom.window.document.getElementById("scopeWorkspace")?.hidden).toBe(false);
+        expect(dom.window.document.getElementById("content")?.getAttribute("aria-busy")).toBe("false");
       },
       { timeout: 2000, interval: 10 },
     );
