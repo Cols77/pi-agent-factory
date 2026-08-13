@@ -1,16 +1,37 @@
-# Increment 7 — Context Delta + Goal-aware Validation Status (Implementation Plan)
+# Increment 7 — Context Delta + Freshness Reconciliation (Implementation Plan)
 
-**Status:** Draft for written review. Assumes locked D1–D6 (SCC browser sole human surface; no Obsidian).
-**Source phase:** Engineering Context spec §37 **Phase 7 — Context Delta** and spec §28–§31.
+**Status:** Draft for written review. Assumes locked D1–D9 (SCC browser sole human surface; no Obsidian; freshness as a maintained property).
+**Source phase:** Engineering Context spec §37 **Phase 7 — Context Delta**, spec §28–§31, and HLR-09 (freshness).
 **Landing repo:** pi-agent-factory (+ optional index) + cool_physical_ai_project (checkpoints).
 **Sub-agents:** dev=`pi -p prompts/increment-07-dev.md`, review=`pi -p prompts/increment-07-review.md`.
 
 ## Goal
 
-Close the human mental-model gap the spec leads with (§1, §31): **`/catchup <feature>`**
-reports "what changed since I last reviewed this," backed by developer checkpoints, plus the
-**goal-aware requirement status** (`VALIDATED / VERIFICATION_STALE / REGRESSED`, spec §28–§30)
-and a change-impact probe for stale-evidence detection (spec §29–§30).
+Close the human mental-model gap while making **artifact freshness a maintained engineering property**.
+
+Increment 7 SHALL deliver:
+
+1. deterministic `/catchup <feature>` — what changed since the developer's last checkpoint;
+2. goal-aware requirement status;
+3. dependency-driven change-impact resolution;
+4. transitive invalidation of dependent engineering artifacts;
+5. authority-aware refresh policy;
+6. automatic restoration of safe derived/generated artifacts;
+7. automatic validation rerun where allowed and practical;
+8. routing of semantic implementation repairs through the existing DEV workflow;
+9. deterministic freshness reconciliation;
+10. feature-level **freshness closure** reporting.
+
+This increment implements HLR-09 using the existing trace, fingerprint, evidence and system-query
+substrates. It MUST NOT build an independent staleness framework.
+
+### SP-B boundary
+
+SCC SP-B is an active upstream implementation dependency.
+
+This increment MUST NOT modify SP-B-owned implementation before SP-B lands.
+Browser/UI work defined here is performed only on the landed SP-B + Inc 6 substrate.
+The domain/freshness architecture is independent of SP-B implementation details.
 
 ## Reuse (do not rebuild)
 
@@ -156,6 +177,554 @@ Metrics            reacquisition_rate 82% -> 91%
   rendering from Inc 6.
 - [ ] **Step 3:** full suite + lint + commit.
 
+## Task 5c: General artifact dependency provenance
+
+### Goal
+
+Generalise freshness from isolated code/evidence checks into explicit artifact dependencies that can
+be traversed transitively.
+
+Reuse:
+
+- `factory.trace`;
+- `factory.freshness`;
+- existing artifact fingerprints;
+- evidence reconciliation;
+- feature/bundle scope.
+
+Do not create a second graph.
+
+### Required model
+
+An artifact whose authority depends on another artifact must expose sufficient provenance to evaluate
+that dependency.
+
+Conceptual interface:
+
+```python
+@dataclass(frozen=True)
+class ArtifactDependency:
+    source_ref: str
+    dependent_ref: str
+    fingerprint: str | None
+    dependency_kind: str
+
+@dataclass(frozen=True)
+class ArtifactFreshness:
+    artifact_ref: str
+    state: FreshnessState
+    reasons: tuple[str, ...]
+```
+
+Exact model names are implementation choices.
+
+### Dependency types
+
+At minimum, the implementation must support dependencies involving:
+
+- requirement → implementation;
+- implementation → validation evidence;
+- requirement → validation evidence;
+- metric definition → evidence;
+- validation/scenario/harness → evidence;
+- requirement/implementation/ADR → generated explainer;
+- feature/requirement/goal → diagram;
+- canonical artifact → derived projection.
+
+Only declared or deterministically authoritative relations may drive freshness.
+
+### Failing tests
+
+Cover:
+
+1. SR changes → linked downstream artifact stale.
+2. Implementation changes → SR stays fresh; evidence and implementation-dependent explainer stale.
+3. Metric definition changes → old evidence stale.
+4. Validation harness changes → old evidence stale.
+5. Generator changes → generated artifact stale even if engineering inputs did not change.
+6. Missing dependency fingerprint → state degrades/unknown; never assumed fresh.
+7. Unrelated repository change → no false invalidation.
+8. Dependency propagation does not rely on LLM inference.
+
+---
+
+## Task 5d: Transitive impact resolver
+
+### Goal
+
+Compute the affected dependency closure after a repository/canonical-artifact change.
+
+Conceptual interface:
+
+```python
+@dataclass(frozen=True)
+class Impact:
+    changed: tuple[str, ...]
+    directly_affected: tuple[str, ...]
+    transitively_affected: tuple[str, ...]
+
+def compute_impact(root: Path, changed_refs: Sequence[str]) -> Impact:
+    ...
+```
+
+### Required behaviour
+
+Given:
+
+```text
+SR-017
+  ↓
+code:navigation/preemption.py
+  ↓
+evidence:EXP-004
+  ↓
+diag:DIAG-NAV-009
+  ↓
+explainer:NAV-PREEMPTION
+```
+
+a change to `SR-017` must discover every reachable dependent artifact unless an explicit dependency
+boundary applies.
+
+### Failing tests
+
+- direct dependency;
+- two-hop dependency;
+- multi-hop dependency;
+- fan-out;
+- fan-in;
+- cycle protection;
+- deleted artifact;
+- renamed artifact with changed identity;
+- no impact across unrelated feature;
+- deterministic ordering.
+
+---
+
+## Task 5e: Authority-aware refresh policy
+
+### Goal
+
+Separate "this is stale" from "what should the factory do about it."
+
+Conceptual interface:
+
+```python
+class RefreshAction(Enum):
+    RECOMPUTE = "recompute"
+    REGENERATE = "regenerate"
+    RERUN_VALIDATION = "rerun-validation"
+    ROUTE_TO_DEV = "route-to-dev"
+    REQUEST_HUMAN_ACTION = "request-human-action"
+    SUPERSEDE = "supersede"
+
+@dataclass(frozen=True)
+class RefreshDecision:
+    artifact_ref: str
+    action: RefreshAction
+    reason: str
+```
+
+### Default policy
+
+|Artifact authority class|Default action|
+|---|---|
+|authoritative BR/SR/ADR/goal/metric contract|preserve; request explicit workflow if it itself must change|
+|implementation|`ROUTE_TO_DEV` when semantically invalidated by upstream intent|
+|validation evidence|`RERUN_VALIDATION` where executable/safe, else explicit refresh required|
+|generated explainer/diagram/summary|`REGENERATE`|
+|derived query/view/index|`RECOMPUTE`|
+
+The policy must be deterministic.
+
+An LLM may perform a regeneration or implementation task after the action is selected, but it must not
+decide whether the source artifact is stale.
+
+### Resource/safety boundary
+
+Automatic work may be suppressed by configured execution policy, cost budget, unavailable hardware,
+unsafe external effects or missing environment.
+
+In such cases the state must remain explicit:
+
+```text
+REFRESH_REQUIRED
+or
+BLOCKED
+```
+
+Never silently `FRESH`.
+
+---
+
+## Task 5f: Automatic generated-artifact regeneration
+
+### Goal
+
+Safe generated engineering knowledge SHALL be refreshed automatically when its dependencies become
+stale and the generator is available.
+
+Initial required types:
+
+- traced visual explainers;
+- canonical diagrams where a deterministic/registered authoring route exists;
+- derived summaries/views.
+
+### Important supersession
+
+This task **supersedes** the earlier statement in this plan that explainer regeneration is always
+on-demand and "never auto-run."
+
+New rule:
+
+> Staleness detection is automatic. Safe regeneration is also automatic when the refresh policy
+> selects `REGENERATE` and the required generator is available.
+
+Manual regeneration remains a fallback, not the default architecture.
+
+### Explainer freshness
+
+Explainer freshness must account for the dependencies it explains, including where applicable:
+
+- linked SR content;
+- linked implementation;
+- linked ADR/design state;
+- diagram asset;
+- generator version/fingerprint.
+
+It is insufficient for a code-dependent explainer to fingerprint only the SR text.
+
+### Failing tests
+
+1. linked SR changes → explainer stale → regeneration requested/executed;
+2. linked code changes → explainer stale even when SR unchanged;
+3. unrelated code change → explainer remains fresh;
+4. regeneration success → new dependency fingerprints → fresh;
+5. regeneration failure → stale/blocked remains visible;
+6. generator fingerprint changes → explainer refreshed;
+7. historical explainer provenance remains attributable to old state.
+
+---
+
+## Task 5g: Automatic evidence refresh
+
+### Goal
+
+Where validation is executable, bounded and safe, stale evidence should be regenerated automatically.
+
+Examples:
+
+- pytest-backed acceptance;
+- simulation harness;
+- deterministic metric extraction;
+- configured bounded experiment.
+
+### Required behaviour
+
+```text
+implementation changes
+→ affected evidence stale
+→ refresh policy = RERUN_VALIDATION
+→ harness executes
+→ evidence persisted with new provenance
+→ goals/status re-evaluated
+```
+
+If validation requires unavailable hardware, expensive cloud resources, human action or unsafe
+physical execution:
+
+```text
+evidence = REFRESH_REQUIRED / BLOCKED
+```
+
+The requirement must NOT remain validated from old evidence.
+
+### Acceptance
+
+A stale evidence record remains in history but is excluded from current validation authority.
+
+---
+
+## Task 5h: Semantic implementation invalidation
+
+### Goal
+
+An upstream intent change may make implementation semantically stale even when the code itself did not
+change.
+
+Example:
+
+```text
+SR-017 semantics changed
+→ implementation previously satisfying old SR cannot be assumed current
+```
+
+The factory SHALL NOT automatically rewrite such implementation as though it were a generated document.
+
+Instead:
+
+```text
+upstream semantic change
+→ implementation impact detected
+→ ROUTE_TO_DEV
+→ controlled implementation workflow
+→ validation
+→ reconciliation
+```
+
+The resulting work item must retain the upstream cause.
+
+This is distinct from evidence staleness and must remain visible until repaired or explicitly accepted.
+
+---
+
+## Task 5i: Freshness reconciliation
+
+### Goal
+
+After refresh actions execute, recompute the dependency graph and current authority.
+
+Conceptual interface:
+
+```python
+@dataclass(frozen=True)
+class FreshnessReconciliation:
+    refreshed: tuple[str, ...]
+    still_stale: tuple[str, ...]
+    blocked: tuple[str, ...]
+    superseded: tuple[str, ...]
+    closure_reached: bool
+```
+
+The reconciler must not trust the fact that a refresh command ran.
+
+It verifies current fingerprints/provenance after the action completes.
+
+### Required invariant
+
+```text
+refresh action executed
+≠
+artifact is fresh
+```
+
+Freshness is established only after reconciliation against current dependencies.
+
+---
+
+## Task 5j: Feature freshness closure
+
+### Goal
+
+Expose whether the complete impacted feature slice is coherent again.
+
+```python
+def freshness_closure(root: Path, feature: str) -> FreshnessClosure:
+    ...
+```
+
+A feature reaches closure if every impacted reachable artifact is:
+
+- fresh;
+- explicitly superseded; or
+- intentionally unresolved with a visible reason/action.
+
+The system must distinguish:
+
+```text
+closure_reached = True
+```
+
+from:
+
+```text
+closure_reached = False
+remaining:
+  code:...      ROUTE_TO_DEV
+  evidence:...  BLOCKED: hardware unavailable
+```
+
+"Explicitly unresolved" does not mean healthy; it means there is no hidden stale state.
+
+---
+
+## Task 5k: `/catchup` freshness integration
+
+Extend `ContextDelta` to expose engineering invalidation and repair, not only repository changes.
+
+Conceptually add:
+
+```python
+invalidated: list[str]
+auto_refreshed: list[str]
+refresh_required: list[str]
+blocked_refreshes: list[str]
+freshness_closure_reached: bool
+```
+
+Example human output:
+
+```text
+Since your last review:
+
+Requirements
+  SR-017 changed
+
+Implementation
+  navigation/preemption.py updated
+
+Automatically invalidated
+  2 validation runs
+  1 diagram
+  2 visual explainers
+
+Automatically refreshed
+  validation runs
+  diagram
+  visual explainers
+
+Remaining stale
+  none
+
+Metric
+  reacquisition_rate 0.93 -> 0.96
+
+Freshness closure
+  REACHED
+```
+
+The state fields are deterministic.
+
+Narrative explanation may be generated separately but may not contradict them.
+
+---
+
+## Task 5l: Change-impact integration with V-cycle health
+
+Extend `vcycle_health` findings to include:
+
+- stale implementation relative to changed upstream intent;
+- stale validation;
+- stale generated explainer;
+- stale diagram;
+- missing provenance;
+- blocked refresh;
+- failed regeneration;
+- refresh loop detected;
+- unresolved freshness closure.
+
+The SCC/browser surface may render these findings only after SP-B + Inc 6 have landed.
+
+The Python/domain representation does not depend on browser implementation details.
+
+---
+
+## Task 5m: Refresh loop protection
+
+Automatic regeneration creates a new class of failure: refresh loops.
+
+The system must detect and stop pathological chains such as:
+
+```text
+generator writes artifact
+→ write appears as input change
+→ generator runs again
+→ ...
+```
+
+Required protections:
+
+- dependency direction is explicit;
+- generated output is not implicitly considered its own source;
+- generator writes are attributable to refresh operations;
+- repeated identical refresh attempts are bounded;
+- reconciliation compares meaningful dependency fingerprints;
+- blocked/failed refresh becomes visible rather than retrying forever.
+
+Add deterministic tests for self-cycle and two-generator cycles.
+
+---
+
+## Task 5n: Historical preservation
+
+Refreshing current engineering knowledge must not erase evidence of prior states.
+
+At minimum:
+
+- old validation retains original commit/configuration provenance;
+- superseded generated artifacts remain attributable where history storage exists;
+- `/catchup` may distinguish invalidated historical evidence from current evidence;
+- failure records and rejected hypotheses remain immutable historical knowledge.
+
+Inc 8 consumes this provenance for durable engineering memory.
+
+---
+
+## Task 5o: Thin-slice freshness acceptance — Physical Agentic AI Drone
+
+Use one navigation/pre-emption feature as the reference test.
+
+### Test A — requirement semantic change
+
+Initial:
+
+```text
+requirement      FRESH
+implementation   FRESH
+validation       FRESH
+diagram          FRESH
+explainer        FRESH
+feature closure  REACHED
+```
+
+Change requirement semantics.
+
+Assert:
+
+```text
+requirement      FRESH
+implementation   REFRESH_REQUIRED / ROUTE_TO_DEV
+validation       STALE
+diagram          STALE then regenerated
+explainer        STALE then regenerated
+feature closure  NOT REACHED
+```
+
+Complete DEV repair.
+
+Assert:
+
+```text
+implementation   FRESH
+validation       automatically rerun where configured
+goal             re-evaluated
+diagram          reconciled fresh
+explainer        reconciled fresh
+feature closure  REACHED
+```
+
+Historical pre-change evidence must still exist but must not validate current state.
+
+### Test B — implementation-only change
+
+Change the implementation without changing the SR.
+
+Assert:
+
+```text
+requirement      remains FRESH
+implementation   current
+old validation   STALE
+dependent explainer / diagram stale
+validation reruns
+generated knowledge refreshes
+requirement/goal status re-evaluates
+closure eventually REACHED
+```
+
+This test is mandatory: it proves invalidation is dependency-driven rather than special-cased around
+SR changes.
+
 ## Task 6: Optional rebuildable index
 
 - [ ] **Step 1:** measure. If `query_catchup`/`query_goal_history` on the real repo exceed a
@@ -171,14 +740,29 @@ Metrics            reacquisition_rate 82% -> 91%
 
 ## Acceptance for Increment 7
 
-- `/catchup FEAT-NAV-017` returns a deterministic, correct "since your last review" delta and
-  records the new checkpoint (spec §31).
-- Requirement status correctly reflects accumulated `VALIDATED/VERIFICATION_STALE/REGRESSED`
-  from goals + code freshness (spec §28–§30).
-- `vcycle_health` surfaces the spec §29 inconsistencies through agent + human views.
-- Optional "Verify my understanding" (D8, brief §5.5) invokes the installed comprehension skills;
-  the delta stays deterministic and the comprehension step is never scored or auto-run.
-- v1 suite green; additive only; index (if added) rebuildable (AC-10).
+Increment 7 is complete only when all of the following hold:
+
+- `/catchup FEAT-NAV-017` returns a deterministic, correct "since your last review" delta.
+- Requirement state correctly reflects goal/evidence freshness.
+- `vcycle_health` surfaces missing and inconsistent V-cycle relationships.
+- Artifact dependencies can be traversed transitively for freshness impact.
+- A requirement change invalidates all declared downstream dependent artifacts.
+- An implementation-only change invalidates evidence/generated knowledge without invalidating the
+  authoritative SR.
+- Stale evidence cannot validate current implementation.
+- Safe generated artifacts are automatically regenerated.
+- Safe executable validation is automatically rerun when configured.
+- Semantic implementation repair is routed through DEV rather than silently rewritten.
+- Refresh success is verified by reconciliation, not assumed.
+- Feature freshness closure is computed and exposed.
+- Missing provenance is degraded/unknown/stale, never silently fresh.
+- Refresh loops are bounded/detected.
+- Historical evidence remains preserved.
+- `/catchup` reports changed, invalidated, auto-refreshed, blocked and remaining stale artifacts.
+- Optional comprehension intervention remains distinct from deterministic freshness state.
+- SP-B implementation has not been modified by this increment before it lands.
+- v1 suite remains green and all new behaviour is additive to existing public contracts unless an
+  explicit compatibility decision says otherwise.
 
 ---
 
@@ -198,7 +782,15 @@ Unlike Task 5b's *optional, on-demand* `/catchup --verify-understanding`, this m
 ### B. Explainer as a traced, SR-linked artifact (additive)
 
 - New `explainer` node kind in `src/factory/trace/` (loaded from `docs/visual-explain/*.md`), with an `explains:` edge (SR-ID linked) — respecting the trace rule “declared edges only; never infer an edge.”
-- Explainer staleness couples **SR content AND the code behind it**: reuse `fingerprint_file`/`fingerprint_value`/`fingerprint_git_tree` to derive an `explainer_stale` gap, consistent with `STALE_VALIDATION`. Regeneration stays **on-demand** (mark-stale is automatic/deterministic; regeneration is an explicit step, never auto-run).
+- Explainer staleness couples the **declared engineering dependencies that make the explanation
+  authoritative**, including SR content and the relevant implementation where applicable. Reuse
+  `fingerprint_file` / `fingerprint_value` / `fingerprint_git_tree`; do not create a parallel checksum.
+- Explainer invalidation participates in the general HLR-09 dependency graph.
+- When refresh policy selects `REGENERATE`, regeneration is automatic where the registered generator
+  is available and execution is safe. Manual regeneration is a fallback.
+- Successful generation does not itself imply freshness; the regenerated artifact must be reconciled
+  against current dependencies.
+- Historical generated knowledge is retained where history/provenance storage supports it.
 - Resolution via **on-edit refresh** (no persistent daemon); surfaced through the existing widget/report, and reflected in the derived index (AC-10 rebuildable if built).
 
 ### C. Open decision — surface conflict (RESOLVED 2026-08-12)

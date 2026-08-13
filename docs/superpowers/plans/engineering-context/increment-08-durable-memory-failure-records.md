@@ -1,6 +1,6 @@
 # Increment 8 — Durable Memory & Failure Records (Implementation Plan)
 
-**Status:** Draft for written review. Assumes locked D1–D8.
+**Status:** Draft for written review. Assumes locked D1–D9.
 **Source phase:** brief §5.6 (Durable project memory) + spec §29 derived v-cycle health.
 **Landing repo:** pi-agent-factory (failure-record + memory tier) + cool_physical_ai_project
 (failure records for the reference slice).
@@ -123,6 +123,42 @@ def load_failures(root) -> dict[str, FailureRecord]
 - [ ] **Step 2:** reviewer sub-agent — compliance vs brief §5.6 (durable ≠ archive; conflict shows
   not chooses), D3 additive, and "no second source of truth". Fix findings as `T-###`.
 - [ ] **Step 3:** update checkboxes; note escalations.
+
+## Freshness/history integration
+
+Increment 8 consumes the provenance and reconciliation model established by HLR-09 / Inc 7.
+
+Durable memory must distinguish:
+
+```text
+current engineering truth
+from
+historical engineering truth
+```
+
+Examples:
+
+- a validation run may be historically valid for commit A while stale for HEAD;
+- an explainer may accurately describe the implementation at commit B while superseded by its current
+  regenerated version;
+- an ADR may be superseded but remain essential rationale history;
+- a rejected hypothesis remains valuable even though it is not current belief;
+- a regression record remains immutable after the system recovers.
+
+Memory SHOULD record meaningful freshness transitions where they carry engineering value:
+
+```text
+artifact X invalidated because dependency Y changed
+artifact X regenerated as X'
+validation E ceased proving SR-017 at commit C
+goal G regressed and later recovered
+```
+
+The durable-memory layer SHALL NOT make stale artifacts current merely because they are retrievable.
+
+Historical retrieval must surface temporal/provenance context.
+
+---
 
 ## Acceptance for Increment 8
 

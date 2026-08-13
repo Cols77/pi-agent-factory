@@ -18,6 +18,56 @@ substrate (traces, evidence, requirements, system navigator, browser projection,
 extension). v2 adds the **engineering-context / goal-driven** layer on top, reusing
 every v1 primitive that already does the job instead of rebuilding it.
 
+### 1a. Program requirements
+
+This program is governed by
+[`00-high-level-requirements.md`](./00-high-level-requirements.md).
+
+The increment plans are implementation decompositions of those high-level requirements.
+Where an increment plan and a program-level HLR conflict, the HLR is authoritative until the
+conflict is explicitly resolved through a program decision.
+
+In particular, the program now treats **artifact freshness as a maintained system property**, not
+merely stale-state detection:
+
+```text
+detect change
+→ determine impacted dependency closure
+→ invalidate dependent authority
+→ select refresh policy
+→ recompute / regenerate / rerun / route semantic repair
+→ reconcile
+→ report freshness closure
+```
+
+This does **not** mean blindly auto-editing every stale artifact.
+
+The refresh policy distinguishes:
+
+- authoritative engineering contracts;
+- implementation;
+- validation evidence;
+- generated engineering knowledge;
+- derived projections/indexes.
+
+Authoritative upstream intent is protected from silent mutation, while safely reproducible downstream
+artifacts SHOULD be restored automatically.
+
+### Concurrency constraint — SCC SP-B
+
+At the time this requirement update was authored, **SCC SP-B is already under active implementation**.
+
+Therefore:
+
+- SP-B remains an upstream frozen dependency for this change;
+- this program update does not alter SP-B's implementation contract;
+- no freshness work should modify SP-B-owned files while SP-B is in flight;
+- later Engineering Context increments consume the landed SP-B browser substrate;
+- any browser surfacing required by freshness is added after SP-B, through the already planned
+    Engineering Context UI integration.
+
+This preserves the existing SCC → Engineering Context dependency boundary.
+
 ---
 
 ## 2. What v1 already gives us (reuse map — do NOT rebuild)
@@ -56,6 +106,7 @@ non-goal below.
 | Mental-model preservation (§5.5) | **covered by existing skills** | Inc 7 `/catchup` computes the deterministic delta; the **active comprehension intervention already exists as installed PI skills** (`grill-understanding` + `visual-explainer`). The plan *references* them (D8), it does not rebuild them. |
 | Durable memory & failure records (§5.6) | **partial** → **add Inc 8** | v1 `kb/` + evidence + decision artifacts partially cover it; **pull in a compact Inc 8** for failure records + durable-memory provenance (no transcript archive). |
 | Evidence before narrative; honest incompleteness; determinism (§3, §14) | **covered** | Carried by every increment's global constraints (D3, §6 reuse rules). |
+| Automatic artifact freshness / change propagation | **partial → first-class HLR** | Existing `factory.freshness`, evidence reconciliation and explainer freshness provide detection primitives. Extend Inc 7 from stale detection to graph-based invalidation, refresh policy, automatic safe regeneration/rerun and freshness closure. See HLR-09. |
 
 **Selected explicit non-goals from the brief** (to keep the vertical slice honest):
 
@@ -68,10 +119,10 @@ non-goal below.
 ## 3b. Diagram generation (integration of `.pi/skills/diagram-design`)
 
 **Goal:** generate proper editorial diagrams (V-cycle, architecture, feature-dossier, ADR,
-goal/metric charts, `/catchup` deltas) as **canonical, committed, self-contained HTML artifacts**
-so the cockpit looks as good as it is correct. `diagram-design` is **already vendored** at
-`cool_physical_ai_project/.pi/skills/diagram-design/` (SKILL.md + 27 type references + asset gallery)
-and is available to coding agents — this increment plans the *integration*, not a rebuild.
+goal/metric charts, `/catchup` deltas) as **committed, reviewable, provenance-bearing generated
+engineering artifacts** so the cockpit looks as good as it is correct. `diagram-design` is **already
+vendored** at `cool_physical_ai_project/.pi/skills/diagram-design/` (SKILL.md + 27 type references +
+asset gallery) and is available to coding agents — this increment plans the *integration*, not a rebuild.
 
 **Design (D7 — locked):**
 
@@ -79,10 +130,12 @@ and is available to coding agents — this increment plans the *integration*, no
   `docs/diagrams/*.html` (self-contained, no build step, per diagram-design output). A diagram
   belongs to exactly one feature/ADR scope and may carry an optional `focus` (the 1–2 nodes the
   accent draws the eye to).
-- Authored **by the coding agent** via the `diagram-design` skill; `.html` is canonical and
-  reviewed like any doc. **TS never re-derives a graph** — it only links/embeds the committed
-  artifact (D7-2, consistent with "Python computes, TS renders" and the brief's "canonical repo
-  artifacts, projections are derived").
+- Authored **by the coding agent** via the `diagram-design` skill; `.html` is a committed,
+  reviewable generated projection and is reviewed like any doc. **TS never re-derives a graph** —
+  it only links/embeds the committed artifact (D7-2, consistent with "Python computes, TS renders"
+  and the brief's "canonical repo artifacts, projections are derived"). The diagram is not an
+  independent semantic source of truth; its freshness derives from the canonical engineering
+  artifacts declared in its provenance.
 - A `diag:` node is **derived from the same ontology** as the object it illustrates (the V-cycle
   query, the feature context, the goal result) so the picture never contradicts the canonical
   state; regenerate by re-running the authoring step, not by hand-editing HTML alone.
@@ -126,6 +179,7 @@ risk-triggered** — never a surveillance score.
 | **Diagram artifact generation** (`diag:`), rendered in the cockpit | `factory.trace` `diag:` kind + Inc 5 route + Inc 6 view, authored via vendored `.pi/skills/diagram-design` | Inc 1/5/6 (D7) |
 | **Comprehension intervention** (verify understanding) | reference installed `grill-understanding` + `visual-explainer` skills (D8) | n/a — exists |
 | **Failure records + durable memory** (compact) | new `factory.memory` failure-record tier + durable-memory scoping | Inc 8 |
+| **Artifact freshness graph + refresh reconciliation** | extend `factory.freshness` / trace dependency graph with impact resolution, refresh policy and closure | Inc 1 ontology + Inc 3 evidence + Inc 7 |
 
 ---
 
@@ -139,7 +193,7 @@ risk-triggered** — never a surveillance score.
 | **4** | Engineering Context agent surface | §37 Phase 4 | `get_feature_context`, `trace_requirement`, `get_goal`, `get_goal_evidence`, `get_latest_failure`, `present` via Pi extension (D1) | pi-agent-factory (pi-ext) |
 | **5** | Presentation Router | §37 Phase 5 | `present()` dispatch: browser/IDE/simulation; INSPECT/PRESENT/REVIEW policy | pi-agent-factory |
 | **6** | Human Engineering Context UI | §37 Phase 6 | extend `/system` with **Feature Dossier, Interactive V-cycle, Goal/metric status, Validation evidence, Simulation-run summaries** — additive tabs on the SCC browser (`system-page.ts`, SP-B); all Python-derived; **no Obsidian** | pi-agent-factory (browser) |
-| **7** | Context delta + validation status | §37 Phase 7 | `/catchup`, human checkpoints, goal-aware `VALIDATED`/`VERIFICATION_STALE`/`REGRESSED`, change impact | pi-agent-factory |
+| **7** | Context delta + freshness reconciliation | §37 Phase 7 + HLR-09 | `/catchup`, human checkpoints, goal-aware validation state, dependency-driven change impact, transitive staleness propagation, refresh policy, automatic safe regeneration/rerun, freshness closure | pi-agent-factory |
 | **8** | Durable memory & failure records | brief §5.6 | failure records (repro, root cause, rejected hypotheses, regression), durable decision/evidence memory w/ provenance; comprehension skill hooks (D8) | pi-agent-factory (+ product) |
 
 **Diagram generation (D7) and comprehension (D8) are woven into Inc 1/4/5/6/7**, not a separate
@@ -218,6 +272,13 @@ marked decision.
   before every commit (`uv run python -m pytest -q && uv run python -m ruff check .`).
 - Gates in `.factory/factory.yaml` use the fixed gate vocabulary (`unit|sim|integration|full`).
 - Do not auto-open UI for every lookup (spec §24): INSPECT by default.
+- **Freshness:** extend `factory.freshness`, `factory.trace` and `factory.evidence.reconcile`;
+  do not introduce a second artifact-specific checksum/freshness framework.
+- **Dependency authority:** declared trace/provenance edges determine impact. LLM semantic inference
+  may suggest missing links but cannot establish authoritative freshness dependencies by itself.
+- **Automatic remediation is policy-controlled:** deterministic projection rebuilds and safe generated
+  knowledge may refresh automatically; authoritative contracts and semantic implementation changes
+  follow their existing engineering workflows.
 
 ---
 
@@ -254,13 +315,18 @@ membership map; `feature_context` composes both.
 Adopt `DEFINED/DESIGNED/IMPLEMENTED/VERIFICATION_PENDING/PARTIALLY_VERIFIED/VALIDATED/
 REGRESSED` as an additive layer over the existing v1 validation status.
 
-### D7 — Diagram artifacts: canonical committed HTML, authored by the agent (locked)
-Diagrams are **canonical, committed, self-contained HTML artifacts** (`docs/diagrams/DIAG-*.html`,
-kind `diag:`), produced by the coding agent through the already-vendored `.pi/skills/diagram-design`
-skill, onboarded to one project palette (`style-guide.md`). Derived UI **links/embeds** these
-artifacts; it never re-derives a graph in TS (matches "Python computes, TS renders" and the brief's
-"canonical repo artifacts, projections are derived"). Woven into Inc 1/5/6/7 (vertical slice); no new
+### D7 — Diagram artifacts: committed reviewable HTML, authored by the agent (locked)
+Diagrams are **committed, reviewable, provenance-bearing generated engineering artifacts**
+(`docs/diagrams/DIAG-*.html`, kind `diag:`), produced by the coding agent through the
+already-vendored `.pi/skills/diagram-design` skill, onboarded to one project palette
+(`style-guide.md`). Derived UI **links/embeds** these artifacts; it never re-derives a graph in TS
+(matches "Python computes, TS renders" and the brief's "canonical repo
+artifacts, projections are derived"). Woven into Inc 1/5/6/7 (vertical slice); no new
 build step, no runtime diagram engine.
+
+The diagram is authoritative as the current approved/generated visual representation, but it is not
+an independent semantic source of truth. Its freshness derives from the canonical engineering
+artifacts declared in its provenance.
 
 ### D8 — Comprehension: reuse existing skills (locked)
 The active "verify the developer understands" mechanism is the installed `grill-understanding` +
@@ -268,6 +334,43 @@ The active "verify the developer understands" mechanism is the installed `grill-
 answers; triggers `/plan` on design divergence — brief §5.5). The plan **references** these from
 Inc 6/7 surfaces; it does not build a quiz engine or a mental-model score. Non-goal: surveillance-like
 scoring of the developer.
+
+### D9 — Freshness is maintained, not merely detected (locked)
+**Decision:** artifact freshness is a first-class system property governed by HLR-09.
+
+The system SHALL distinguish:
+
+```text
+change detection
+→ staleness propagation
+→ refresh policy
+→ remediation
+→ reconciliation
+→ freshness closure
+```
+
+Existing fingerprint/staleness mechanisms are reused as primitives.
+
+The implementation SHALL NOT create per-artifact freshness silos where the existing trace/freshness
+graph can represent the dependency.
+
+Refresh policy is authority-aware:
+
+|Artifact class|Default response to invalidation|
+|---|---|
+|authoritative contract|preserve; require explicit author/review change|
+|implementation|route semantic repair through engineering workflow|
+|validation evidence|rerun automatically where safe/allowed, otherwise `REFRESH_REQUIRED`|
+|generated engineering knowledge|regenerate automatically where safe|
+|derived projection/index|recompute automatically|
+
+A stale generated artifact MUST NOT remain indefinitely stale solely because regeneration was
+previously defined as manual/on-demand.
+
+Historical artifacts remain retained with their original provenance.
+
+**Concurrency:** D9 does not alter SCC SP-B. Freshness browser integration occurs only after the
+SP-B substrate has landed.
 
 ### D6 — Coordination with the System Control Center (locked)
 The **System Control Center** program (`docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md`, sub-projects SP-A→SP-B→SP-C→SP-D) is **upstream** to v2.
