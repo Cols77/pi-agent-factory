@@ -36,7 +36,7 @@ ARTIFACT_SCHEMA_CASES = [
     (
         "diag",
         "^DIAG-[A-Z0-9-]+$",
-        ["id", "title", "focus", "illustrates", "diagram_file"],
+        ["id", "kind", "title", "focus", "illustrates", "diagram_file"],
         {
             "id": "DIAG-NAV-001",
             "kind": "diag",
@@ -91,6 +91,13 @@ def test_artifact_schemas_reject_invalid_documents(kind, case, overrides):
     document = {**ARTIFACT_DOCUMENTS[kind], **overrides}
 
     assert validate(document, schema_path), case
+
+
+def test_diag_schema_requires_kind():
+    schema_path = SCHEMA_DIR / "diag.schema.json"
+    document = {key: value for key, value in ARTIFACT_DOCUMENTS["diag"].items() if key != "kind"}
+
+    assert validate(document, schema_path)
 
 
 def test_valid_manifest_passes():

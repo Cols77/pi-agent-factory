@@ -4,7 +4,7 @@
   "title": "Diagram frontmatter",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "title", "focus", "illustrates", "diagram_file"],
+  "required": ["id", "kind", "title", "focus", "illustrates", "diagram_file"],
   "properties": {
     "id": {"type": "string", "pattern": "^DIAG-[A-Z0-9-]+$"},
     "kind": {"const": "diag"},
