@@ -8,6 +8,7 @@ already owns -- existence and content come only from those loaders.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -1307,4 +1308,30 @@ def test_query_diagram_rejects_a_windows_drive_relative_declared_path(tmp_path):
         "title": "Drive-relative asset",
         "diagram_path": None,
         "errors": ["invalid diagram file path: C:outside.html"],
+    }
+
+
+@pytest.mark.parametrize("failing_name", ["diagrams", "loop.html"])
+def test_query_diagram_degrades_when_path_resolution_fails(tmp_path, monkeypatch, failing_name):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-009.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-009\nkind: diag\ntitle: Resolution failure\n"
+        "illustrates: ADR-0001\ndiagram_file: loop.html\n---\n",
+        encoding="utf-8",
+    )
+    original_resolve = Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        if path.name == failing_name:
+            raise RuntimeError("symlink loop")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+
+    assert query_diagram(tmp_path, "DIAG-NAV-009") == {
+        "id": "DIAG-NAV-009",
+        "title": "Resolution failure",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: loop.html"],
     }

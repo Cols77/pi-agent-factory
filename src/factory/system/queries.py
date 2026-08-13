@@ -202,8 +202,17 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
             "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
         }
 
-    directory = diagram.path.parent.resolve()
-    path = (directory / declared_path).resolve()
+    try:
+        directory = diagram.path.parent.resolve()
+        path = (directory / declared_path).resolve()
+    except RuntimeError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
     try:
         path.relative_to(directory)
     except ValueError:
