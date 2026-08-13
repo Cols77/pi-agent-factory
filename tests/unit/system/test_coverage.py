@@ -130,6 +130,23 @@ def test_coverage_loads_trace_nodes_once_for_multiple_sr_and_task_members(tmp_pa
     assert calls == 1
 
 
+def test_coverage_preserves_duplicate_ids_as_distinct_artifacts(tmp_path):
+    repo = _repo(tmp_path)
+    _sr(repo, "SR-001")
+    (repo / "requirements" / "SR-shadow.md").write_text(
+        "---\nid: SR-001\ntitle: shadow\nstatement: x\ndomain: behavioral\n---\n",
+        encoding="utf-8",
+    )
+    _bundle(repo, "feature", ["sr:SR-001"])
+
+    result = bundle_coverage(repo)
+
+    assert result.total == 2
+    assert result.bundled == 1
+    assert _by_kind(result, "sr").unbundled == ["sr:SR-001"]
+    assert result.unbundled == ["sr:SR-001"]
+
+
 def test_unbundled_artifacts_are_named_not_just_counted(tmp_path):
     repo = _repo(tmp_path)
     _sr(repo, "SR-001")

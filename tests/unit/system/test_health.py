@@ -129,3 +129,25 @@ def test_query_health_shares_one_lookup_between_coverage_and_ordering(tmp_path, 
 
     assert len(seen) == 2
     assert seen[0] is seen[1]
+
+
+def test_query_health_loads_trace_nodes_once_for_a_multi_member_bundle(tmp_path, monkeypatch):
+    from factory.system.ordering import FixedRecency
+
+    _write_sr(tmp_path, "SR-001", binding=True)
+    _write_sr(tmp_path, "SR-002", binding=True)
+    _write_bundle(tmp_path, "b1", ["sr:SR-001", "sr:SR-002"])
+    real_load_nodes = health.trace_model.load_nodes
+    calls = 0
+
+    def counted_load_nodes(root):
+        nonlocal calls
+        calls += 1
+        return real_load_nodes(root)
+
+    monkeypatch.setattr(health.trace_model, "load_nodes", counted_load_nodes)
+
+    payload = health.query_health(tmp_path, recency_source=FixedRecency({}))
+
+    assert [bundle["id"] for bundle in payload["bundles"]] == ["b1"]
+    assert calls == 1

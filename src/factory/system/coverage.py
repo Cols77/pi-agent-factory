@@ -51,6 +51,7 @@ class ArtifactLookup:
     """Resolved bundleable artifacts, scoped to one query request."""
 
     targets: dict[str, Path]
+    artifacts: dict[str, list[tuple[str, Path]]]
 
 
 def build_artifact_lookup(
@@ -59,17 +60,27 @@ def build_artifact_lookup(
     """Resolve every exact bundle member ref without retaining process-wide state."""
     resolved_nodes = trace_model.load_nodes(repo_root) if nodes is None else nodes
     targets: dict[str, Path] = {}
+    artifacts: dict[str, list[tuple[str, Path]]] = {kind: [] for kind in _KINDS}
     for node in resolved_nodes:
         path = node.path.resolve()
         if node.kind in ("sr", "task"):
-            targets[f"{node.kind}:{node.id}"] = path
+            ref = f"{node.kind}:{node.id}"
+            artifacts[node.kind].append((ref, path))
+            targets.setdefault(ref, path)
         elif node.kind in ("spec", "plan"):
             relative = node.path.relative_to(repo_root).as_posix()
-            targets[f"{node.kind}:{relative}"] = path
+            ref = f"{node.kind}:{relative}"
+            artifacts[node.kind].append((ref, path))
+            targets.setdefault(ref, path)
         # `br` nodes exist in trace but are not bundleable in SP-A.
     for adr_id, doc in adr_module.load_adrs(repo_root).items():
-        targets[f"adr:{adr_id}"] = doc.path.resolve()
-    return ArtifactLookup(targets=targets)
+        ref = f"adr:{adr_id}"
+        path = doc.path.resolve()
+        artifacts["adr"].append((ref, path))
+        targets.setdefault(ref, path)
+    for kind in artifacts:
+        artifacts[kind].sort(key=lambda pair: pair[0])
+    return ArtifactLookup(targets=targets, artifacts=artifacts)
 
 
 def _artifacts(
@@ -82,13 +93,7 @@ def _artifacts(
     spec/plan.
     """
     active_lookup = lookup if lookup is not None else build_artifact_lookup(repo_root)
-    found: dict[str, list[tuple[str, Path]]] = {kind: [] for kind in _KINDS}
-    for ref, path in active_lookup.targets.items():
-        kind, _, _ = ref.partition(":")
-        found[kind].append((ref, path))
-    for kind in found:
-        found[kind].sort(key=lambda pair: pair[0])
-    return found
+    return {kind: list(active_lookup.artifacts[kind]) for kind in _KINDS}
 
 
 def member_target(

@@ -93,11 +93,20 @@ def _sr_flags(
     return SrFlags(req_id, bound, covered, current, deferred, validated)
 
 
-def bundle_readiness(root: Path) -> dict[str, BundleReadinessRow]:
+def bundle_readiness(
+    root: Path,
+    *,
+    nodes: list[trace_model.Node] | None = None,
+    edges: list[trace_model.Edge] | None = None,
+    validation: dict[str, SrStatus] | None = None,
+) -> dict[str, BundleReadinessRow]:
     """Readiness per bundle id, keyed by id. Pure predicate over recorded signals."""
-    nodes = trace_model.load_nodes(root)
-    edges = trace_model.extract_edges(root, nodes)
-    validation = load_validation(root)
+    if nodes is None:
+        nodes = trace_model.load_nodes(root)
+    if edges is None:
+        edges = trace_model.extract_edges(root, nodes)
+    if validation is None:
+        validation = load_validation(root)
     gaps = gaps_module.find_gaps(nodes, edges, validation)
     sr_gaps: dict[str, list[gaps_module.Gap]] = {}
     for g in gaps:
@@ -157,7 +166,7 @@ def query_health(root: Path, recency_source=None) -> dict:
     cov = bundle_coverage(root, lookup=lookup)
     git = recency_source if recency_source is not None else GitRecency()
     order, ordering_available = ordered_bundle_ids(root, git, lookup=lookup)
-    rows = bundle_readiness(root)
+    rows = bundle_readiness(root, nodes=nodes, edges=edges, validation=validation)
     degraded: list[str] = []
     if not ordering_available:
         degraded.append("git unavailable: bundle ordering fell back to id ascending")
