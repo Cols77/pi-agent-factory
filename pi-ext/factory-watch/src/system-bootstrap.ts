@@ -55,11 +55,12 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   // Task B (system nav): the SR refs the current scope resolves to, the lazy
-  // trace cache, and the full scope list captured for client-side filtering.
+  // trace cache, and (SP-B Task 7) the health-payload bundles the sidebar
+  // renders, captured for search's exact bundle-id/label match.
   let scopeSrRefs: string[] = [];
   let traceLoaded = false;
   let traceData: any = null;
-  let scopeListData: any[] = [];
+  let healthBundles: any[] = [];
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
   let currentScope: string | null = null;
@@ -88,99 +89,191 @@ export async function systemBootstrap(): Promise<void> {
     return '/system?scope=' + encodeURIComponent(ref);
   }
 
-  function renderScopeList(data: any): void {
+  // SP-B Task 7: the feature-first sidebar. Python's `health` projection owns
+  // bundle order, readiness, and counts; this only groups the rendered rows
+  // under Weak/Medium/Strong headers (payload order within each group -- never
+  // a client-side sort), with Weak expanded by default and Medium/Strong
+  // collapsed but count-bearing, then the unbundled remainder at the bottom,
+  // visible. Every readiness label sits beside the counts that produced it.
+  function countsText(counts: any): string {
+    const parts: string[] = [];
+    if (counts && counts.sr_total !== undefined) {
+      parts.push(String(counts.sr_total) + ' SR');
+    }
+    ['bound', 'covered', 'current', 'deferred', 'validated'].forEach((key: string) => {
+      if (counts && counts[key] !== undefined) parts.push(String(counts[key]) + ' ' + key);
+    });
+    return parts.join(' · ');
+  }
+
+  function renderFeatureSidebar(payload: any): void {
     const list = document.getElementById('scopeList') as HTMLElement;
     clear(list);
-    scopeListData = [];
-    if (!data.scopes.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty';
-      empty.appendChild(document.createTextNode('No scopes declared in this repository yet.'));
-      list.appendChild(empty);
-    } else {
-      let lastKind: string | null = null;
-      data.scopes.forEach((scope: any) => {
-        scopeListData.push({ kind: scope.kind, ref: scope.ref });
-        if (scope.kind !== lastKind) {
-          const title = document.createElement('div');
-          title.className = 'scope-group-title';
-          title.appendChild(document.createTextNode(scope.kind));
-          list.appendChild(title);
-          lastKind = scope.kind;
-        }
+    healthBundles = [];
+    const bundles = payload.bundles || [];
+    const groups: Record<string, any[]> = { weak: [], medium: [], strong: [] };
+    bundles.forEach((b: any) => {
+      healthBundles.push({ id: b.id, label: b.label });
+      const bucket = groups[b.readiness];
+      if (bucket) bucket.push(b);
+    });
+    ['weak', 'medium', 'strong'].forEach((readiness: string) => {
+      const rows = groups[readiness] || [];
+      if (!rows.length) return;
+      const expanded = readiness === 'weak';
+      const group = document.createElement('div');
+      group.className = 'scope-group';
+      group.dataset.readiness = readiness;
+      group.dataset.expanded = String(expanded);
+      const title = document.createElement('div');
+      title.className = 'scope-group-title';
+      title.setAttribute('role', 'button');
+      title.setAttribute('tabindex', '0');
+      title.setAttribute('aria-expanded', String(expanded));
+      title.appendChild(document.createTextNode(readiness.charAt(0).toUpperCase() + readiness.slice(1)));
+      const groupCount = document.createElement('span');
+      groupCount.className = 'readiness-counts';
+      groupCount.appendChild(document.createTextNode('· ' + rows.length));
+      title.appendChild(groupCount);
+      group.appendChild(title);
+      const rowEls: HTMLElement[] = [];
+      rows.forEach((b: any) => {
         const row = document.createElement('div');
         row.className = 'scope-row';
-        const chip = document.createElement('span');
-        chip.className = 'scope-kind';
-        chip.appendChild(document.createTextNode(scope.kind));
-        row.appendChild(chip);
         const a = document.createElement('a');
         a.className = 'scope-item';
-        a.dataset.kind = scope.kind;
-        a.href = scopeHref(scope.ref);
-        a.appendChild(document.createTextNode(scope.ref));
-        // Stay in the SPA: clicking loads the scope in place (which also
-        // pushState's the URL) instead of a full page reload.
+        a.dataset.kind = 'bundle';
+        a.href = scopeHref('bundle:' + b.id);
+        a.appendChild(document.createTextNode(b.label || b.id));
+        // The readiness counts sit on the same line as the label -- the label
+        // never renders alone.
+        const counts = document.createElement('span');
+        counts.className = 'readiness-counts';
+        counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+        a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
-          loadScope(scope.ref);
+          loadScope('bundle:' + b.id);
         });
         row.appendChild(a);
-        list.appendChild(row);
+        group.appendChild(row);
+        rowEls.push(row);
       });
-    }
-    const errors = document.getElementById('scopeErrors') as HTMLElement;
-    clear(errors);
-    (data.errors || []).forEach((err: any) => {
-      const p = document.createElement('p');
-      p.className = 'scope-error';
-      p.appendChild(document.createTextNode(
-        'bundle load failed: ' + err.bundle_id + ' (' + err.path + '): ' + err.error
-      ));
-      errors.appendChild(p);
-    });
-  }
-
-  async function loadScopes(): Promise<void> {
-    try {
-      const res = await fetch('/api/system/scope');
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showBanner('could not load declared scopes: ' + (body.error || res.status));
-        return;
+      if (!expanded) {
+        rowEls.forEach((row: HTMLElement) => { row.style.display = 'none'; });
       }
-      renderScopeList(await res.json());
-    } catch (err) {
-      showBanner('could not load declared scopes: ' + String(err));
+      title.addEventListener('click', () => {
+        const nowExpanded = group.dataset.expanded !== 'true';
+        group.dataset.expanded = String(nowExpanded);
+        title.setAttribute('aria-expanded', String(nowExpanded));
+        rowEls.forEach((row: HTMLElement) => { row.style.display = nowExpanded ? '' : 'none'; });
+      });
+      list.appendChild(group);
+    });
+    // The unbundled remainder: exactly the artifacts unreachable by browsing.
+    // Shown, never hidden -- it is the reason the coverage gate exists.
+    const unbundled = payload.unbundled || {};
+    const unbundledRefs: string[] = [];
+    Object.keys(unbundled).forEach((kind: string) => {
+      (unbundled[kind] || []).forEach((ref: string) => unbundledRefs.push(ref));
+    });
+    if (unbundledRefs.length) {
+      const group = document.createElement('div');
+      group.className = 'scope-group';
+      group.dataset.group = 'unbundled';
+      group.dataset.expanded = 'true';
+      const title = document.createElement('div');
+      title.className = 'scope-group-title';
+      title.appendChild(document.createTextNode('Unbundled'));
+      group.appendChild(title);
+      unbundledRefs.forEach((ref: string) => {
+        const row = document.createElement('div');
+        row.className = 'scope-row';
+        const a = document.createElement('a');
+        a.className = 'scope-item';
+        a.href = scopeHref(ref);
+        a.appendChild(document.createTextNode(ref));
+        a.addEventListener('click', (clickEvent: Event) => {
+          clickEvent.preventDefault();
+          loadScope(ref);
+        });
+        row.appendChild(a);
+        group.appendChild(row);
+      });
+      list.appendChild(group);
     }
   }
 
-  // The search input filters the rendered list in place (visibility only, never
-  // reorder). Group titles hide when every scope in their group is filtered out.
+  // Search filters the rendered sidebar in place (visibility only, never
+  // reorder): a typed query reveals matching rows in any group (search is the
+  // primary control), hides non-matching rows, and hides groups with no match.
+  // With an empty query the groups go back to their disclosure state.
   const scopeFilter = document.getElementById('scopeFilter') as HTMLInputElement;
   const scopeList = document.getElementById('scopeList') as HTMLElement;
   const scopeToggle = document.getElementById('scopeToggle') as HTMLElement;
 
   function applyScopeFilter(): void {
     const q = scopeFilter.value.trim().toLowerCase();
-    scopeList.querySelectorAll('.scope-row').forEach((row: Element) => {
-      const item = row.querySelector('.scope-item') as HTMLElement;
-      const matches = !q ||
-        item.textContent.toLowerCase().includes(q) ||
-        (item.dataset.kind || '').toLowerCase().includes(q);
-      (row as HTMLElement).style.display = matches ? '' : 'none';
-    });
-    scopeList.querySelectorAll('.scope-group-title').forEach((title: Element) => {
-      let sibling = title.nextElementSibling;
+    scopeList.querySelectorAll('.scope-group').forEach((group: Element) => {
+      const expanded = (group as HTMLElement).dataset.expanded === 'true';
       let anyVisible = false;
-      while (sibling && !sibling.classList.contains('scope-group-title')) {
-        if ((sibling as HTMLElement).style.display !== 'none') { anyVisible = true; break; }
-        sibling = sibling.nextElementSibling;
-      }
-      (title as HTMLElement).style.display = anyVisible ? '' : 'none';
+      group.querySelectorAll('.scope-row').forEach((row: Element) => {
+        const matches = !q || !!(row.textContent && row.textContent.toLowerCase().includes(q));
+        const show = q ? matches : expanded;
+        (row as HTMLElement).style.display = show ? '' : 'none';
+        if (show) anyVisible = true;
+      });
+      (group as HTMLElement).style.display = q ? (anyVisible ? '' : 'none') : '';
     });
   }
   scopeFilter.addEventListener('input', applyScopeFilter);
+
+  // SP-B Task 7: the Go button resolves the search term to a scope and opens
+  // it. Resolution is exact/case-sensitive, matching `parse_scope_ref`: a
+  // bundle id/label match opens that bundle straight from the payload (a
+  // filter over the payload, no matching logic of its own); a bare artifact
+  // id gets the right kind prefix (`SR-137` -> `sr:SR-137`); a typed
+  // `kind:ref` is posted verbatim. No fuzzy matching.
+  async function resolveScopeRef(ref: string): Promise<any | null> {
+    try {
+      const res = await fetch(ref);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showBanner('could not resolve ' + ref + ': ' + (body.error || res.status));
+        return null;
+      }
+      const result = await res.json();
+      const scope = result && result.scope;
+      if (!scope || !scope.ref) {
+        showBanner('could not resolve ' + ref + ': no scope returned');
+        return null;
+      }
+      return scope;
+    } catch (err) {
+      showBanner('could not resolve ' + ref + ': ' + String(err));
+      return null;
+    }
+  }
+
+  async function searchGo(): Promise<void> {
+    const q = scopeFilter.value.trim();
+    if (!q) return;
+    // A bundle id/label match in the health payload opens that bundle (the
+    // payload is the only matching surface the browser is allowed to filter).
+    const bundle = healthBundles.find((b) => b.id === q || b.label === q);
+    if (bundle) {
+      await loadScope('bundle:' + bundle.id);
+      return;
+    }
+    // Otherwise the term is an artifact ref: a bare id gets its kind prefix,
+    // a typed ref is posted verbatim -- both as the exact ref.
+    const ref = q.indexOf(':') !== -1 ? q : 'sr:' + q;
+    const scope = await resolveScopeRef(ref);
+    if (scope) await loadScope(scope.ref);
+  }
+  (document.getElementById('searchGo') as HTMLElement).onclick = () => {
+    searchGo();
+  };
 
   // The toggle re-opens the collapsed list (removes body.focus).
   if (scopeToggle) {
@@ -443,13 +536,16 @@ export async function systemBootstrap(): Promise<void> {
       const payload = await res.json();
       renderHealthSummary(payload);
       renderBundleList(payload);
+      renderFeatureSidebar(payload);
     } catch (err) {
       showBanner('could not load project health: ' + String(err));
     }
   }
 
-  // Boot sequence.
-  await loadScopes();
+  // Boot sequence: the landing page opens on the health projection (summary,
+  // bundle list, feature-first sidebar); scope choice navigates into focus
+  // mode. The sidebar renders from the health payload -- `list_scopes` is no
+  // longer fetched by the client.
   setPickerClass(false);
   await loadHealth();
   const requestedScope = new URLSearchParams(window.location.search).get('scope');

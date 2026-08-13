@@ -106,8 +106,13 @@ export function renderSystemPageHtml(): string {
   #layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 60px); }
   #picker { border-right: 1px solid var(--line); overflow: auto; padding: 10px 14px 24px; }
   #picker h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 0 0 6px; }
-  #scopeFilter { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: Canvas; color: inherit; margin-bottom: 6px; }
+  #scopeFilter { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: Canvas; color: inherit; }
+  .search-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .search-row #scopeFilter { flex: 1; margin-bottom: 0; }
+  #searchGo { font: inherit; padding: 2px 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
+  .search-row #searchGo { margin-bottom: 0; }
   .scope-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 10px 0 2px; }
+  .scope-group-title[role="button"] { cursor: pointer; user-select: none; display: inline-flex; gap: 4px; align-items: baseline; }
   .scope-row { display: flex; align-items: center; }
   .scope-item { display: block; flex: 1; padding: 3px 8px; border: none; border-radius: 3px; margin: 1px 0; text-decoration: none; color: inherit; font: inherit; text-align: left; width: 100%; }
   .scope-item:hover, .scope-item:focus-visible { background: var(--hover); outline: 2px solid currentColor; outline-offset: 1px; }
@@ -177,7 +182,10 @@ export function renderSystemPageHtml(): string {
       <h2>Declared scopes</h2>
       <button id="scopeToggle" aria-expanded="false">All scopes ▾</button>
       <nav aria-label="Scopes">
-        <input id="scopeFilter" type="search" placeholder="Filter scopes…" aria-label="Filter scopes" />
+        <div class="search-row">
+          <input id="scopeFilter" type="search" placeholder="Search bundles or a ref…" aria-label="Filter scopes" />
+          <button id="searchGo" type="button">Go</button>
+        </div>
         <div id="scopeList"></div>
         <div id="scopeErrors"></div>
       </nav>

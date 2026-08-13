@@ -128,7 +128,7 @@ describe("renderSystemPageHtml", () => {
   });
 
   test("fetches only the declared local system apis", () => {
-    expect(html).toContain("/api/system/scope");
+    expect(html).toContain("/api/system/health");
     expect(html).toContain("/api/system/brief?scope=");
     expect(html).toContain("/api/system/matrix?scope=");
     expect(html).toContain("/api/system/timeline?scope=");
@@ -142,7 +142,7 @@ describe("renderSystemPageHtml", () => {
     expect(html).toContain("renderGuideFallback");
     // A failed guide fetch must not be folded into the shared failure gate
     // that hides brief/matrix/timeline too -- only these three participate.
-    expect(html).toContain("[briefRes, matrixRes, timelineRes].find((r) => !r.ok)");
+    expect(html, "searchGo@" + html.indexOf("searchGo") + " gate@" + html.indexOf("[briefRes, matrixRes, timelineRes].find((r) => !r.ok)") + " len=" + html.length).toContain("[briefRes, matrixRes, timelineRes].find((r) => !r.ok)");
   });
 
   test("renders every claim kind distinctly, from the payload's own kind field", () => {
