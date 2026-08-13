@@ -95,6 +95,7 @@ The spec originally proposed the policy live in `project-profile.json`. **Deviat
 |---|---|---|---|
 | `memory` | `session-memory.json` | `/remember` continuity rollup (TTL/supersede/cap) | none |
 | `head` | `git rev-parse` + `git log` | branch, short HEAD, last N one-line commits | one fast subprocess |
+| `trace_health` *(opt-in)* | `factory.trace check` | open/deferred/exempt gap counts + gate pass/fail | spawns the Python CLI; guarded to skip non-factory repos |
 
 The hook **must stay deterministic, fast and non-interactive** — interactivity lives in `/factory-context` (show policy, toggle feeds via `select`), which writes the policy the hook reads. Omitted feeds mean "not injected — query on demand". `/remember` warns when the `memory` feed is off.
 

@@ -7,7 +7,10 @@
 // stall it — an error means "skip this feed this turn", never an exception.
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { buildMemoryRollup, readMemory, type MemoryConfig } from "./session-memory.js";
+import { runTraceCheck } from "./trace-cli.js";
 
 /** git branch + HEAD + last N one-line commits. Deterministic and quick. */
 export function headFeed(root: string, maxCommits: number, now: string): string | null {
@@ -39,6 +42,28 @@ export function memoryFeed(root: string, cfg: MemoryConfig, now: string): string
   return buildMemoryRollup(readMemory(root), now, cfg);
 }
 
+const FACTORY_MARKERS = [".factory/factory.yaml", "requirements"];
+
+/**
+ * trace_health feed: open traceability gap counts (opt-in; the slowest feed).
+ * Guards on the repo looking like a factory target FIRST so a non-factory repo
+ * (and a unit-test temp dir) skips without ever spawning the Python CLI.
+ */
+export function traceHealthFeed(root: string, now: string): string | null {
+  const looksLike = FACTORY_MARKERS.some((m) => existsSync(join(root, m)));
+  if (!looksLike) return null;
+  try {
+    const check = runTraceCheck(root);
+    return [
+      `# Trace health (as of ${now.slice(0, 16).replace("T", " ")})`,
+      `open gaps: ${check.pending} · deferred: ${check.deferred} · exempt: ${check.exempt} · gate: ${check.ok ? "passes" : "FAILS"}`,
+      "(drill down via /trace-fix or /system)",
+    ].join("\n");
+  } catch {
+    return null; // Python CLI unavailable -> skip the feed this turn
+  }
+}
+
 export interface ComposedContext {
   markdown: string | null;
   included: string[]; // which feeds actually produced content
@@ -65,6 +90,7 @@ export function composeContext(
     let block: string | null = null;
     if (feed === "head") block = headFeed(root, maxCommits, now);
     else if (feed === "memory") block = memoryFeed(root, memoryCfg, now);
+    else if (feed === "trace_health") block = traceHealthFeed(root, now);
     if (block) {
       parts.push(block);
       included.push(feed);

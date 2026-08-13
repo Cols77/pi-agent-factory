@@ -74,11 +74,11 @@ describe("session-feeds", () => {
   });
 
   test("composeContext assembles only enabled feeds and skips empty ones", () => {
-    const root = makeDir(); // non-git, no memory store
-    const all = composeContext(root, ["memory", "head"], DEFAULT_CONTEXT.memory, 5, "2026-08-14T10:00:00.000Z");
-    // neither feed produces content here => nothing to inject
+    const root = makeDir(); // non-git, no memory store, no factory markers
+    const all = composeContext(root, ["memory", "head", "trace_health"], DEFAULT_CONTEXT.memory, 5, "2026-08-14T10:00:00.000Z");
+    // no feed produces content (trace_health guard skips an unmarked repo) => no injection
     expect(all.markdown).toBeNull();
-    expect(all.skipped.sort()).toEqual(["head", "memory"]);
+    expect(all.skipped.sort()).toEqual(["head", "memory", "trace_health"]);
   });
 
   test("composeContext includes a memory note when present and head is off", () => {
