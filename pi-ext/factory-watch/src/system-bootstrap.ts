@@ -169,10 +169,9 @@ export async function systemBootstrap(): Promise<void> {
       group.className = 'scope-group';
       group.dataset.readiness = readiness;
       group.dataset.expanded = String(expanded);
-      const title = document.createElement('div');
+      const title = document.createElement('button');
+      title.type = 'button';
       title.className = 'scope-group-title';
-      title.setAttribute('role', 'button');
-      title.setAttribute('tabindex', '0');
       title.setAttribute('aria-expanded', String(expanded));
       title.appendChild(document.createTextNode(readiness.charAt(0).toUpperCase() + readiness.slice(1)));
       const groupCount = document.createElement('span');
@@ -226,10 +225,13 @@ export async function systemBootstrap(): Promise<void> {
       group.className = 'scope-group';
       group.dataset.group = 'unbundled';
       group.dataset.expanded = 'true';
-      const title = document.createElement('div');
+      const title = document.createElement('button');
+      title.type = 'button';
       title.className = 'scope-group-title';
+      title.setAttribute('aria-expanded', 'true');
       title.appendChild(document.createTextNode('Unbundled'));
       group.appendChild(title);
+      const rowEls: HTMLElement[] = [];
       unbundledRefs.forEach((ref: string) => {
         const row = document.createElement('div');
         row.className = 'scope-row';
@@ -243,6 +245,13 @@ export async function systemBootstrap(): Promise<void> {
         });
         row.appendChild(a);
         group.appendChild(row);
+        rowEls.push(row);
+      });
+      title.addEventListener('click', () => {
+        const nowExpanded = group.dataset.expanded !== 'true';
+        group.dataset.expanded = String(nowExpanded);
+        title.setAttribute('aria-expanded', String(nowExpanded));
+        rowEls.forEach((row: HTMLElement) => { row.style.display = nowExpanded ? '' : 'none'; });
       });
       list.appendChild(group);
     }
@@ -278,27 +287,6 @@ export async function systemBootstrap(): Promise<void> {
   // filter over the payload, no matching logic of its own); a bare artifact
   // id gets the right kind prefix (`SR-137` -> `sr:SR-137`); a typed
   // `kind:ref` is posted verbatim. No fuzzy matching.
-  async function resolveScopeRef(ref: string): Promise<any | null> {
-    try {
-      const res = await fetch(ref);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showBanner('could not resolve ' + ref + ': ' + (body.error || res.status));
-        return null;
-      }
-      const result = await res.json();
-      const scope = result && result.scope;
-      if (!scope || !scope.ref) {
-        showBanner('could not resolve ' + ref + ': no scope returned');
-        return null;
-      }
-      return scope;
-    } catch (err) {
-      showBanner('could not resolve ' + ref + ': ' + String(err));
-      return null;
-    }
-  }
-
   async function searchGo(): Promise<void> {
     const q = scopeFilter.value.trim();
     if (!q) return;
@@ -312,22 +300,55 @@ export async function systemBootstrap(): Promise<void> {
     // Otherwise the term is an artifact ref: a bare id gets its kind prefix,
     // a typed ref is posted verbatim -- both as the exact ref.
     const ref = q.indexOf(':') !== -1 ? q : 'sr:' + q;
-    const scope = await resolveScopeRef(ref);
-    if (scope) await loadScope(scope.ref);
+    await loadScope(ref);
   }
   (document.getElementById('searchGo') as HTMLElement).onclick = () => {
     searchGo();
   };
+  scopeFilter.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void searchGo();
+  });
 
   // The toggle re-opens the collapsed list (removes body.focus).
   if (scopeToggle) {
     scopeToggle.addEventListener('click', () => setPickerClass(false));
   }
 
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
+  const TABS_BY_KIND: Record<string, string[]> = {
+    bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    sr: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    task: ['Story'],
+    file: ['Reverse'],
+  };
+
+  function configureTabs(kind: string): void {
+    const available = TABS_BY_KIND[kind] || TABS_BY_KIND.bundle!;
+    TAB_ORDER.forEach((name: string) => {
+      const tab = document.getElementById('tab' + name) as HTMLElement;
+      const panel = document.getElementById('panel' + name) as HTMLElement;
+      const included = available.includes(name);
+      tab.hidden = !included;
+      tab.setAttribute('aria-hidden', String(!included));
+      if (!included) {
+        tab.setAttribute('aria-selected', 'false');
+        tab.setAttribute('tabindex', '-1');
+        panel.hidden = true;
+      }
+    });
+  }
+
   function showTab(name: string): void {
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'].forEach((tab) => {
-      (document.getElementById('tab' + tab) as HTMLElement).setAttribute('aria-selected', String(tab === name));
-      (document.getElementById('panel' + tab) as HTMLElement).hidden = tab !== name;
+    const selected = document.getElementById('tab' + name) as HTMLElement | null;
+    if (!selected || selected.hidden) return;
+    TAB_ORDER.forEach((tab) => {
+      const tabNode = document.getElementById('tab' + tab) as HTMLElement;
+      const active = tab === name && !tabNode.hidden;
+      tabNode.setAttribute('aria-selected', String(active));
+      tabNode.setAttribute('tabindex', active ? '0' : '-1');
+      (document.getElementById('panel' + tab) as HTMLElement).hidden = !active;
     });
     // Keep the active tab in the URL hash (replaceState, not pushState, so tab
     // switching does not pad the back-stack).
@@ -343,7 +364,9 @@ export async function systemBootstrap(): Promise<void> {
   function selectInitialTab(kindDefault: string): void {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
     const names: Record<string, string> = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
-    showTab(names[hash] || kindDefault);
+    const requested = names[hash];
+    const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
+    showTab(requestedTab && !requestedTab.hidden ? requested! : kindDefault);
   }
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
@@ -358,18 +381,40 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('refresh') as HTMLElement).onclick = () => { if (currentScope) loadScope(currentScope); };
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]!);
       e.preventDefault();
       return;
     }
+    const tabTarget = e.target instanceof HTMLElement ? e.target.closest('.tab') as HTMLElement | null : null;
+    if (tabTarget && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+      const visibleTabs = TAB_ORDER
+        .map((name) => document.getElementById('tab' + name) as HTMLElement)
+        .filter((tab) => !tab.hidden);
+      const current = visibleTabs.indexOf(tabTarget);
+      if (current === -1 || !visibleTabs.length) return;
+      e.preventDefault();
+      let nextIndex = current;
+      if (e.key === 'Home') nextIndex = 0;
+      else if (e.key === 'End') nextIndex = visibleTabs.length - 1;
+      else nextIndex = (current + (e.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length;
+      const next = visibleTabs[nextIndex]!;
+      next.focus();
+      showTab(next.getAttribute('aria-label') || next.textContent || '');
+      return;
+    }
     const el = (e.target instanceof HTMLElement && e.target.closest('.scope-item')) ? e.target : null;
     if (el && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       const items = Array.from(scopeList.querySelectorAll('.scope-item'))
-        .filter((item) => (item as HTMLElement).style.display !== 'none');
+        .filter((item) => {
+          const node = item as HTMLElement;
+          const row = node.closest('.scope-row') as HTMLElement | null;
+          const group = node.closest('.scope-group') as HTMLElement | null;
+          return !node.hidden && node.style.display !== 'none' &&
+            row?.style.display !== 'none' && group?.style.display !== 'none';
+        });
       const idx = items.indexOf(el);
       if (idx === -1) return;
       const delta = e.key === 'ArrowDown' ? 1 : -1;
@@ -403,6 +448,7 @@ export async function systemBootstrap(): Promise<void> {
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
+    configureTabs('task');
     selectInitialTab('Story');
     setLoading(false, true);
   }
@@ -425,6 +471,7 @@ export async function systemBootstrap(): Promise<void> {
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
+    configureTabs('file');
     selectInitialTab('Reverse');
     setLoading(false, true);
   }
@@ -487,6 +534,7 @@ export async function systemBootstrap(): Promise<void> {
     } catch {
       /* traversal is best-effort; failure degrades only its own node */
     }
+    configureTabs(scopeKind(scopeRef));
     selectInitialTab('Brief');
     setLoading(false, true);
   }

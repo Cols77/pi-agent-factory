@@ -143,7 +143,7 @@ async function loadPage(opts: { scope?: string } = {}): Promise<JSDOM> {
   if (opts.scope) {
     await vi.waitFor(
       () => {
-        expect(dom.window.document.getElementById("content")?.hidden).toBe(false);
+        expect(dom.window.document.getElementById("scopeWorkspace")?.hidden).toBe(false);
       },
       { timeout: 2000, interval: 10 },
     );
@@ -158,6 +158,9 @@ afterEach(() => {
 describe("system-page.ts V-cycle panels, executed against a real DOM", () => {
   test("a session-sourced run is visibly distinguished from a manifest run", async () => {
     const dom = await loadPage({ scope: "task:T-055" });
+    expect(dom.window.document.getElementById("tabStory")?.hidden).toBe(false);
+    expect(dom.window.document.getElementById("tabBrief")?.hidden).toBe(true);
+    expect(dom.window.document.getElementById("tabReverse")?.hidden).toBe(true);
     const rows = dom.window.document.querySelectorAll("#panelStory .run");
     expect(rows.length).toBe(2);
     expect(rows[0]?.querySelector(".source")?.textContent).toBe("manifest");
@@ -168,6 +171,8 @@ describe("system-page.ts V-cycle panels, executed against a real DOM", () => {
 
   test("a reverse path that stops early names the hop it stopped at", async () => {
     const dom = await loadPage({ scope: "file:src/a.py" });
+    expect(dom.window.document.getElementById("tabReverse")?.hidden).toBe(false);
+    expect(dom.window.document.getElementById("tabStory")?.hidden).toBe(true);
     const path = dom.window.document.querySelector("#panelReverse .path");
     expect(path?.textContent).toContain("satisfies");
   });

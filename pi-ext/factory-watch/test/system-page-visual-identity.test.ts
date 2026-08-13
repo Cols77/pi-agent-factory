@@ -108,6 +108,7 @@ describe("system navigator landing and focus modes", () => {
     expect(feature?.textContent).toContain("15 artifacts");
     expect(feature?.textContent).toContain("15 SR");
     expect(feature?.textContent).toContain("weak");
+    expect(doc.querySelector(".scope-group-title")?.tagName).toBe("BUTTON");
 
     (feature as HTMLElement).click();
     await vi.waitFor(() => expect(doc.querySelector("#scopeWorkspace")?.hasAttribute("hidden")).toBe(false));
@@ -115,6 +116,24 @@ describe("system navigator landing and focus modes", () => {
     expect(feature?.getAttribute("aria-current")).toBe("page");
     expect(doc.querySelector("#scopeHeader")?.textContent).toBe("Deterministic safety governor");
     expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:safety-governor");
+    expect((doc.querySelector("#tabBrief") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#tabMatrix") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#tabStory") as HTMLElement).hidden).toBe(true);
+    expect((doc.querySelector("#tabReverse") as HTMLElement).hidden).toBe(true);
+
+    const brief = doc.querySelector("#tabBrief") as HTMLElement;
+    const matrix = doc.querySelector("#tabMatrix") as HTMLElement;
+    brief.focus();
+    brief.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(doc.activeElement).toBe(matrix);
+    expect(matrix.getAttribute("aria-selected")).toBe("true");
+    expect(matrix.getAttribute("tabindex")).toBe("0");
+    expect(brief.getAttribute("tabindex")).toBe("-1");
+
+    matrix.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(doc.activeElement).toBe(doc.querySelector("#tabTrace"));
+    (doc.activeElement as HTMLElement).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(doc.activeElement).toBe(brief);
   });
 
   it("keeps the landing available and retries a failed health scan", async () => {
@@ -139,5 +158,29 @@ describe("system navigator landing and focus modes", () => {
     await vi.waitFor(() => expect(doc.querySelector("#healthStatus")?.hasAttribute("hidden")).toBe(true));
     expect(retry.hidden).toBe(true);
     expect(healthAttempts).toBe(2);
+  });
+
+  it("routes an exact ref through the scope API without fetching a bare ref URL", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn((input: string | URL) => {
+      calls.push(String(input));
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        const scope = { kind: "sr", ref: "sr:SR-137" };
+        return jsonResponse({ scope, claims: [], rows: [], events: [], sections: [], degraded: false, degraded_reasons: [] });
+      }
+      if (String(input) === "sr:SR-137") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-137" } });
+      return Promise.reject(new Error(`unmocked fetch: ${String(input)}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelectorAll(".health-metric")).toHaveLength(5));
+
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "SR-137";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(calls).toContain("/api/system/brief?scope=sr%3ASR-137"));
+    expect(calls).not.toContain("sr:SR-137");
   });
 });
