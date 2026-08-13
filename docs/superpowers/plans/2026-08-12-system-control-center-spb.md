@@ -760,7 +760,7 @@ test("requirement brief lists its member bundles", async () => {
 
 Reuse the existing trace/reverse graph — do not add a parser.
 
-- [ ] **Step 1: Failing test (Python)** — a new `query_traversal(root, scope)` returns the
+- [x] **Step 1: Failing test (Python)** — a new `query_traversal(root, scope)` returns the
   core chain for a requirement:
 
 ```python
@@ -775,14 +775,14 @@ def test_traversal_chain(tmp_path):
     assert isinstance(trav["design"], list)
 ```
 
-- [ ] **Step 2: Run to verify it fails**.
-- [ ] **Step 3: Implement** — `queries.query_traversal(repo_root, scope)` walks the graph:
+- [x] **Step 2: Run to verify it fails**.
+- [x] **Step 3: Implement** — `queries.query_traversal(repo_root, scope)` walks the graph:
   from an `sr:` anchor, `satisfies`-in edges to tasks; from each task its `source_plan`
   to plans, the plan's `spec_ref` to a spec, and any `adr:`/design node the plan or task
   references; changed files from the reverse walk on the satisfying task. Return a plain
   dict: `{requirement, tasks, design, files}`. All values from the real graph — no
   synthesis, no invented paths.
-- [ ] **Step 4: Failing test (browser)** — the bundle/scope summary renders the chain as a
+- [x] **Step 4: Failing test (browser)** — the bundle/scope summary renders the chain as a
   linked path:
 
 ```ts
@@ -806,11 +806,11 @@ test("traversal path renders requirement -> tasks -> design -> files", async () 
 });
 ```
 
-- [ ] **Step 5: Implement** — `system-bootstrap.ts` renders `#traversalPath` for an
+- [x] **Step 5: Implement** — `system-bootstrap.ts` renders `#traversalPath` for an
   `sr:`/`bundle:` scope, each hop clickable to open its scope, built with
   `createTextNode`/`textContent`.
-- [ ] **Step 6:** vitest + full suite + lint.
-- [ ] **Step 7:** Commit `feat(system): working traversal for the core use case`.
+- [x] **Step 6:** vitest + full suite + lint.
+- [x] **Step 7:** Commit `feat(system): working traversal for the core use case`.
 
 ---
 
