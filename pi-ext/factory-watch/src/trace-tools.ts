@@ -30,6 +30,11 @@ export const traceNextTool = {
     "are ordered by shared-term overlap, which is a lexical hint only — judge matches by " +
     "meaning, not by position. Pass `node_id` to work a specific gap: the default order is a " +
     "default, not a queue.",
+  promptSnippet: "return the next pending traceability gap with every candidate and its full statement",
+  promptGuidelines: [
+    "Use trace_next to fetch the next traceability gap together with EVERY candidate target and its full requirement statement.",
+    "Never truncate the candidate list or the per-candidate statements: ranking orders, it does not filter.",
+  ],
   parameters: Type.Object({
     node_id: Type.Optional(
       Type.String({ description: "Pending gap to focus, e.g. T-047. Omit for the first." }),
@@ -63,6 +68,11 @@ export const traceLinkTool = {
     spec: Type.Optional(Type.String({ description: "Spec filename, e.g. 2026-07-30-design.md" })),
     source_plan: Type.Optional(Type.String({ description: "Plan filename, e.g. 2026-07-30-sim.md" })),
   }),
+  promptSnippet: "declare a traceability link (satisfies/spec/source_plan) that is validated before writing",
+  promptGuidelines: [
+    "Use trace_link to record a traceability link; it validates that the target exists and refuses to write a dangling one.",
+    "Pass exactly one of satisfies, spec or source_plan; node_id is the TASK id for satisfies.",
+  ],
   async execute(
     _id: string,
     params: { node_id: string; satisfies?: string; spec?: string; source_plan?: string },
@@ -95,6 +105,8 @@ function dispositionTool(name: "exempt" | "defer", label: string, description: s
       node_id: Type.String({ description: "Node id, e.g. T-047 or plan:2026-07-30-sim.md" }),
       reason: Type.String({ description: "Why — recorded on disk and read by humans later" }),
     }),
+    promptSnippet: `record ${name} of a gap with a written why, validated before write`,
+    promptGuidelines: [`Use trace_${name} only after genuinely considering the node; it records a disposition with a non-empty reason.`],
     async execute(
       _id: string,
       params: { node_id: string; reason: string },
@@ -137,6 +149,8 @@ export const traceCheckTool = {
     "Run the completion gate. It re-derives every gap and disposition from disk, so it reflects " +
     "what is actually written, not what was claimed. Fails while any gap is still undiscussed.",
   parameters: Type.Object({}),
+  promptSnippet: "run the completion gate and report whether any gap is still open",
+  promptGuidelines: ["Use trace_check to run the deterministic completion gate; it fails while any gap is still undiscussed."],
   async execute(
     _id: string,
     _params: Record<string, never>,

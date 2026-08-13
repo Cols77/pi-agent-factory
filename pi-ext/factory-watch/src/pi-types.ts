@@ -41,6 +41,8 @@ export interface ExtCommandCtx {
   cwd: string;
   ui: UiApi;
   model: ModelInfo | undefined;
+  hasUI: boolean;
+  reload(): Promise<void>;
   newSession(options?: {
     withSession?: (ctx: ReplacedSessionCtx) => Promise<void>;
   }): Promise<{ cancelled: boolean }>;

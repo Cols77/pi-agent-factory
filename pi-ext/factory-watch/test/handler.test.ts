@@ -88,6 +88,8 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
   return {
     cwd: overrides.cwd ?? process.cwd(),
     ui: overrides.ui ?? ui,
+    hasUI: overrides.hasUI ?? true,
+    reload: overrides.reload ?? vi.fn(async () => undefined),
     model:
       "model" in overrides ? overrides.model : { provider: "openrouter", id: "anthropic/claude-opus-4" },
     newSession: overrides.newSession ?? vi.fn(async () => ({ cancelled: false })),

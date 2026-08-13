@@ -28,6 +28,16 @@ _JSON_START = "```json"
 # bound.
 _DEFAULT_IDLE_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_IDLE_TIMEOUT_S", "300"))
 _DEFAULT_TOTAL_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_TOTAL_TIMEOUT_S", "1200"))
+
+# Recursion prevention for the subagent chain. A child pi process that could in
+# turn spawn its own agents is a resource leak; the factory runs a fixed
+# pipeline depth, and this env guard lets a child's extension see it is already
+# a subagent and refuse to spawn a deeper one.
+SUBAGENT_DEPTH_ENV = "PI_FACTORY_SUBAGENT_DEPTH"
+_SUBAGENT_DEPTH_LIMIT = 2
+# The command-line flag that would strip context files from a child -- the
+# subagent contract must never use it (children receive the root AGENTS.md).
+_NC_FLAGS = ("--no-context-files", "-nc")
 _CONTEXT_ERROR_MARKERS = (
     "context length",
     "maximum context",
@@ -316,6 +326,14 @@ def _build_command(
         cmd += ["--provider", provider]
     if model:
         cmd += ["--model", model]
+    # The subagent contract is: children run in the project root AND load the
+    # root AGENTS.md. No child may pass a flag that strips context files.
+    if any(flag in cmd for flag in _NC_FLAGS):
+        raise ValueError(
+            "pi_backend: refusing a child invocation that disables context files ("
+            + ", ".join(_NC_FLAGS)
+            + "): children must receive the root AGENTS.md bootstrap."
+        )
     return cmd
 
 
@@ -344,10 +362,29 @@ class PiAgentBackend:
         on_session_id: Callable[[str], None] | None = None,
     ) -> AgentResult:
         scope = ROLE_SCOPE[role]
+        # Recursion bound: a child whose environment is already at the subagent
+        # depth limit refuses to spawn yet another pi process. The orchestrator's
+        # own per-node agents are sequential at depth 1; only an agent that tries
+        # to spawn a sub-subagent inside a session would approach the limit.
+        current_depth = int(os.environ.get(SUBAGENT_DEPTH_ENV, "0") or 0)
+        if current_depth >= _SUBAGENT_DEPTH_LIMIT:
+            return AgentResult(
+                ok=False,
+                output={},
+                raw=(
+                    "pi_backend: subagent recursion bound reached "
+                    f"(depth {current_depth} >= {_SUBAGENT_DEPTH_LIMIT}); refusing to spawn a deeper child."
+                ),
+                session_id=None,
+                interruption=None,
+            )
         env = {
             **os.environ,
             "PI_SCOPE_ALLOW": ",".join(scope.allow),
             "PI_SCOPE_BASH": scope.bash,
+            # Propagate the incrementing depth so a child extension can see it
+            # is already a subagent and refuse deeper spawning.
+            SUBAGENT_DEPTH_ENV: str(current_depth + 1),
         }
         # Use a temp file for long prompts to avoid Windows' command-line length limit
         prompt_file: str | None = None
