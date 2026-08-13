@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.system.models import SystemScopeRef
@@ -128,52 +127,29 @@ def _recent_changes(root: Path, implementation_files: list[str], limit: int = 5)
             if (safe_path := _safe_evidenced_path(root, path)) is not None
         }
     )
-    changes_by_commit: dict[str, dict] = {}
-    for path in paths:
-        try:
-            # --author-date-order aligns source retrieval with the final
-            # author-instant ranking. A global top-N commit must be among the
-            # newest N commits for any evidenced path it touched; otherwise
-            # that path alone has N newer commits, excluding it globally.
-            completed = subprocess.run(
-                [
-                    "git",
-                    "log",
-                    "--author-date-order",
-                    "-n",
-                    str(limit),
-                    "--format=%H%x00%aI%x00%s",
-                    "--",
-                    path,
-                ],
-                cwd=root,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except (OSError, subprocess.CalledProcessError):
-            return []
-        for line in completed.stdout.splitlines():
-            commit, separator, remainder = line.partition("\x00")
-            authored_at, separator, subject = remainder.partition("\x00")
-            if not commit or not separator:
-                continue
-            changes_by_commit.setdefault(
-                commit,
-                {"path": path, "commit": commit, "authored_at": authored_at, "subject": subject},
-            )
-    return sorted(
-        changes_by_commit.values(),
-        key=lambda change: (
-            datetime.fromisoformat(change["authored_at"].replace("Z", "+00:00")).astimezone(
-                timezone.utc
-            ),
-            change["commit"],
-            change["subject"],
-            change["path"],
-        ),
-        reverse=True,
-    )[:limit]
+    if not paths or limit <= 0:
+        return []
+    try:
+        completed = subprocess.run(
+            ["git", "log", "-n", str(limit), "--format=%H%x00%aI%x00%s", "--", *paths],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+
+    changes: list[dict] = []
+    seen_commits: set[str] = set()
+    for line in completed.stdout.splitlines():
+        commit, separator, remainder = line.partition("\x00")
+        authored_at, separator, subject = remainder.partition("\x00")
+        if not commit or not separator or commit in seen_commits:
+            continue
+        seen_commits.add(commit)
+        changes.append({"commit": commit, "authored_at": authored_at, "subject": subject})
+    return changes[:limit]
 
 
 def feature_context(root: Path, feature_id: str) -> dict:

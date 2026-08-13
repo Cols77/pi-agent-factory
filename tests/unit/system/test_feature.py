@@ -210,7 +210,7 @@ def test_feature_context_recent_changes_is_empty_without_git_history(tmp_path):
     assert result["recent_changes"] == []
 
 
-def test_recent_changes_bounds_each_evidenced_path_history(tmp_path, monkeypatch):
+def test_recent_changes_queries_all_evidenced_paths_once(tmp_path, monkeypatch):
     calls: list[list[str]] = []
 
     def run(command: list[str], **_kwargs):
@@ -224,27 +224,17 @@ def test_recent_changes_bounds_each_evidenced_path_history(tmp_path, monkeypatch
         [
             "git",
             "log",
-            "--author-date-order",
             "-n",
             "3",
             "--format=%H%x00%aI%x00%s",
             "--",
             "src/first.py",
-        ],
-        [
-            "git",
-            "log",
-            "--author-date-order",
-            "-n",
-            "3",
-            "--format=%H%x00%aI%x00%s",
-            "--",
             "src/second.py",
         ],
     ]
 
 
-def test_recent_changes_uses_author_date_order_for_divergent_commit_dates(tmp_path, monkeypatch):
+def test_recent_changes_preserves_single_git_log_order_for_inverse_author_dates(tmp_path, monkeypatch):
     _write(tmp_path / "src" / "evidenced.py", "VERSION = 0\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
@@ -253,19 +243,26 @@ def test_recent_changes_uses_author_date_order_for_divergent_commit_dates(tmp_pa
     _write(tmp_path / "src" / "evidenced.py", "VERSION = 1\n")
     _commit(
         tmp_path,
-        "author newest",
+        "author newest parent",
         "2026-01-03T00:00:00+00:00",
         ["src/evidenced.py"],
         committer_timestamp="2026-01-01T01:00:00+00:00",
     )
-    _write(tmp_path / "src" / "unrelated.py", "VALUE = 1\n")
+    _write(tmp_path / "src" / "evidenced.py", "VERSION = 2\n")
     _commit(
         tmp_path,
-        "later committer",
+        "author older child",
         "2026-01-02T00:00:00+00:00",
-        ["src/unrelated.py"],
+        ["src/evidenced.py"],
         committer_timestamp="2026-01-04T00:00:00+00:00",
     )
+    expected_subjects = subprocess.run(
+        ["git", "log", "-n", "2", "--format=%s", "--", "src/evidenced.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
     actual_run = subprocess.run
     calls: list[list[str]] = []
 
@@ -275,16 +272,15 @@ def test_recent_changes_uses_author_date_order_for_divergent_commit_dates(tmp_pa
 
     monkeypatch.setattr("factory.system.feature.subprocess.run", run)
 
-    changes = _recent_changes(tmp_path, ["src/evidenced.py"], limit=1)
+    changes = _recent_changes(tmp_path, ["src/evidenced.py"], limit=2)
 
-    assert [change["subject"] for change in changes] == ["author newest"]
+    assert [change["subject"] for change in changes] == expected_subjects
     assert calls == [
         [
             "git",
             "log",
-            "--author-date-order",
             "-n",
-            "1",
+            "2",
             "--format=%H%x00%aI%x00%s",
             "--",
             "src/evidenced.py",
@@ -304,7 +300,7 @@ def test_feature_context_never_treats_missing_validation_as_a_pass(tmp_path):
     ]
 
 
-def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_first(tmp_path):
+def test_feature_context_recent_changes_are_bounded_deduplicated_and_in_git_order(tmp_path):
     _feature_repo(tmp_path)
     evidenced_paths = [
         "src/connected.py",
@@ -364,16 +360,18 @@ def test_feature_context_recent_changes_are_bounded_deduplicated_and_newest_firs
         "2026-01-03T00:00:00+00:00",
         ["src/unrelated.py"],
     )
+    expected_subjects = subprocess.run(
+        ["git", "log", "-n", "5", "--format=%s", "--", *sorted(evidenced_paths)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
 
     changes = feature_context(tmp_path, "FEAT-CONTEXT-001")["recent_changes"]
 
     assert len(changes) == 5
-    assert [change["subject"] for change in changes] == [
-        "offset late",
-        "offset early",
-        "evidenced change 6",
-        "evidenced change 5",
-        "evidenced change 4",
-    ]
+    assert [change["subject"] for change in changes] == expected_subjects
     assert len({change["commit"] for change in changes}) == len(changes)
-    assert {change["path"] for change in changes}.isdisjoint({"src/unrelated.py"})
+    assert "unrelated change" not in expected_subjects
+    assert all("path" not in change for change in changes)
