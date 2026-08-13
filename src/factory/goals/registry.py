@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import frontmatter
 
 from factory.goals.evaluator import GoalResult
+from factory.goals.lifecycle import TransitionError, can_transition
 from factory.goals.schema import Goal, goal_dir, is_goal_file, parse_goal
 
 
@@ -126,3 +128,33 @@ def _append_transition(goal_path: Path, result: GoalResult, prior_state: str, re
     }
     with log.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def set_goal_state(goal_path: Path, to_state: str, *, reason: str = "") -> Goal:
+    """Apply a spec §13 lifecycle transition and audit it (append-only).
+
+    The transition must be legal from the goal's current recorded state;
+    anything else raises `TransitionError`. The audit entry is appended, never
+    rewriting earlier transitions.
+    """
+    post, meta = _read_frontmatter(goal_path)
+    from_state = str(meta.get("state", "DECLARED"))
+    if not can_transition(from_state, to_state):
+        raise TransitionError(f"{from_state} -> {to_state} not allowed")
+    meta["state"] = to_state
+    _write_frontmatter_atomic(post, meta, goal_path)
+
+    recorded_at = datetime.now(timezone.utc).isoformat()
+    goal_id = str(meta.get("id", ""))
+    entry = {
+        "goal_id": goal_id,
+        "from_state": from_state,
+        "to_state": to_state,
+        "reason": reason,
+        "recorded_at": recorded_at,
+    }
+    log = transition_log_path(goal_id, goal_path.parent.parent)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    return parse_goal(goal_path)

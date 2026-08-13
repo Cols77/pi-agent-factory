@@ -23,6 +23,12 @@
       "minItems": 1,
       "items": {"type": "string", "pattern": "^SR-[A-Z0-9-]+$"}
     },
+    "demonstrates": {
+      "oneOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"type": "string"}}
+      ]
+    },
     "metric": {
       "oneOf": [
         {"type": "string", "pattern": "^MET-[A-Z0-9-]+$"},
@@ -63,7 +69,9 @@
         "experiment": {"type": "string"},
         "run": {"type": "string"},
         "commit": {"type": "string"},
-        "metrics": {"type": "string"}
+        "metrics": {"type": "string"},
+        "metrics_path": {"type": "string"},
+        "recorded_at": {"type": "string"}
       },
       "additionalProperties": false
     },

@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
+from factory.goals import registry as goal_registry
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
@@ -235,6 +236,83 @@ def query_diagram(repo_root: Path, diagram_id: str) -> dict:
         "title": diagram.title,
         "diagram_path": None,
         "errors": [f"missing diagram file: {path}"],
+    }
+
+
+def query_goal(repo_root: Path, goal_id: str) -> dict:
+    """Return one goal: contract, current state, latest evidence, history.
+
+    Goals are loaded through the goals registry (never a re-glob), so the
+    goal file's sole parser is `factory.goals.schema.parse_goal`. A goal id
+    that no file declares is a resolution failure, not a guess.
+    """
+    goals = goal_registry.load_goals(repo_root)
+    if goal_id not in goals:
+        raise ScopeNotFoundError(f"no goal with id {goal_id!r}")
+    goal = goals[goal_id]
+    return {
+        "id": goal.id,
+        "title": goal.title,
+        "state": goal.state,
+        "version": goal.version,
+        "feature": goal.feature,
+        "requirements": goal.requirements,
+        "metric": goal.metric,
+        "target": goal.target,
+        "evidence": goal.evidence,
+        "history": goal.history,
+        "scope_errors": goal.scope_errors,
+    }
+
+
+def _goal_query_kinds() -> tuple[str, ...]:
+    # Inc 2's goal query scopes; `_SCOPE_KINDS` remains Inc 1-owned.
+    return ("feat", "sr", "goal")
+
+
+def query_goals(repo_root: Path, scope_ref: str) -> dict:
+    """Return the goals bound to a `feat:<id>`, `sr:<id>` or `goal:<id>` scope.
+
+    Binding is read from declared data, never inferred: a goal is bound to a
+    feature or requirement when its frontmatter names it (`feature`/
+    `requirements`) or when the trace graph carries a declared `demonstrates`
+    edge from the goal to that id. Unknown kinds are rejected; a goal scope
+    that no file declares resolves to nothing rather than a fuzzy match.
+    """
+    kind, sep, identifier = scope_ref.partition(":")
+    if not sep or kind not in _goal_query_kinds() or not identifier:
+        raise ScopeKindError(
+            f"invalid goal scope ref: {scope_ref!r} (expected feat:<id>, sr:<id> or goal:<id>)"
+        )
+
+    goals = goal_registry.load_goals(repo_root)
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == identifier}
+
+    if kind == "goal":
+        selected = [g for g in goals.values() if g.id == identifier]
+    elif kind == "feat":
+        selected = [g for g in goals.values() if identifier in g.feature or g.id in demonstrated]
+    else:  # sr
+        selected = [g for g in goals.values() if identifier in g.requirements or g.id in demonstrated]
+
+    return {
+        "scope": scope_ref,
+        "goals": [
+            {
+                "id": g.id,
+                "title": g.title,
+                "state": g.state,
+                "feature": g.feature,
+                "requirements": g.requirements,
+                "metric": g.metric,
+                "target": g.target,
+                "evidence": g.evidence,
+                "history": g.history,
+            }
+            for g in selected
+        ],
     }
 
 
