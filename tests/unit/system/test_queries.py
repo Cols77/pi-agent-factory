@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from factory.system import queries
 from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import ClaimClass, FreshnessState, MatrixStatus, SystemScopeRef
 from factory.system.queries import (
@@ -1266,3 +1267,22 @@ def test_traversal_bundle_scope_aggregates_sr_members(tmp_path):
     assert "SR-002" in trav["requirement"]
     assert "T-001" in trav["tasks"]
     assert "T-002" in trav["tasks"]
+
+
+def test_traversal_bundle_scope_shares_one_lookup_across_sr_members(tmp_path, monkeypatch):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+    seen = []
+    real_bundles_containing = queries.bundles.bundles_containing
+
+    def capture_bundles_containing(repo_root, ref, *, lookup):
+        seen.append(lookup)
+        return real_bundles_containing(repo_root, ref, lookup=lookup)
+
+    monkeypatch.setattr(queries.bundles, "bundles_containing", capture_bundles_containing)
+
+    query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+
+    assert len(seen) == 2
+    assert seen[0] is seen[1]

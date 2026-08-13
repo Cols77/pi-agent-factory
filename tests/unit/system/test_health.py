@@ -103,3 +103,29 @@ def test_query_health_orders_by_recency(tmp_path):
     payload = health.query_health(tmp_path, recency_source=recency)
     ids = [b["id"] for b in payload["bundles"]]
     assert ids == ["newer", "older"]
+
+
+def test_query_health_shares_one_lookup_between_coverage_and_ordering(tmp_path, monkeypatch):
+    from factory.system.ordering import FixedRecency
+
+    _write_sr(tmp_path, "SR-001", binding=True)
+    _write_bundle(tmp_path, "b1", ["sr:SR-001"])
+    seen = []
+    real_bundle_coverage = health.bundle_coverage
+    real_ordered_bundle_ids = health.ordered_bundle_ids
+
+    def capture_bundle_coverage(root, *, lookup):
+        seen.append(lookup)
+        return real_bundle_coverage(root, lookup=lookup)
+
+    def capture_ordered_bundle_ids(root, git, *, lookup):
+        seen.append(lookup)
+        return real_ordered_bundle_ids(root, git, lookup=lookup)
+
+    monkeypatch.setattr(health, "bundle_coverage", capture_bundle_coverage)
+    monkeypatch.setattr(health, "ordered_bundle_ids", capture_ordered_bundle_ids)
+
+    health.query_health(tmp_path, recency_source=FixedRecency({}))
+
+    assert len(seen) == 2
+    assert seen[0] is seen[1]

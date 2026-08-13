@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from factory.system import coverage
 from factory.system.coverage import bundle_coverage
 
 pytestmark = pytest.mark.unit
@@ -103,6 +104,30 @@ def test_an_artifact_in_two_bundles_is_counted_once(tmp_path):
     assert coverage.total == 1
     assert coverage.bundled == 1
     assert _by_kind(coverage, "sr").bundled == 1
+
+
+def test_coverage_loads_trace_nodes_once_for_multiple_sr_and_task_members(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    _sr(repo, "SR-001")
+    _sr(repo, "SR-002")
+    _task(repo, "T-001", "first")
+    _task(repo, "T-002", "second")
+    _bundle(repo, "feature", ["sr:SR-001", "sr:SR-002", "task:T-001", "task:T-002"])
+
+    real_load_nodes = coverage.trace_model.load_nodes
+    calls = 0
+
+    def counted_load_nodes(root):
+        nonlocal calls
+        calls += 1
+        return real_load_nodes(root)
+
+    monkeypatch.setattr(coverage.trace_model, "load_nodes", counted_load_nodes)
+
+    result = bundle_coverage(repo)
+
+    assert result.bundled == 4
+    assert calls == 1
 
 
 def test_unbundled_artifacts_are_named_not_just_counted(tmp_path):

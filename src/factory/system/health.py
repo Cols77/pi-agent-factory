@@ -13,7 +13,7 @@ from pathlib import Path
 
 from factory.requirements import register as register_module
 from factory.system import bundles as bundles_module
-from factory.system.coverage import bundle_coverage
+from factory.system.coverage import build_artifact_lookup, bundle_coverage
 from factory.system.ordering import GitRecency, ordered_bundle_ids
 from factory.trace import gaps as gaps_module
 from factory.trace import model as trace_model
@@ -153,9 +153,10 @@ def query_health(root: Path, recency_source=None) -> dict:
     validation = load_validation(root)
     gaps = gaps_module.find_gaps(nodes, edges, validation)
     health = compute_health(nodes, gaps)
-    cov = bundle_coverage(root)
+    lookup = build_artifact_lookup(root, nodes=nodes)
+    cov = bundle_coverage(root, lookup=lookup)
     git = recency_source if recency_source is not None else GitRecency()
-    order, ordering_available = ordered_bundle_ids(root, git)
+    order, ordering_available = ordered_bundle_ids(root, git, lookup=lookup)
     rows = bundle_readiness(root)
     degraded: list[str] = []
     if not ordering_available:

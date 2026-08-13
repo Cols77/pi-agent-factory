@@ -14,6 +14,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from factory.system.models import (
     BundleDeclaration,
@@ -26,6 +27,9 @@ from factory.system.models import (
     SystemScopeRef,
 )
 from factory.validation.schema_validator import SCHEMA_DIR, validate
+
+if TYPE_CHECKING:
+    from factory.system.coverage import ArtifactLookup
 
 _SCHEMA = SCHEMA_DIR / "system_bundle.schema.json"
 
@@ -192,7 +196,9 @@ def list_bundle_errors(bundles_dir: Path) -> list[BundleLoadError]:
     return failures
 
 
-def bundles_containing(repo_root: Path, ref: str) -> list[str]:
+def bundles_containing(
+    repo_root: Path, ref: str, *, lookup: ArtifactLookup | None = None
+) -> list[str]:
     """Bundle ids that declare `ref` as a member, deterministic (load) order.
 
     Membership is many-to-many, so a ref may appear in several bundles. The
@@ -206,11 +212,13 @@ def bundles_containing(repo_root: Path, ref: str) -> list[str]:
     """
     from factory.system.coverage import member_target
 
-    target = member_target(repo_root, ref)
+    target = member_target(repo_root, ref, lookup=lookup)
     containing: list[str] = []
     for bundle in list_bundles(repo_root / "bundles"):
         for m in bundle.members:
-            if m.ref == ref or (target is not None and member_target(repo_root, m.ref) == target):
+            if m.ref == ref or (
+                target is not None and member_target(repo_root, m.ref, lookup=lookup) == target
+            ):
                 containing.append(bundle.id)
                 break
     return containing
