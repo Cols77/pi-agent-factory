@@ -1,8 +1,7 @@
 # Increment 1 — Engineering Ontology + Indexing (Implementation Plan)
 
-**Status:** Draft for written review. Tasks assume the **recommended** sides of
-Open Questions **D3 (in-place), D4 (feature-file AND bundle), D5 (spec vocabulary)**.
-D1/D2 do not affect this increment. Pending approval (Program §7).
+**Status:** Approved for implementation. This plan consumes the locked decisions
+D1–D9 and includes the 2026-08-13 graph-integrity amendment below.
 **Source phase:** Engineering Context spec §37 **Phase 1 — Engineering ontology.**
 **Landing repo:** `C:/coding/pi-agent-factory` (the factory); `cool_physical_ai_project`
 consumes it as an editable path dependency, so it is live there as soon as committed.
@@ -18,11 +17,39 @@ V-cycle traversal, and a Feature Context query — without forking v1's single
 markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 `/goal` command yet (Inc 2); this increment is the ontology + indexing backbone only.
 
+## 2026-08-13 graph-integrity amendment (approved)
+
+The V-cycle must traverse SCC SP-A ADRs, and every new typed relationship must degrade
+visibly when it names a missing target. The original plan did not specify either
+mechanism; this amendment makes both contracts executable.
+
+- `NodeKind` includes the existing `adr` kind as well as the new `feat`, `metric`,
+  `goal`, `run` and `diag` kinds. `factory.trace.graph` adapts the already-parsed
+  records from `factory.system.adr.load_adrs(root)` into `Node` objects; it does not
+  reparse ADR markdown or introduce a competing ADR parser.
+- `build_graph()` combines ordinary `load_nodes(root)` output with that ADR adapter
+  before calling `extract_edges`. A feature's `contains` relationship and the V-cycle
+  definition side can therefore reach `adr:ADR-...` nodes by their declared id.
+- New typed id-reference edges (`parent_of`, `verified_by`, `demonstrates`,
+  `evaluates`, `contains`, `illustrates`) remain in `Graph.edges`. If either endpoint
+  is absent, `factory.trace.gaps.find_gaps()` emits a `dangling_reference` gap on the
+  known endpoint with the edge kind and missing id. This also covers a missing
+  `child_of` parent after inverse normalization. `factory.trace.health` counts it as a
+  dangling defect, but unrelated scopes remain available.
+- `query_diagram()` returns a deterministic degraded payload for a missing declared
+  HTML file: `diagram_path` is `None` and `errors` contains the exact missing-path
+  diagnostic. It does not claim a non-existent `scope_errors` field.
+
 ## Global constraints (carried from Program §6)
 
 - Extend `factory.trace.model` — never fork or re-glob a parallel parser.
+- Consume SCC ADRs through `factory.system.adr.load_adrs`; the graph adapter converts
+  those parsed records to trace nodes and never reparses ADR frontmatter.
 - `NodeKind` and `EdgeKind` are `typing.Literal`; extend the literal, update
   `load_nodes`/`build_graph`, keep every existing kind/edge intact.
+- Every new id-reference edge remains in the graph even when either endpoint is
+  unresolved and emits a deterministic `dangling_reference` gap; no relationship is
+  silently dropped.
 - New scopes are exact and case-sensitive (`feat:FEAT-NAV-017`, `metric:MET-004`,
   `goal:GOAL-003`) with no fuzzy fallback (`system/queries _SCOPE_KINDS`).
 - On-demand projections; no SQLite in this increment (matches v1 pattern and spec §33.
@@ -50,8 +77,9 @@ markdown parser or its claim/freshness model. Ship no human UI (Inc 6) and no
 **Modified (in pi-agent-factory):**
 | File | Change |
 |---|---|
-| `src/factory/trace/model.py` | `NodeKind` += `feat,metric,goal,run,diag`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`), `docs/diagrams` (`DIAG-*.md` stubs). Design decisions come from the existing `adr:` kind (SP-A). |
-| `src/factory/trace/graph.py` | read new edges from frontmatter (`parent_of`, `verified_by`, ...) in `build_graph`. |
+| `src/factory/trace/model.py` | `NodeKind` += `adr,feat,metric,goal,run,diag`; `EdgeKind` += `parent_of,verified_by,demonstrates,evaluates,contains,illustrates`; `_id_node` reuse; `load_nodes` globs `docs/features` (`FEAT-*.md`), `metrics` (`MET-*.md`), `goals` (`GOAL-*.md`), `docs/diagrams` (`DIAG-*.md` stubs). |
+| `src/factory/trace/graph.py` | Adapt SCC SP-A `load_adrs()` records to `adr` nodes, then read new edges from frontmatter (`parent_of`, `verified_by`, ...) in `build_graph`. |
+| `src/factory/trace/gaps.py`, `src/factory/trace/health.py` | Report unresolved new typed id-reference targets as `dangling_reference` gaps and count them as dangling defects. |
 | `src/factory/system/queries.py` | `_SCOPE_KINDS` += `feat,metric,goal,diag`; `parse_scope_ref`; `query_feature_context`; `query_vcycle`; `query_diagram`; `list_scopes` emits new kinds. |
 | `src/factory/system/bundles.py` | `_MEMBER_KINDS` += `feat,metric,goal` (id-based, like `sr:`). |
 | `tests/unit/trace/test_model_nodes.py`, `test_model_edges.py`, `tests/unit/system/test_queries.py`, `test_bundles.py` | add coverage for the new kinds/edges. |
@@ -65,7 +93,7 @@ example wired to the real drone scenarios.
 ## Task 1: Extend the trace `NodeKind` and `load_nodes`
 
 **Files:** `src/factory/trace/model.py`
-**Interfaces:** `NodeKind = Literal["br","sr","spec","plan","task","feat","metric","goal","run"]`.
+**Interfaces:** `NodeKind = Literal["br","sr","spec","plan","task","adr","feat","metric","goal","run","diag"]`.
 `load_nodes(root)` additionally globs `docs/features/FEAT-*.md`, `metrics/MET-*.md`,
 `goals/GOAL-*.md`. Runs (`evidence/runs/RUN-*`) are loaded as nodes
 in Inc 3 (needs manifest parsing), so this task only reserves the literal.
@@ -97,7 +125,7 @@ def test_feature_and_metric_and_goal_kinds_are_loaded(tmp_path):
 - [ ] **Step 3: Implement.** Extend the literal and add globs:
 
 ```python
-NodeKind = Literal["br","sr","spec","plan","task","feat","metric","goal","run"]
+NodeKind = Literal["br","sr","spec","plan","task","adr","feat","metric","goal","run","diag"]
 
 # in load_nodes, after the existing sr/br/task/plan/spec globs:
     for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
@@ -112,17 +140,45 @@ NodeKind = Literal["br","sr","spec","plan","task","feat","metric","goal","run"]
 - [ ] **Step 4:** run `uv run python -m pytest -q && uv run python -m ruff check .`.
 - [ ] **Step 5:** commit `feat(trace): add feat/metric/goal node kinds` (design stays `adr:`, SP-A).
 
+## Task 1b: Adapt SCC ADR records into trace-graph nodes
+
+**Files:** `src/factory/trace/graph.py`, `tests/unit/trace/test_model_nodes.py`,
+`tests/unit/trace/test_gaps.py`
+**Interfaces:** `build_graph(root)` appends one `Node(id=adr_id, kind="adr", ...)`
+for each record returned by `factory.system.adr.load_adrs(root)`. The adapter uses the
+ADR parser's declared `id`, `title` and `path`; it never calls `frontmatter.load` on an
+ADR itself.
+
+- [ ] **Step 1: Write a failing test** that creates a schema-valid
+  `docs/adr/ADR-0001.md`, calls `build_graph(tmp_path)`, and asserts exactly one
+  `Node(id="ADR-0001", kind="adr")` with the declared title and path.
+- [ ] **Step 2: Run the focused test**, expecting no ADR node because the graph only
+  contains `load_nodes()` output.
+- [ ] **Step 3: Implement** a private `_adr_nodes(root: Path) -> list[Node]` in
+  `factory.trace.graph` using `adr_module.load_adrs(root)`, sorted by ADR id. Extend
+  the node list passed to `extract_edges` with `_adr_nodes(root)`.
+- [ ] **Step 4: Run the focused trace tests** and the full suite plus Ruff; assert a
+  malformed ADR remains isolated by the existing ADR loader rather than preventing
+  unrelated trace nodes from loading.
+- [ ] **Step 5: Commit** `feat(trace): adapt SCC ADRs into graph nodes`.
+
 ## Task 2: Extend `EdgeKind` and read V-cycle edges
 
-**Files:** `src/factory/trace/model.py`, `src/factory/trace/graph.py`
-**Interfaces:** `EdgeKind = Literal[...,"parent_of","verified_by","demonstrates","evaluates","contains"]`.
-`build_graph` parses new id-list frontmatter fields (`parent_of`, `child_of`→inverse,
-`verified_by`, `demonstrates`, `evaluates`, `contains`) as typed edges with the same
-id-resolution discipline as `satisfies`.
+**Files:** `src/factory/trace/model.py`, `src/factory/trace/gaps.py`,
+`src/factory/trace/health.py`, `tests/unit/trace/test_model_edges.py`,
+`tests/unit/trace/test_gaps.py`, `tests/unit/trace/test_health.py`
+**Interfaces:** `EdgeKind = Literal[...,"parent_of","verified_by","demonstrates","evaluates","contains","illustrates"]`.
+`extract_edges` parses new id-list frontmatter fields (`parent_of`, `child_of`→inverse,
+`verified_by`, `demonstrates`, `evaluates`, `contains`, `illustrates`) as typed edges.
+Edges are retained whether or not either endpoint resolves; unresolved new references
+report a `dangling_reference` gap on their known endpoint.
 
 - [ ] **Step 1: Failing tests** — a feature file with `contains: [NAV-REQ-021]` yields
-  an edge `FEAT-NAV-017 → NAV-REQ-021` of kind `contains`; unknown id → reported via the
-  graph's existing "unresolved" mechanism, never silently dropped.
+  an edge `FEAT-NAV-017 → NAV-REQ-021` of kind `contains`; an unknown target remains
+  in `graph.edges` and produces `Gap("FEAT-NAV-017", "dangling_reference", ... )`.
+  Repeat once for a diagram's `illustrates: [FEAT-NAV-017]` relation and once for
+  `child_of: [MISSING-PARENT]`, which inverse-normalizes to an edge with a missing
+  source but still reports the gap on the declaring node.
 - [ ] **Step 2: Implement** a shared helper:
 
 ```python
@@ -144,12 +200,15 @@ def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
         out.append(Edge(src=src_id, dst=t, kind="evaluates"))      # goal -> metric
     for t in as_str_list(meta.get("contains")):
         out.append(Edge(src=src_id, dst=t, kind="contains"))       # feature -> requirement
+    for t in as_str_list(meta.get("illustrates")):
+        out.append(Edge(src=src_id, dst=t, kind="illustrates"))    # diagram -> illustrated node
     return out
 ```
 
-Wire into `build_graph` where other id-based edges are added (unresolved dst ids go
-through the same resolution/degradation path).
-- [ ] **Step 3:** full suite + lint + commit.
+Wire into `extract_edges`; in `find_gaps`, add `dangling_reference` for every missing
+endpoint of a new id-reference edge, attached to the edge's known endpoint. Add it to
+the deterministic gap ordering and have `compute_health` include it in `Health.dangling`.
+- [ ] **Step 3:** full suite + lint + commit `feat(trace): model V-cycle relations`.
 
 ## Task 3: New schemas (feat / metric / goal)
 
@@ -184,12 +243,14 @@ illustrates: [FEAT-NAV-017] # the feature/ADR/dossier this picture belongs to
 diagram_file: DIAG-NAV-003.html
 ```
 - [ ] **Step 1: Failing tests** — a `docs/diagrams/DIAG-NAV-003.md` stub resolves as a `diag`
-  node; `illustrates:` yields an edge to its feature/ADR; the referenced `.html` exists (missing
-  → recorded `scope_errors`, degraded not dropped); a `diag:` scope parses and lists.
+  node; `illustrates:` yields an edge to its feature/ADR; a missing referenced `.html` returns
+  `diagram_path is None` and an exact entry in the query payload's `errors` list (degraded,
+  not dropped); a `diag:` scope parses and lists.
 - [ ] **Step 2: Implement** — extend the `NodeKind` literal + `load_nodes` glob for
   `docs/diagrams/DIAG-*.md` (kind `diag`); add `diag.schema.json` (id `^DIAG-[A-Z0-9-]+$`,
-  `focus`, `illustrates`, `diagram_file`); wire an `illustrates` edge in `build_graph` and a
-  `query_diagram(root, id)` returning the stub + resolved HTML path; add `diag:` to `_SCOPE_KINDS`.
+  `focus`, `illustrates`, `diagram_file`); wire an `illustrates` edge in `extract_edges` and a
+  `query_diagram(root, id)` returning `{id, title, diagram_path, errors}`; add `diag:` to
+  `_SCOPE_KINDS`.
 - [ ] **Step 3:** full suite + lint + commit `feat(system): add the diagram (diag:) artifact kind`.
 
 ## Task 4: `factory.system.vcycle` — the vertical slice
