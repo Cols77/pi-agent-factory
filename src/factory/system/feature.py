@@ -129,9 +129,10 @@ def _recent_changes(root: Path, implementation_files: list[str], limit: int = 5)
     )
     if not paths or limit <= 0:
         return []
+    pathspecs = [f":(literal){path}" for path in paths]
     try:
         completed = subprocess.run(
-            ["git", "log", "-n", str(limit), "--format=%H%x00%aI%x00%s", "--", *paths],
+            ["git", "log", "-n", str(limit), "--format=%H%x00%aI%x00%s", "--", *pathspecs],
             cwd=root,
             capture_output=True,
             text=True,

@@ -219,7 +219,7 @@ def test_recent_changes_queries_all_evidenced_paths_once(tmp_path, monkeypatch):
 
     monkeypatch.setattr("factory.system.feature.subprocess.run", run)
 
-    assert _recent_changes(tmp_path, ["src/second.py", "src/first.py"], limit=3) == []
+    assert _recent_changes(tmp_path, ["src/second.py", "src/*"], limit=3) == []
     assert calls == [
         [
             "git",
@@ -228,10 +228,24 @@ def test_recent_changes_queries_all_evidenced_paths_once(tmp_path, monkeypatch):
             "3",
             "--format=%H%x00%aI%x00%s",
             "--",
-            "src/first.py",
-            "src/second.py",
+            ":(literal)src/*",
+            ":(literal)src/second.py",
         ],
     ]
+
+
+def test_recent_changes_treats_wildcard_evidence_as_a_literal_pathspec(tmp_path):
+    _write(tmp_path / "src" / "unrelated.py", "VERSION = 0\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+    _commit(tmp_path, "base", "2026-01-01T00:00:00+00:00", ["."])
+    _write(tmp_path / "src" / "unrelated.py", "VERSION = 1\n")
+    _commit(tmp_path, "unrelated wildcard match", "2026-01-02T00:00:00+00:00", ["src/unrelated.py"])
+
+    changes = _recent_changes(tmp_path, ["src/*"], limit=1)
+
+    assert changes == []
 
 
 def test_recent_changes_preserves_single_git_log_order_for_inverse_author_dates(tmp_path, monkeypatch):
@@ -257,7 +271,7 @@ def test_recent_changes_preserves_single_git_log_order_for_inverse_author_dates(
         committer_timestamp="2026-01-04T00:00:00+00:00",
     )
     expected_subjects = subprocess.run(
-        ["git", "log", "-n", "2", "--format=%s", "--", "src/evidenced.py"],
+        ["git", "log", "-n", "2", "--format=%s", "--", ":(literal)src/evidenced.py"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -283,7 +297,7 @@ def test_recent_changes_preserves_single_git_log_order_for_inverse_author_dates(
             "2",
             "--format=%H%x00%aI%x00%s",
             "--",
-            "src/evidenced.py",
+            ":(literal)src/evidenced.py",
         ]
     ]
 
@@ -361,7 +375,15 @@ def test_feature_context_recent_changes_are_bounded_deduplicated_and_in_git_orde
         ["src/unrelated.py"],
     )
     expected_subjects = subprocess.run(
-        ["git", "log", "-n", "5", "--format=%s", "--", *sorted(evidenced_paths)],
+        [
+            "git",
+            "log",
+            "-n",
+            "5",
+            "--format=%s",
+            "--",
+            *[f":(literal){path}" for path in sorted(evidenced_paths)],
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
