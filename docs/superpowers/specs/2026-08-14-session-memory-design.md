@@ -1,6 +1,6 @@
 # Session-Continuity Memory — Design
 
-**Status:** proposed · **Prototype:** landed in `pi-ext/factory-watch/src/session-memory.ts` (pure) + `session-memory-command.ts` (wiring) + `test/session-memory.test.ts`
+**Status:** proposed → **landed (increments 1–2)** · **Prototype:** landed in `pi-ext/factory-watch/src/{session-memory,session-policy,session-feeds,session-memory-command}.ts` + `test/{session-memory,session-context}.test.ts`
 
 ## 1. Problem
 
@@ -78,18 +78,25 @@ Design rules for the injected content:
 - `session_shutdown` — implicit; persists and prunes the store (never takes the host down on a prune failure).
 - `before_agent_start` — implicit; injects the rollup.
 
-## 8. Policy / configurability (not yet wired — follow-up)
+## 8. Policy / configurability — LANDED (separate file, not project-profile)
 
-Decisions belong in `/factory-init`, once, persisted as a `session_context` block in `project-profile.json`:
+The spec originally proposed the policy live in `project-profile.json`. **Deviation:** it lives in its own file `.pi/factory/session-context.json`, because `/factory-init --refresh` *regenerates* `project-profile.json` from evidence and would wipe any hand-added key on the next refresh. The policy file is owned only by the session-context layer.
 
 ```json
-"session_context": {
-  "feeds": ["ledger", "memory", "head", "trace_health"],
-  "memory": { "ttl_hours": 24, "max_entries": 50, "max_tokens": 400, "auto_summary": true }
-}
+// .pi/factory/session-context.json
+{ "schema": 1,
+  "enabledFeeds": ["memory", "head"],
+  "memory": { "ttlHours": 24, "maxEntries": 50, "maxTokens": 400, "maxNoteTokens": 160 },
+  "head": { "maxCommits": 5 },
+  "updated_at": "..." }
 ```
 
-The hook **must stay deterministic, fast and non-interactive** (it runs every turn); interactivity lives in `/factory-init`, which writes the policy this hook reads. Omitted feeds mean "not injected — query on demand". This is out of scope for the prototype but is the intended production shape.
+| feed | source | content | cost |
+|---|---|---|---|
+| `memory` | `session-memory.json` | `/remember` continuity rollup (TTL/supersede/cap) | none |
+| `head` | `git rev-parse` + `git log` | branch, short HEAD, last N one-line commits | one fast subprocess |
+
+The hook **must stay deterministic, fast and non-interactive** — interactivity lives in `/factory-context` (show policy, toggle feeds via `select`), which writes the policy the hook reads. Omitted feeds mean "not injected — query on demand". `/remember` warns when the `memory` feed is off.
 
 ## 9. Open design decision
 
@@ -103,4 +110,4 @@ Whether `session_shutdown` **deletes** pruned entries outright, or keeps a cappe
 
 ## 11. Prototype evidence
 
-Landed and green: `session-memory.ts` (pure), `session-memory-command.ts` (wiring), `test/session-memory.test.ts` (16 tests), `pi-types.ts` extended with `session_shutdown`, wired from `index.ts`. Full extension suite: **61 files / 720 tests pass**, `tsc --noEmit` clean. Demonstrated: supersede retires the older `task:T-042` note; expired notes never reach a new session's rollup; rollup is bounded and as-of-dated.
+Landed and green: `session-memory.ts` (pure store), `session-policy.ts` (policy), `session-feeds.ts` (memory + head feeds + composer), `session-memory-command.ts` (wiring: `/remember`, `/factory-context`, `session_shutdown` prune, `before_agent_start` inject), `pi-types.ts` extended with `session_shutdown`, wired from `index.ts`. Full extension suite: **62 files / 729 tests pass**, `tsc --noEmit` clean. Demonstrated: supersede retires the older `task:T-042` note; expired notes never reach a new session's rollup; rollup is bounded and as-of-dated; `head` feed renders branch/HEAD/commits and skips non-git roots; policy gates which feeds inject.

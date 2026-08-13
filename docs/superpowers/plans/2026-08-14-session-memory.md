@@ -53,7 +53,14 @@
 - [x] Add `test/session-memory.test.ts` covering: id gap-filling; expired pruning; supersede (same topic, audit `supersedes`); cap keeps newest; `addNote` composes supersede+prune+cap over time; rollup null-on-empty, oldest-first, as-of-dated, never injects expired, budget-bounded.
 - [x] **DoD:** `npx vitest run test/session-memory.test.ts` green; full `npm test` still green (no regressions in the existing 61 files).
 
+### Task 4 — Policy + feeds (landed)
+- [x] `session-policy.ts`: `SessionContext` (schema 1), `readContext`/`writeContext` in `.pi/factory/session-context.json`, `setFeed` (pure), `ALL_FEEDS=["memory","head"]`, defaults.
+- [x] `session-feeds.ts`: `headFeed` (git branch/short HEAD/last N one-line commits, skip-on-error), `memoryFeed` (reuses store rollup), `composeContext` (assemble only enabled feeds, bounded, return included/skipped).
+- [x] Wire policy into `session-memory-command.ts`: `before_agent_start` composes enabled feeds; `session_shutdown` prunes with policy caps; `/remember` respects memory-on/off; new `/factory-context` command (report + interactive feed toggle + non-interactive `on`/off).
+- [x] `test/session-context.test.ts`: policy default/round-trip/toggle, headFeed null-on-non-git and content-on-git, composeContext include/skip gating.
+- [x] **DoD:** `tsc --noEmit` clean; full `npm test` green (62 files / 729).
+
 ## Out of scope (follow-ups, noted in the spec)
+- Additional feeds beyond `memory`/`head` (`ledger`, `trace_health`, plan/task status) — `composeContext` is feed-agnostic; add each as a deterministic `session-feeds.ts` function plus a policy entry.
 - Auto per-session summary at shutdown (needs a summarizer + dedupe by `actor`/topic; risks transcript bloat — deliberate).
-- `session_context` policy block in `project-profile.json` and an interactive `/factory-init` feed picker.
 - Optional capped append-only audit trail (vs. deleting pruned entries).
