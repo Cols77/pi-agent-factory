@@ -18,6 +18,7 @@ import { renderDocsHtml } from "./docs-html.js";
 import {
   loadSystemBriefing,
   loadSystemGuide,
+  loadSystemHealth,
   loadSystemMatrix,
   loadSystemReverse,
   loadSystemScopes,
@@ -253,10 +254,21 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these seven exact paths exist -- anything else falls through
+  // and only these eight exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // SP-B Task 6: the composed landing projection the browser renders on load.
+  if (req.method === "GET" && url.pathname === "/api/system/health") {
+    const result = loadSystemHealth(cwd);
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

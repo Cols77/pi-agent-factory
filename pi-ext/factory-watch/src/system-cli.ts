@@ -195,6 +195,52 @@ export function loadSystemGuide(cwd: string, scope: string): CliResult<SystemGui
   return runJsonCli<SystemGuide>(cwd, cmd.bin, cmd.args);
 }
 
+// Mirrors `factory.system health --json` (the composed landing projection).
+// This file renders it, never recomputes it -- health, coverage, ordering and
+// readiness all come from Python exactly as `query_health` composed them.
+export interface SystemHealthClass {
+  name: string;
+  satisfied: number;
+  expected: number;
+  exempt: number;
+}
+
+export interface SystemHealthBundle {
+  id: string;
+  label: string;
+  readiness: string;
+  readiness_counts: Record<string, number>;
+  members: number;
+}
+
+export interface SystemHealth {
+  health: {
+    classes: SystemHealthClass[];
+    satisfied: number;
+    expected: number;
+    percent: number;
+    dangling: number;
+    deferred: number;
+    proposed: number;
+  };
+  coverage: {
+    total: number;
+    bundled: number;
+    unbundled: number;
+    kinds: Array<{ kind: string; total: number; bundled: number; unbundled: number }>;
+  };
+  bundles: SystemHealthBundle[];
+  unbundled: Record<string, string[]>;
+  ordering_available: boolean;
+  sr_listed: boolean;
+  degraded: string[];
+}
+
+export function loadSystemHealth(cwd: string): CliResult<SystemHealth> {
+  const cmd = buildSystemCommand(["health", "--json"]);
+  return runJsonCli<SystemHealth>(cwd, cmd.bin, cmd.args);
+}
+
 // The rest of this file mirrors `factory.system.story.query_story` /
 // `factory.system.reverse.query_reverse` (increment B, V-cycle) exactly --
 // same discipline as every type above: this file renders, it never

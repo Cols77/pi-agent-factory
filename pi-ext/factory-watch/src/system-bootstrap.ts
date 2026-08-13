@@ -388,9 +388,70 @@ export async function systemBootstrap(): Promise<void> {
     }
   }
 
+  // Task 6 (SP-B): the landing page health summary + bundle list, rendered
+  // straight from the composed `health` projection (factory.system health
+  // --json). Python computed every number; this only renders it via text
+  // nodes -- a denominator-of-one ratio ("SR validated 1/1") stays a real
+  // ratio, never a green checkmark.
+  function renderHealthSummary(payload: any): void {
+    const summary = document.getElementById('healthSummary') as HTMLElement;
+    clear(summary);
+    const h = payload.health || {};
+    const pct = document.createElement('div');
+    pct.className = 'health-line';
+    pct.appendChild(document.createTextNode('Overall ' + h.satisfied + '/' + h.expected + ' satisfied (' + h.percent + '%)'));
+    summary.appendChild(pct);
+    (h.classes || []).forEach((c: any) => {
+      const line = document.createElement('div');
+      line.className = 'health-line';
+      line.appendChild(document.createTextNode(c.name + ' ' + c.satisfied + '/' + c.expected));
+      summary.appendChild(line);
+    });
+  }
+
+  // Minimal Task 6 bundle list (label per bundle). The feature-first grouping
+  // and readiness counts are Task 7; this only establishes the container.
+  function renderBundleList(payload: any): void {
+    let list = document.getElementById('bundleList') as HTMLElement;
+    if (!list) {
+      list = document.createElement('div');
+      list.id = 'bundleList';
+      const scopeHeader = document.getElementById('scopeHeader');
+      if (scopeHeader) {
+        scopeHeader.parentElement!.insertBefore(list, scopeHeader);
+      } else {
+        content.appendChild(list);
+      }
+    }
+    clear(list);
+    (payload.bundles || []).forEach((b: any) => {
+      const row = document.createElement('div');
+      row.className = 'bundle-row';
+      row.appendChild(document.createTextNode(b.label || b.id));
+      list.appendChild(row);
+    });
+  }
+
+  async function loadHealth(): Promise<void> {
+    try {
+      const res = await fetch('/api/system/health');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showBanner('could not load project health: ' + (body.error || res.status));
+        return;
+      }
+      const payload = await res.json();
+      renderHealthSummary(payload);
+      renderBundleList(payload);
+    } catch (err) {
+      showBanner('could not load project health: ' + String(err));
+    }
+  }
+
   // Boot sequence.
   await loadScopes();
   setPickerClass(false);
+  await loadHealth();
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {
@@ -402,5 +463,10 @@ export async function systemBootstrap(): Promise<void> {
       setPickerClass(false);
       setLoading(false);
     }
+  } else {
+    // Landing: no scope chosen, so the health summary + bundle list + the
+    // existing tabs are the page. Python composes the projection; this only
+    // renders it.
+    content.hidden = false;
   }
 }
