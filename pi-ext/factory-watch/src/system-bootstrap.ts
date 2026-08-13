@@ -67,6 +67,7 @@ export async function systemBootstrap(): Promise<void> {
   let traceData: any = null;
   let healthBundles: any[] = [];
   let healthController: AbortController | null = null;
+  let healthGeneration = 0;
   let scopeController: AbortController | null = null;
   let navigationGeneration = 0;
   const HEALTH_TIMEOUT_MS = 15_000;
@@ -123,6 +124,12 @@ export async function systemBootstrap(): Promise<void> {
 
   function isCurrentNavigation(generation: number, scopeRef: string): boolean {
     return generation === navigationGeneration && currentScope === scopeRef;
+  }
+
+  function invalidateHealth(): void {
+    healthGeneration += 1;
+    healthController?.abort();
+    healthController = null;
   }
 
   function setHealthStatus(message: string, retry: boolean): void {
@@ -606,6 +613,7 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
+    invalidateHealth();
     const generation = ++navigationGeneration;
     scopeController?.abort();
     const controller = new AbortController();
@@ -636,10 +644,6 @@ export async function systemBootstrap(): Promise<void> {
       picker.hidden = false;
       showLanding();
       setLoading(false);
-    } finally {
-      if (generation === navigationGeneration && scopeController === controller) {
-        scopeController = null;
-      }
     }
   }
 
@@ -801,9 +805,10 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  async function loadHealth(): Promise<void> {
+  async function loadHealth(): Promise<boolean> {
     healthController?.abort();
     const controller = new AbortController();
+    const generation = ++healthGeneration;
     healthController = controller;
     let timedOut = false;
     const timeout = window.setTimeout(() => {
@@ -818,6 +823,7 @@ export async function systemBootstrap(): Promise<void> {
         throw new Error(String(res.status));
       }
       const payload = await res.json();
+      if (generation !== healthGeneration || healthController !== controller) return false;
       renderHealthSummary(payload);
       renderBundleList(payload);
       renderFeatureSidebar(payload);
@@ -825,6 +831,7 @@ export async function systemBootstrap(): Promise<void> {
       showBanner('');
       showLanding();
     } catch (err) {
+      if (generation !== healthGeneration || healthController !== controller) return false;
       showLanding();
       if (timedOut) {
         setHealthStatus(
@@ -841,6 +848,7 @@ export async function systemBootstrap(): Promise<void> {
       window.clearTimeout(timeout);
       if (healthController === controller) healthController = null;
     }
+    return generation === healthGeneration;
   }
 
   retryHealth.addEventListener('click', () => { void loadHealth(); });
@@ -866,7 +874,8 @@ export async function systemBootstrap(): Promise<void> {
   // mode. The sidebar renders from the health payload -- `list_scopes` is no
   // longer fetched by the client.
   setPickerClass(false);
-  await loadHealth();
+  const healthOwnsLanding = await loadHealth();
+  if (!healthOwnsLanding) return;
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {

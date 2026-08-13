@@ -110,6 +110,168 @@ afterEach(() => {
 });
 
 describe("system navigator landing and focus modes", () => {
+  it("does not let a late health success replace a scope that superseded it", async () => {
+    let resolveHealth!: (response: Response) => void;
+    let healthSignal: AbortSignal | undefined;
+    const pendingHealth = new Promise<Response>((resolve) => { resolveHealth = resolve; });
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") {
+        healthSignal = init?.signal ?? undefined;
+        return pendingHealth;
+      }
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: "sr:SR-LIVE" }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "SR-LIVE";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(healthSignal?.aborted).toBe(true);
+
+    resolveHealth(await jsonResponse(HEALTH));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("sr:SR-LIVE");
+    expect(doc.querySelector("#healthSummary")?.textContent).toBe("");
+  });
+
+  it("does not let a late health failure return a newer scope to landing", async () => {
+    let rejectHealth!: (error: Error) => void;
+    const pendingHealth = new Promise<Response>((_resolve, reject) => { rejectHealth = reject; });
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return pendingHealth;
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: "sr:SR-LIVE" }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "SR-LIVE";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+
+    rejectHealth(new Error("late health failure"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("sr:SR-LIVE");
+    expect((doc.querySelector("#retryHealth") as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it("ignores a retry response after exact-ref navigation supersedes it", async () => {
+    let healthAttempt = 0;
+    let resolveRetry!: (response: Response) => void;
+    let retrySignal: AbortSignal | undefined;
+    const pendingRetry = new Promise<Response>((resolve) => { resolveRetry = resolve; });
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") {
+        healthAttempt += 1;
+        if (healthAttempt === 1) return Promise.reject(new Error("initial health failure"));
+        retrySignal = init?.signal ?? undefined;
+        return pendingRetry;
+      }
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: "sr:SR-LIVE" }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect((doc.querySelector("#retryHealth") as HTMLButtonElement).hidden).toBe(false));
+    (doc.querySelector("#retryHealth") as HTMLButtonElement).click();
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "SR-LIVE";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(retrySignal?.aborted).toBe(true);
+
+    resolveRetry(await jsonResponse(HEALTH));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("sr:SR-LIVE");
+    expect((doc.querySelector("#retryHealth") as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it("physically aborts a lazy graph request when a newer scope takes ownership", async () => {
+    let graphSignal: AbortSignal | undefined;
+    const pendingGraph = new Promise<Response>(() => {});
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope") ?? "";
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/graph") {
+        graphSignal = init?.signal ?? undefined;
+        return pendingGraph;
+      }
+      if (url.pathname === "/api/system/story") {
+        return jsonResponse({
+          scope: { kind: "task", ref: scope },
+          task: { id: "T-NEXT", title: "Next task", status: "planned" },
+          runs: [], requirements: [], degraded: false, degraded_reasons: [],
+        });
+      }
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: scope }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "SR-TRACE";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    doc.querySelector<HTMLElement>("#tabTrace")!.click();
+    await vi.waitFor(() => expect(graphSignal).toBeDefined());
+
+    input.value = "task:T-NEXT";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+
+    expect(graphSignal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(doc.querySelector("#scopeRef")?.textContent).toBe("task:T-NEXT"));
+  });
+
   it("reveals a cleared current-scope workspace while core evidence is pending", async () => {
     let resolveBrief!: (response: Response) => void;
     const pendingBrief = new Promise<Response>((resolve) => { resolveBrief = resolve; });
