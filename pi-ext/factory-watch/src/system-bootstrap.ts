@@ -67,21 +67,18 @@ export async function systemBootstrap(): Promise<void> {
   let traceData: any = null;
   let healthBundles: any[] = [];
   let healthController: AbortController | null = null;
+  let scopeController: AbortController | null = null;
+  let navigationGeneration = 0;
   const HEALTH_TIMEOUT_MS = 15_000;
   const TRAVERSAL_TIMEOUT_MS = 8_000;
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
   let currentScope: string | null = null;
 
-  // Task B (system nav): eager SR capture for an sr: scope opened at boot, read
-  // synchronously before the first await so a Trace click has the SR to invert.
-  const bootScope = new URLSearchParams(window.location.search).get('scope');
-  if (bootScope && scopeKind(bootScope) === 'sr') scopeSrRefs = [bootScope];
-
   // Task 2 (system nav): records the active scope in the URL via pushState.
   function pushScope(ref: string): void {
     try {
-      history.pushState({ scope: ref }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
+      history.pushState({ scope: ref, tab: null }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
     } catch {
       /* ignore: SPA URL is best-effort */
     }
@@ -122,6 +119,10 @@ export async function systemBootstrap(): Promise<void> {
     landingPanel.hidden = true;
     scopeWorkspace.hidden = false;
     setPickerClass(true);
+  }
+
+  function isCurrentNavigation(generation: number, scopeRef: string): boolean {
+    return generation === navigationGeneration && currentScope === scopeRef;
   }
 
   function setHealthStatus(message: string, retry: boolean): void {
@@ -363,7 +364,7 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  function showTab(name: string): void {
+  function showTab(name: string, updateUrl = true): void {
     const selected = document.getElementById('tab' + name) as HTMLElement | null;
     if (!selected || selected.hidden) return;
     TAB_ORDER.forEach((tab) => {
@@ -375,21 +376,29 @@ export async function systemBootstrap(): Promise<void> {
     });
     // Keep the active tab in the URL hash (replaceState, not pushState, so tab
     // switching does not pad the back-stack).
-    try {
-      history.replaceState(null, '', location.pathname + location.search + '#' + name.toLowerCase());
-    } catch {
-      /* ignore: hash update is best-effort */
+    if (updateUrl) {
+      try {
+        history.replaceState(
+          { scope: currentScope, tab: name.toLowerCase() },
+          '',
+          location.pathname + location.search + '#' + name.toLowerCase()
+        );
+      } catch {
+        /* ignore: hash update is best-effort */
+      }
     }
   }
 
   // Picks the boot tab from the URL hash when it names a valid tab, else the
   // scope kind's default tab.
-  function selectInitialTab(kindDefault: string): void {
+  function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
     const names: Record<string, string> = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
-    showTab(requestedTab && !requestedTab.hidden ? requested! : kindDefault);
+    const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
+    showTab(selected, updateUrl);
+    return selected;
   }
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
@@ -398,10 +407,15 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
   (document.getElementById('tabStory') as HTMLElement).onclick = () => showTab('Story');
   (document.getElementById('tabReverse') as HTMLElement).onclick = () => showTab('Reverse');
-  (document.getElementById('tabTrace') as HTMLElement).onclick = () => { showTab('Trace'); if (scopeSrRefs.length) loadTrace(); };
+  (document.getElementById('tabTrace') as HTMLElement).onclick = () => {
+    showTab('Trace');
+    if (currentScope) void loadTrace(navigationGeneration, currentScope, scopeController?.signal);
+  };
 
   // The Refresh button re-runs the current scope's load in place.
-  (document.getElementById('refresh') as HTMLElement).onclick = () => { if (currentScope) loadScope(currentScope); };
+  (document.getElementById('refresh') as HTMLElement).onclick = () => {
+    if (currentScope) void loadScope(currentScope, false, false);
+  };
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
   window.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -453,85 +467,100 @@ export async function systemBootstrap(): Promise<void> {
     return idx === -1 ? '' : ref.slice(0, idx);
   }
 
-  async function loadStoryScope(scopeRef: string): Promise<void> {
-    const res = await fetch('/api/system/story?scope=' + encodeURIComponent(scopeRef));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      picker.hidden = false;
-      showLanding();
-      setLoading(false);
-      return;
+  function defaultTab(kind: string): string {
+    if (kind === 'task') return 'Story';
+    if (kind === 'file') return 'Reverse';
+    return 'Brief';
+  }
+
+  function resetScopeEvidence(scopeRef: string): void {
+    const kind = scopeKind(scopeRef);
+    scopeSrRefs = kind === 'sr' ? [scopeRef] : [];
+    traceLoaded = false;
+    traceData = null;
+    TAB_ORDER.forEach((tab) => clear(document.getElementById('panel' + tab) as HTMLElement));
+    if (kind === 'task' || kind === 'file') {
+      renderTraversalStatus('Traversal is not applicable for this scope.');
+      renderNotApplicable(
+        'panelTrace',
+        'Not applicable for this scope. See the Story or Reverse tab.'
+      );
+    } else {
+      renderTraversalStatus('Loading traversal for this scope…');
+      renderNotApplicable('panelTrace', 'Trace map has not been loaded for this scope.');
     }
-    showBanner('');
-    showWorkspace();
-    setScopeHeading(scopeRef);
-    scopeSrRefs = [];
-    renderStory(await res.json());
+  }
+
+  async function responseFailure(res: Response): Promise<string> {
+    const body = await res.json().catch(() => ({}));
+    return String(body.error || res.status);
+  }
+
+  async function loadStoryScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const res = await fetch('/api/system/story?scope=' + encodeURIComponent(scopeRef), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const story = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderStory(story);
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
     configureTabs('task');
-    selectInitialTab('Story');
+    selectInitialTab('Story', updateUrl);
     setLoading(false, true);
   }
 
-  async function loadReverseScope(scopeRef: string): Promise<void> {
-    const res = await fetch('/api/system/reverse?scope=' + encodeURIComponent(scopeRef));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      picker.hidden = false;
-      showLanding();
-      setLoading(false);
-      return;
-    }
-    showBanner('');
-    showWorkspace();
-    setScopeHeading(scopeRef);
-    scopeSrRefs = [];
-    renderReverse(await res.json());
+  async function loadReverseScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const res = await fetch('/api/system/reverse?scope=' + encodeURIComponent(scopeRef), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const reverse = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderReverse(reverse);
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
     configureTabs('file');
-    selectInitialTab('Reverse');
+    selectInitialTab('Reverse', updateUrl);
     setLoading(false, true);
   }
 
-  async function loadBundleScope(scopeRef: string): Promise<void> {
+  async function loadBundleScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
     const scopeParam = encodeURIComponent(scopeRef);
     // The guide fetch is intentionally not in the failure gate below: a
     // failed/unavailable guide degrades only its own tab.
     const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
-      fetch('/api/system/brief?scope=' + scopeParam),
-      fetch('/api/system/matrix?scope=' + scopeParam),
-      fetch('/api/system/timeline?scope=' + scopeParam),
-      fetch('/api/system/guide?scope=' + scopeParam),
+      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
+      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
+      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
+      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
     ]);
     const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
-    if (failed) {
-      const body = await failed.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || failed.status));
-      picker.hidden = false;
-      showLanding();
-      setLoading(false);
-      return;
-    }
-    showBanner('');
-    const [brief, matrix, timeline] = await Promise.all([
+    if (failed) throw new Error(await responseFailure(failed));
+    const [brief, matrix, timeline, guide] = await Promise.all([
       briefRes.json(), matrixRes.json(), timelineRes.json(),
+      guideRes.ok ? guideRes.json() : Promise.resolve(null),
     ]);
-    showWorkspace();
-    setScopeHeading(scopeRef);
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     renderBrief(brief);
     renderMatrix(matrix);
     renderTimeline(timeline);
-    if (guideRes.ok) {
-      renderGuide(await guideRes.json());
-    } else {
-      renderGuideFallback();
-    }
+    if (guide) renderGuide(guide);
+    else renderGuideFallback();
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
@@ -545,11 +574,11 @@ export async function systemBootstrap(): Promise<void> {
         if (row.subject && row.subject.kind === 'sr') scopeSrRefs.push(row.subject.ref);
       });
     }
-    traceLoaded = false;
-    traceData = null;
     // SP-B Task 9: working traversal for this sr:/bundle: scope (best-effort;
     // a missing/unavailable endpoint degrades only the #traversalPath node).
     const traversalController = new AbortController();
+    const cancelTraversal = () => traversalController.abort();
+    signal.addEventListener('abort', cancelTraversal, { once: true });
     const traversalTimeout = window.setTimeout(
       () => traversalController.abort(),
       TRAVERSAL_TIMEOUT_MS
@@ -558,62 +587,98 @@ export async function systemBootstrap(): Promise<void> {
       const travRes = await fetch('/api/system/traversal?scope=' + scopeParam, {
         signal: traversalController.signal,
       });
-      if (travRes.ok) {
-        renderTraversal(await travRes.json());
-      }
+      if (!travRes.ok) throw new Error(String(travRes.status));
+      const traversal = await travRes.json();
+      if (isCurrentNavigation(generation, scopeRef)) renderTraversal(traversal);
     } catch {
-      /* traversal is best-effort; failure degrades only its own node */
+      if (isCurrentNavigation(generation, scopeRef)) {
+        renderTraversalStatus('Traversal is unavailable for this scope.');
+      }
     } finally {
       window.clearTimeout(traversalTimeout);
+      signal.removeEventListener('abort', cancelTraversal);
     }
-    selectInitialTab('Brief');
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    const selectedTab = selectInitialTab('Brief', updateUrl);
+    if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);
   }
 
-  async function loadScope(scopeRef: string): Promise<void> {
+  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
+    const generation = ++navigationGeneration;
+    scopeController?.abort();
+    const controller = new AbortController();
+    scopeController = controller;
     currentScope = scopeRef;
-    pushScope(scopeRef);
+    if (pushHistory) pushScope(scopeRef);
+    const kind = scopeKind(scopeRef);
+    showBanner('');
+    configureTabs(kind);
+    resetScopeEvidence(scopeRef);
+    showWorkspace();
+    setScopeHeading(scopeRef);
+    selectInitialTab(defaultTab(kind), updateUrl);
     setLoading(true);
     try {
-      const kind = scopeKind(scopeRef);
-      configureTabs(kind);
       if (kind === 'task') {
-        await loadStoryScope(scopeRef);
+        await loadStoryScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
       if (kind === 'file') {
-        await loadReverseScope(scopeRef);
+        await loadReverseScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
-      await loadBundleScope(scopeRef);
+      await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);
     } catch (err) {
+      if (!isCurrentNavigation(generation, scopeRef)) return;
       showBanner('could not resolve scope ' + scopeRef + ': ' + String(err));
       picker.hidden = false;
       showLanding();
       setLoading(false);
+    } finally {
+      if (generation === navigationGeneration && scopeController === controller) {
+        scopeController = null;
+      }
     }
   }
 
   // Task B (system nav): the lazy trace loader. Fetches /api/graph only on the
   // first click of the Trace tab (never during scope load). Lives here because
   // it reads bootstrap state.
-  async function loadTrace(): Promise<void> {
+  async function loadTrace(
+    generation: number,
+    scopeRef: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     if (!scopeSrRefs.length) {
-      renderNotApplicable('panelTrace', 'Not applicable for this scope. See the Story or Reverse tabs.');
+      const pending = content.getAttribute('aria-busy') === 'true';
+      renderNotApplicable(
+        'panelTrace',
+        pending
+          ? 'Trace will load after current-scope evidence resolves.'
+          : 'No trace recorded for this scope. See the Brief, Story, or Reverse tabs.'
+      );
       return;
     }
     if (traceLoaded) {
       renderTrace(invertTraceForScope(traceData, scopeSrRefs));
       return;
     }
+    const refs = scopeSrRefs.slice();
     try {
-      const res = await fetch('/api/graph');
+      const res = await fetch('/api/graph', signal ? { signal } : undefined);
       if (!res.ok) throw new Error('graph fetch failed');
-      traceData = await res.json();
+      const graph = await res.json();
+      if (!isCurrentNavigation(generation, scopeRef)) return;
+      traceData = graph;
       traceLoaded = true;
-      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+      renderTrace(invertTraceForScope(traceData, refs));
     } catch (err) {
-      renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+      if (isCurrentNavigation(generation, scopeRef)) {
+        renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+      }
     }
   }
 
@@ -658,7 +723,7 @@ export async function systemBootstrap(): Promise<void> {
   // SP-B Task 9: working traversal -- requirement -> satisfying tasks -> design
   // decisions -> changed files, rendered from `factory.system traversal --json`
   // (non-fatal: a failure degrades only this node). Text nodes only.
-  function renderTraversal(trav: any): void {
+  function traversalNode(): HTMLElement {
     let node = document.getElementById('traversalPath') as HTMLElement | null;
     if (!node) {
       node = document.createElement('div');
@@ -671,6 +736,20 @@ export async function systemBootstrap(): Promise<void> {
         document.getElementById('content')?.appendChild(node);
       }
     }
+    return node;
+  }
+
+  function renderTraversalStatus(message: string): void {
+    const node = traversalNode();
+    clear(node);
+    const status = document.createElement('div');
+    status.className = 'empty traversal-status';
+    status.appendChild(document.createTextNode(message));
+    node.appendChild(status);
+  }
+
+  function renderTraversal(trav: any): void {
+    const node = traversalNode();
     clear(node);
     function addStep(label: string, values: string[]): void {
       const step = document.createElement('div');
@@ -683,7 +762,7 @@ export async function systemBootstrap(): Promise<void> {
       stepValue.appendChild(document.createTextNode(values.join(', ') || 'Not recorded'));
       step.appendChild(stepLabel);
       step.appendChild(stepValue);
-      node!.appendChild(step);
+      node.appendChild(step);
     }
     addStep('Requirement', [trav.requirement]);
     addStep('Tasks', trav.tasks);
@@ -766,6 +845,22 @@ export async function systemBootstrap(): Promise<void> {
 
   retryHealth.addEventListener('click', () => { void loadHealth(); });
 
+  function restoreLocation(): void {
+    const scopeRef = new URLSearchParams(window.location.search).get('scope');
+    if (scopeRef) {
+      void loadScope(scopeRef, false, false);
+      return;
+    }
+    navigationGeneration += 1;
+    scopeController?.abort();
+    scopeController = null;
+    showBanner('');
+    showLanding();
+    setLoading(false);
+  }
+
+  window.addEventListener('popstate', restoreLocation);
+
   // Boot sequence: the landing page opens on the health projection (summary,
   // bundle list, feature-first sidebar); scope choice navigates into focus
   // mode. The sidebar renders from the health payload -- `list_scopes` is no
@@ -775,7 +870,7 @@ export async function systemBootstrap(): Promise<void> {
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {
-      await loadScope(requestedScope);
+      await loadScope(requestedScope, false, false);
     } catch (err) {
       showBanner('could not resolve scope ' + requestedScope + ': ' + String(err));
       picker.hidden = false;

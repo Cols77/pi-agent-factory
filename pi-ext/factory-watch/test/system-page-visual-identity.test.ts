@@ -30,6 +30,20 @@ describe("system navigator visual identity", () => {
     expect(html).toMatch(/body\.focus\.picker-open #picker nav[\s\S]*display:\s*block/);
   });
 
+  it("lets the header and banner consume their real height without clipping content", () => {
+    expect(html).toMatch(/body\s*\{[^}]*display:\s*grid[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\)/);
+    expect(html).toMatch(/body\s*\{[^}]*height:\s*100dvh/);
+    expect(html).toMatch(/#layout\s*\{[^}]*min-height:\s*0/);
+    expect(html).not.toContain("calc(100vh -");
+  });
+
+  it("keeps operational metadata at a readable twelve-pixel minimum", () => {
+    expect(html).toMatch(/\.eyebrow, \.section-heading > span\s*\{[^}]*font:\s*650 12px/);
+    expect(html).toMatch(/\.badge\s*\{[^}]*font:\s*650 12px/);
+    expect(html).toMatch(/\.trace-spine-label\s*\{[^}]*font:\s*650 12px/);
+    expect(html).not.toMatch(/(?:font|font-size):[^;}]*\b(?:10|11)px\b/);
+  });
+
   it("relates tabs and panels accessibly", () => {
     expect(html).toContain('id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"');
     expect(html).toContain('id="tabBrief" class="tab" role="tab" tabindex="0"');
@@ -79,11 +93,11 @@ function scopeResponse(pathname: string): Promise<Response> {
   return Promise.reject(new Error(`unmocked fetch: ${pathname}`));
 }
 
-function loadDom(fetchMock: ReturnType<typeof vi.fn>): JSDOM {
+function loadDom(fetchMock: ReturnType<typeof vi.fn>, url = "http://localhost/system"): JSDOM {
   return new JSDOM(renderSystemPageHtml(), {
     runScripts: "dangerously",
     resources: "usable",
-    url: "http://localhost/system",
+    url,
     beforeParse(window) {
       (window as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
     },
@@ -96,6 +110,103 @@ afterEach(() => {
 });
 
 describe("system navigator landing and focus modes", () => {
+  it("reveals a cleared current-scope workspace while core evidence is pending", async () => {
+    let resolveBrief!: (response: Response) => void;
+    const pendingBrief = new Promise<Response>((resolve) => { resolveBrief = resolve; });
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/brief") return pendingBrief;
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(true);
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:safety-governor");
+    expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(false);
+    expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("true");
+    expect(doc.querySelector("#panelBrief")?.textContent).not.toContain("No claims recorded");
+
+    resolveBrief(await scopeResponse("/api/system/brief"));
+  });
+
+  it("loads the current trace when a deep link initially selects Trace", async () => {
+    const graph = {
+      nodes: [
+        { id: "SR-NEW", kind: "sr", title: "Current requirement", path: "requirements/SR-NEW.md" },
+        { id: "T-NEW", kind: "task", title: "Current task", path: "tasks/T-NEW.md" },
+      ],
+      edges: [{ src: "T-NEW", dst: "SR-NEW", kind: "satisfies" }],
+    };
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/graph") return jsonResponse(graph);
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: "sr:SR-NEW" }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock, "http://localhost/system?scope=sr%3ASR-NEW#trace");
+    const doc = dom.window.document;
+
+    await vi.waitFor(() => expect(doc.querySelector("#panelTrace")?.textContent).toContain("T-NEW"));
+    expect(doc.querySelector("#tabTrace")?.getAttribute("aria-selected")).toBe("true");
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/graph"), expect.anything());
+  });
+
+  it("clears prior traversal and trace evidence as soon as another scope starts", async () => {
+    let resolveStory!: (response: Response) => void;
+    const pendingStory = new Promise<Response>((resolve) => { resolveStory = resolve; });
+    const graph = {
+      nodes: [
+        { id: "SR-OLD", kind: "sr", title: "Old requirement", path: "requirements/SR-OLD.md" },
+        { id: "T-OLD", kind: "task", title: "Old trace task", path: "tasks/T-OLD.md" },
+      ],
+      edges: [{ src: "T-OLD", dst: "SR-OLD", kind: "satisfies" }],
+    };
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/graph") return jsonResponse(graph);
+      if (url.pathname === "/api/system/story") return pendingStory;
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: "SR-OLD", tasks: ["T-OLD"], design: ["old-design"], files: ["old.ts"] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "sr", ref: scope }, claims: [],
+          rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock, "http://localhost/system?scope=sr%3ASR-OLD#trace");
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector("#traversalPath")?.textContent ?? "").toContain("old.ts"));
+    await vi.waitFor(() => expect(doc.querySelector("#panelTrace")?.textContent ?? "").toContain("T-OLD"));
+
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "task:T-NEW";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+
+    expect(doc.querySelector("#traversalPath")?.textContent).not.toContain("old.ts");
+    expect(doc.querySelector("#panelTrace")?.textContent).not.toContain("T-OLD");
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("task:T-NEW");
+    expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(false);
+
+    resolveStory(await jsonResponse({ scope: { kind: "task", ref: "task:T-NEW" }, task: { id: "T-NEW" }, runs: [] }));
+  });
   it("aborts a stalled health scan and exposes an actionable retry", async () => {
     vi.useFakeTimers();
     let healthSignal: AbortSignal | undefined;
@@ -197,6 +308,166 @@ describe("system navigator landing and focus modes", () => {
     expect(traversalSignal?.aborted).toBe(true);
     expect((doc.querySelector("#loading") as HTMLElement).hidden).toBe(true);
     expect(doc.querySelector("#panelBrief")?.textContent).toContain("No claims recorded");
+    expect(doc.querySelector("#traversalPath")?.textContent).toContain("unavailable for this scope");
+  });
+
+  it("ignores an older scope response that settles after a newer navigation", async () => {
+    let resolveOldBrief!: (response: Response) => void;
+    const oldBrief = new Promise<Response>((resolve) => { resolveOldBrief = resolve; });
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope") ?? "";
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/brief" && scope === "bundle:older") return oldBrief;
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [`${scope}.ts`] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "bundle", ref: scope }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+
+    input.value = "bundle:older";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    input.value = "bundle:newer";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:newer"));
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+
+    resolveOldBrief(await jsonResponse({
+      scope: { kind: "bundle", ref: "bundle:older" }, claims: [], degraded: false, degraded_reasons: [],
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:newer");
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect(doc.querySelector("#traversalPath")?.textContent).toContain("bundle:newer.ts");
+  });
+
+  it("does not let a late older failure return a valid newer scope to landing", async () => {
+    let rejectOldBrief!: (error: Error) => void;
+    const oldBrief = new Promise<Response>((_resolve, reject) => { rejectOldBrief = reject; });
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope") ?? "";
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/brief" && scope === "bundle:older") return oldBrief;
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "bundle", ref: scope }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "bundle:older";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    input.value = "bundle:newer";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+
+    rejectOldBrief(new Error("older scope failed late"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(true);
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false);
+    expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:newer");
+    expect(doc.querySelector("#banner")?.textContent).not.toContain("older scope failed late");
+  });
+
+  it("restores scopes and tabs with Back and Forward without duplicating history", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope") ?? "";
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "bundle", ref: scope }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
+    input.value = "bundle:first";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    doc.querySelector<HTMLElement>("#tabMatrix")!.click();
+    expect(dom.window.location.hash).toBe("#matrix");
+
+    input.value = "bundle:second";
+    doc.querySelector<HTMLElement>("#searchGo")!.click();
+    await vi.waitFor(() => expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:second"));
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(dom.window.history.length).toBe(3);
+
+    dom.window.history.back();
+    await vi.waitFor(() => expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:first"));
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(doc.querySelector("#tabMatrix")?.getAttribute("aria-selected")).toBe("true");
+    expect(dom.window.history.length).toBe(3);
+
+    dom.window.history.forward();
+    await vi.waitFor(
+      () => expect(doc.querySelector("#scopeRef")?.textContent).toBe("bundle:second"),
+      { timeout: 2_000 },
+    );
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(doc.querySelector("#tabBrief")?.getAttribute("aria-selected")).toBe("true");
+    expect(dom.window.history.length).toBe(3);
+  });
+
+  it("restores the landing when Back removes the scope without adding history", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      const scope = url.searchParams.get("scope") ?? "";
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+      }
+      if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
+        return jsonResponse({
+          scope: { kind: "bundle", ref: scope }, claims: [], rows: [], events: [], sections: [],
+          degraded: false, degraded_reasons: [],
+        });
+      }
+      return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+    await vi.waitFor(() => expect(doc.querySelector("#content")?.getAttribute("aria-busy")).toBe("false"));
+    expect(dom.window.history.length).toBe(2);
+
+    dom.window.history.back();
+    await vi.waitFor(() => expect((doc.querySelector("#landingPanel") as HTMLElement).hidden).toBe(false));
+    expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(true);
+    expect(dom.window.location.search).toBe("");
+    expect(dom.window.history.length).toBe(2);
   });
 
   it("keeps a truthful close control visible while the mobile scope sheet is open", async () => {
