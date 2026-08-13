@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Iterable, Literal
+
+from factory.goals.schema import Goal
 
 SrState = Literal["passed", "failed", "error", "never_validated"]
 
@@ -60,3 +62,29 @@ def load_validation(root: Path) -> dict[str, SrStatus]:
             error=entry.get("error"),
         )
     return statuses
+
+
+GoalValidation = Literal["VALIDATED", "REGRESSED", "VERIFICATION_PENDING"]
+
+
+def requirement_validation(goals: Iterable[Goal]) -> GoalValidation | None:
+    """Derive a requirement's D5 goal-aware status from its goal states.
+
+    Pure and derived -- never stored (spec §28). Rules, in priority order:
+
+    * any goal in REGRESSED                    -> "REGRESSED"
+    * every goal REACHED                       -> "VALIDATED"
+    * goals exist, none reached, no regression -> "VERIFICATION_PENDING"
+    * no goals                                 -> None (v1 behaviour unchanged)
+
+    The caller decides which goals belong to the requirement (via the goals'
+    declared `requirements`/`demonstrates` bindings).
+    """
+    goal_states = [g.state for g in goals]
+    if not goal_states:
+        return None
+    if "REGRESSED" in goal_states:
+        return "REGRESSED"
+    if all(state == "REACHED" for state in goal_states):
+        return "VALIDATED"
+    return "VERIFICATION_PENDING"
