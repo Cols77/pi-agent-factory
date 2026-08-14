@@ -403,7 +403,7 @@ def _render_memberships(result: dict) -> str:
 
 
 def _render_traversal(result: dict) -> str:
-    lines = [f"requirement: {result['requirement']}"]
+    lines = [f"requirement: {', '.join(result['requirement'])}"]
     lines.append("tasks: " + (", ".join(result["tasks"]) if result["tasks"] else "(none)"))
     lines.append("design: " + (", ".join(result["design"]) if result["design"] else "(none)"))
     lines.append("files: " + (", ".join(result["files"]) if result["files"] else "(none)"))

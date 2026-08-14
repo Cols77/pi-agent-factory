@@ -1557,12 +1557,33 @@ def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
     evidence_dir = _evidence_dir(repo_root)
     lookup = build_artifact_lookup(repo_root, nodes=nodes)
 
+    # A function-local import keeps the module import graph acyclic
+    # (labels.py imports system.bundles and system.adr; neither reaches here).
+    from factory.system.labels import build_alias_map
+
+    aliases = build_alias_map(repo_root, nodes=nodes)
+
+    def _ref(raw: str) -> str:
+        # Unresolvable values are emitted unchanged so nothing is invented;
+        # the browser renders them as "not in the label index".
+        return aliases.get(raw, raw)
+
+    def _file_ref(raw: str) -> str:
+        # There are no file nodes in the graph (trace/model.py:102), so a path
+        # can only be prefixed directly. The path is the file's identity.
+        return raw if raw.startswith("file:") else f"file:{raw}"
+
     if scope.kind == "sr":
         sr_id = _scope_identifier(scope)
         tasks, design, files = _traversal_for_sr(
             repo_root, sr_id, edges, evidence_dir, lookup=lookup
         )
-        return {"requirement": sr_id, "tasks": tasks, "design": design, "files": files}
+        return {
+            "requirement": [_ref(sr_id)],
+            "tasks": [_ref(t) for t in tasks],
+            "design": [_ref(d) for d in design],
+            "files": [_file_ref(f) for f in files],
+        }
 
     if scope.kind == "bundle":
         bundle_id = _scope_identifier(scope)
@@ -1585,10 +1606,10 @@ def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
                 if f not in all_files:
                     all_files.append(f)
         return {
-            "requirement": ", ".join(sr_ids),
-            "tasks": all_tasks,
-            "design": all_design,
-            "files": all_files,
+            "requirement": [_ref(s) for s in sr_ids],
+            "tasks": [_ref(t) for t in all_tasks],
+            "design": [_ref(d) for d in all_design],
+            "files": [_file_ref(f) for f in all_files],
         }
 
     raise ScopeKindError(

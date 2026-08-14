@@ -249,7 +249,7 @@ export function loadSystemHealthAsync(cwd: string): Promise<CliResult<SystemHeal
 // SP-B Task 9 -- working traversal. Mirrors `factory.system.traversal --json`
 // (requirement -> satisfying tasks -> design decisions -> changed files).
 export interface SystemTraversal {
-  requirement: string;
+  requirement: string[];
   tasks: string[];
   design: string[];
   files: string[];

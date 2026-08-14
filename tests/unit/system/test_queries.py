@@ -1325,9 +1325,9 @@ def test_traversal_chain_requirement_and_tasks(tmp_path):
     _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
     _write_task_traversal(tmp_path, "T-002", "SR-001", "2026-08-12-P.md")
     trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
-    assert trav["requirement"] == "SR-001"
-    assert "T-001" in trav["tasks"]
-    assert "T-002" in trav["tasks"]
+    assert trav["requirement"] == ["sr:SR-001"]
+    assert "task:T-001" in trav["tasks"]
+    assert "task:T-002" in trav["tasks"]
     assert isinstance(trav["design"], list)
     assert isinstance(trav["files"], list)
 
@@ -1351,9 +1351,9 @@ def test_traversal_full_chain_plan_spec_design_files(tmp_path):
     # a recorded evidence manifest naming the file T-001 changed
     write_run_manifest(tmp_path, run_id="run-001", task_id="T-001", changed_files=["src/a.py"])
     trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
-    assert "T-001" in trav["tasks"]
+    assert "task:T-001" in trav["tasks"]
     assert "adr:ADR-0001" in trav["design"]
-    assert "src/a.py" in trav["files"]
+    assert "file:src/a.py" in trav["files"]
 
 
 def test_traversal_bundle_scope_aggregates_sr_members(tmp_path):
@@ -1364,10 +1364,10 @@ def test_traversal_bundle_scope_aggregates_sr_members(tmp_path):
     _write_task_traversal(tmp_path, "T-002", "SR-002", "2026-08-12-P.md")
     write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
     trav = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
-    assert "SR-001" in trav["requirement"]
-    assert "SR-002" in trav["requirement"]
-    assert "T-001" in trav["tasks"]
-    assert "T-002" in trav["tasks"]
+    assert "sr:SR-001" in trav["requirement"]
+    assert "sr:SR-002" in trav["requirement"]
+    assert "task:T-001" in trav["tasks"]
+    assert "task:T-002" in trav["tasks"]
 
 
 def test_traversal_bundle_scope_shares_one_lookup_across_sr_members(tmp_path, monkeypatch):
@@ -1406,6 +1406,33 @@ def test_traversal_loads_trace_nodes_once_for_a_multi_sr_bundle(tmp_path, monkey
     query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
 
     assert calls == 1
+
+
+def test_traversal_emits_canonical_ref_lists_for_a_bundle(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_sr(tmp_path / "requirements", "SR-002", title="Two", statement="s")
+    bundles_dir = tmp_path / "bundles"
+    bundles_dir.mkdir()
+    write_bundle(bundles_dir, "b1", "Bundle one", ["sr:SR-001", "sr:SR-002"])
+    result = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+    assert result["requirement"] == ["sr:SR-001", "sr:SR-002"]
+    assert isinstance(result["tasks"], list)
+
+
+def test_traversal_task_refs_are_prefixed(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_task(tmp_path / "tasks", "T-001", title="Do it", satisfies=["SR-001"])
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert result["requirement"] == ["sr:SR-001"]
+    assert result["tasks"] == ["task:T-001"]
+
+
+def test_traversal_files_are_file_refs(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert all(ref.startswith("file:") for ref in result["files"])
+
+
 def test_list_scopes_includes_diagram_stubs(tmp_path):
     path = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
     path.parent.mkdir(parents=True, exist_ok=True)
