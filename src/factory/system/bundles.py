@@ -137,6 +137,7 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
         members=members,
         unresolved=unresolved,
         citation=citation,
+        description=(str(raw["description"]) if raw.get("description") else None),
     )
 
 

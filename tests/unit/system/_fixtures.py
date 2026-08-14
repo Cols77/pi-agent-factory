@@ -70,10 +70,19 @@ _SPEC = "# {title}\n\nSpec body.\n"
 _PLAN = "# {title}\n\n- [ ] step one (unchecked, and unreliable per design SS3.4)\n- [ ] step two\n"
 
 
-def write_bundle(bundles_dir: Path, bundle_id: str, label: str, members: list[str]) -> Path:
+def write_bundle(
+    bundles_dir: Path,
+    bundle_id: str,
+    label: str,
+    members: list[str],
+    description: str | None = None,
+) -> Path:
     bundles_dir.mkdir(parents=True, exist_ok=True)
     path = bundles_dir / f"{bundle_id}.json"
-    path.write_text(json.dumps({"id": bundle_id, "label": label, "members": members}), encoding="utf-8")
+    payload = {"id": bundle_id, "label": label, "members": members}
+    if description is not None:
+        payload["description"] = description
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
 

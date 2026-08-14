@@ -44,6 +44,7 @@ class BundleReadinessRow:
     validated: int
     members: int
     recency_iso: str | None
+    description: str | None = None
 
     @property
     def readiness_counts(self) -> dict[str, int]:
@@ -125,6 +126,7 @@ def bundle_readiness(
             rows[bundle.id] = BundleReadinessRow(
                 bundle.id, bundle.label, "weak", 0, 0, 0, 0, 0, 0,
                 len(bundle.members), None,
+                description=bundle.description,
             )
             continue
         if all(f.covered and f.current and f.validated for f in flags):
@@ -145,6 +147,7 @@ def bundle_readiness(
             validated=sum(f.validated for f in flags),
             members=len(bundle.members),
             recency_iso=None,
+            description=bundle.description,
         )
     return rows
 
@@ -178,6 +181,7 @@ def query_health(root: Path, recency_source=None) -> dict:
             "readiness": row.readiness,
             "readiness_counts": row.readiness_counts,
             "members": row.members,
+            "description": row.description,
         }
 
     ordered_rows: list[dict] = []

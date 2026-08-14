@@ -20,6 +20,8 @@ from factory.system.bundles import (
 )
 from factory.system.models import ClaimClass, CitationKind, FreshnessState
 
+from . import _fixtures
+
 pytestmark = pytest.mark.unit
 
 
@@ -445,3 +447,40 @@ def test_adr_member_with_an_empty_identifier_does_not_resolve(tmp_path):
     assert [c.text for c in bundle.unresolved] == ["adr:"]
     assert bundle.unresolved[0].kind is ClaimClass.MISSING
     assert bundle.unresolved[0].freshness.state is FreshnessState.NA
+
+
+# ---------------------------------------------------------------------------
+# Bundle description (optional): a short expansion of `label`, nothing more
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_description_is_parsed_when_present(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    bundles_dir.mkdir()
+    _fixtures.write_bundle(
+        bundles_dir, "planner", "Reactive planner core", ["sr:SR-001"],
+        description="The loop that turns observations into the next action.",
+    )
+    bundle = list_bundles(bundles_dir)[0]
+    assert bundle.description == (
+        "The loop that turns observations into the next action."
+    )
+
+
+def test_bundle_description_defaults_to_none(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    bundles_dir.mkdir()
+    _fixtures.write_bundle(bundles_dir, "planner", "Reactive planner core", ["sr:SR-001"])
+    assert list_bundles(bundles_dir)[0].description is None
+
+
+def test_bundle_description_over_280_chars_is_a_load_error(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    bundles_dir.mkdir()
+    _fixtures.write_bundle(
+        bundles_dir, "planner", "Reactive planner core", ["sr:SR-001"],
+        description="x" * 281,
+    )
+    errors = list_bundle_errors(bundles_dir)
+    assert len(errors) == 1
+    assert "description" in errors[0].error
