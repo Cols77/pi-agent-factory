@@ -170,7 +170,7 @@ text that explains nothing and is identical across artifacts.
 A lead paragraph is also not a named field, so reporting it as a description
 contradicts this document's own verbatim-single-field principle. The fallback is
 removed. Measured coverage under the named-section rule: 51 of 53 plans (via
-`**Goal:**`), 11 of 43 specs (via `Purpose`/`Goal`/`Problem`/`Context`). The remaining
+`**Goal:**`), 10 of 43 specs (via `Purpose`/`Goal`/`Problem`). The remaining
 documents carry `description: null` and render "no description recorded" with the
 Component 3 next step — which is the honest state and an actionable one.
 

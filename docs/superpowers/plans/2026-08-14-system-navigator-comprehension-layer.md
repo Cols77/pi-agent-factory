@@ -547,7 +547,7 @@ def _named_description(body: str, kind: str) -> tuple[str | None, str | None]:
     named field in the first place.
 
     Coverage measured 2026-08-14: 51/53 plans (via the `**Goal:**` label),
-    11/43 specs (via Purpose/Goal/Problem/Context). Everything else is None,
+    10/43 specs (via Purpose/Goal/Problem). Everything else is None,
     which the browser renders as "no description recorded" plus a next step.
     """
     for heading in _NAMED_SECTIONS:
