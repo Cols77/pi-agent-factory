@@ -20,8 +20,10 @@ import { ensureDocsServer, stopDocsServer } from "../src/docs-server.js";
 
 // playwright is only required when the gate actually runs (it is not a
 // declared devDependency), so load it lazily inside the test instead of at
-// module scope.
-let chromiumModule: ReturnType<typeof import("playwright")> | null = null;
+// module scope. The type-only import below is erased at emit time and adds no
+// runtime requirement.
+import type { Browser, Page } from "playwright";
+let chromiumModule: { chromium: { launch(opts: { headless: boolean; channel: string }): Promise<Browser> } } | null = null;
 
 const ENABLED = process.env.BROWSER_GATE === "1";
 const TARGET = process.env.BROWSER_GATE_TARGET ?? "C:/coding/cool_physical_ai_project";
@@ -50,8 +52,10 @@ function record(vp: string, step: string, message: string, element?: string, sev
 
 describe.skipIf(!ENABLED)("system navigator browser validation", () => {
   test("full visual gate at all three viewports", async () => {
-    chromiumModule = chromiumModule ?? (await import("playwright"));
-    const chromium = chromiumModule.chromium;
+    const loaded =
+      chromiumModule ?? ((await import("playwright")) as unknown as Exclude<typeof chromiumModule, null>);
+    chromiumModule = loaded;
+    const chromium = loaded.chromium;
     const server = await ensureDocsServer(TARGET);
     const base = server.url;
     const browser = await chromium.launch({ headless: true, channel: "chrome" });
@@ -70,20 +74,20 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         await page.waitForSelector("#healthSummary .health-overall", { timeout: 60_000 });
 
         // 1. Landing visible, workspace hidden
-        const landingHidden = await page.$eval("#landingPanel", (el) => el.hasAttribute("hidden"));
-        const workspaceHidden = await page.$eval("#scopeWorkspace", (el) => el.hasAttribute("hidden"));
+        const landingHidden = await page.$eval("#landingPanel", (el: Element) => el.hasAttribute("hidden"));
+        const workspaceHidden = await page.$eval("#scopeWorkspace", (el: Element) => el.hasAttribute("hidden"));
         if (landingHidden) record(vp.name, "landing", "#landingPanel is hidden on first load", "#landingPanel");
         if (!workspaceHidden) record(vp.name, "landing", "#scopeWorkspace is visible before a scope is chosen", "#scopeWorkspace");
 
         // 2. Honest metrics (no fabricated percentages)
         const overall = await page.textContent("#healthSummary .health-overall");
         if (!overall || overall.trim() === "") record(vp.name, "landing", "no overall health metric rendered", "#healthSummary .health-overall");
-        const metricCount = await page.$$eval(".health-metric", (els) => els.length);
+        const metricCount = await page.$$eval(".health-metric", (els: Element[]) => els.length);
         if (metricCount === 0) record(vp.name, "landing", "no class metrics rendered");
 
         // 3. Feature directory rows are readable anchors
-        const rows = await page.$$eval(".feature-row", (els) =>
-          els.map((e) => ({
+        const rows = await page.$$eval(".feature-row", (els: Element[]) =>
+          els.map((e: Element) => ({
             href: (e as HTMLAnchorElement).getAttribute("href") ?? "",
             text: (e as HTMLElement).textContent ?? "",
             readiness: (e as HTMLElement).dataset.readiness ?? "",
@@ -107,28 +111,28 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         if (!clicked) record(vp.name, "bundle-focus", "no feature row with href to click");
 
         await page.waitForSelector("#scopeWorkspace:not([hidden])", { timeout: 30_000 });
-        const landingGone = await page.$eval("#landingPanel", (el) => el.hasAttribute("hidden"));
+        const landingGone = await page.$eval("#landingPanel", (el: Element) => el.hasAttribute("hidden"));
         if (!landingGone) record(vp.name, "bundle-focus", "landing panel not hidden after scope selection", "#landingPanel");
 
         // aria-current on active scope link
-        const current = await page.$$eval("[aria-current=page]", (els) => els.map((e) => (e as HTMLElement).dataset.scope ?? e.textContent?.slice(0, 40)));
+        const current = await page.$$eval("[aria-current=page]", (els: Element[]) => els.map((e: Element) => (e as HTMLElement).dataset.scope ?? e.textContent?.slice(0, 40)));
         if (current.length === 0) record(vp.name, "bundle-focus", "no element has aria-current=page after selection");
 
         // ---------------- Contextual tabs ----------------
-        const tabs = await page.$$eval('[role="tab"]:not([hidden])', (els) => els.map((e) => e.textContent?.trim() ?? ""));
+        const tabs = await page.$$eval('[role="tab"]:not([hidden])', (els: Element[]) => els.map((e: Element) => e.textContent?.trim() ?? ""));
         if (!tabs.includes("Brief") || !tabs.includes("Matrix") || !tabs.includes("Trace"))
           record(vp.name, "tabs", `bundle tabs missing; got [${tabs.join(", ")}]`, '[role="tab"]');
 
         // ---------------- Panels + disclosures ----------------
-        const panels = await page.$$eval('[role="tabpanel"]', (els) => els.map((e) => e.id));
-        if (panels.every((p) => p !== "panelBrief" && p !== "panelMatrix")) record(vp.name, "panels", `expected Brief/Matrix panels; got [${panels.join(", ")}]`, '[role="tabpanel"]');
+        const panels = await page.$$eval('[role="tabpanel"]', (els: Element[]) => els.map((e: Element) => e.id));
+        if (panels.every((p: string) => p !== "panelBrief" && p !== "panelMatrix")) record(vp.name, "panels", `expected Brief/Matrix panels; got [${panels.join(", ")}]`, '[role="tabpanel"]');
 
         // Switch to Matrix and verify matrix hooks
         await page.click("#tabMatrix");
         await page.waitForSelector(".matrix-row", { timeout: 30_000 });
         // ---------------- Trace spine ----------------
         await page.click("#tabTrace");
-        const spine = await page.$$eval(".trace-spine-step", (els) => els.map((e) => e.textContent?.trim() ?? ""));
+        const spine = await page.$$eval(".trace-spine-step", (els: Element[]) => els.map((e: Element) => e.textContent?.trim() ?? ""));
         if (spine.length === 0) record(vp.name, "trace-spine", "no trace spine steps rendered when traversal exists", ".trace-spine-step");
 
         // ---------------- Mobile scope sheet --------------
@@ -143,7 +147,7 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
           } else {
             await toggle.click();
             await page.waitForTimeout(200);
-            const navShown = await page.$eval("#picker nav", (el) =>
+            const navShown = await page.$eval("#picker nav", (el: Element) =>
               (el as HTMLElement).offsetParent !== null || getComputedStyle(el).display !== "none",
             );
             if (!navShown) record(vp.name, "mobile", "scope sheet did not open after Browse scopes", "#picker nav");
@@ -152,7 +156,7 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
             if (closeToggle) {
               await closeToggle.click();
               await page.waitForTimeout(200);
-              const navStill = await page.$eval("#picker nav", (el) =>
+              const navStill = await page.$eval("#picker nav", (el: Element) =>
                 (el as HTMLElement).offsetParent !== null || getComputedStyle(el).display !== "none",
               );
               if (navStill) record(vp.name, "mobile", "scope sheet did not close on mobile", "#picker nav");
@@ -165,21 +169,21 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         // ---------------- Keyboard: tab roving focus ----------------
         await page.click("#tabBrief");
         await page.keyboard.press("ArrowRight");
-        const sel = await page.$$eval("#tabs [role=tab]", (els) => {
-          const visible = els.filter((e) => !(e as HTMLElement).hasAttribute("hidden"));
-          return visible.map((e) => ({ tabindex: e.getAttribute("tabindex"), aria: e.getAttribute("aria-selected") }));
+        const sel = await page.$$eval("#tabs [role=tab]", (els: Element[]) => {
+          const visible = els.filter((e: Element) => !(e as HTMLElement).hasAttribute("hidden"));
+          return visible.map((e: Element) => ({ tabindex: e.getAttribute("tabindex"), aria: e.getAttribute("aria-selected") }));
         });
-        if (!sel.some((s) => s.tabindex === "0" && s.aria === "true"))
+        if (!sel.some((s: { tabindex: string | null; aria: string | null }) => s.tabindex === "0" && s.aria === "true"))
           record(vp.name, "keyboard", `expected exactly one selected tabindex=0 tab after ArrowRight; got ${JSON.stringify(sel)}`, "#tabs [role=tab]");
         await page.keyboard.press("End");
-        const afterEnd = await page.$$eval('#tabs [role="tab"][aria-selected="true"]', (els) => els.length);
+        const afterEnd = await page.$$eval('#tabs [role="tab"][aria-selected="true"]', (els: Element[]) => els.length);
         if (afterEnd !== 1) record(vp.name, "keyboard", `End should select exactly one tab; got ${afterEnd}`);
 
         // ---------------- Search exact-ref -------------
         // On narrow viewports the rail collapses after focus; open the scope
         // sheet so the filter is interactive before pressing Enter.
         const filterVisible = await page
-          .$eval("#scopeFilter", (el) => (el as HTMLElement).offsetParent !== null)
+          .$eval("#scopeFilter", (el: Element) => (el as HTMLElement).offsetParent !== null)
           .catch(() => false);
         if (!filterVisible) {
           const browseBtn = await page.$('button:has-text("Browse scopes")');
@@ -187,7 +191,7 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
           await page.waitForTimeout(250);
         }
         const requests: string[] = [];
-        page.on("request", (req) => {
+        page.on("request", (req: { url(): string }) => {
           if (req.url().includes("/api/system/")) requests.push(req.url());
         });
         await page.fill("#scopeFilter", "SR-137");
@@ -216,18 +220,18 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
 
         // ---------------- Retry after health failure ----------------
         const retryPage = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
-        await retryPage.route("**/api/system/health**", (route) => route.abort("failed"));
+        await retryPage.route("**/api/system/health**", (route: { abort(arg: string): unknown }) => route.abort("failed"));
         await retryPage.goto(`${base}/system`, { waitUntil: "domcontentloaded" });
         await retryPage.waitForTimeout(2500);
-        const msg = await retryPage.$eval("#healthStatus", (el) => el.textContent ?? "");
-        const retryVisible = await retryPage.$eval("#retryHealth", (el) => !el.hasAttribute("hidden"));
+        const msg = await retryPage.$eval("#healthStatus", (el: Element) => el.textContent ?? "");
+        const retryVisible = await retryPage.$eval("#retryHealth", (el: Element) => !el.hasAttribute("hidden"));
         if (!msg.includes("Project evidence is unavailable"))
           record(vp.name, "retry", `failure message is "${msg}" -- expected 'Project evidence is unavailable...'`, "#healthStatus");
         if (!retryVisible) record(vp.name, "retry", "Retry button not visible after health failure", "#retryHealth");
         await retryPage.unroute("**/api/system/health**");
         await retryPage.click("#retryHealth");
         await retryPage.waitForSelector("#healthSummary .health-overall", { timeout: 60_000 });
-        const recovered = await retryPage.$eval("#retryHealth", (el) => el.hasAttribute("hidden"));
+        const recovered = await retryPage.$eval("#retryHealth", (el: Element) => el.hasAttribute("hidden"));
         if (!recovered) record(vp.name, "retry", "Retry button still visible after successful retry", "#retryHealth");
         await retryPage.close();
 
