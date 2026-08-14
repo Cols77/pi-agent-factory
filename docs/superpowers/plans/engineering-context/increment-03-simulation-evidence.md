@@ -137,10 +137,10 @@ def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifes
 ## Task 5: Query surface (`query_simulation_run`, `query_latest_simulation`, `query_latest_failure`, `query_metric_history`)
 
 **Files:** `src/factory/system/queries.py`
-- [ ] **Step 1:** add four queries in the existing claim/freshness plumbing; each derives from
+- [x] **Step 1:** add four queries in the existing claim/freshness plumbing; each derives from
   `factory.simulation` (recorded claims with citations), matching AC-01's "latest simulation
   evidence" slot.
-- [ ] **Step 2:** full suite + lint + commit.
+- [x] **Step 2:** full suite + lint + commit.
 
 ## Task 6: Wire drone scenarios + seed evidence (cool_physical_ai_project)
 
