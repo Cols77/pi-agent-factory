@@ -127,12 +127,12 @@ def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifes
 ## Task 4: Auto-evaluate goals from latest evidence
 
 **Files:** `src/factory/simulation/evidence.py` (extend), `src/factory/goals/evaluator.py` (unchanged)
-- [ ] **Step 1:** `evaluate_goals_from_runs(evidence_dir, goals)` — for each goal, take its
+- [x] **Step 1:** `evaluate_goals_from_runs(evidence_dir, goals)` — for each goal, take its
   experiment's latest passing-complete run, read the goal's `metric.name` from `metrics.json`,
   call `evaluate`, persist via Inc 2 `record`. This is the automatic pipeline spec §14/§16/§17 wants.
-- [ ] **Step 2: Failing tests** — a new higher run flips a goal to REACHED and records evidence;
+- [x] **Step 2: Failing tests** — a new higher run flips a goal to REACHED and records evidence;
   a later lower run flips REACHED→REGRESSED (AC-07) automatically.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 5: Query surface (`query_simulation_run`, `query_latest_simulation`, `query_latest_failure`, `query_metric_history`)
 
