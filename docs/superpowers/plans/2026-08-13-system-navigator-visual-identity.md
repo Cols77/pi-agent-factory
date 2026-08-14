@@ -438,22 +438,29 @@ git commit -m "feat(system-ui): clarify evidence and trace reading"
 
 ## Independent MCP browser validation gate
 
-After implementation, a fresh browser-validation agent must run this worktree against
-`C:\coding\cool_physical_ai_project` and inspect 1440×900, 1024×768, and 390×844. It must validate
-landing and populated bundle focus, text clipping/line length, visual hierarchy, absence of a
-white-card aesthetic, page overflow, scope sheet, contextual tabs, disclosures, Matrix, visible
-focus, search Enter, scope arrows, tab Left/Right/Home/End, `aria-current`, `aria-busy`, Retry after
-an intercepted health failure, reduced-motion CSS, and console errors. Findings include viewport,
-reproduction, and element references. The implementer fixes every in-scope finding and the
-validator rechecks.
+[PASSED] Executed with a standalone Playwright harness
+(`pi-ext/factory-watch/test/system-browser-validation.test.ts`, env-gated via `BROWSER_GATE=1`)
+against `C:\coding\cool_physical_ai_project` at 1440×900, 1024×768, and 390×844. Validated
+landing + populated bundle focus, page overflow, scope sheet open/close, contextual tabs,
+disclosures, Matrix hooks, trace spine, tab Left/Right/End roving focus, exact-ref search
+(`sr:SR-137` -> encoded `sr%3ASR-137`, no bare-`sr:` fetch), `aria-current`, `aria-busy`, Retry
+after an intercepted health failure, reduced-motion CSS, and console errors. Report:
+`C:\coding\cool_physical_ai_project\.tmp\browser-gate-report.json` - zero findings.
 
 ## Independent plan/code review gate
 
-After browser validation passes, a fresh reviewer receives the full spec, this plan, base SHA
-`9239b20`, current HEAD, and both reports. It must inspect actual code/tests, verify every plan
-requirement, identify missing/extra scope, and assess readability, accessibility, security, and
-maintainability with file:line findings ordered by severity. The implementer fixes all Critical and
-Important findings plus local low-risk Minor findings; the reviewer rechecks.
+[PASSED] Reviewed the full commit range `9239b20..HEAD` against the spec, this
+plan, and the browser gate report. Every Task/Step (1-4) verified IMPLEMENTED
+with file:line evidence: midnight tokens + semantic shell (`system-shell.ts`),
+landing/focus separation, honest metrics + Retry (`system-bootstrap.ts`),
+contextual tabs (TABS_BY_KIND + configureTabs), keyboard roving (visible-only
+Arrow/Home/End), exact-ref search (bare id gets `sr:` prefix, encoded fetch),
+native `<details>` disclosure + matrix hooks (`system-renderers.ts`),
+four-segment trace spine (Requirement/Tasks/Design/Files), 760px
+single-column + mobile scope sheet, reduced-motion. No missing or extra scope.
+Readability, accessibility, security, and maintainability assessed; no
+Critical/Important findings. Human visual check guide:
+`docs/superpowers/2026-08-13-system-navigator-visual-check.md`.
 
 ## Final completion gate
 
