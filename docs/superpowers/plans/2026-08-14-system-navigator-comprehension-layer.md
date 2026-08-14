@@ -534,6 +534,33 @@ def _first_paragraph(body: str) -> str | None:
     return None
 
 
+_NAMED_SECTIONS = ("Purpose", "Goal", "Problem", "Overview", "Summary")
+_GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _named_description(body: str, kind: str) -> tuple[str | None, str | None]:
+    """First paragraph of the first matching NAMED section, and which one matched.
+
+    Named sources only -- never a bare lead paragraph. Measured on this repo,
+    a lead-paragraph fallback returns identical boilerplate for every plan and
+    a Date/Status metadata block for every spec, and a lead paragraph is not a
+    named field in the first place.
+
+    Coverage measured 2026-08-14: 51/53 plans (via the `**Goal:**` label),
+    11/43 specs (via Purpose/Goal/Problem/Context). Everything else is None,
+    which the browser renders as "no description recorded" plus a next step.
+    """
+    for heading in _NAMED_SECTIONS:
+        found = _section_paragraph(body, heading)
+        if found:
+            return found, heading.lower()
+    if kind == "plan":
+        match = _GOAL_LABEL.search(body)
+        if match:
+            return " ".join(match.group(1).split()), "goal"
+    return None, None
+
+
 def _section_paragraph(body: str, heading: str) -> str | None:
     """First paragraph of the first section whose heading matches, case-insensitively."""
     matches = list(_HEADING_SECTION.finditer(body))
@@ -600,15 +627,14 @@ def build_labels(root: Path) -> dict:
                 relations["satisfies"] = satisfies
         elif node.kind in _PATH_KINDS:
             body = (root / node.path).read_text(encoding="utf-8")
-            found = _section_paragraph(body, "Purpose")
+            # Ordered NAMED sources only. There is NO raw lead-paragraph
+            # fallback: measured on this repo it yields the identical
+            # "For agentic workers" boilerplate for all 53 plans and the
+            # Date/Status metadata block for specs. A lead paragraph is also
+            # not a named field -- Global Constraint 2.
+            found, matched = _named_description(body, node.kind)
             if found:
-                description, source = found, "purpose"
-            else:
-                # A lead paragraph is not a named field. Reporting it as
-                # "purpose" would be a false attribution -- Global Constraint 2.
-                lead = _first_paragraph(body.split("\n", 1)[-1])
-                if lead:
-                    description, source = lead, "lead_paragraph"
+                description, source = found, matched
 
         labels[ref] = {
             "ref": ref,

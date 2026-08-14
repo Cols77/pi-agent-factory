@@ -139,7 +139,7 @@ The projection composes existing loaders. It forks no parser and persists no ind
 |---|---|---|---|
 | `sr` | `Requirement.title` | `Requirement.statement` | `statement` — required (`requirements/register.py:12`), so an SR always has one |
 | `adr` | `AdrDocument.title` | first paragraph of the section whose heading matches `^Decision$` case-insensitively, taking the first such section | `decision` |
-| `spec`, `plan` | `Node.title` (`trace/model.py:31`) | first paragraph of the section whose heading matches `^Purpose$` case-insensitively; otherwise the first non-empty paragraph after the H1 | `purpose` |
+| `spec`, `plan` | `Node.title` (`trace/model.py:31`) | first paragraph of the first matching **named section** — `Purpose`, `Goal`, `Problem`, `Overview`, `Summary`, matched case-insensitively in that order — or, for a plan, its `**Goal:**` label line | the heading or label actually matched, lowercased: `purpose`, `goal`, `problem`, … |
 | `bundle` | `BundleDeclaration.label` | new optional `description` field (Component 5) | `description` |
 | `task` | ledger `title` | **none** — see below | `null` |
 | `br`, `feat`, `metric`, `goal`, `diag` | `Node.title` | none | `null` |
@@ -158,6 +158,21 @@ above, and would be falsely attributed. Instead a task's card carries its **reco
 relations** — `satisfies`, `source_plan`, `status` — which are real, single-sourced,
 and answer "what is this for". Adding a first-class `description` field to the task
 artifact is a reasonable follow-up and is explicitly out of scope here.
+
+**There is no raw lead-paragraph fallback.** Revision 2 allowed "otherwise the first
+non-empty paragraph after the H1". Measured against this repository on 2026-08-14 that
+rule produced, for **all 53 plans**, the identical boilerplate
+`> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development…`,
+and for specs it produced the `Date:` / `Status:` / `Builds on:` metadata block. Both
+are worse than nothing: they occupy the affordance meant to explain the artifact with
+text that explains nothing and is identical across artifacts.
+
+A lead paragraph is also not a named field, so reporting it as a description
+contradicts this document's own verbatim-single-field principle. The fallback is
+removed. Measured coverage under the named-section rule: 51 of 53 plans (via
+`**Goal:**`), 11 of 43 specs (via `Purpose`/`Goal`/`Problem`/`Context`). The remaining
+documents carry `description: null` and render "no description recorded" with the
+Component 3 next step — which is the honest state and an actionable one.
 
 **`trace_deferred` is recorded remediation context.** A deferred requirement records
 why in its own frontmatter — `cool_physical_ai_project/requirements/SR-002.md` states
