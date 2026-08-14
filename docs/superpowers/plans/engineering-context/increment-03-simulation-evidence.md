@@ -101,12 +101,12 @@ def load_runs(evidence_dir: Path) -> list[Run]
 def runs_for(evidence_dir, *, feature=None, requirement=None, experiment=None, goal=None) -> list[Run]
 def latest_run(evidence_dir, feature) -> Run|None     # deterministic: sort by run_id/recorded ts
 ```
-- [ ] **Step 1: Failing tests** — parse a `RUN-20260811-1702/` from seed manifests; filter by
+- [x] **Step 1: Failing tests** — parse a `RUN-20260811-1702/` from seed manifests; filter by
   each dimension; `latest_run` is deterministic and returns `None` on empty (legitimate state).
-- [ ] **Step 2: Implement** reusing `list_run_manifests`; expose `run` nodes through
+- [x] **Step 2: Implement** reusing `list_run_manifests`; expose `run` nodes through
   `factory.trace.model`'s `load_nodes`? No — keep runs in `factory.simulation` (they are
   evidence, not trace nodes); the model's reserved `run` literal is a projection alias.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Metric ingestion + `metric_values`/`latest_failure`/`metric_history`
 
