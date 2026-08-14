@@ -80,14 +80,14 @@ exists to assert.
 
 **Files:** `src/factory/schemas/run.schema.json`, `src/factory/evidence/manifests.py` (additive),
 `tests/unit/evidence/test_manifest_roundtrip.py`
-- [ ] **Step 1: Failing tests** — a manifest with spec §20 fields (`run/experiment/feature/
+- [x] **Step 1: Failing tests** — a manifest with spec §20 fields (`run/experiment/feature/
   requirements/goals/commit/result`) writes then loads losslessly; a manifest missing optional
   new keys still loads under v1 (backward-compat); a malformed manifest degrades to a
   `scope_errors`-carrying run, never raises.
-- [ ] **Step 2: Implement** `run_manifest_schema` validation wired into `write_run_manifest`
+- [x] **Step 2: Implement** `run_manifest_schema` validation wired into `write_run_manifest`
   (add a `feature`/`goals` field if not already present, default-safe) and a tolerant
   `load_run_manifest` that returns unknown fields untouched.
-- [ ] **Step 3:** full v1 suite green + lint + commit.
+- [x] **Step 3:** full v1 suite green + lint + commit.
 
 ## Task 2: Run/experiment registry
 
