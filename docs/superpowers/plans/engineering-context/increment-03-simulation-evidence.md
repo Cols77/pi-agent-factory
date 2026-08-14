@@ -118,11 +118,11 @@ def metric_history(evidence_dir, metric_id) -> list[dict]   # [{run, commit, val
 def latest_failure(evidence_dir, feature) -> Run|None       # most recent run with result != passed
 def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifest lists the goal
 ```
-- [ ] **Step 1: Failing tests** — spec §9.3 style history (`0.71 → 0.83 → 0.87` ascending);
+- [x] **Step 1: Failing tests** — spec §9.3 style history (`0.71 → 0.83 → 0.87` ascending);
   `latest_failure` deterministic; `evidence_for_goal` finds runs that list a goal.
-- [ ] **Step 2: Implement** pure functions over manifests+metrics.json; `metric_history` sorts by
+- [x] **Step 2: Implement** pure functions over manifests+metrics.json; `metric_history` sorts by
   manifest `recorded_ts` then `run_id` (stable tiebreak), never by mtime.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 4: Auto-evaluate goals from latest evidence
 
