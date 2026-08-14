@@ -79,7 +79,17 @@ def _id_node(path: Path, kind: NodeKind) -> Node:
 
 def _file_node(path: Path, kind: NodeKind) -> Node:
     post = _load_post(path)
-    body = post.content if post is not None else path.read_text(encoding="utf-8")
+    if post is not None:
+        body = post.content
+    else:
+        # `_load_post` already degraded a malformed/undecodable file to `None`
+        # rather than raising (see its own contract comment above) -- this
+        # fallback read must honour the same contract, not reopen the file
+        # unguarded and crash the whole graph on one bad spec/plan.
+        try:
+            body = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            body = ""
     meta = post.metadata if post is not None else {}
     exempt, deferred = _disposition(meta)
     return Node(

@@ -92,6 +92,9 @@ def _scope_href(ref: str, kind: str) -> str | None:
 
 
 def _first_paragraph(body: str) -> str | None:
+    """First non-heading paragraph of `body`. A helper for section extraction
+    only -- it is never a description source on its own (Global Constraint 2:
+    a lead paragraph is not a named field). See `_named_description`."""
     for block in body.split("\n\n"):
         text = block.strip()
         if text and not text.startswith("#"):
@@ -108,6 +111,37 @@ def _section_paragraph(body: str, heading: str) -> str | None:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
         return _first_paragraph(body[match.end():end])
     return None
+
+
+# Checked in this order for every spec/plan. Measured against this repo: a raw
+# lead-paragraph fallback produced the SAME boilerplate text for every one of
+# 53 plans (the "For agentic workers" skill banner) and the Date/Status
+# metadata block for specs -- text that explains nothing and is identical
+# across artifacts, and not a named field to begin with (Global Constraint 2).
+# Removed; named sources only.
+_NAMED_SECTIONS = ("Purpose", "Goal", "Problem", "Overview", "Summary")
+
+# A plan's "**Goal:** <text>" label line -- not a `##` section, so
+# `_section_paragraph` cannot see it; checked only for plans.
+_GOAL_LABEL = re.compile(r"^\*\*Goal:\*\*\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _named_description(body: str, kind: str) -> tuple[str | None, str | None]:
+    """A description from one named field, or `(None, None)`.
+
+    Never a lead paragraph: "no description recorded" is an honest, actionable
+    state the browser can turn into a next step, not something to paper over
+    with prose the document never declared as its description.
+    """
+    for heading in _NAMED_SECTIONS:
+        found = _section_paragraph(body, heading)
+        if found:
+            return found, heading.lower()
+    if kind == "plan":
+        match = _GOAL_LABEL.search(body)
+        if match:
+            return " ".join(match.group(1).split()), "goal"
+    return None, None
 
 
 def build_labels(root: Path) -> dict:
@@ -162,16 +196,14 @@ def build_labels(root: Path) -> dict:
         elif node.kind in _PATH_KINDS:
             # node.path is always absolute (trace_model.load_nodes globs from
             # `root`); see labels.py's canonical_ref for the same rule.
-            body = node.path.read_text(encoding="utf-8")
-            found = _section_paragraph(body, "Purpose")
-            if found:
-                description, source = found, "purpose"
+            # One unreadable document must degrade only this entry, never
+            # sink the whole index (~124 documents read here on this repo).
+            try:
+                body = node.path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                degraded.append(f"{ref}: unreadable ({exc})")
             else:
-                # A lead paragraph is not a named field. Reporting it as
-                # "purpose" would be a false attribution -- Global Constraint 2.
-                lead = _first_paragraph(body.split("\n", 1)[-1])
-                if lead:
-                    description, source = lead, "lead_paragraph"
+                description, source = _named_description(body, node.kind)
 
         labels[ref] = {
             "ref": ref,
@@ -193,8 +225,14 @@ def build_labels(root: Path) -> dict:
     # renders as "not in the label index".
     for adr_id, doc in adrs.items():
         ref = f"adr:{adr_id}"
-        body = doc.path.read_text(encoding="utf-8") if doc.path.exists() else ""
-        found = _section_paragraph(body, "Decision")
+        found = None
+        if doc.path.exists():
+            try:
+                body = doc.path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                degraded.append(f"{ref}: unreadable ({exc})")
+            else:
+                found = _section_paragraph(body, "Decision")
         labels[ref] = {
             "ref": ref, "id": adr_id, "kind": "adr", "title": doc.title or adr_id,
             "description": found,

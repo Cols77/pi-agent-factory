@@ -122,6 +122,22 @@ def test_malformed_task_degrades_to_filename_instead_of_raising(tmp_path):
     assert nodes["T-099-broken.md"].title == "T-099-broken.md"
 
 
+def test_malformed_spec_degrades_to_filename_instead_of_raising(tmp_path):
+    # `_file_node` (specs/plans) re-reads the file when frontmatter parsing
+    # fails; that fallback read must degrade too, not crash load_nodes for
+    # every other artifact over one undecodable spec.
+    path = tmp_path / "docs" / "superpowers" / "specs" / "bad-design.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"# Bad\xff\xfe\n\nInvalid bytes above.\n")
+    _write(tmp_path / "tasks" / "T-001.md", "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\n---\n")
+
+    nodes = {n.path.name: n for n in load_nodes(tmp_path)}
+
+    assert nodes["bad-design.md"].kind == "spec"
+    assert nodes["bad-design.md"].title == "bad-design.md"
+    assert nodes["T-001.md"].id == "T-001"
+
+
 def test_reads_exempt_and_deferred_dispositions(tmp_path):
     _write(
         tmp_path / "tasks" / "T-001.md",

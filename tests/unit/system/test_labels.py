@@ -108,3 +108,69 @@ def test_aliases_resolve_the_basename_spelling(tmp_path):
     payload = build_labels(tmp_path)
     canonical = payload["aliases"]["spec:2026-07-16-foo-design.md"]
     assert canonical in payload["labels"]
+
+
+def test_plan_goal_label_resolves_as_goal(tmp_path):
+    # No named section, only the **Goal:** label line most plans carry.
+    plans_dir = tmp_path / "docs" / "superpowers" / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "2026-08-14-example-plan.md").write_text(
+        "# Example plan\n\n**Goal:** Ship the label index safely.\n\n- [ ] step one\n",
+        encoding="utf-8",
+    )
+    entry = build_labels(tmp_path)["labels"][
+        "plan:docs/superpowers/plans/2026-08-14-example-plan.md"
+    ]
+    assert entry["description"] == "Ship the label index safely."
+    assert entry["description_source"] == "goal"
+
+
+def test_spec_problem_section_resolves_as_problem(tmp_path):
+    specs_dir = tmp_path / "docs" / "superpowers" / "specs"
+    specs_dir.mkdir(parents=True)
+    (specs_dir / "2026-08-14-example-design.md").write_text(
+        "# Example design\n\n## Problem\n\nThe browser has no label index.\n",
+        encoding="utf-8",
+    )
+    entry = build_labels(tmp_path)["labels"][
+        "spec:docs/superpowers/specs/2026-08-14-example-design.md"
+    ]
+    assert entry["description"] == "The browser has no label index."
+    assert entry["description_source"] == "problem"
+
+
+def test_spec_with_no_named_source_yields_no_description(tmp_path):
+    # _fixtures.write_spec's body ("Spec body.") has no named section and is
+    # not a **Goal:** label -- this must no longer fall back to it.
+    _fixtures.write_spec(tmp_path, "2026-07-16-foo-design.md", title="Foo")
+    entry = build_labels(tmp_path)["labels"][
+        "spec:docs/superpowers/specs/2026-07-16-foo-design.md"
+    ]
+    assert entry["description"] is None
+    assert entry["description_source"] is None
+
+
+def test_no_entry_reports_lead_paragraph_source(tmp_path):
+    _fixtures.write_spec(tmp_path, "2026-07-16-foo-design.md", title="Foo")
+    _fixtures.write_plan(tmp_path, "2026-07-16-foo-plan.md", title="Foo plan")
+    payload = build_labels(tmp_path)
+    sources = {entry["description_source"] for entry in payload["labels"].values()}
+    assert "lead_paragraph" not in sources
+
+
+def test_unreadable_spec_degrades_only_that_entry(tmp_path):
+    specs_dir = tmp_path / "docs" / "superpowers" / "specs"
+    specs_dir.mkdir(parents=True)
+    (specs_dir / "2026-08-14-bad-design.md").write_bytes(
+        b"# Bad\xff\xfe\n\n## Purpose\n\nInvalid bytes above.\n"
+    )
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
+
+    payload = build_labels(tmp_path)
+    ref = "spec:docs/superpowers/specs/2026-08-14-bad-design.md"
+
+    assert ref in payload["labels"]
+    assert payload["labels"][ref]["description"] is None
+    assert any("2026-08-14-bad-design.md" in reason for reason in payload["degraded"])
+    # The rest of the index is unaffected by the one bad file.
+    assert payload["labels"]["task:T-060"]["title"] == "Wire the governor"
