@@ -6,7 +6,7 @@ dod:
 id: T-020
 source_plan: docs/superpowers/plans/2026-07-21-deterministic-task-export.md
 source_task: 1
-status: todo
+status: done
 title: Strip fenced code blocks in `plan_to_tasks.py`
 ---
 

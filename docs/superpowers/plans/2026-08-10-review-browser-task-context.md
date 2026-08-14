@@ -35,7 +35,7 @@
 - Consumes: nothing.
 - Produces: `ledger.Task.source_plan: str | None` and `ledger.Task.source_task: int | None`, both defaulting to `None`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/unit/orchestrator/test_ledger.py` (create the file with `from pathlib import Path`, `import pytest`, `from factory.orchestrator import ledger`, `pytestmark = pytest.mark.unit` if it does not exist):
 
@@ -76,12 +76,12 @@ def test_non_integer_source_task_becomes_none(tmp_path):
     assert ledger.load_tasks(tmp_path / "tasks")[0].source_task is None
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/orchestrator/test_ledger.py -v`
 Expected: FAIL with `AttributeError: 'Task' object has no attribute 'source_plan'`
 
-- [ ] **Step 3: Add the fields to the dataclass**
+- [x] **Step 3: Add the fields to the dataclass**
 
 In `src/factory/orchestrator/ledger.py`, extend the `Task` dataclass (currently ending at line 19):
 
@@ -102,7 +102,7 @@ class Task:
     source_task: int | None = None
 ```
 
-- [ ] **Step 4: Populate them in `_parse`**
+- [x] **Step 4: Populate them in `_parse`**
 
 In the same file, insert before the `return Task(` on line 39:
 
@@ -125,17 +125,17 @@ and add to the `Task(...)` call:
         source_task=source_task,
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `uv run pytest tests/unit/orchestrator/test_ledger.py -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Run the full unit suite for regressions**
+- [x] **Step 6: Run the full unit suite for regressions**
 
 Run: `uv run pytest tests/unit -q`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/factory/orchestrator/ledger.py tests/unit/orchestrator/test_ledger.py
@@ -156,7 +156,7 @@ This closes the open task `T-020`. It is a prerequisite, not cleanup: `parse_pla
 - Consumes: nothing.
 - Produces: `ParsedPlanTask.body: str` — the raw section text between one `### Task N:` header and the next, stripped. `parse_plan_tasks(text: str) -> list[ParsedPlanTask]` keeps its existing signature and its `number`, `title`, `files_block`, `produces` fields unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/unit/test_plan_to_tasks.py`:
 
@@ -214,12 +214,12 @@ def test_files_block_and_produces_survive_masking():
     assert tasks[0].produces == ["`do_a() -> None`."]
 `````
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/test_plan_to_tasks.py -v`
 Expected: FAIL — `test_task_headers_inside_a_fence_are_not_sections` gets `[1, 1, 2, 2]`, and the body tests fail with `AttributeError: 'ParsedPlanTask' object has no attribute 'body'`
 
-- [ ] **Step 3: Add the masking helper**
+- [x] **Step 3: Add the masking helper**
 
 In `src/factory/orchestrator/plan_to_tasks.py`, after the `_ID_RE` definition on line 14:
 
@@ -251,7 +251,7 @@ def _mask_fenced_blocks(text: str) -> str:
     return "\n".join(out)
 ```
 
-- [ ] **Step 4: Add `body` to the dataclass and match against the masked text**
+- [x] **Step 4: Add `body` to the dataclass and match against the masked text**
 
 Extend `ParsedPlanTask` (line 19):
 
@@ -273,12 +273,12 @@ Replace the first two lines of `parse_plan_tasks`'s loop setup (line 38) so head
 
 and add `body=chunk.strip(),` to the `ParsedPlanTask(...)` construction.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `uv run pytest tests/unit/test_plan_to_tasks.py -v`
 Expected: PASS (all, including the pre-existing tests)
 
-- [ ] **Step 6: Verify against the real plan that exposed the bug**
+- [x] **Step 6: Verify against the real plan that exposed the bug**
 
 Run:
 
@@ -293,7 +293,7 @@ print(len(t), [x.number for x in t])
 
 Expected: `16 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]` — sixteen sections, strictly ascending, no duplicates. Before this task it printed 19 with duplicated numbers.
 
-- [ ] **Step 7: Mark T-020 done and commit**
+- [x] **Step 7: Mark T-020 done and commit**
 
 There is no `set-status` subcommand — `factory.orchestrator` exposes only `run`
 and `list` — so use `ledger.set_status`, which rewrites the task's frontmatter
@@ -334,7 +334,7 @@ is `additionalProperties: false`, so the definition of done — the most direct
 statement of what the task was supposed to accomplish — is not reachable
 through the navigator today. The ledger already parses it.
 
-- [ ] **Step 1: Extend the task fixture to write source fields**
+- [x] **Step 1: Extend the task fixture to write source fields**
 
 In `tests/unit/system/_fixtures.py`, change the `_TASK` template (line 58) to:
 
@@ -381,7 +381,7 @@ def write_task(
     return path
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append to `tests/unit/system/test_story.py`:
 
@@ -473,12 +473,12 @@ def test_task_carries_its_definition_of_done(tmp_path, write_task):
     validate_against(result, _STORY_SCHEMA)
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/unit/system/test_story.py -v`
 Expected: FAIL with `KeyError: 'plan_section'`
 
-- [ ] **Step 4: Implement the resolver**
+- [x] **Step 4: Implement the resolver**
 
 In `src/factory/system/story.py`, add the import beside the existing `from factory.orchestrator import ledger`:
 
@@ -536,7 +536,7 @@ Then add to `query_story`'s returned dict — both the new top-level field and
         "plan_section": _plan_section(repo_root, task),
 ```
 
-- [ ] **Step 5: Extend the response schema**
+- [x] **Step 5: Extend the response schema**
 
 In `src/factory/schemas/system_response.schema.json`, add `"dod"` to
 `$defs.storyTask` — both to its `required` array and its `properties`, since it
@@ -571,17 +571,17 @@ Then, inside `properties.story`, add `"plan_section"` to the `required` array an
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `uv run pytest tests/unit/system/ -v`
 Expected: PASS — including the pre-existing story and CLI tests, which validate against the same schema
 
-- [ ] **Step 7: Run the full unit suite**
+- [x] **Step 7: Run the full unit suite**
 
 Run: `uv run pytest tests/unit -q`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/factory/system/story.py src/factory/schemas/system_response.schema.json \
@@ -608,7 +608,7 @@ The review server needs the same graph-plus-freshness-plus-evidence composition 
   - `interface SystemContextDeps { graph: typeof loadTraceGraph; taskEvidence: typeof loadTaskEvidence; preflight: typeof runPreflight }`
   - `interface SystemContextResult { context: Record<string, unknown>; graph: TraceGraph | null }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `pi-ext/factory-watch/test/system-context.test.ts`:
 
@@ -628,47 +628,50 @@ const GRAPH: TraceGraph = {
   health: { percent: 0, satisfied: 0, expected: 0, dangling: 0, deferred: 0, proposed: 0, classes: [] },
 };
 
+// The fakes keep their inferred object types; the `as never` cast belongs at
+// each call site. Casting the literal itself would type `deps` as `never`,
+// and a `never` cannot be spread — `{ ...deps }` below would not compile.
 const deps = {
   graph: () => ({ ok: true as const, graph: GRAPH }),
   taskEvidence: () => ({ ok: true as const, value: { runs: [] } }),
   preflight: () => ({ ok: true as const, value: { findings: [] } }),
-} as never;
+};
 
 describe("buildSystemContext", () => {
   test("returns the node, its edges, and its neighbours", () => {
-    const { context } = buildSystemContext("/repo", "T-001", deps);
+    const { context } = buildSystemContext("/repo", "T-001", deps as never);
     expect((context.node as { id: string }).id).toBe("T-001");
     expect(context.edges).toHaveLength(1);
     expect((context.neighbours as { id: string }[]).map((n) => n.id)).toEqual(["plan:p.md"]);
   });
 
   test("also returns the loaded graph so callers need not reload it", () => {
-    const { graph } = buildSystemContext("/repo", "T-001", deps);
+    const { graph } = buildSystemContext("/repo", "T-001", deps as never);
     expect(graph?.nodes).toHaveLength(2);
   });
 
   test("reports an unknown source rather than throwing when the graph fails", () => {
-    const failing = { ...deps, graph: () => ({ ok: false as const, error: "uv missing" }) } as never;
-    const { context, graph } = buildSystemContext("/repo", "T-001", failing);
+    const failing = { ...deps, graph: () => ({ ok: false as const, error: "uv missing" }) };
+    const { context, graph } = buildSystemContext("/repo", "T-001", failing as never);
     expect(context.status).toBe("unknown");
     expect(context.source).toBe("trace");
     expect(graph).toBeNull();
   });
 
   test("reports an unknown source for an id that is not in the graph", () => {
-    const { context } = buildSystemContext("/repo", "T-999", deps);
+    const { context } = buildSystemContext("/repo", "T-999", deps as never);
     expect(context.status).toBe("unknown");
     expect(String(context.error)).toContain("T-999");
   });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd pi-ext/factory-watch && npm test -- system-context`
 Expected: FAIL — cannot resolve `../src/system-context.js`
 
-- [ ] **Step 3: Create the module**
+- [x] **Step 3: Create the module**
 
 Create `pi-ext/factory-watch/src/system-context.ts`, moving the logic currently inside `system_context`'s `execute` (`system-context-tools.ts:86-119`) verbatim:
 
@@ -746,7 +749,7 @@ export function buildSystemContext(
 }
 ```
 
-- [ ] **Step 4: Make the tool a thin caller**
+- [x] **Step 4: Make the tool a thin caller**
 
 In `pi-ext/factory-watch/src/system-context-tools.ts`, delete the local `unknown()` function (lines 60-67) and replace `systemContext`'s `execute` body with:
 
@@ -756,17 +759,17 @@ In `pi-ext/factory-watch/src/system-context-tools.ts`, delete the local `unknown
 
 Add `import { buildSystemContext, unknownSource } from "./system-context.js";` and replace every remaining `unknown(` call in the file with `unknownSource(`.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npm test`
 Expected: PASS — including the existing `system-context-tools` tests, unchanged
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `cd pi-ext/factory-watch && npm run typecheck`
 Expected: no errors
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pi-ext/factory-watch/src/system-context.ts \
@@ -792,7 +795,7 @@ Pure: it walks a graph already in memory, so it needs no subprocess and no files
   - `interface IntentChain { chain: ReviewChainNode[]; stopsAt: string | null }`
   - `walkIntentChain(graph: TraceGraph, taskId: string): IntentChain`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `pi-ext/factory-watch/test/review-intent.test.ts`:
 
@@ -862,15 +865,42 @@ describe("walkIntentChain", () => {
   test("an unknown task id yields an empty chain stopping at task", () => {
     expect(walkIntentChain(FULL, "T-999")).toEqual({ chain: [], stopsAt: "task" });
   });
+
+  test("a single-edge hop reports no alternatives", () => {
+    const { chain } = walkIntentChain(FULL, "T-001");
+    expect(chain.every((n) => n.alternatives === 0)).toBe(true);
+  });
+
+  test("a second satisfies edge is counted, not silently dropped", () => {
+    const graph = graphOf(
+      [...FULL.nodes, node("SR-020", "sr", "Another requirement")],
+      [...FULL.edges, { src: "T-001", dst: "SR-020", kind: "satisfies" }],
+    );
+    const { chain } = walkIntentChain(graph, "T-001");
+    const sr = chain.find((n) => n.id === "SR-014");
+    expect(sr?.alternatives).toBe(1);
+    // The chain still shows one requirement; the count is how the reviewer
+    // learns a second one exists.
+    expect(chain.filter((n) => n.kind === "sr")).toHaveLength(1);
+  });
+
+  test("a second spec_ref edge is counted on the spec it resolved to", () => {
+    const graph = graphOf(
+      [...FULL.nodes, node("spec:other.md", "spec", "Another spec")],
+      [...FULL.edges, { src: "plan:p.md", dst: "spec:other.md", kind: "spec_ref" }],
+    );
+    const { chain } = walkIntentChain(graph, "T-001");
+    expect(chain.find((n) => n.id === "spec:s.md")?.alternatives).toBe(1);
+  });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-intent`
 Expected: FAIL — cannot resolve `../src/review-intent.js`
 
-- [ ] **Step 3: Implement the walk**
+- [x] **Step 3: Implement the walk**
 
 Create `pi-ext/factory-watch/src/review-intent.ts`:
 
@@ -882,6 +912,12 @@ export interface ReviewChainNode {
   kind: TraceNodeKind;
   title: string;
   path: string;
+  // How many FURTHER edges of the same kind left the same source. A task may
+  // declare several `satisfies` and a plan may reference several specs, but the
+  // chain shows one line per hop. Without this count the reviewer would be
+  // shown a partial chain with no sign anything was omitted -- the exact
+  // failure this pane exists to prevent. 0 in the ordinary single-edge case.
+  alternatives: number;
 }
 
 export interface IntentChain {
@@ -894,8 +930,13 @@ export interface IntentChain {
 // row: an absent `upstream` is only interesting once `satisfies` resolved.
 const HOP_PRECEDENCE = ["satisfies", "upstream", "source_plan", "spec_ref"] as const;
 
-function toChainNode(node: TraceNode): ReviewChainNode {
-  return { id: node.id, kind: node.kind, title: node.title, path: node.path };
+interface Hop {
+  node: TraceNode | undefined;
+  alternatives: number;
+}
+
+function toChainNode(node: TraceNode, alternatives: number): ReviewChainNode {
+  return { id: node.id, kind: node.kind, title: node.title, path: node.path, alternatives };
 }
 
 /** Walk the two branches `factory.trace.model.extract_edges` actually writes:
@@ -914,34 +955,43 @@ export function walkIntentChain(graph: TraceGraph, taskId: string): IntentChain 
   const task = byId.get(taskId);
   if (task === undefined) return { chain: [], stopsAt: "task" };
 
-  const hop = (src: string, kind: TraceEdgeKind): TraceNode | undefined => {
-    const edge = graph.edges.find((each) => each.src === src && each.kind === kind);
-    return edge === undefined ? undefined : byId.get(edge.dst);
+  const NONE: Hop = { node: undefined, alternatives: 0 };
+
+  // Collect every candidate rather than taking the first: the count of the ones
+  // not shown is what the chain reports as "+N more".
+  const hop = (src: string, kind: TraceEdgeKind): Hop => {
+    const edges = graph.edges.filter((each) => each.src === src && each.kind === kind);
+    const first = edges[0];
+    return {
+      node: first === undefined ? undefined : byId.get(first.dst),
+      alternatives: Math.max(0, edges.length - 1),
+    };
   };
 
   const sr = hop(taskId, "satisfies");
-  const br = sr === undefined ? undefined : hop(sr.id, "upstream");
+  const br = sr.node === undefined ? NONE : hop(sr.node.id, "upstream");
   const plan = hop(taskId, "source_plan");
-  const spec = plan === undefined ? undefined : hop(plan.id, "spec_ref");
+  const spec = plan.node === undefined ? NONE : hop(plan.node.id, "spec_ref");
 
-  const resolved: Record<(typeof HOP_PRECEDENCE)[number], TraceNode | undefined> = {
+  const resolved: Record<(typeof HOP_PRECEDENCE)[number], Hop> = {
     satisfies: sr, upstream: br, source_plan: plan, spec_ref: spec,
   };
-  const stopsAt = HOP_PRECEDENCE.find((hopName) => resolved[hopName] === undefined) ?? null;
+  const stopsAt = HOP_PRECEDENCE.find((hopName) => resolved[hopName].node === undefined) ?? null;
 
-  const chain = [br, sr, spec, plan, task]
-    .filter((node): node is TraceNode => node !== undefined)
-    .map(toChainNode);
+  // The task itself was not reached through an edge, so it has no alternatives.
+  const chain = [br, sr, spec, plan, { node: task, alternatives: 0 }]
+    .filter((each): each is { node: TraceNode; alternatives: number } => each.node !== undefined)
+    .map((each) => toChainNode(each.node, each.alternatives));
   return { chain, stopsAt };
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-intent`
 Expected: PASS (5 tests)
 
-- [ ] **Step 5: Typecheck and commit**
+- [x] **Step 5: Typecheck and commit**
 
 Run: `cd pi-ext/factory-watch && npm run typecheck`
 Expected: no errors
@@ -973,7 +1023,7 @@ Pure, so the focus model is tested without a browser.
   - `columnTemplate(state: LayoutState): string`
   - `normalizeLayout(raw: unknown): LayoutState`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `pi-ext/factory-watch/test/review-layout.test.ts`:
 
@@ -1039,12 +1089,12 @@ describe("normalizeLayout", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-layout`
 Expected: FAIL — cannot resolve `../src/review-layout.js`
 
-- [ ] **Step 3: Implement the reducer**
+- [x] **Step 3: Implement the reducer**
 
 Create `pi-ext/factory-watch/src/review-layout.ts`:
 
@@ -1111,12 +1161,12 @@ export function normalizeLayout(raw: unknown): LayoutState {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-layout`
 Expected: PASS (9 tests)
 
-- [ ] **Step 5: Typecheck and commit**
+- [x] **Step 5: Typecheck and commit**
 
 Run: `cd pi-ext/factory-watch && npm run typecheck`
 Expected: no errors
@@ -1140,7 +1190,7 @@ git commit -m "feat(factory-watch): add the review pane layout reducer"
 - Consumes: `LayoutState`, `DEFAULT_LAYOUT`, `normalizeLayout` from `./review-layout.js` (Task 6).
 - Produces: `readLayoutPref(cwd: string): LayoutState`, `writeLayoutPref(cwd: string, state: LayoutState): void`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `pi-ext/factory-watch/test/review-surface.test.ts` (reuse the file's existing tmpdir helper; the snippet below creates its own if there is none):
 
@@ -1179,12 +1229,12 @@ describe("layout preference", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-surface`
 Expected: FAIL — `readLayoutPref` is not exported
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
 
 In `pi-ext/factory-watch/src/review-surface.ts`, add the import and the two functions after `writeSurfacePref`:
 
@@ -1223,14 +1273,24 @@ export function writeLayoutPref(cwd: string, state: LayoutState): void {
 }
 ```
 
-Note: `readSurfacePref` casts the parsed file to `Record<string, string>`. Change that cast to `Record<string, unknown>` and coerce with `String(value)` where it reads `raw["surface"] ?? raw["review"]`, since the file now holds a nested object too.
+Note: `readSurfacePref` casts the parsed file to `Record<string, string>`, which
+stops being true once the file holds a nested `layout` object. Widen it to
+`Record<string, unknown>`.
 
-- [ ] **Step 4: Run the test to verify it passes**
+Do **not** coerce the value with `String(...)` where it reads
+`raw["surface"] ?? raw["review"]`. `value === "browser"` type-checks against an
+`unknown` under `--strict` with no cast, and `String(value) === "browser"` would
+be strictly looser: a hand-edited `"surface": ["browser"]` stringifies to
+`"browser"` and would start selecting the browser surface, where the strict
+comparison correctly falls through to `"terminal"`. Widening the cast must not
+widen what counts as a valid preference.
+
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-surface`
 Expected: PASS — including the existing surface-preference tests
 
-- [ ] **Step 5: Typecheck and commit**
+- [x] **Step 5: Typecheck and commit**
 
 Run: `cd pi-ext/factory-watch && npm run typecheck`
 Expected: no errors
@@ -1258,7 +1318,7 @@ git commit -m "feat(factory-watch): persist the review pane layout server-side"
   - `buildReviewPageData(cwd, startCommit, files, opts)` — `opts` gains optional `deps?: Partial<ReviewPageDeps>`.
   - `startReviewServer(data, opts: { cwd: string; reverse?: typeof loadSystemReverse; writeLayout?: typeof writeLayoutPref })`.
 
-- [ ] **Step 1: Add `plan_section` and `dod` to the story types**
+- [x] **Step 1: Add `plan_section` and `dod` to the story types**
 
 In `pi-ext/factory-watch/src/system-cli.ts`, add `dod: string[];` to the
 existing `StoryTask` interface (matching the `storyTask` schema change from
@@ -1285,7 +1345,7 @@ export interface SystemStory {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append to `pi-ext/factory-watch/test/review-server.test.ts`:
 
@@ -1316,15 +1376,18 @@ const CONTEXT_OK = {
   },
 };
 
+// No cast on the literal: `as never` here would type `okDeps` as `never`, and
+// a `never` cannot be spread — every `{ ...okDeps }` below would fail to
+// compile. Cast at the call site instead.
 const okDeps = {
   story: () => STORY_OK,
   context: () => CONTEXT_OK,
   layout: () => ({ collapsed: [], zoomed: null }),
-} as never;
+};
 
 describe("buildReviewPageData intent", () => {
   test("carries the chain, the DoD and the rendered plan section", () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     expect(data.intent?.chain.map((n) => n.id)).toEqual(["plan:p.md", "T-001"]);
     expect(data.intent?.stopsAt).toBe("satisfies");
     expect(data.intent?.dod).toEqual(["ships"]);
@@ -1332,23 +1395,23 @@ describe("buildReviewPageData intent", () => {
   });
 
   test("a failing story leaves the page renderable without an intent", () => {
-    const deps = { ...okDeps, story: () => ({ ok: false, error: "uv missing" }) } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, story: () => ({ ok: false, error: "uv missing" }) };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent).toBeNull();
     expect(data.files).toEqual(FILES);
   });
 
   test("a failing graph keeps the plan section and empties the chain", () => {
-    const deps = { ...okDeps, context: () => ({ context: {}, graph: null }) } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, context: () => ({ context: {}, graph: null }) };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent?.chain).toEqual([]);
     expect(data.intent?.planSection?.heading).toBe("Task 1: A task");
   });
 
   test("a null plan section still yields a usable intent", () => {
     const story = { ...STORY_OK, value: { ...STORY_OK.value, plan_section: null } };
-    const deps = { ...okDeps, story: () => story } as never;
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps });
+    const deps = { ...okDeps, story: () => story };
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: deps as never });
     expect(data.intent?.planSection).toBeNull();
     expect(data.intent?.dod).toEqual(["ships"]);
   });
@@ -1356,7 +1419,7 @@ describe("buildReviewPageData intent", () => {
 
 describe("review server endpoints", () => {
   test("/api/why returns the reverse walk for a file", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const reverse = () => ({ ok: true as const, value: { scope: { kind: "file", ref: "file:a.ts" }, paths: [], degraded: false, degraded_reasons: [] } });
     const srv = await startReviewServer(data, { cwd: "/repo", reverse: reverse as never });
     const res = await fetch(`${srv.url}/api/why?file=a.ts`);
@@ -1366,7 +1429,7 @@ describe("review server endpoints", () => {
   });
 
   test("/api/why reports the reason instead of failing the pane", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const reverse = () => ({ ok: false as const, error: "no manifest" });
     const srv = await startReviewServer(data, { cwd: "/repo", reverse: reverse as never });
     const body = await (await fetch(`${srv.url}/api/why?file=a.ts`)).json();
@@ -1375,7 +1438,7 @@ describe("review server endpoints", () => {
   });
 
   test("/api/layout persists a posted layout", async () => {
-    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps });
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
     const written: unknown[] = [];
     const srv = await startReviewServer(data, {
       cwd: "/repo",
@@ -1391,12 +1454,12 @@ describe("review server endpoints", () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-server`
 Expected: FAIL — `data.intent` is undefined and `startReviewServer` takes one argument
 
-- [ ] **Step 4: Add the types and the intent composition**
+- [x] **Step 4: Add the types and the intent composition**
 
 In `pi-ext/factory-watch/src/review-server.ts`, add the imports:
 
@@ -1491,7 +1554,7 @@ In `buildReviewPageData`, resolve deps and add the two fields:
 
 then `intent: buildIntent(cwd, opts.taskId, resolved),` and `layout: resolved.layout(cwd),`.
 
-- [ ] **Step 5: Add the endpoints**
+- [x] **Step 5: Add the endpoints**
 
 Change `startReviewServer`'s signature to
 `startReviewServer(data: ReviewPageData, opts: { cwd: string; reverse?: typeof loadSystemReverse; writeLayout?: typeof writeLayoutPref })`
@@ -1521,7 +1584,13 @@ and add these handlers before the final `404`:
       }
 ```
 
-- [ ] **Step 6: Update the caller**
+- [x] **Step 6: Update the callers**
+
+`opts` is deliberately **required**, not optional. `cwd` has no safe default:
+falling back to `process.cwd()` would serve `/api/why` and `/api/layout` from
+whatever directory the process happens to be in, which inside a git worktree is
+a different repository — a wrong answer that still looks like a working
+feature. A caller that cannot supply `cwd` should fail to compile.
 
 In `pi-ext/factory-watch/src/index.ts:204`, change the call to:
 
@@ -1529,17 +1598,30 @@ In `pi-ext/factory-watch/src/index.ts:204`, change the call to:
               const srv = await startReviewServer(pageData, { cwd: ctx.cwd });
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+Three pre-existing tests in `pi-ext/factory-watch/test/review-server.test.ts`
+call `startReviewServer(data)` with one argument and will no longer compile.
+Add the second argument to each, changing nothing else — not their assertions,
+their names, or their fixtures:
+
+```typescript
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+```
+
+This is a mechanical call-site update forced by a deliberate signature change,
+which is the one edit to a pre-existing test this plan sanctions. Weakening or
+retargeting an existing assertion is still forbidden.
+
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-server`
-Expected: PASS — including the four pre-existing `buildReviewPageData` and `startReviewServer` tests
+Expected: PASS — including the four pre-existing `buildReviewPageData` and `startReviewServer` tests, whose assertions are unchanged
 
-- [ ] **Step 8: Full suite and typecheck**
+- [x] **Step 8: Full suite and typecheck**
 
 Run: `cd pi-ext/factory-watch && npm test && npm run typecheck`
 Expected: PASS, no type errors
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add pi-ext/factory-watch/src/review-server.ts pi-ext/factory-watch/src/system-cli.ts \
@@ -1559,7 +1641,7 @@ git commit -m "feat(factory-watch): compose the review intent and serve /api/why
 - Consumes: `ReviewPageData.intent` and `.layout` (Task 8); `columnTemplate`, `PANE_ORDER` semantics (Task 6) — reimplemented inline in the page script, since the served page cannot import modules.
 - Produces: `renderReviewHtml(): string`, unchanged signature.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `pi-ext/factory-watch/test/review-html.test.ts`:
 
@@ -1598,6 +1680,15 @@ describe("renderReviewHtml", () => {
     expect(html).toContain("/api/why?file=");
   });
 
+  test("renders the fan-out marker so a partial chain is never silent", () => {
+    // walkIntentChain counts the requirements and specs it did not show. A page
+    // that computes that count and never renders it leaves the reviewer looking
+    // at one of two satisfied requirements with no sign the second exists --
+    // precisely the failure the count was added to prevent.
+    expect(html).toMatch(/n\.alternatives/);
+    expect(html).toContain("more)");
+  });
+
   test("the only non-clearing innerHTML assignment is the rendered plan section", () => {
     // renderMarkdown output is the sole trusted HTML on this page; every other
     // server value must reach the DOM through createTextNode.
@@ -1607,12 +1698,12 @@ describe("renderReviewHtml", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-html`
 Expected: FAIL — no `data-pane` attributes, `35vh` still present
 
-- [ ] **Step 3: Replace the stylesheet and body**
+- [x] **Step 3: Replace the stylesheet and body**
 
 In `pi-ext/factory-watch/src/review-html.ts`, replace the `<style>` block's layout rules and the `<body>` markup with:
 
@@ -1690,7 +1781,7 @@ In `pi-ext/factory-watch/src/review-html.ts`, replace the `<style>` block's layo
   </div>
 ```
 
-- [ ] **Step 4: Add the layout controller to the page script**
+- [x] **Step 4: Add the layout controller to the page script**
 
 Insert into the page's `<script>`, after `const data = await (await fetch('/api/review')).json();`:
 
@@ -1735,7 +1826,7 @@ Insert into the page's `<script>`, after `const data = await (await fetch('/api/
   applyLayout();
 ```
 
-- [ ] **Step 5: Replace `renderTask` with `renderContext`**
+- [x] **Step 5: Replace `renderTask` with `renderContext`**
 
 Replace the existing `renderTask` function and its call with:
 
@@ -1758,7 +1849,11 @@ Replace the existing `renderTask` function and its call with:
       list.className = 'chain';
       intent.chain.forEach((n, depth) => {
         const item = document.createElement('li');
-        item.appendChild(document.createTextNode('  '.repeat(depth) + n.kind + ' · ' + n.id + ' — ' + n.title));
+        // A hop with further candidates says so. Showing one of two satisfied
+        // requirements with no marker is the partial picture this pane exists
+        // to prevent.
+        const more = n.alternatives ? '  (+' + n.alternatives + ' more)' : '';
+        item.appendChild(document.createTextNode('  '.repeat(depth) + n.kind + ' · ' + n.id + ' — ' + n.title + more));
         list.appendChild(item);
       });
       box.appendChild(list);
@@ -1796,7 +1891,7 @@ Replace the existing `renderTask` function and its call with:
   renderContext();
 ```
 
-- [ ] **Step 6: Fetch per-file provenance on file click**
+- [x] **Step 6: Fetch per-file provenance on file click**
 
 Add this function and call it at the end of `renderTree`'s click handler (`el.onclick = () => { active = f.path; renderAll(); showWhy(f.path); }`):
 
@@ -1821,12 +1916,12 @@ Add this function and call it at the end of `renderTree`'s click handler (`el.on
   }
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npm test -- review-html`
-Expected: PASS (7 tests)
+Expected: PASS (8 tests)
 
-- [ ] **Step 8: Full suite, typecheck, and manual verification**
+- [x] **Step 8: Full suite, typecheck, and manual verification**
 
 Run: `cd pi-ext/factory-watch && npm test && npm run typecheck`
 Expected: PASS, no type errors
@@ -1840,7 +1935,24 @@ Then verify by hand — this is the deliverable, and no unit test proves it read
 5. Click a second file; confirm the "why this file" line updates.
 6. Close the tab, re-run the review, confirm the collapsed panes came back.
 
-- [ ] **Step 9: Commit**
+**How these were verified.** Checks 2-6 are mechanical, and a one-off human
+pass does not re-run after the next edit — so they became assertions in
+`test/review-html-dom.test.ts`, which executes the served page's inline script
+under jsdom (the pattern `system-page-dom.test.ts` established for exactly this
+gap: `review-html.test.ts` only ever grepped the HTML string, so the layout
+controller, `renderContext` and `showWhy` had never been run by anything).
+Each assertion was mutation-checked against the real source — dropping the
+fan-out marker, widening `RAIL`, disabling the why-cache, making zoom one-way,
+ignoring the intent DoD or the persisted layout, removing the input guard,
+dropping the `collapsed` class, skipping the layout POST, and not rendering the
+plan section each fail at least one test.
+
+**Still owed to a human.** Check 1 (driving a real `/factory-watch` review and
+choosing the Browser surface) and the judgment the rest of these checks exist to
+serve — whether the pane actually *reads* well at real width, with real prose —
+are not claimed here. No assertion can make that call.
+
+- [x] **Step 9: Commit**
 
 ```bash
 git add pi-ext/factory-watch/src/review-html.ts pi-ext/factory-watch/test/review-html.test.ts

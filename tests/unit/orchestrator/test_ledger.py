@@ -104,3 +104,39 @@ def test_task_not_todo_error_message():
     assert err.task_id == "T-001"
     assert err.status == "done"
     assert "T-001" in str(err) and "done" in str(err)
+
+
+def _write_task(tasks_dir: Path, text: str) -> None:
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "T-001-x.md").write_text(text, encoding="utf-8")
+
+
+def test_task_carries_source_plan_and_source_task(tmp_path):
+    _write_task(
+        tmp_path / "tasks",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n- d\n"
+        "source_plan: docs/superpowers/plans/p.md\nsource_task: 3\n---\nbody\n",
+    )
+
+    task = load_tasks(tmp_path / "tasks")[0]
+
+    assert task.source_plan == "docs/superpowers/plans/p.md"
+    assert task.source_task == 3
+
+
+def test_task_without_source_fields_defaults_to_none(tmp_path):
+    _write_task(tmp_path / "tasks", "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n- d\n---\nbody\n")
+
+    task = load_tasks(tmp_path / "tasks")[0]
+
+    assert task.source_plan is None
+    assert task.source_task is None
+
+
+def test_non_integer_source_task_becomes_none(tmp_path):
+    _write_task(
+        tmp_path / "tasks",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n- d\nsource_task: not-a-number\n---\nbody\n",
+    )
+
+    assert load_tasks(tmp_path / "tasks")[0].source_task is None
