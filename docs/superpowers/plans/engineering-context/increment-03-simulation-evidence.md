@@ -31,6 +31,13 @@ same way, taking the measured set to **29 bound requirements** (each `value 1.0,
 seed-run work can lift these concrete requirement-level measurements as the
 `requirement → ... → evidence` input for the run chain and Inc 7's goal-aware status.
 
+A further additive batch bound the deterministic safety-governor family (SR-034/102/103/104/
+105/106/107/108/109/111/112/113/114/115) the same way, taking the measured set to
+**43 bound requirements** — per-SR tests driving `SafetyGovernor` (and the `SkillExecutor`
+acceptance gate for SR-034), each `value 1.0, passed true`; SR-110 (clamp reason code) and
+SR-151 (generated-test process claim) stay `[proposed]` because no real clamp/process path
+exists to assert.
+
 ## Reuse (do not rebuild)
 
 - **Run manifests:** `factory.evidence.manifests` `write_run_manifest/load_run_manifest/list_run_manifests`
