@@ -49,6 +49,7 @@ from factory.system._claims import (
     tasks_dir as _tasks_dir,
 )
 from factory.system.bundles import BundleIdMismatchError
+from factory.system.coverage import ArtifactLookup, build_artifact_lookup
 from factory.system.models import (
     BundleDeclaration,
     ClaimClass,
@@ -1281,7 +1282,7 @@ def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
 
 
 def _traversal_for_sr(
-    repo_root: Path, sr_id: str, edges: list, evidence_dir: Path
+    repo_root: Path, sr_id: str, edges: list, evidence_dir: Path, *, lookup: ArtifactLookup
 ) -> tuple[list[str], list[str], list[str]]:
     """One `sr:` chain from the real trace graph (Task 9, working traversal).
 
@@ -1321,7 +1322,7 @@ def _traversal_for_sr(
     # Design decisions = the `adr:` members of the bundles that declare this
     # SR (the only recorded link from a requirement to its design decisions).
     design: list[str] = []
-    for bundle_id in bundles.bundles_containing(repo_root, f"sr:{sr_id}"):
+    for bundle_id in bundles.bundles_containing(repo_root, f"sr:{sr_id}", lookup=lookup):
         try:
             bundle = bundles.load_bundle(_bundles_dir(repo_root), bundle_id)
         except (FileNotFoundError, ValueError):
@@ -1356,10 +1357,13 @@ def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
     nodes = trace_model.load_nodes(repo_root)
     edges = trace_model.extract_edges(repo_root, nodes)
     evidence_dir = _evidence_dir(repo_root)
+    lookup = build_artifact_lookup(repo_root, nodes=nodes)
 
     if scope.kind == "sr":
         sr_id = _scope_identifier(scope)
-        tasks, design, files = _traversal_for_sr(repo_root, sr_id, edges, evidence_dir)
+        tasks, design, files = _traversal_for_sr(
+            repo_root, sr_id, edges, evidence_dir, lookup=lookup
+        )
         return {"requirement": sr_id, "tasks": tasks, "design": design, "files": files}
 
     if scope.kind == "bundle":
@@ -1370,7 +1374,9 @@ def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
         all_design: list[str] = []
         all_files: list[str] = []
         for sr_id in sr_ids:
-            tasks, design, files = _traversal_for_sr(repo_root, sr_id, edges, evidence_dir)
+            tasks, design, files = _traversal_for_sr(
+                repo_root, sr_id, edges, evidence_dir, lookup=lookup
+            )
             for t in tasks:
                 if t not in all_tasks:
                     all_tasks.append(t)

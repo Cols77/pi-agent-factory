@@ -1,4 +1,4 @@
-import { runJsonCli } from "./cli-runner.js";
+import { runJsonCli, runJsonCliAsync } from "./cli-runner.js";
 import type { CliResult } from "./cli-runner.js";
 
 // Types below mirror src/factory/schemas/system_response.schema.json (and the
@@ -241,6 +241,11 @@ export function loadSystemHealth(cwd: string): CliResult<SystemHealth> {
   return runJsonCli<SystemHealth>(cwd, cmd.bin, cmd.args);
 }
 
+export function loadSystemHealthAsync(cwd: string): Promise<CliResult<SystemHealth>> {
+  const cmd = buildSystemCommand(["health", "--json"]);
+  return runJsonCliAsync<SystemHealth>(cwd, cmd.bin, cmd.args);
+}
+
 // SP-B Task 9 -- working traversal. Mirrors `factory.system.traversal --json`
 // (requirement -> satisfying tasks -> design decisions -> changed files).
 export interface SystemTraversal {
@@ -253,6 +258,11 @@ export interface SystemTraversal {
 export function loadSystemTraversal(cwd: string, scope: string): CliResult<SystemTraversal> {
   const cmd = buildSystemCommand(["traversal", "--json", "--scope", scope]);
   return runJsonCli<SystemTraversal>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemTraversalAsync(cwd: string, scope: string): Promise<CliResult<SystemTraversal>> {
+  const cmd = buildSystemCommand(["traversal", "--json", "--scope", scope]);
+  return runJsonCliAsync<SystemTraversal>(cwd, cmd.bin, cmd.args);
 }
 
 // The rest of this file mirrors `factory.system.story.query_story` /

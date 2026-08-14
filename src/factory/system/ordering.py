@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Protocol
 
 from factory.system import bundles as bundles_module
-from factory.system.coverage import member_target
+from factory.system.coverage import ArtifactLookup, member_target
 
 
 class RecencySource(Protocol):
@@ -61,13 +61,15 @@ class FixedRecency:
         return max(found) if found else None
 
 
-def bundle_recency(repo_root: Path, git: RecencySource) -> dict[str, str | None]:
+def bundle_recency(
+    repo_root: Path, git: RecencySource, *, lookup: ArtifactLookup | None = None
+) -> dict[str, str | None]:
     """Newest member-artifact commit timestamp per bundle id, or None."""
     recency: dict[str, str | None] = {}
     for bundle in bundles_module.list_bundles(repo_root / "bundles"):
         targets = [
             target
-            for target in (member_target(repo_root, m.ref) for m in bundle.members)
+            for target in (member_target(repo_root, m.ref, lookup=lookup) for m in bundle.members)
             if target is not None
         ]
         recency[bundle.id] = git.last_commit_iso(repo_root, targets)
@@ -88,14 +90,16 @@ def _descending(stamp: str | None) -> tuple[int, ...]:
     return tuple(-ord(ch) for ch in stamp)
 
 
-def ordered_bundle_ids(repo_root: Path, git: RecencySource) -> tuple[list[str], bool]:
+def ordered_bundle_ids(
+    repo_root: Path, git: RecencySource, *, lookup: ArtifactLookup | None = None
+) -> tuple[list[str], bool]:
     """Bundle ids most-recent-first, plus whether any recency was available.
 
     Undated bundles sort after every dated one. The tiebreak is id ascending
     -- deterministic, never random (`factory.trace.propose` line 129 sets the
     same rule for candidate ordering).
     """
-    recency = bundle_recency(repo_root, git)
+    recency = bundle_recency(repo_root, git, lookup=lookup)
     available = any(stamp is not None for stamp in recency.values())
     order = sorted(
         recency,

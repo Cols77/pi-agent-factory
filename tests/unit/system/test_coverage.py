@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from factory.system.coverage import bundle_coverage
+from factory.system import coverage
+from factory.system.coverage import build_artifact_lookup, bundle_coverage, member_target
 
 pytestmark = pytest.mark.unit
 
@@ -103,6 +104,79 @@ def test_an_artifact_in_two_bundles_is_counted_once(tmp_path):
     assert coverage.total == 1
     assert coverage.bundled == 1
     assert _by_kind(coverage, "sr").bundled == 1
+
+
+def test_coverage_loads_trace_nodes_once_for_multiple_sr_and_task_members(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    _sr(repo, "SR-001")
+    _sr(repo, "SR-002")
+    _task(repo, "T-001", "first")
+    _task(repo, "T-002", "second")
+    _bundle(repo, "feature", ["sr:SR-001", "sr:SR-002", "task:T-001", "task:T-002"])
+
+    real_load_nodes = coverage.trace_model.load_nodes
+    calls = 0
+
+    def counted_load_nodes(root):
+        nonlocal calls
+        calls += 1
+        return real_load_nodes(root)
+
+    monkeypatch.setattr(coverage.trace_model, "load_nodes", counted_load_nodes)
+
+    result = bundle_coverage(repo)
+
+    assert result.bundled == 4
+    assert calls == 1
+
+
+def test_coverage_preserves_duplicate_sr_and_task_ids_as_distinct_artifacts(tmp_path):
+    repo = _repo(tmp_path)
+    _sr(repo, "SR-001")
+    (repo / "requirements" / "SR-shadow.md").write_text(
+        "---\nid: SR-001\ntitle: shadow\nstatement: x\ndomain: behavioral\n---\n",
+        encoding="utf-8",
+    )
+    _task(repo, "T-001", "first")
+    (repo / "tasks" / "T-shadow.md").write_text(
+        "---\nid: T-001\ntitle: shadow\nstatus: todo\n---\n",
+        encoding="utf-8",
+    )
+    _bundle(repo, "feature", ["sr:SR-001", "task:T-001"])
+
+    result = bundle_coverage(repo)
+
+    assert result.total == 4
+    assert result.bundled == 2
+    assert _by_kind(result, "sr").unbundled == ["sr:SR-001"]
+    assert _by_kind(result, "task").unbundled == ["task:T-001"]
+    assert result.unbundled == ["sr:SR-001", "task:T-001"]
+
+
+def test_member_target_lookup_matches_legacy_first_path_for_duplicate_ids(tmp_path):
+    repo = _repo(tmp_path)
+    _sr(repo, "SR-001")
+    (repo / "requirements" / "SR-shadow.md").write_text(
+        "---\nid: SR-001\ntitle: shadow\nstatement: x\ndomain: behavioral\n---\n",
+        encoding="utf-8",
+    )
+    _task(repo, "T-001", "first")
+    (repo / "tasks" / "T-shadow.md").write_text(
+        "---\nid: T-001\ntitle: shadow\nstatus: todo\n---\n",
+        encoding="utf-8",
+    )
+
+    lookup = build_artifact_lookup(repo)
+    expected = {
+        "sr:SR-001": (repo / "requirements" / "SR-001.md").resolve(),
+        "task:T-001": (repo / "tasks" / "T-001-first.md").resolve(),
+    }
+
+    for ref, first_path in expected.items():
+        legacy_target = member_target(repo, ref)
+
+        assert legacy_target == first_path
+        assert member_target(repo, ref, lookup=lookup) == legacy_target
 
 
 def test_unbundled_artifacts_are_named_not_just_counted(tmp_path):
