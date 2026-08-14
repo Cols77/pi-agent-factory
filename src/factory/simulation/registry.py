@@ -44,9 +44,13 @@ def load_runs(evidence_dir: Path) -> list[Run]:
         if not isinstance(experiment, str):
             scope_errors.append("experiment: not a string")
             experiment = ""
+        run_id = manifest.get("run", "")
+        manifest_path = evidence_dir / "runs" / run_id / "manifest.json"
+        if not manifest_path.exists():
+            scope_errors.append(f"manifest file missing: {manifest_path}")
         runs.append(
             Run(
-                run_id=manifest.get("run", ""),
+                run_id=run_id,
                 experiment=experiment,
                 feature=manifest.get("feature"),
                 requirements=[
@@ -55,7 +59,7 @@ def load_runs(evidence_dir: Path) -> list[Run]:
                 goals=[g for g in manifest.get("goals", []) if isinstance(g, str)],
                 commit=manifest.get("commit"),
                 result=manifest.get("result"),
-                path=Path(manifest.get("run", "")) / "manifest.json",
+                path=manifest_path,
                 scope_errors=scope_errors,
                 recorded_ts=manifest.get("recorded_ts"),
             )
