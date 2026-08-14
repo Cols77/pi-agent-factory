@@ -28,18 +28,53 @@ export function renderSystemPageHtml(): string {
     --fresh: #3fa14a; --stale: #c8871a; --degraded: #d24b3f; --na: #8a8a8a;
   }
   * { box-sizing: border-box; }
-  body { font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 0 0 48px; }
+  body { font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; height: 100vh; overflow: hidden; }
   header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
   header h1 { font-size: 15px; margin: 0; }
   #banner { padding: 8px 20px; background: color-mix(in srgb, var(--degraded) 15%, transparent); }
   #banner:empty { display: none; }
-  main { max-width: 100ch; margin: 0 auto; padding: 0 20px; }
-  #picker { padding: 16px 0; }
+  #layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 60px); }
+  #picker { border-right: 1px solid var(--line); overflow: auto; padding: 10px 14px 24px; }
   .scope-item { display: block; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; margin: 4px 0; text-decoration: none; color: inherit; }
   .scope-item:hover { background: var(--hover); }
   .scope-error { color: var(--degraded); font-size: 12px; }
-  #content { padding: 16px 0; }
-  #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  /* Task 1 (system nav): the scope picker is a searchable, kind-grouped
+     list that collapses to a compact bar once a scope is open. When the
+     page is in body.focus (a scope is loaded) the big list, its filter,
+     the group titles and the heading are hidden behind the single
+     "All scopes ▾" toggle button. */
+  #picker nav { margin: 10px 0; }
+  #scopeFilter { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: Canvas; color: inherit; margin-bottom: 6px; }
+  .scope-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 10px 0 2px; }
+  .scope-row { display: flex; align-items: center; }
+  .scope-item { display: block; flex: 1; padding: 3px 8px; border: none; border-radius: 3px; margin: 1px 0; text-decoration: none; color: inherit; font: inherit; text-align: left; width: 100%; }
+  .scope-item:hover, .scope-item:focus-visible { background: var(--hover); outline: 2px solid currentColor; outline-offset: 1px; }
+  .scope-kind { font-size: 10px; text-transform: uppercase; opacity: .55; margin-right: 6px; }
+  /* On wide screens the scope list is always an open, independently
+     scrollable column; the compact-bar collapse (Task 1) applies only on
+     narrow screens via the media query below. */
+  @media (max-width: 760px) {
+    body.focus #scopeList, body.focus .scope-group-title, body.focus #scopeFilter, body.focus #picker h2 { display: none; }
+    #scopeToggle { display: inline-block; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
+    body.focus #scopeToggle { display: inline-block; }
+  }
+  /* Wide screens: the sidebar is always an open column; the toggle + collapse are irrelevant. */
+  #scopeToggle { display: none; }
+  /* Task 3 (system nav): a slim meta row under the scope header carries the
+     per-scope Refresh button and the "loaded at" timestamp. The spinner is
+     its own status element above it, shown only while a scope is loading. */
+  .scope-meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; font-size: 11px; opacity: .8; }
+  #refresh { font: inherit; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
+  #content { overflow: auto; padding: 8px 24px 48px; }
+  /* Task 4 (system nav): a global visible-focus rule for every interactive
+     element so keyboard navigation reveals where focus is. It widens the
+     Task 1 .scope-item:focus-visible outline to tabs/buttons/inputs too. */
+  a:focus-visible, button:focus-visible, input:focus-visible, .tab:focus-visible, .scope-item:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+  /* Task 2 (system nav): #tabs is sticky so the Brief/Matrix/Timeline/Guide/
+     Story/Reverse switch stays visible while scrolling a long panel. Canvas
+     background keeps the tab strip opaque (not see-through over scrolled
+     content) and z-index keeps it above the panels. */
+  #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; position: sticky; top: 0; z-index: 3; background: Canvas; }
   .tab { font: inherit; padding: 6px 12px; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: inherit; }
   .tab[aria-selected="true"] { border-bottom-color: currentColor; font-weight: 600; }
   .panel[hidden] { display: none; }
@@ -88,34 +123,51 @@ export function renderSystemPageHtml(): string {
   .path-chain .arrow { opacity: .6; }
   .requirements { margin-top: 8px; font-size: 12px; }
   .requirement { padding: 1px 0; }
+  /* Task B (system nav): the recovered per-requirement trace -- sr -> its
+     upstream br, then each satisfying task -> plan -> spec from the trace
+     graph. .trace-sr/.trace-task reuse .claim's frame; the chain reuses the
+     .path-chain arrow idiom with its own hop/arrow tokens. */
+  .trace-sr, .trace-task { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
+  .trace-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .trace-hop { padding: 1px 0; overflow-wrap: anywhere; }
+  .trace-arrow { opacity: .6; }
+  .trace-upstream { font-size: 11px; opacity: .8; margin-top: 2px; }
 </style></head>
 <body>
-  <header><h1>System Navigator</h1></header>
+  <nav aria-label="System navigator"><header><h1>System Navigator</h1></header></nav>
   <div id="banner" role="status"></div>
-  <main>
-    <div id="picker">
+  <div id="layout">
+    <aside id="picker">
       <h2>Declared scopes</h2>
-      <div id="scopeList"></div>
-      <div id="scopeErrors"></div>
-    </div>
-    <div id="content" hidden>
+      <button id="scopeToggle" aria-expanded="false">All scopes ▾</button>
+      <nav aria-label="Scopes">
+        <input id="scopeFilter" type="search" placeholder="Filter scopes…" aria-label="Filter scopes" />
+        <div id="scopeList"></div>
+        <div id="scopeErrors"></div>
+      </nav>
+    </aside>
+    <section id="content" hidden>
       <h2 id="scopeHeader"></h2>
-      <div id="tabs">
-        <button id="tabBrief" class="tab" aria-selected="true">Brief</button>
-        <button id="tabMatrix" class="tab" aria-selected="false">Matrix</button>
-        <button id="tabTimeline" class="tab" aria-selected="false">Timeline</button>
-        <button id="tabGuide" class="tab" aria-selected="false">Guide</button>
-        <button id="tabStory" class="tab" aria-selected="false">Story</button>
-        <button id="tabReverse" class="tab" aria-selected="false">Reverse</button>
-      </div>
+      <div id="loading" role="status" hidden>Loading…</div>
+      <div class="scope-meta"><button id="refresh">Refresh</button> <span id="loadedAt"></span></div>
+      <nav aria-label="System navigator"><div id="tabs" role="tablist">
+        <button id="tabBrief" class="tab" role="tab" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
+        <button id="tabMatrix" class="tab" role="tab" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
+        <button id="tabTimeline" class="tab" role="tab" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
+        <button id="tabGuide" class="tab" role="tab" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
+        <button id="tabStory" class="tab" role="tab" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
+        <button id="tabReverse" class="tab" role="tab" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
+        <button id="tabTrace" class="tab" role="tab" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
+      </div></nav>
       <div id="panelBrief" class="panel"></div>
       <div id="panelMatrix" class="panel" hidden></div>
       <div id="panelTimeline" class="panel" hidden></div>
       <div id="panelGuide" class="panel" hidden></div>
       <div id="panelStory" class="panel" hidden></div>
       <div id="panelReverse" class="panel" hidden></div>
-    </div>
-  </main>
+      <div id="panelTrace" class="panel" hidden></div>
+    </section>
+  </div>
 <script>
 (async () => {
   const banner = document.getElementById('banner');
@@ -128,6 +180,22 @@ export function renderSystemPageHtml(): string {
 
   function clear(el) {
     el.innerHTML = '';
+  }
+
+  // Task 3 (system nav): shows/hides the #loading status row. With ok=true
+  // (a successful load) the #loadedAt timestamp is stamped with the local
+  // time via a text node -- never innerHTML. Loading is cleared on both
+  // success and failure so the spinner never lingers.
+  function setLoading(on, ok) {
+    const loading = document.getElementById('loading');
+    if (loading) loading.hidden = !on;
+    if (ok) {
+      const loadedAt = document.getElementById('loadedAt');
+      if (loadedAt) {
+        loadedAt.textContent = '';
+        loadedAt.appendChild(document.createTextNode(new Date().toLocaleTimeString()));
+      }
+    }
   }
 
   function badge(text, extraClass) {
@@ -603,6 +671,220 @@ export function renderSystemPageHtml(): string {
     panel.appendChild(p);
   }
 
+  // Task B (system nav): pure inversion of the /api/graph trace graph for the
+  // Current scope's SR refs -- the per-requirement trace the /system
+  // navigator used to show. No .sort, no payload remap: walk graph.edges in
+  // the order factory.trace emits them. For each sr in refs (matching an
+  // sr-kind node id, stripping a leading sr:), find every task whose
+  // satisfies edge targets it (in edge order), then that task's
+  // source_plan -> plan node and the plan's spec_ref -> spec node, plus
+  // the sr's upstream -> br node. An unresolved hop stays null (its id/
+  // title are never guessed) -- the renderer names it plainly, mirroring
+  // reverse.py/walkIntentChain's say-where-it-stopped discipline.
+  function invertTraceForScope(graph, refs) {
+    const nodes = new Map();
+    (graph.nodes || []).forEach((n) => nodes.set(n.id, n));
+    const edges = graph.edges || [];
+    const result = [];
+    refs.forEach((ref) => {
+      const srId = ref.replace(/^sr:/, '');
+      const srNode = nodes.get(srId) || null;
+      const entry = {
+        sr: ref,
+        srTitle: srNode ? (srNode.title || null) : null,
+        br: null,
+        tasks: [],
+      };
+      edges.forEach((e) => {
+        if (e.kind === 'upstream' && e.src === srId) {
+          if (!entry.br) entry.br = nodes.get(e.dst) || null;
+        }
+      });
+      edges.forEach((e) => {
+        if (e.kind === 'satisfies' && e.dst === srId) {
+          const taskId = e.src;
+          const taskNode = nodes.get(taskId) || null;
+          const task = {
+            task: taskId,
+            plan: null,
+            planTitle: null,
+            spec: null,
+            specTitle: null,
+          };
+          edges.forEach((e2) => {
+            if (e2.kind === 'source_plan' && e2.src === taskId) {
+              const planNode = nodes.get(e2.dst) || null;
+              if (planNode && !task.plan) {
+                task.plan = planNode.id;
+                task.planTitle = planNode.title || null;
+                edges.forEach((e3) => {
+                  if (e3.kind === 'spec_ref' && e3.src === planNode.id && !task.spec) {
+                    const specNode = nodes.get(e3.dst) || null;
+                    if (specNode) {
+                      task.spec = specNode.id;
+                      task.specTitle = specNode.title || null;
+                    }
+                  }
+                });
+              }
+            }
+          });
+          entry.tasks.push(task);
+        }
+      });
+      result.push(entry);
+    });
+    return result;
+  }
+
+  // Task B (system nav): renders one inverted trace entry's chain per SR.
+  // All payload-derived text through createTextNode. The plan/spec hops name
+  // the graph node id (and title when present) verbatim, so an unresolved
+  // hop -- (plan: unresolved) / (spec: unresolved) -- is never guessed.
+  function renderTrace(trace) {
+    const panel = document.getElementById('panelTrace');
+    clear(panel);
+    if (!trace.length) {
+      renderNotApplicable('panelTrace', 'No trace recorded for this scope. See the Story or Reverse tabs.');
+      return;
+    }
+    trace.forEach((entry) => {
+      const srBox = document.createElement('div');
+      srBox.className = 'trace-sr';
+      const srHead = document.createElement('div');
+      srHead.appendChild(document.createTextNode(
+        'SR ' + entry.sr + (entry.srTitle ? ' — ' + entry.srTitle : '')
+      ));
+      srBox.appendChild(srHead);
+      if (entry.br) {
+        const upstream = document.createElement('div');
+        upstream.className = 'trace-upstream';
+        upstream.appendChild(document.createTextNode(
+          'upstream: ' + entry.br.id + (entry.br.title ? ' — ' + entry.br.title : '')
+        ));
+        srBox.appendChild(upstream);
+      }
+      if (!entry.tasks.length) {
+        const none = document.createElement('div');
+        none.className = 'empty';
+        none.appendChild(document.createTextNode('no satisfying tasks recorded'));
+        srBox.appendChild(none);
+      }
+      entry.tasks.forEach((t) => {
+        const taskBox = document.createElement('div');
+        taskBox.className = 'trace-task';
+        const chain = document.createElement('div');
+        chain.className = 'trace-chain';
+        function hop(text) {
+          const span = document.createElement('span');
+          span.className = 'trace-hop';
+          span.appendChild(document.createTextNode(text));
+          return span;
+        }
+        function arrow() {
+          const span = document.createElement('span');
+          span.className = 'trace-arrow';
+          span.appendChild(document.createTextNode('→'));
+          return span;
+        }
+        const planLabel = t.plan
+          ? 'plan: ' + t.plan + (t.planTitle ? ' (' + t.planTitle + ')' : '')
+          : 'plan: (plan: unresolved)';
+        const specLabel = t.spec
+          ? 'spec: ' + t.spec + (t.specTitle ? ' (' + t.specTitle + ')' : '')
+          : 'spec: (spec: unresolved)';
+        chain.appendChild(hop(t.task));
+        chain.appendChild(arrow());
+        chain.appendChild(hop(planLabel));
+        chain.appendChild(arrow());
+        chain.appendChild(hop(specLabel));
+        taskBox.appendChild(chain);
+        srBox.appendChild(taskBox);
+      });
+      panel.appendChild(srBox);
+    });
+  }
+
+  // Task B (system nav): the lazy trace loader. Fetches /api/graph only on
+  // the first click of the Trace tab (never during scope load). On success
+  // caches the payload and renders the inversion; on failure renders a plain
+  // fallback notice and never touches the other tabs.
+  async function loadTrace() {
+    if (!scopeSrRefs.length) {
+      renderNotApplicable('panelTrace', 'Not applicable for this scope. See the Story or Reverse tabs.');
+      return;
+    }
+    if (traceLoaded) {
+      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+      return;
+    }
+    try {
+      const res = await fetch('/api/graph');
+      if (!res.ok) throw new Error('graph fetch failed');
+      traceData = await res.json();
+      traceLoaded = true;
+      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+    } catch (err) {
+      renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+    }
+  }
+
+  // Full, ordered scope list captured for client-side filtering. The refs
+  // stay in payload order (never a client-side sort); the filter only ever
+  // toggles visibility, never reorders or drops a scope permanently.
+  let scopeListData = [];
+
+  // Task 2 (system nav): the currently loaded scope ref (null until one
+  // loads). Set at the top of loadScope so all three kind loaders and the
+  // SPA URL both see it.
+  let currentScope = null;
+
+  // Task B (system nav): the SR refs the current scope resolves to. For an
+  // sr: scope that is the single ref; for a bundle: scope it is the
+  // bundle's sr: member refs. Set by each kind loader; trace is N/A (empty)
+  // for task:/file: scopes.
+  let scopeSrRefs = [];
+  // Task B (system nav): lazy trace cache -- the /api/graph payload is
+  // fetched only on the first click of the Trace tab, never during scope
+  // load, so existing dom tests whose fetch mocks throw on /api/graph are
+  // never perturbed.
+  let traceLoaded = false;
+  let traceData = null;
+  // Task B (system nav): for an sr: scope the SR is already known
+  // synchronously from the requested URL ref, so it is set eagerly here (in
+  // the synchronous boot region, before the first await) -- a Trace click
+  // that lands before the scope payload finishes still has the SR to
+  // invert. This assignment fetches nothing, so the Trace tab stays
+  // lazy-on-first-click. bundle: SRs are only known once the scope payload
+  // arrives, so they are captured in loadBundleScope instead.
+  const bootScope = new URLSearchParams(window.location.search).get('scope');
+  if (bootScope && scopeKind(bootScope) === 'sr') scopeSrRefs = [bootScope];
+
+  // Task 2 (system nav): records the active scope in the URL via
+  // history.pushState -- SPA navigation with no full page reload, and
+  // back/forward work because every load pushed a real history entry. The
+  // pushed URL is pathname + ?scope= query only (no hash) so a stale
+  // per-tab #hash from a previous scope never lingers after switching
+  // scope. The try/catch is required because jsdom and some embeddings
+  // throw when pushState targets a cross-origin/non-serializable URL.
+  function pushScope(ref) {
+    try {
+      history.pushState({ scope: ref }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
+    } catch {
+      /* ignore: SPA URL is best-effort; the load itself already happened */
+    }
+  }
+
+  // Collapses/expands the picker: a loaded scope puts the body in focus
+  // (hiding the big list behind the "All scopes ▾" toggle); the failure /
+  // initial / toggle-reveal paths take it back out. aria-expanded on the
+  // toggle mirrors the opposite: it reports whether the picker list is open.
+  function setPickerClass(focused) {
+    document.body.classList.toggle('focus', !!focused);
+    const toggle = document.getElementById('scopeToggle');
+    if (toggle) toggle.setAttribute('aria-expanded', String(!focused));
+  }
+
   function scopeHref(ref) {
     return '/system?scope=' + encodeURIComponent(ref);
   }
@@ -610,18 +892,46 @@ export function renderSystemPageHtml(): string {
   function renderScopeList(data) {
     const list = document.getElementById('scopeList');
     clear(list);
+    scopeListData = [];
     if (!data.scopes.length) {
       const empty = document.createElement('p');
       empty.className = 'empty';
       empty.appendChild(document.createTextNode('No scopes declared in this repository yet.'));
       list.appendChild(empty);
     } else {
+      let lastKind = null;
       data.scopes.forEach((scope) => {
+        scopeListData.push({ kind: scope.kind, ref: scope.ref });
+        if (scope.kind !== lastKind) {
+          const title = document.createElement('div');
+          title.className = 'scope-group-title';
+          title.appendChild(document.createTextNode(scope.kind));
+          list.appendChild(title);
+          lastKind = scope.kind;
+        }
+        const row = document.createElement('div');
+        row.className = 'scope-row';
+        const chip = document.createElement('span');
+        chip.className = 'scope-kind';
+        chip.appendChild(document.createTextNode(scope.kind));
+        row.appendChild(chip);
         const a = document.createElement('a');
         a.className = 'scope-item';
+        a.dataset.kind = scope.kind;
         a.href = scopeHref(scope.ref);
         a.appendChild(document.createTextNode(scope.ref));
-        list.appendChild(a);
+        // Task 2 (system nav): stay in the SPA -- clicking loads the scope
+        // in-place via loadScope (which also pushState's the URL) instead of
+        // a full page reload that would re-fetch everything and lose your
+        // place. The href is kept on the element so middle-click / open-in-
+        // new-tab / no-JS still work. The ref is captured in the closure, so
+        // no dataset/lookup is needed at click time.
+        a.addEventListener('click', (clickEvent) => {
+          clickEvent.preventDefault();
+          loadScope(scope.ref);
+        });
+        row.appendChild(a);
+        list.appendChild(row);
       });
     }
     const errors = document.getElementById('scopeErrors');
@@ -650,11 +960,68 @@ export function renderSystemPageHtml(): string {
     }
   }
 
+  // The search input filters the rendered list in place: a scope row matches
+  // when the query appears in its ref or its kind. Group titles are hidden
+  // when every scope in their group has been filtered out; an empty query
+  // resets visibility so the full, ordered list comes back.
+  const scopeFilter = document.getElementById('scopeFilter');
+  const scopeList = document.getElementById('scopeList');
+  const scopeToggle = document.getElementById('scopeToggle');
+
+  function applyScopeFilter() {
+    const q = scopeFilter.value.trim().toLowerCase();
+    scopeList.querySelectorAll('.scope-row').forEach((row) => {
+      const item = row.querySelector('.scope-item');
+      const matches = !q ||
+        item.textContent.toLowerCase().includes(q) ||
+        (item.dataset.kind || '').toLowerCase().includes(q);
+      row.style.display = matches ? '' : 'none';
+    });
+    scopeList.querySelectorAll('.scope-group-title').forEach((title) => {
+      let sibling = title.nextElementSibling;
+      let anyVisible = false;
+      while (sibling && !sibling.classList.contains('scope-group-title')) {
+        if (sibling.style.display !== 'none') { anyVisible = true; break; }
+        sibling = sibling.nextElementSibling;
+      }
+      title.style.display = anyVisible ? '' : 'none';
+    });
+  }
+  scopeFilter.addEventListener('input', applyScopeFilter);
+
+  // The toggle re-opens the collapsed list (removes body.focus). When a
+  // scope is loaded the list group titles/filter/heading are hidden and the
+  // picker shrinks to just this button (CSS body.focus rules above).
+  if (scopeToggle) {
+    scopeToggle.addEventListener('click', () => setPickerClass(false));
+  }
+
+
   function showTab(name) {
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse'].forEach((tab) => {
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'].forEach((tab) => {
       document.getElementById('tab' + tab).setAttribute('aria-selected', String(tab === name));
       document.getElementById('panel' + tab).hidden = tab !== name;
     });
+    // Task 2 (system nav): keep the active tab in the URL hash so a reload
+    // or bookmark restores it. replaceState (not pushState) so switching
+    // tabs doesn't pad the back-stack; the hash maps tab name -> lower-case
+    // (#Matrix -> #matrix). The try/catch is required for jsdom/odd
+    // embeddings that reject URL mutation.
+    try {
+      history.replaceState(null, '', location.pathname + location.search + '#' + name.toLowerCase());
+    } catch {
+      /* ignore: hash update is best-effort; the tab switch itself happened */
+    }
+  }
+
+  // Task 2 (system nav): picks the boot tab from the URL hash when it names
+  // a valid tab, otherwise falls back to the scope kind's default tab. A hash
+  // that doesn't apply to the current scope kind (e.g. #story on a bundle
+  // scope) falls back so we never surface a hidden/mismatched panel.
+  function selectInitialTab(kindDefault) {
+    const hash = (location.hash || '').replace('#', '').toLowerCase();
+    const names = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    showTab(names[hash] || kindDefault);
   }
   document.getElementById('tabBrief').onclick = () => showTab('Brief');
   document.getElementById('tabMatrix').onclick = () => showTab('Matrix');
@@ -662,6 +1029,38 @@ export function renderSystemPageHtml(): string {
   document.getElementById('tabGuide').onclick = () => showTab('Guide');
   document.getElementById('tabStory').onclick = () => showTab('Story');
   document.getElementById('tabReverse').onclick = () => showTab('Reverse');
+  document.getElementById('tabTrace').onclick = () => { showTab('Trace'); if (scopeSrRefs.length) loadTrace(); };
+
+  // Task 3 (system nav): the Refresh button re-runs the current scope's load
+  // in place (currentScope is set at the top of loadScope), so a stale view
+  // can be re-fetched without navigating away. No-op when no scope is loaded.
+  document.getElementById('refresh').onclick = () => { if (currentScope) loadScope(currentScope); };
+
+  // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
+  // Alt+1..6 (no ctrl/meta) switch tabs via the same showTab used by clicks
+  // (aria-selected + hash). When keyboard focus is on a .scope-item and the
+  // list is open, ArrowDown/ArrowUp move focus to the next/previous VISIBLE
+  // item -- the Task 1 filter hides non-matches with display:none, so only
+  // visible rows are reachable, wrapping around at the ends.
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
+      showTab(TAB_ORDER[Number(e.key) - 1]);
+      e.preventDefault();
+      return;
+    }
+    const el = (e.target instanceof HTMLElement && e.target.closest('.scope-item')) ? e.target : null;
+    if (el && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const items = Array.from(scopeList.querySelectorAll('.scope-item'))
+        .filter((item) => item.style.display !== 'none');
+      const idx = items.indexOf(el);
+      if (idx === -1) return;
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      const next = items[(idx + delta + items.length) % items.length];
+      next.focus();
+    }
+  });
 
   // Each of story/reverse/brief+matrix+timeline+guide only resolves one
   // particular scope kind (design increment B: story is task:-only,
@@ -684,16 +1083,21 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
+    scopeSrRefs = [];
     renderStory(await res.json());
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse'].forEach((tab) => renderNotApplicable(
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
-    showTab('Story');
+    selectInitialTab('Story');
+    setLoading(false, true);
   }
 
   async function loadReverseScope(scopeRef) {
@@ -703,16 +1107,21 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
+    scopeSrRefs = [];
     renderReverse(await res.json());
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story'].forEach((tab) => renderNotApplicable(
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
-    showTab('Reverse');
+    selectInitialTab('Reverse');
+    setLoading(false, true);
   }
 
   async function loadBundleScope(scopeRef) {
@@ -732,6 +1141,8 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || failed.status));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
+      setLoading(false);
       return;
     }
     showBanner('');
@@ -739,6 +1150,7 @@ export function renderSystemPageHtml(): string {
       briefRes.json(), matrixRes.json(), timelineRes.json(),
     ]);
     content.hidden = false;
+    setPickerClass(true);
     document.getElementById('scopeHeader').textContent = scopeRef;
     renderBrief(brief);
     renderMatrix(matrix);
@@ -750,10 +1162,32 @@ export function renderSystemPageHtml(): string {
     }
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
-    showTab('Brief');
+    // Task B (system nav): record the trace-able SR refs for this scope so the
+    // lazy Trace tab knows what to invert when first clicked. An sr: scope
+    // is its own single SR; a bundle: scope's SRs come from the matrix rows
+    // (the payload field through which the docs server states requirement
+    // membership), in payload order.
+    if (scopeKind(scopeRef) === 'sr') {
+      scopeSrRefs = [scopeRef];
+    } else {
+      scopeSrRefs = [];
+      (matrix.rows || []).forEach((row) => {
+        if (row.subject && row.subject.kind === 'sr') scopeSrRefs.push(row.subject.ref);
+      });
+    }
+    traceLoaded = false;
+    traceData = null;
+    selectInitialTab('Brief');
+    setLoading(false, true);
   }
 
   async function loadScope(scopeRef) {
+    // Task 2 (system nav): SPA entry -- record the ref and push a history
+    // entry so the URL stays in sync and back/forward work, then dispatch to
+    // the kind loader. pushScope runs here (not inside the kind loaders) so
+    // all three paths get it exactly once.
+    currentScope = scopeRef;
+    pushScope(scopeRef);
     const kind = scopeKind(scopeRef);
     if (kind === 'task') {
       await loadStoryScope(scopeRef);
@@ -767,6 +1201,7 @@ export function renderSystemPageHtml(): string {
   }
 
   await loadScopes();
+  setPickerClass(false);
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {
@@ -775,6 +1210,8 @@ export function renderSystemPageHtml(): string {
       showBanner('could not resolve scope ' + requestedScope + ': ' + String(err));
       content.hidden = true;
       picker.hidden = false;
+      setPickerClass(false);
+      setLoading(false);
     }
   }
 })();

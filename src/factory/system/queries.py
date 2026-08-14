@@ -38,6 +38,7 @@ from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
+from factory.system import adr as adr_module
 from factory.system import bundles
 from factory.system._claims import (
     evidence_dir as _evidence_dir,
@@ -68,7 +69,7 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr", "task", "file")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
@@ -89,16 +90,16 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    `bundle:<id>`, `sr:<id>`, `task:<id>`, and `file:<path>` are legal
-    top-level scopes (design SS2 item 6, SS5.1); task and file are now
-    openable per design §3.1. Anything else -- an unknown kind, a missing
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>` and `adr:<id>` are
+    legal top-level scopes. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
     """
     kind, sep, identifier = raw.partition(":")
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
-            f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, task:<id> or file:<path>)"
+            f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, "
+            f"task:<id>, file:<path> or adr:<id>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -638,6 +639,62 @@ def _brief_degraded_reasons(
     return reasons
 
 
+def _adr_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Assemble an ADR's briefing: title, status, then each recorded section.
+
+    An ADR renders Brief only -- it has no validation matrix, no runs and no
+    reverse walk, and rendering five permanently-degraded tabs would teach a
+    reader to ignore degraded states where they carry meaning.
+    """
+    adr_id = _scope_identifier(scope)
+    adrs = adr_module.load_adrs(repo_root)
+    doc = adrs.get(adr_id)
+    if doc is None:
+        raise ScopeNotFoundError(f"no ADR declares id {adr_id!r}")
+
+    citation = SystemCitation(
+        kind=CitationKind.DECISION,
+        path=str(doc.path),
+        sha256=_sha256_file(doc.path),
+    )
+
+    claims: list[SystemClaim] = []
+    if doc.title is not None:
+        claims.append(
+            SystemClaim(
+                kind=ClaimClass.RECORDED,
+                text=doc.title,
+                freshness=_fresh(),
+                citations=[citation],
+            )
+        )
+    if doc.status is not None:
+        status_text = f"status: {doc.status}"
+        if doc.superseded_by:
+            status_text = f"{status_text} (superseded by {doc.superseded_by})"
+        claims.append(
+            SystemClaim(
+                kind=ClaimClass.RECORDED,
+                text=status_text,
+                freshness=_fresh(),
+                citations=[citation],
+            )
+        )
+    for heading, body in doc.sections:
+        claims.append(
+            SystemClaim(
+                kind=ClaimClass.RECORDED,
+                text=f"{heading}: {body}",
+                freshness=_fresh(),
+                citations=[citation],
+            )
+        )
+    for error in doc.schema_errors:
+        claims.append(_missing(error, "ADR frontmatter is absent or schema-invalid"))
+
+    return {"scope": to_dict(scope), "claims": [to_dict(c) for c in claims]}
+
+
 def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Assemble the one-page briefing for `scope` (design SS4.1, SS4.2, SS5.2).
 
@@ -647,6 +704,9 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     declared member (syntactically bad, per Task 1, or simply nonexistent,
     resolved here) failed to resolve.
     """
+    if scope.kind == "adr":
+        return _adr_brief(repo_root, scope)
+
     if scope.kind == "bundle":
         bundle_id = _scope_identifier(scope)
         bundle = _load_bundle_or_raise(repo_root, bundle_id)
@@ -1180,13 +1240,17 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles plus SRs from the requirements register. A malformed
-    bundle file degrades only itself (`bundles.list_bundles` already skips
-    it); it never aborts the rest of the listing.
+    Declared bundles, then declared ADRs, then SRs from the requirements
+    register. A malformed bundle file degrades only itself
+    (`bundles.list_bundles` already skips it); it never aborts the rest of
+    the listing. An ADR with no declared id has no ref to be opened under and
+    is likewise skipped by `load_adrs`.
     """
     scopes: list[SystemScopeRef] = []
     for bundle in bundles.list_bundles(_bundles_dir(repo_root)):
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
+    for adr_id in adr_module.load_adrs(repo_root):
+        scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
     for req in register.load_register(_requirements_dir(repo_root)):
         scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
     return scopes

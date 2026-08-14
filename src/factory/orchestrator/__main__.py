@@ -14,6 +14,7 @@ from factory.freshness.model import FreshnessSeverity
 from factory.orchestrator.backends import ConfigGateRunner
 from factory.orchestrator.deliverables import deliverables_exist
 from factory.orchestrator.human_review import FileHumanReviewGate
+from factory.orchestrator.grill import FileGrillGate
 from factory.orchestrator.journal import RunCheckpoint
 from factory.orchestrator.ledger import format_task_board, load_tasks
 from factory.orchestrator.lock import AlreadyRunningError, acquire_lock, remove_lock
@@ -220,12 +221,13 @@ def main() -> None:
 
     status = FileStatusReporter(path=status_path, session_id=session_id)
     human_review = None if args.auto else FileHumanReviewGate(transcript_dir, repo_root=repo_root)
+    grill_gate = None if args.auto else FileGrillGate(transcript_dir)
     artifact_store = LocalArtifactStore(repo_root / ".factory" / "artifacts" / "objects")
     try:
         path = run_next(
             repo_root, backend, gates, git_info=_git_info(repo_root),
             session_id=session_id, status=status, task_id=args.task,
-            human_review=human_review, transcript_dir=transcript_dir, force=args.force,
+            human_review=human_review, grill_gate=grill_gate, transcript_dir=transcript_dir, force=args.force,
             artifact_store=artifact_store, evidence_dir=repo_root / "evidence",
             checkpoint_runs=True, **kwargs,
         )

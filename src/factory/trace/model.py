@@ -7,7 +7,19 @@ from typing import Literal
 
 import frontmatter
 
-NodeKind = Literal["br", "sr", "spec", "plan", "task"]
+NodeKind = Literal[
+    "br",
+    "sr",
+    "spec",
+    "plan",
+    "task",
+    "adr",
+    "feat",
+    "metric",
+    "goal",
+    "run",
+    "diag",
+]
 
 _HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
@@ -89,6 +101,12 @@ def load_nodes(root: Path) -> list[Node]:
         nodes.append(_id_node(path, "sr"))
     for path in _glob(root, "requirements", pattern="BR-*.md"):
         nodes.append(_id_node(path, "br"))
+    for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
+        nodes.append(_id_node(path, "feat"))
+    for path in _glob(root, "metrics", pattern="MET-*.md"):
+        nodes.append(_id_node(path, "metric"))
+    for path in _glob(root, "goals", pattern="GOAL-*.md"):
+        nodes.append(_id_node(path, "goal"))
     for path in _glob(root, "tasks", pattern="T-*.md"):
         nodes.append(_id_node(path, "task"))
     for path in _glob(root, "docs", "superpowers", "plans", pattern="*.md"):
@@ -98,7 +116,18 @@ def load_nodes(root: Path) -> list[Node]:
     return nodes
 
 
-EdgeKind = Literal["source_plan", "satisfies", "upstream", "spec_ref"]
+EdgeKind = Literal[
+    "source_plan",
+    "satisfies",
+    "upstream",
+    "spec_ref",
+    "parent_of",
+    "verified_by",
+    "demonstrates",
+    "evaluates",
+    "contains",
+    "illustrates",
+]
 
 _SPEC_REF_RE = re.compile(r"docs/superpowers/specs/([A-Za-z0-9._-]+\.md)")
 
@@ -119,6 +148,25 @@ def as_str_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(v) for v in value]
     return []
+
+
+def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
+    """Return declared V-cycle relationship edges without resolving their endpoints."""
+    edges: list[Edge] = []
+    for dst in as_str_list(meta.get("parent_of")):
+        edges.append(Edge(src_id, dst, "parent_of"))
+    for parent in as_str_list(meta.get("child_of")):
+        edges.append(Edge(parent, src_id, "parent_of"))
+    for field, kind in (
+        ("verified_by", "verified_by"),
+        ("demonstrates", "demonstrates"),
+        ("evaluates", "evaluates"),
+        ("contains", "contains"),
+        ("illustrates", "illustrates"),
+    ):
+        for dst in as_str_list(meta.get(field)):
+            edges.append(Edge(src_id, dst, kind))
+    return edges
 
 
 def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
@@ -143,6 +191,14 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                 add(Edge(node.id, sr_id, "satisfies"))
             for upstream_id in as_str_list(meta.get("upstream")):
                 add(Edge(node.id, upstream_id, "upstream"))
+            for edge in edges_from_frontmatter(node.id, meta):
+                add(edge)
+        elif node.kind in ("feat", "metric", "goal", "run", "diag"):
+            post = _load_post(node.path)
+            if post is None:
+                continue
+            for edge in edges_from_frontmatter(node.id, post.metadata):
+                add(edge)
         elif node.kind == "plan":
             post = _load_post(node.path)
             body = post.content if post is not None else node.path.read_text(encoding="utf-8")

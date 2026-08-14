@@ -79,3 +79,25 @@ def test_duplicate_references_produce_one_edge(tmp_path):
     _write(tmp_path / "docs" / "superpowers" / "specs" / "s1.md", "# S\n")
 
     assert len([e for e in _edges(tmp_path) if e.kind == "spec_ref"]) == 1
+
+
+def test_feature_vcycle_frontmatter_fields_produce_typed_edges(tmp_path):
+    _write(
+        tmp_path / "docs" / "features" / "FEAT-NAV-017.md",
+        "---\nid: FEAT-NAV-017\ntitle: Target reacquisition\n"
+        "contains: [SR-001]\nparent_of: SR-002\nchild_of: SR-003\n"
+        "verified_by: RUN-001\ndemonstrates: GOAL-001\nevaluates: MET-001\n"
+        "illustrates: ADR-0001\n---\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert {
+        Edge("FEAT-NAV-017", "SR-001", "contains"),
+        Edge("FEAT-NAV-017", "SR-002", "parent_of"),
+        Edge("SR-003", "FEAT-NAV-017", "parent_of"),
+        Edge("FEAT-NAV-017", "RUN-001", "verified_by"),
+        Edge("FEAT-NAV-017", "GOAL-001", "demonstrates"),
+        Edge("FEAT-NAV-017", "MET-001", "evaluates"),
+        Edge("FEAT-NAV-017", "ADR-0001", "illustrates"),
+    } <= set(edges)

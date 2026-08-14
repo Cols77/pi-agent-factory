@@ -774,6 +774,28 @@ describe("ReviewOverlay already-done (implementing) mode", () => {
     const summary = overlay.render(80).join("\n");
     expect(summary).toContain("This task appears already complete");
   });
+
+  test("renders the grill pairing warning in the summary for a not-agreed guide", () => {
+    const files: FileStat[] = [{ path: "a.py", status: "A", added: 1, removed: 0 }];
+    const overlay = new ReviewOverlay(
+      files, [], new Set(), { terminal: { rows: 20 } }, "/repo", "", () => {},
+      { guide: { grill: { verdict: "not-agreed", summary: "missed it" } } },
+    );
+    const summary = overlay.render(200).join("\n");
+    expect(summary).toContain("not-agreed");
+    expect(summary).toContain("Grill summary: missed it");
+  });
+
+  test("renders no grill warning for a guide without a not-agreed verdict", () => {
+    const files: FileStat[] = [{ path: "a.py", status: "A", added: 1, removed: 0 }];
+    const overlay = new ReviewOverlay(
+      files, [], new Set(), { terminal: { rows: 20 } }, "/repo", "", () => {},
+      { implementing: true, banner: "already complete", guide: { grill: { verdict: "agreed" } } },
+    );
+    const summary = overlay.render(80).join("\n");
+    expect(summary).toContain("already complete");
+    expect(summary).not.toContain("not-agreed");
+  });
 });
 
 describe("ReviewOverlay line-width truncation (pi-tui hard-throws on over-width lines)", () => {

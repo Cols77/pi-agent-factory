@@ -45,6 +45,11 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
         "systematic-debugging",
         "receiving-code-review",
         "kb-lookup",
+        # Every function Dev writes or touches must be documented (purpose,
+        # args, returns, failure modes) and every module must declare its
+        # traceability (SRs + modifying tasks) -- enforced deterministically
+        # by the project's full gate (scripts/gates/check_documentation.py).
+        "code-documentation",
     ],
     AgentRole.VALIDATION: ["verification-before-completion", "sim-functional-tests"],
     AgentRole.REVIEW: ["requesting-code-review", "verification-before-completion", "coding-principles"],

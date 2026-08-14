@@ -6,6 +6,7 @@ import type { FileStat } from "./review-diff.js";
 import { mapDiffRows } from "./review-model.js";
 import type { DiffRowMeta } from "./review-model.js";
 import type { ReviewGuide } from "./review-guide.js";
+import { grillReviewWarning } from "./review-guide.js";
 import { walkIntentChain } from "./review-intent.js";
 import type { ReviewChainNode } from "./review-intent.js";
 import { buildSystemContext } from "./system-context.js";
@@ -152,7 +153,9 @@ export function buildReviewPageData(
   return {
     taskId: opts.taskId,
     task: readTaskContext(cwd, opts.taskId),
-    banner: opts.banner ?? "",
+    banner: [opts.banner ?? "", grillReviewWarning(opts.guide ?? null)]
+      .filter((s) => s.length > 0)
+      .join("\n\n"),
     implementing,
     guide: opts.guide ?? null,
     files,

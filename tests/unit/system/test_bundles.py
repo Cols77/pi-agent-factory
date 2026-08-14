@@ -341,3 +341,43 @@ def test_list_bundle_errors_empty_when_all_bundles_load_cleanly(tmp_path):
 def test_list_bundle_errors_on_absent_dir_is_empty(tmp_path):
     bundles_dir = tmp_path / "does-not-exist"
     assert list_bundle_errors(bundles_dir) == []
+
+
+# ---------------------------------------------------------------------------
+# `adr:` is an id-based member kind (SP-A Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_adr_member_ref_resolves_by_id(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(
+        bundles_dir,
+        "shark-detection",
+        {
+            "id": "shark-detection",
+            "label": "Shark detection",
+            "members": ["adr:ADR-0001", "sr:SR-007"],
+        },
+    )
+
+    bundle = load_bundle(bundles_dir, "shark-detection")
+
+    assert [m.kind for m in bundle.members] == ["adr", "sr"]
+    assert [m.ref for m in bundle.members] == ["adr:ADR-0001", "sr:SR-007"]
+    assert bundle.unresolved == []
+
+
+def test_adr_member_with_an_empty_identifier_does_not_resolve(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(
+        bundles_dir,
+        "broken",
+        {"id": "broken", "label": "Broken", "members": ["adr:"]},
+    )
+
+    bundle = load_bundle(bundles_dir, "broken")
+
+    assert bundle.members == []
+    assert [c.text for c in bundle.unresolved] == ["adr:"]
+    assert bundle.unresolved[0].kind is ClaimClass.MISSING
+    assert bundle.unresolved[0].freshness.state is FreshnessState.NA

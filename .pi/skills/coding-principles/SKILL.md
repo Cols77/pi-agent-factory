@@ -47,6 +47,14 @@ anything else                                                  ->  CHANGES-REQUE
 - Error handling only where the task's boundaries actually need it (see this project's own convention: don't validate internal invariants the framework/language already guarantees).
 - No dead code, no leftover debug output, no comments explaining *what* rather than *why*.
 
+**Documentation is current (the `code-documentation` contract):**
+- Run/respect the deterministic doc gate (`scripts/gates/check_documentation.py`, part of the `full` gate). A green gate is the baseline, but the gate only proves structure, not accuracy — verify by reading the diff:
+  - For every new or changed function, does the docstring's `Args:` list match the real signature (no stale or missing parameters)?
+  - Does `Raises:` cover every exception the new code actually raises, and call out the condition? A docstring that says `Raises: None` while the body raises is a finding.
+  - Does `Returns:` still describe the actual return value after the change?
+  - Is the module `Traceability:` section in sync with the current implementation — does it still list the right SRs and any task that actually touched the file? A header that drifted behind the task list is a finding (it defeats the traceability the gate exists to protect).
+- Only list a documentation finding in `findings` if it's genuinely out of date or misleading (the point of the contract) — not as a style nitpick; the deterministic gate already catches a *missing* docstring.
+
 ## Calibration
 
 Acknowledge what's done well in `principles` — it's not only a list of complaints; a `principles` entry can note something that was handled correctly (e.g., `"TDD followed: test added before implementation, verified failing"`).

@@ -63,6 +63,28 @@ def test_dangling_upstream_is_a_gap():
     assert "dangling_upstream" in _kinds(find_gaps(nodes, edges, {}), "SR-001")
 
 
+def test_missing_vcycle_edge_target_is_a_dangling_reference_on_its_source():
+    node = Node("FEAT-001", "feat", "Feature", Path("docs/features/FEAT-001.md"))
+
+    gaps = find_gaps([node], [Edge("FEAT-001", "MISSING", "contains")], {})
+
+    gap = next(gap for gap in gaps if gap.kind == "dangling_reference")
+    assert gap.node_id == "FEAT-001"
+    assert "contains" in gap.detail
+    assert "MISSING" in gap.detail
+
+
+def test_inverse_child_of_edge_with_missing_parent_is_reported_on_declaring_child():
+    child = Node("FEAT-001", "feat", "Feature", Path("docs/features/FEAT-001.md"))
+
+    gaps = find_gaps([child], [Edge("MISSING-PARENT", "FEAT-001", "parent_of")], {})
+
+    gap = next(gap for gap in gaps if gap.kind == "dangling_reference")
+    assert gap.node_id == "FEAT-001"
+    assert "parent_of" in gap.detail
+    assert "MISSING-PARENT" in gap.detail
+
+
 def test_sr_absent_from_report_is_unvalidated_not_failed():
     kinds = _kinds(find_gaps([_sr("SR-001")], [], {}), "SR-001")
 

@@ -87,7 +87,7 @@ def test_compose_prompt_works_against_real_vendored_skills_for_live_roles():
     every role that is actually invoked today (CONTEXT_GATHERER, DEV, REVIEW --
     see nodes.py). Deliberately does NOT use write_skill_stubs, since that helper
     stubs over exactly the gap this test needs to catch: it exercises the REAL
-    repo .pi/skills/ directory, not a synthetic one. If any of the 8 skills these
+    repo .pi/skills/ directory, not a synthetic one. If any of the skills these
     three roles depend on were ever deleted/renamed under .pi/skills/ without
     updating ROLE_SKILLS (or vice versa), load_skill_block would raise
     FileNotFoundError and this test would fail.
