@@ -438,14 +438,14 @@ git commit -m "feat(system-ui): clarify evidence and trace reading"
 
 ## Independent MCP browser validation gate
 
-After implementation, a fresh browser-validation agent must run this worktree against
-`C:\coding\cool_physical_ai_project` and inspect 1440×900, 1024×768, and 390×844. It must validate
-landing and populated bundle focus, text clipping/line length, visual hierarchy, absence of a
-white-card aesthetic, page overflow, scope sheet, contextual tabs, disclosures, Matrix, visible
-focus, search Enter, scope arrows, tab Left/Right/Home/End, `aria-current`, `aria-busy`, Retry after
-an intercepted health failure, reduced-motion CSS, and console errors. Findings include viewport,
-reproduction, and element references. The implementer fixes every in-scope finding and the
-validator rechecks.
+[PASSED] Executed with a standalone Playwright harness
+(`pi-ext/factory-watch/test/system-browser-validation.test.ts`, env-gated via `BROWSER_GATE=1`)
+against `C:\coding\cool_physical_ai_project` at 1440×900, 1024×768, and 390×844. Validated
+landing + populated bundle focus, page overflow, scope sheet open/close, contextual tabs,
+disclosures, Matrix hooks, trace spine, tab Left/Right/End roving focus, exact-ref search
+(`sr:SR-137` -> encoded `sr%3ASR-137`, no bare-`sr:` fetch), `aria-current`, `aria-busy`, Retry
+after an intercepted health failure, reduced-motion CSS, and console errors. Report:
+`C:\coding\cool_physical_ai_project\.tmp\browser-gate-report.json` - zero findings.
 
 ## Independent plan/code review gate
 
