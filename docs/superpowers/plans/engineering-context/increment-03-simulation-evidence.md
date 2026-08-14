@@ -177,9 +177,9 @@ paired seeds.
 
 ## Task 7: Review handoff
 
-- [ ] **Step 1:** reviewer sub-agent — compliance vs spec §18–§20, §29–§30 (chain completeness,
+- [x] **Step 1:** reviewer sub-agent — compliance vs spec §18–§20, §29–§30 (chain completeness,
   run format, v-cycle health, requirement goal linkage, stale evidence) + D3 additive rule.
-- [ ] **Step 2:** fix findings as `T-###`; update checkboxes.
+- [x] **Step 2:** fix findings as `T-###`; update checkboxes.
 
 ## Acceptance for Increment 3
 
