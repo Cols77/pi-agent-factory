@@ -27,7 +27,7 @@
 - Create: `pi-ext/factory-watch/test/system-page-visual-identity.test.ts`
 - Modify: `pi-ext/factory-watch/src/system-shell.ts`
 
-- [ ] **Step 1: Write failing shell contract tests**
+- [x] **Step 1: Write failing shell contract tests**
 
 Create the test file with this initial contract:
 
@@ -68,12 +68,12 @@ describe("system navigator visual identity", () => {
 });
 ```
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run `npx vitest run test/system-page-visual-identity.test.ts` from `pi-ext/factory-watch`.
 Expected: FAIL on the new structure, tokens, mobile grid, and ARIA contract.
 
-- [ ] **Step 3: Implement explicit landing and focus markup**
+- [x] **Step 3: Implement explicit landing and focus markup**
 
 Keep existing consumed IDs, but make `#content` a visible `<main>` containing:
 
@@ -101,7 +101,7 @@ Keep existing consumed IDs, but make `#content` a visible `<main>` containing:
 Give every panel `role="tabpanel"` and `aria-labelledby`. Give Brief `tabindex="0"` and all
 other tabs `tabindex="-1"`.
 
-- [ ] **Step 4: Implement the midnight evidence-console CSS**
+- [x] **Step 4: Implement the midnight evidence-console CSS**
 
 Use these exact base tokens and derive all styling from them:
 
@@ -150,7 +150,7 @@ body.focus #picker nav, body.focus #picker h2 { display: none; }
 
 Add `@media (prefers-reduced-motion: reduce)` to remove transitions and animation.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 Run:
 
@@ -173,7 +173,7 @@ git commit -m "feat(system-ui): establish evidence console shell"
 - Modify as required: `pi-ext/factory-watch/test/system-landing.test.ts`
 - Modify as required: `pi-ext/factory-watch/test/system-page-dom.test.ts`
 
-- [ ] **Step 1: Add failing jsdom tests**
+- [x] **Step 1: Add failing jsdom tests**
 
 Follow the existing `JSDOM` and stubbed-fetch setup. Assert:
 
@@ -192,12 +192,12 @@ Stub health to reject once and succeed after clicking Retry. Assert the failure 
 successful response. After a successful bundle click assert landing hidden, workspace visible,
 and the matching link has `aria-current="page"`.
 
-- [ ] **Step 2: Verify behavioural tests fail**
+- [x] **Step 2: Verify behavioural tests fail**
 
 Run `npx vitest run test/system-page-visual-identity.test.ts test/system-landing.test.ts`.
 Expected: FAIL on mode switching, honest zero wording, directory rows, Retry, and selection.
 
-- [ ] **Step 3: Implement mode and health lifecycle helpers**
+- [x] **Step 3: Implement mode and health lifecycle helpers**
 
 Add these helpers inside `systemBootstrap`:
 
@@ -227,7 +227,7 @@ status, and shows landing; on failure it keeps landing visible and shows
 Retry. Bind Retry to `loadHealth()`. Successful scope loaders call `showWorkspace()`; failed scope
 loaders call `showLanding()` instead of hiding all content.
 
-- [ ] **Step 4: Render honest metrics and actionable features**
+- [x] **Step 4: Render honest metrics and actionable features**
 
 `renderHealthSummary` creates one `.health-overall` and one `.health-metric` per class. When
 `h.expected === 0`, display `No measurable evidence` and literal `0 / 0`, never `100%`; otherwise
@@ -249,7 +249,7 @@ Add `markActiveScope(scopeRef)` to remove old selection and set `.is-active` plu
 `aria-current="page"` on links whose href equals `scopeHref(scopeRef)`. For known bundles, use the
 human label as `#scopeHeader`, the kind in `#scopeKind`, and raw ref in `#scopeRef`.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
@@ -271,7 +271,7 @@ git commit -m "feat(system-ui): separate landing and scope focus"
 - Modify: `pi-ext/factory-watch/test/system-page-visual-identity.test.ts`
 - Modify as required: `pi-ext/factory-watch/test/system-page-navigation.test.ts`
 
-- [ ] **Step 1: Add failing navigation tests**
+- [x] **Step 1: Add failing navigation tests**
 
 For bundle scope assert Brief/Matrix visible and Story/Reverse hidden. Add task and file cases that
 show only Story and Reverse respectively. Assert `.scope-group-title` elements are native buttons.
@@ -281,12 +281,12 @@ Brief becomes `-1`; add Home and End cases.
 Enter `SR-137`, activate Go, and assert fetch contains
 `/api/system/brief?scope=sr%3ASR-137` but never a bare `sr:SR-137` URL.
 
-- [ ] **Step 2: Verify navigation tests fail**
+- [x] **Step 2: Verify navigation tests fail**
 
 Run `npx vitest run test/system-page-visual-identity.test.ts test/system-page-navigation.test.ts`.
 Expected: FAIL on contextual tabs, native buttons, roving focus, and search.
 
-- [ ] **Step 3: Implement native group buttons and contextual tabs**
+- [x] **Step 3: Implement native group buttons and contextual tabs**
 
 Create each group heading as:
 
@@ -312,7 +312,7 @@ const TABS_BY_KIND: Record<string, string[]> = {
 `tabindex=0`, all others `-1`, and synchronizes panels. Call `configureTabs` before selecting the
 initial tab in each scope loader.
 
-- [ ] **Step 4: Implement standard keyboard and exact-ref search**
+- [x] **Step 4: Implement standard keyboard and exact-ref search**
 
 On visible tabs handle ArrowLeft, ArrowRight, Home, and End using visible tabs only, with wrapping,
 `focus()`, and `showTab()`. Scope arrows must exclude items hidden by their row/group inline style
@@ -321,7 +321,7 @@ as well as `hidden`.
 Delete `resolveScopeRef`. `searchGo` still resolves a known bundle label/id, otherwise normalizes a
 bare value to `sr:<value>` and calls `loadScope(ref)`. The scope-specific API remains the validator.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
@@ -346,7 +346,7 @@ git commit -m "feat(system-ui): make scope navigation contextual"
 - Modify as required: `pi-ext/factory-watch/test/system-page-dom.test.ts`
 - Modify as required: `pi-ext/factory-watch/test/system-page-implementation-summary.test.ts`
 
-- [ ] **Step 1: Add failing renderer tests**
+- [x] **Step 1: Add failing renderer tests**
 
 For one claim with two citations and one span, assert:
 
@@ -361,7 +361,7 @@ Assert a matrix row contains `.matrix-subject`, `.matrix-status`, and `.matrix-s
 traversal payload assert four `.trace-spine-step` nodes labelled Requirement, Tasks, Design, Files
 in order.
 
-- [ ] **Step 2: Verify renderer tests fail**
+- [x] **Step 2: Verify renderer tests fail**
 
 Run:
 
@@ -371,7 +371,7 @@ npx vitest run test/system-page-visual-identity.test.ts test/system-page-dom.tes
 
 Expected: FAIL on disclosure, matrix hooks, and trace-spine structure.
 
-- [ ] **Step 3: Add native evidence disclosure and matrix hooks**
+- [x] **Step 3: Add native evidence disclosure and matrix hooks**
 
 In `renderClaim`, place citations/spans inside:
 
@@ -388,7 +388,7 @@ Preserve all payload text and order. Keep implementation summaries expanded. Giv
 `matrix-subject`, the badge wrapper `matrix-status`, and summary `matrix-summary`; style a compact
 grid on wide screens and stack it below 760 px.
 
-- [ ] **Step 4: Render traversal as four spine segments**
+- [x] **Step 4: Render traversal as four spine segments**
 
 Replace the sentence renderer with a local helper:
 
@@ -411,7 +411,7 @@ function addStep(label: string, values: string[]): void {
 Call it with `[trav.requirement]`, `trav.tasks`, `trav.design`, and `trav.files` under Requirement,
 Tasks, Design, and Files. CSS provides numbered nodes and connector lines without hiding text.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
@@ -428,11 +428,11 @@ git commit -m "feat(system-ui): clarify evidence and trace reading"
 
 ## Task 5: Automated verification
 
-- [ ] Run `npm run typecheck` in `pi-ext/factory-watch`; expect zero errors.
-- [ ] Run `npm test` in `pi-ext/factory-watch`; expect all tests green (baseline: 65 files / 753 tests).
-- [ ] Run `uv run python -m pytest tests/unit/system -q` at repository root; expect 311 passing.
-- [ ] Run `git diff --check 9239b20..HEAD`; expect no output.
-- [ ] Run `git status --short`; expect a clean tree after commits.
+- [x] Run `npm run typecheck` in `pi-ext/factory-watch`; expect zero errors.
+- [x] Run `npm test` in `pi-ext/factory-watch`; expect all tests green (baseline: 65 files / 753 tests).
+- [x] Run `uv run python -m pytest tests/unit/system -q` at repository root; expect 311 passing.
+- [x] Run `git diff --check 9239b20..HEAD`; expect no output.
+- [x] Run `git status --short`; expect a clean tree after commits.
 - [ ] If legitimate obsolete test assertions needed updates, commit them as
   `test(system-ui): cover responsive evidence console`; do not create an empty commit.
 
