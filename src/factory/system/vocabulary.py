@@ -5,13 +5,22 @@ browser never fetches this. Exposed as `factory.system vocabulary --json` so
 it stays inspectable and testable from Python.
 
 `COVERAGE_REGISTRY` is grouped by where a value is read on the page; a value
-that means the same recorded thing in two different groups (e.g. `unknown`,
-`manifest`, `session`, `validated`, `bundle`, `review`) gets exactly one
-`VOCABULARY` entry, filed under the group it is *most often* read in, and
-that entry's `definition` names the other context explicitly rather than
-silently picking one meaning. `test_every_entry_is_in_the_registry` is the
-enforcement: `VOCABULARY`'s key set must equal the union of every group's
-values, no more and no less.
+that means the same recorded thing in two different groups (`unknown`,
+`manifest`, `session`, `validated`, `bundle`, `review`, `validation`, `task`,
+`not-recorded` -- nine collisions, all disclosed in their entries'
+`definition`) gets exactly one `VOCABULARY` entry, filed under the group it
+is *most often* read in, and that entry's `definition` names every other
+context explicitly rather than silently picking one meaning.
+`test_every_entry_is_in_the_registry` is the enforcement: `VOCABULARY`'s key
+set must equal the union of every group's values, no more and no less.
+
+Every group backed by a closed Python enum (`claim-kind`, `freshness`,
+`matrix-status`, `timeline-actor`, `timeline-action`, `citation-kind`) is
+additionally checked against that enum directly in
+`test_vocabulary.py::test_registry_groups_backed_by_enums_match_those_enums_exactly`
+-- the registry tuple is hand-authored prose sugar for humans reading this
+file, but the enum is the actual authority, and drift between the two fails
+the build.
 """
 from __future__ import annotations
 
@@ -27,22 +36,23 @@ COVERAGE_REGISTRY: dict[str, tuple[str, ...]] = {
     "health-class": (
         "task->plan", "task->SR", "plan->spec", "SR satisfied", "SR validated",
     ),
-    "health-counter": ("dangling", "proposed"),
+    "health-counter": ("dangling", "deferred", "proposed"),
     "timeline-actor": (
         "human", "dev", "review", "validation", "orchestrator", "unknown",
         "not-recorded",
     ),
     "timeline-action": (
-        "approved", "rejected", "validated", "repaired", "published", "stopped",
+        "approved", "rejected", "validated", "repaired", "published",
+        "stopped", "not-recorded",
     ),
     "citation-kind": (
-        "manifest", "task", "requirement", "review", "decision", "trace",
-        "bundle", "session",
+        "manifest", "task", "requirement", "validation", "review",
+        "decision", "trace", "bundle", "session",
     ),
-    "scope-kind": ("run", "manifest"),
+    "scope-kind": ("bundle", "sr", "task", "run", "manifest"),
     "run-source": ("session",),
     "disposition": ("pending", "exempt"),
-    "stops-at": ("satisfies", "chain-complete"),
+    "stops-at": ("task", "satisfies", "chain-complete"),
     "noun": (
         "bundle", "scope", "SR", "BR", "ADR", "evidence run",
         "evidence manifest", "session record", "claim", "span", "citation",
@@ -308,13 +318,25 @@ VOCABULARY: dict[str, dict] = {
         "definition": (
             "`trace.validation_status.SrState`'s own spelling (with an "
             "underscore) of the state the matrix renders as `never-run` "
-            "(with a hyphen): the validation report has no entry for this "
-            "requirement. `load_validation` treats a missing or unreadable "
-            "report as this state for every requirement, never as `failed` -- "
-            "absence of evidence is not evidence of failure."
+            "(with a hyphen). The literal is not where you would expect: "
+            "`validation_status._entry_state`, the actual report parser, "
+            "only ever returns `error`/`passed`/`failed` -- an SR absent "
+            "from the report is simply absent from `load_validation`'s "
+            "returned dict, never assigned this string there. The literal "
+            "`\"never_validated\"` is written directly by "
+            "`system/feature.py`'s `_verification` (a separate, ad hoc "
+            "summary, used when a status lookup came back `None`), and is "
+            "independently, defensively checked by `trace/gaps.py`'s "
+            "`sr_unvalidated` branch (`status is None or status.state == "
+            "\"never_validated\"`) against a value `load_validation` itself "
+            "never actually produces."
         ),
         "siblings": ["passed", "failed", "error"],
-        "computed_by": ["src/factory/trace/validation_status.py"],
+        "computed_by": [
+            "src/factory/trace/validation_status.py",
+            "src/factory/system/feature.py",
+            "src/factory/trace/gaps.py",
+        ],
     },
     # -----------------------------------------------------------------
     # readiness (design SS3.4, SP-B) -- per-bundle Strong/Medium/Weak.
@@ -342,9 +364,12 @@ VOCABULARY: dict[str, dict] = {
         "definition": (
             "Every member SR has a decided binding (`bound`) and at least "
             "one non-exempt task declaring `satisfies` for it (`covered`) -- "
-            "but not necessarily validated, and not necessarily current "
-            "(a proposed SR does not qualify as bound in the first place, so "
-            "`medium` already excludes proposed placeholders)."
+            "but not necessarily `validated`. `bound` (`health.py:83`: "
+            "`req.binding is not None and not proposed`) is strictly "
+            "stronger than `current` (`health.py:91`: `req.binding is not "
+            "None`), so every member SR of a medium bundle is already "
+            "current too; only `strong` additionally requires a fresh "
+            "passing validation."
         ),
         "siblings": ["weak", "strong"],
         "computed_by": ["src/factory/system/health.py"],
@@ -404,10 +429,14 @@ VOCABULARY: dict[str, dict] = {
         "label": "covered",
         "gloss": "at least one non-exempt task satisfies this SR",
         "definition": (
-            "How many of the bundle's member SRs have no pending, "
-            "non-exempt `sr_unsatisfied` gap -- i.e. at least one task "
-            "declares `satisfies` for the SR, or every gap against it has "
-            "been marked exempt. `health._sr_flags`'s `covered` predicate."
+            "How many of the bundle's member SRs have no `sr_unsatisfied` "
+            "gap recorded against them -- i.e. at least one task declares "
+            "`satisfies` for the SR (`health._sr_flags`'s `covered` "
+            "predicate). The predicate's source also excludes an exempt "
+            "`sr_unsatisfied` gap, but that branch is unreachable in "
+            "practice: `gaps._disposition_of` forbids `trace_exempt` for "
+            "`sr`/`br` node kinds, so an SR's own gaps can never actually "
+            "be `exempt`."
         ),
         "siblings": ["sr_total", "bound", "current", "deferred", "validated"],
         "computed_by": ["src/factory/system/health.py"],
@@ -431,17 +460,34 @@ VOCABULARY: dict[str, dict] = {
         "term": "deferred",
         "group": "readiness-count",
         "label": "deferred",
-        "gloss": "explicitly postponed by a recorded trace_deferred reason",
+        "gloss": "postponed by a human note or auto-deferred proposal",
         "definition": (
-            "How many of the bundle's member SRs carry a gap whose "
-            "disposition is `deferred` -- a human recorded `trace_deferred: "
-            "<reason>` on the SR's frontmatter, accepting the gap in "
-            "substance while leaving it open. This is the same disposition "
-            "value used for individual trace gaps (see the `disposition` "
-            "group's `pending`/`exempt` entries for the other two)."
+            "This word means two different, non-interchangeable counts. As "
+            "a readiness count: how many of the bundle's member SRs carry "
+            "at least one gap whose disposition is `deferred` "
+            "(`health._sr_flags`'s `deferred` predicate, checked over ALL of "
+            "that SR's gaps). Two independent triggers set that disposition "
+            "(`gaps._disposition_of`, `gaps.find_gaps`): a human recorded "
+            "`trace_deferred: <reason>` on the node's frontmatter, OR the SR "
+            "is `proposed` (no binding yet) -- `find_gaps` force-sets "
+            "`disposition=\"deferred\"` on every `sr_proposed` gap regardless "
+            "of whether any reason was recorded (`trace/gaps.py:96`), so a "
+            "proposed SR with no human note still counts here. As a health "
+            "COUNTER (`trace.health.compute_health`), the same word names a "
+            "repo-wide tally of gaps with disposition `deferred` that "
+            "EXCLUDES `sr_proposed` gaps specifically -- `compute_health`'s "
+            "loop `continue`s on `sr_proposed` before ever checking "
+            "disposition (`trace/health.py:69-77`), routing a proposed SR's "
+            "automatic deferral into the repo-wide `proposed` counter "
+            "instead. The two `deferred` numbers can disagree even for the "
+            "same repo state."
         ),
-        "siblings": ["sr_total", "bound", "covered", "current", "validated"],
-        "computed_by": ["src/factory/system/health.py", "src/factory/trace/gaps.py"],
+        "siblings": ["sr_total", "bound", "covered", "current", "validated", "dangling", "proposed"],
+        "computed_by": [
+            "src/factory/system/health.py",
+            "src/factory/trace/gaps.py",
+            "src/factory/trace/health.py",
+        ],
     },
     "validated": {
         "term": "validated",
@@ -473,11 +519,17 @@ VOCABULARY: dict[str, dict] = {
         "gloss": "share of tasks with a resolving source_plan",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
-            "each. Satisfied: the task declares a `source_plan` edge and "
-            "that edge's target exists as a real node -- a task with no "
-            "`source_plan` at all (`task_no_plan`) and one whose "
-            "`source_plan` target is missing (`task_plan_missing`) both "
-            "leave the slot unfilled. A task marked `trace_exempt` removes "
+            "each. Satisfied: the task declares a `source_plan` edge at "
+            "all -- `task_no_plan` is the only gap kind that unfills this "
+            "slot. A `source_plan` edge whose target does not resolve to a "
+            "real node (`task_plan_missing`) does NOT unfill the slot: "
+            "`compute_health`'s gap loop counts it straight into the "
+            "separate `dangling` counter and `continue`s before ever "
+            "reaching `_SLOT_OF_GAP` (`trace/health.py:65-68`), which has no "
+            "`task_plan_missing` key at all -- so a task with a broken "
+            "`source_plan` link is reported as `dangling`, not as an "
+            "unfilled `task->plan` slot, and counts toward this class's "
+            "percentage as satisfied. A task marked `trace_exempt` removes "
             "its slot from the denominator instead of counting it unfilled."
         ),
         "siblings": ["task->SR", "plan->spec", "SR satisfied", "SR validated"],
@@ -546,8 +598,10 @@ VOCABULARY: dict[str, dict] = {
             "be validated before someone has decided what to measure. "
             "Satisfied: the requirement has a validation-report entry with "
             "state `passed` that is not stale (`sr_unvalidatable`, "
-            "`sr_unvalidated`, and a non-exempt `sr_stale` are the gaps that "
-            "leave this slot unfilled)."
+            "`sr_unvalidated`, and `sr_stale` are the gaps that leave this "
+            "slot unfilled -- `compute_health` also excludes an exempt "
+            "`sr_stale`, but that branch is unreachable in practice since "
+            "SR gaps can never be `exempt`)."
         ),
         "siblings": ["task->plan", "task->SR", "plan->spec", "SR satisfied"],
         "computed_by": ["src/factory/trace/health.py", "src/factory/trace/gaps.py"],
@@ -645,20 +699,6 @@ VOCABULARY: dict[str, dict] = {
         "siblings": ["human", "dev", "validation", "orchestrator", "unknown", "not-recorded"],
         "computed_by": ["src/factory/system/models.py"],
     },
-    "validation": {
-        "term": "validation",
-        "group": "timeline-actor",
-        "label": "validation",
-        "gloss": "the validation pipeline itself, per the closed vocabulary",
-        "definition": (
-            "A reserved value in the `TimelineActor` closed vocabulary "
-            "(design SS7.4) for a decision event attributed to the "
-            "validation pipeline running automatically. Not currently "
-            "emitted by `query_timeline` for the same reason as `human`."
-        ),
-        "siblings": ["human", "dev", "review", "orchestrator", "unknown", "not-recorded"],
-        "computed_by": ["src/factory/system/models.py"],
-    },
     "orchestrator": {
         "term": "orchestrator",
         "group": "timeline-actor",
@@ -680,14 +720,18 @@ VOCABULARY: dict[str, dict] = {
         "label": "not recorded",
         "gloss": "the source artifact records no such field",
         "definition": (
-            "The honest recorded absence, not a guess: the run manifest's "
-            "`reviews[i]` record this repo reads has no field for an actor "
-            "identity, so `queries._decision_event_from_record` always sets "
-            "`actor = TimelineActor.NOT_RECORDED` for every real timeline "
-            "event -- this is the value every review-decision actor in this "
-            "repo actually carries today. `TimelineAction` reuses this same "
-            "spelling for an unrecognized `decision` field value (anything "
-            "other than `approve`/`reject`)."
+            "The honest recorded absence, not a guess -- and it does double "
+            "duty across two groups. As a timeline actor, the run "
+            "manifest's `reviews[i]` record this repo reads has no field "
+            "for an actor identity at all, so "
+            "`queries._decision_event_from_record` always sets `actor = "
+            "TimelineActor.NOT_RECORDED` for every real timeline event -- "
+            "every review-decision actor in this repo actually carries this "
+            "value today. As a timeline action "
+            "(`TimelineAction.NOT_RECORDED`), the same spelling is set when "
+            "`reviews[i].decision` is anything other than `\"approve\"`/"
+            "`\"reject\"` -- an unrecognized or absent decision value, not "
+            "merely \"nobody decided yet\"."
         ),
         "siblings": ["human", "dev", "review", "validation", "orchestrator", "unknown"],
         "computed_by": ["src/factory/system/queries.py"],
@@ -708,7 +752,7 @@ VOCABULARY: dict[str, dict] = {
             "emits today, from the same recorded `reviews` array documented "
             "under `citation-kind`'s `decision` entry."
         ),
-        "siblings": ["rejected", "validated", "repaired", "published", "stopped"],
+        "siblings": ["rejected", "validated", "repaired", "published", "stopped", "not-recorded"],
         "computed_by": ["src/factory/system/queries.py"],
     },
     "rejected": {
@@ -721,7 +765,7 @@ VOCABULARY: dict[str, dict] = {
             "exactly the string `\"reject\"` -- `queries._DECISION_ACTION_MAP`. "
             "The other action this repo's timeline actually emits today."
         ),
-        "siblings": ["approved", "validated", "repaired", "published", "stopped"],
+        "siblings": ["approved", "validated", "repaired", "published", "stopped", "not-recorded"],
         "computed_by": ["src/factory/system/queries.py"],
     },
     "repaired": {
@@ -737,7 +781,7 @@ VOCABULARY: dict[str, dict] = {
             "`approve` or `reject`, mapped to `approved`/`rejected`; "
             "anything else maps to `not-recorded`."
         ),
-        "siblings": ["approved", "rejected", "validated", "published", "stopped"],
+        "siblings": ["approved", "rejected", "validated", "published", "stopped", "not-recorded"],
         "computed_by": ["src/factory/system/models.py"],
     },
     "published": {
@@ -751,7 +795,7 @@ VOCABULARY: dict[str, dict] = {
             "currently emitted by `query_timeline` for the same reason as "
             "`repaired`."
         ),
-        "siblings": ["approved", "rejected", "validated", "repaired", "stopped"],
+        "siblings": ["approved", "rejected", "validated", "repaired", "stopped", "not-recorded"],
         "computed_by": ["src/factory/system/models.py"],
     },
     "stopped": {
@@ -765,7 +809,7 @@ VOCABULARY: dict[str, dict] = {
             "was stopped. Not currently emitted by `query_timeline` for the "
             "same reason as `repaired`."
         ),
-        "siblings": ["approved", "rejected", "validated", "repaired", "published"],
+        "siblings": ["approved", "rejected", "validated", "repaired", "published", "not-recorded"],
         "computed_by": ["src/factory/system/models.py"],
     },
     # -----------------------------------------------------------------
@@ -794,13 +838,50 @@ VOCABULARY: dict[str, dict] = {
         "label": "task",
         "gloss": "cites the task's own T-*.md file",
         "definition": (
-            "The cited path is the task's own file under `tasks/` -- the "
-            "same file `factory.orchestrator.ledger` loads task status "
-            "from. Used for both a bundle's `task:` member claim and its "
-            "companion implementation-status claim."
+            "This word does three jobs. As a citation kind, the cited path "
+            "is the task's own file under `tasks/` -- the same file "
+            "`factory.orchestrator.ledger` loads task status from; used for "
+            "both a bundle's `task:` member claim and its companion "
+            "implementation-status claim. As a scope/subject kind "
+            "(`SystemScopeRef.kind`/`TimelineSubjectRef.kind`, "
+            "system-cli.ts:106), it identifies a subject as a task rather "
+            "than an SR, run, or manifest -- e.g. `query_story`'s own scope. "
+            "As a `stops_at` value (`system.reverse`), `stops_at: \"task\"` "
+            "means the walked run's own `task_id` did not resolve in the "
+            "ledger at all -- the earliest possible stop in the "
+            "file -> run -> task -> requirements chain, one step before the "
+            "`satisfies` stop."
         ),
-        "siblings": ["manifest", "requirement", "review", "decision", "trace", "bundle", "session"],
-        "computed_by": ["src/factory/system/queries.py"],
+        "siblings": [
+            "manifest", "requirement", "validation", "review", "decision",
+            "trace", "bundle", "session", "sr", "run", "satisfies", "chain-complete",
+        ],
+        "computed_by": [
+            "src/factory/system/queries.py",
+            "src/factory/system/reverse.py",
+            "src/factory/system/models.py",
+        ],
+    },
+    "validation": {
+        "term": "validation",
+        "group": "citation-kind",
+        "label": "validation",
+        "gloss": "cites the validation-report.json file itself",
+        "definition": (
+            "As a citation kind (`CitationKind.VALIDATION`), the cited path "
+            "is `validation/validation-report.json` itself -- built by "
+            "`queries._validation_report_citation` and attached to every "
+            "SR's brief validation claim (`queries.py:734`); covered "
+            "directly by `test_models.py`. This is an ACTIVELY constructed "
+            "kind, unlike most of this table's reserved values. As a "
+            "timeline actor (`TimelineActor.VALIDATION`, design SS7.4), the "
+            "same spelling is a reserved closed-vocabulary value for a "
+            "decision attributed to the validation pipeline running "
+            "automatically -- `query_timeline` never emits it; see "
+            "`not-recorded` for what it emits instead."
+        ),
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "bundle", "session"],
+        "computed_by": ["src/factory/system/queries.py", "src/factory/system/models.py"],
     },
     "requirement": {
         "term": "requirement",
@@ -855,13 +936,15 @@ VOCABULARY: dict[str, dict] = {
         "definition": (
             "As a citation kind, the cited path is the bundle's own "
             "declaration file under `bundles/` (`bundles.py`'s loader). As "
-            "the noun (design SS3.3), a bundle is a declared feature-scope "
-            "grouping of spec/plan/task/SR/feat/metric/goal members with a "
-            "label and exact member refs -- no status or rationale of its "
-            "own; readiness and health are always computed over its members."
+            "a scope kind (`SystemScopeKind`, system-cli.ts:9), `\"bundle\"` "
+            "is the `kind` value for `--scope bundle:<id>`. As the noun "
+            "(design SS3.3), a bundle is a declared feature-scope grouping "
+            "of spec/plan/task/SR/feat/metric/goal members with a label and "
+            "exact member refs -- no status or rationale of its own; "
+            "readiness and health are always computed over its members."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session"],
-        "computed_by": ["src/factory/system/bundles.py"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session", "sr"],
+        "computed_by": ["src/factory/system/bundles.py", "src/factory/system/models.py"],
     },
     "session": {
         "term": "session",
@@ -881,7 +964,11 @@ VOCABULARY: dict[str, dict] = {
         "computed_by": ["src/factory/system/sessions.py", "src/factory/system/story.py"],
     },
     # -----------------------------------------------------------------
-    # scope-kind ("run" only new here; "manifest" defined above)
+    # scope-kind -- union of SystemScopeKind (system-cli.ts:9: "bundle" |
+    # "sr") and TimelineSubjectRef.kind (system-cli.ts:106: "task" | "sr" |
+    # "run" | "manifest"). "bundle" and "task" are defined above under
+    # citation-kind (each entry's definition covers this meaning too);
+    # "run" and "sr" are new here.
     # -----------------------------------------------------------------
     "run": {
         "term": "run",
@@ -895,8 +982,26 @@ VOCABULARY: dict[str, dict] = {
             "`run_id`), as distinct from `manifest`, which names the file "
             "that recorded it."
         ),
-        "siblings": ["manifest"],
+        "siblings": ["manifest", "bundle", "sr", "task"],
         "computed_by": ["src/factory/system/models.py"],
+    },
+    "sr": {
+        "term": "sr",
+        "group": "scope-kind",
+        "label": "SR (scope/subject kind)",
+        "gloss": "lowercase kind tag for an SR-scoped subject",
+        "definition": (
+            "The lowercase `kind` value used wherever a scope or subject "
+            "ref names a requirement: `SystemScopeRef.kind == \"sr\"` for "
+            "`--scope sr:<id>` (`SystemScopeKind`, system-cli.ts:9), "
+            "`MatrixSubjectRef`'s only legal kind, and one of "
+            "`TimelineSubjectRef`'s four legal kinds (system-cli.ts:106). "
+            "Distinct from the noun `SR`, which names the requirement "
+            "itself -- its file, statement, and binding -- not this kind "
+            "tag."
+        ),
+        "siblings": ["bundle", "task", "run", "manifest"],
+        "computed_by": ["src/factory/system/models.py", "pi-ext/factory-watch/src/system-cli.ts"],
     },
     # -----------------------------------------------------------------
     # disposition (trace/gaps.py:23) -- pending/exempt/deferred are the
