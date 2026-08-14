@@ -408,6 +408,29 @@ def test_adr_member_ref_resolves_by_id(tmp_path):
     assert bundle.unresolved == []
 
 
+def test_feature_metric_and_goal_member_refs_resolve_by_id(tmp_path):
+    bundles_dir = tmp_path / "bundles"
+    _write_bundle(
+        bundles_dir,
+        "navigator",
+        {
+            "id": "navigator",
+            "label": "Navigator",
+            "members": ["feat:FEAT-NAV-017", "metric:MET-NAV-004", "goal:GOAL-NAV-003"],
+        },
+    )
+
+    bundle = load_bundle(bundles_dir, "navigator")
+
+    assert [member.kind for member in bundle.members] == ["feat", "metric", "goal"]
+    assert [member.ref for member in bundle.members] == [
+        "feat:FEAT-NAV-017",
+        "metric:MET-NAV-004",
+        "goal:GOAL-NAV-003",
+    ]
+    assert bundle.unresolved == []
+
+
 def test_adr_member_with_an_empty_identifier_does_not_resolve(tmp_path):
     bundles_dir = tmp_path / "bundles"
     _write_bundle(

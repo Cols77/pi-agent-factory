@@ -1,5 +1,5 @@
 """`python -m factory.system` CLI: `brief`, `matrix`, `timeline`, `story`,
-`reverse`, `guide`, `scope`, and `coverage`.
+`reverse`, `guide`, `vcycle`, `scope`, and `coverage`.
 
 JSON is emitted on stdout only when `--json` is passed; a human-readable
 rendering is printed otherwise. Errors always go to stderr as a structured
@@ -28,10 +28,12 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_feature_context,
     query_guide,
     query_matrix,
     query_timeline,
     query_traversal,
+    query_vcycle,
 )
 from factory.system.reverse import query_reverse
 from factory.system.story import query_story
@@ -43,7 +45,15 @@ def _print_error(exc: Exception) -> None:
 
 def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
+    if scope.kind == "feat":
+        # The feature dossier is the `brief` for a `feat:` scope (Inc 1).
+        return query_feature_context(repo_root, scope)
     return query_brief(repo_root, scope)
+
+
+def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    return query_vcycle(repo_root, scope)
 
 
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
@@ -185,9 +195,63 @@ def cmd_scope(repo_root: Path) -> dict:
 
 def _render_brief(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
+    if "dossier" in result:
+        return _render_dossier(result, lines)
     for claim in result["claims"]:
         lines.append(f"  [{claim['kind']}] ({claim['freshness']['state']}) {claim['text']}")
     return "\n".join(lines)
+
+
+def _render_dossier(result: dict, lines: list[str]) -> str:
+    dossier = result["dossier"]
+    lines.append(f"  {dossier['id']} - {dossier['title']}")
+    lines.append("  intent:")
+    for intent_line in dossier["intent"].splitlines():
+        lines.append(f"    {intent_line}" if intent_line else "")
+    lines.append("  requirements:")
+    for requirement in dossier["requirements"]:
+        lines.append(f"    - {requirement['id']} ({requirement['kind']}) {requirement['title']}")
+    lines.append("  design_records:")
+    for record in dossier["design_records"]:
+        lines.append(f"    - {record['id']} {record['title']}")
+    lines.append("  implementation_files:")
+    for path in dossier["implementation_files"]:
+        lines.append(f"    - {path}")
+    lines.append("  verification:")
+    for status in dossier["verification"]:
+        stale = " (stale)" if status["stale"] else ""
+        lines.append(f"    - {status['id']}: {status['state']}{stale}")
+    lines.append("  goals: " + (", ".join(dossier["goal_ids"]) if dossier["goal_ids"] else "none"))
+    lines.append("  metrics: " + (", ".join(dossier["metric_ids"]) if dossier["metric_ids"] else "none"))
+    lines.append("  recent_changes:")
+    for change in dossier["recent_changes"]:
+        lines.append(f"    - {change['commit']} {change['authored_at']} {change['subject']}")
+    if not dossier["recent_changes"]:
+        lines.append("    none recorded")
+    return "\n".join(lines)
+
+
+def _render_vcycle(result: dict) -> str:
+    lines = [f"scope: {result['scope']['ref']}"]
+    vcycle = result["vcycle"]
+    lines.append(f"  anchor: {vcycle['anchor']}")
+    lines.append("  definition:")
+    for side in vcycle["definition"]:
+        _render_vcycle_side(lines, side)
+    lines.append("  verification:")
+    for side in vcycle["verification"]:
+        _render_vcycle_side(lines, side)
+    lines.append("  goals: " + (", ".join(n["id"] for n in vcycle["goals"]) if vcycle["goals"] else "none"))
+    lines.append("  metrics: " + (", ".join(n["id"] for n in vcycle["metrics"]) if vcycle["metrics"] else "none"))
+    return "\n".join(lines)
+
+
+def _render_vcycle_side(lines: list[str], side: dict) -> None:
+    nodes = [node["id"] for node in side["nodes"]]
+    if nodes:
+        lines.append(f"    {side['label']}: {', '.join(nodes)}")
+    else:
+        lines.append(f"    {side['label']}: (empty)")
 
 
 def _render_matrix(result: dict) -> str:
@@ -373,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
     p_traversal = sub.add_parser("traversal", parents=[common])
     p_traversal.add_argument("--scope", required=True)
 
+    p_vcycle = sub.add_parser("vcycle", parents=[common])
+    p_vcycle.add_argument("--scope", required=True)
+
     sub.add_parser("scope", parents=[common])
 
     sub.add_parser("health", parents=[common])
@@ -418,6 +485,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "guide":
             result = cmd_guide(args.repo_root, args.scope, args.export)
             rendered = _render_guide(result)
+        elif args.cmd == "vcycle":
+            result = cmd_vcycle(args.repo_root, args.scope)
+            rendered = _render_vcycle(result)
         elif args.cmd == "bundle":
             result = cmd_bundle_check(args.repo_root, args.draft)
             rendered = _render_bundle_check(result)

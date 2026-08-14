@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
 from factory.orchestrator import ledger
@@ -70,10 +70,11 @@ from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric", "goal")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
+_TRACE_MEMBER_KINDS = ("feat", "metric", "goal")
 
 
 class ScopeError(Exception):
@@ -91,7 +92,8 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>` and `adr:<id>` are
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>`, `adr:<id>`,
+    `diag:<id>`, `feat:<id>`, `metric:<id>`, and `goal:<id>` are
     legal top-level scopes. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
@@ -100,7 +102,8 @@ def parse_scope_ref(raw: str) -> SystemScopeRef:
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
             f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, "
-            f"task:<id>, file:<path> or adr:<id>)"
+                f"task:<id>, file:<path>, adr:<id>, diag:<id>, feat:<id>, "
+                f"metric:<id> or goal:<id>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -155,6 +158,89 @@ def _load_requirement_or_raise(repo_root: Path, sr_id: str) -> Requirement:
     return req
 
 
+def _load_diagram_or_raise(repo_root: Path, diagram_id: str) -> trace_model.Node:
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind == "diag" and node.id == diagram_id:
+            return node
+    raise ScopeNotFoundError(f"diagram not found: {diagram_id!r}")
+
+
+def query_diagram(repo_root: Path, diagram_id: str) -> dict:
+    """Return one diagram stub and its declared diagram-file availability.
+
+    Diagram stubs are loaded through ``trace_model.load_nodes`` so the
+    navigator and trace graph share the sole Markdown-frontmatter parser.
+    A missing diagram file only degrades this payload: the stub remains
+    addressable and its recorded title is returned.
+    """
+    diagram = _load_diagram_or_raise(repo_root, diagram_id)
+    if diagram.diagram_file is None:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"diagram stub has no diagram_file: {diagram.path}"],
+        }
+
+    declared_path = Path(diagram.diagram_file)
+    windows_path = PureWindowsPath(diagram.diagram_file)
+    if (
+        declared_path.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.root)
+        or PurePosixPath(diagram.diagram_file).is_absolute()
+    ):
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"absolute diagram file is not allowed: {diagram.diagram_file}"],
+        }
+
+    if windows_path.drive:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    try:
+        directory = diagram.path.parent.resolve()
+        path = (directory / declared_path).resolve()
+    except RuntimeError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    try:
+        path.relative_to(directory)
+    except ValueError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    if path.is_file():
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": str(path),
+            "errors": [],
+        }
+    return {
+        "id": diagram.id,
+        "title": diagram.title,
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {path}"],
+    }
+
+
 @dataclass(frozen=True)
 class _MemberResolution:
     """The outcome of resolving one declared bundle member against real loaders.
@@ -204,6 +290,31 @@ def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identi
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
         text=_member_label(repo_root, path, member.ref),
+        freshness=_fresh(),
+        citations=[citation],
+    )
+    return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
+
+
+def _resolve_trace_member(
+    member: SystemScopeRef, identifier: str, nodes: list[trace_model.Node]
+) -> _MemberResolution:
+    """Resolve an id-based trace member through the existing trace-node loader."""
+    node = next(
+        (node for node in nodes if node.kind == member.kind and node.id == identifier),
+        None,
+    )
+    if node is None:
+        claim = _missing(member.ref, "bundle member does not exist in repo")
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+    citation = SystemCitation(
+        kind=CitationKind.TRACE,
+        path=str(node.path),
+        sha256=_sha256_file(node.path),
+    )
+    claim = SystemClaim(
+        kind=ClaimClass.RECORDED,
+        text=member.ref,
         freshness=_fresh(),
         citations=[citation],
     )
@@ -730,6 +841,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         report_corrupt = _validation_report_is_corrupt(repo_root)
         statuses = _load_validation_statuses(repo_root, report_corrupt)
         report_citation = _validation_report_citation(repo_root)
+        trace_nodes: list[trace_model.Node] | None = None
 
         unresolved_member_count = 0
         unreadable_summary_count = 0
@@ -749,6 +861,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 resolution = _resolve_sr_member(
                     repo_root, member, identifier, reqs, statuses, report_citation, report_corrupt
                 )
+            elif member.kind in _TRACE_MEMBER_KINDS:
+                if trace_nodes is None:
+                    trace_nodes = trace_model.load_nodes(repo_root)
+                resolution = _resolve_trace_member(member, identifier, trace_nodes)
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)
@@ -1249,7 +1365,8 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles, then declared ADRs. `sr:` scopes are deliberately not
+    Declared bundles, then declared ADRs, then trace-model
+    feature/metric/goal/diagram nodes. `sr:` scopes are deliberately not
     listed (SP-B Task 3): requirements are reachable by search, not by
     listing -- `parse_scope_ref` still resolves `sr:` as a legal top-level
     scope. A malformed bundle file degrades only itself
@@ -1262,6 +1379,9 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind in ("diag", "feat", "metric", "goal"):
+            scopes.append(SystemScopeRef(kind=node.kind, ref=f"{node.kind}:{node.id}"))
     return scopes
 
 
@@ -1396,3 +1516,32 @@ def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
     raise ScopeKindError(
         f"query_traversal supports an sr: or bundle: anchor, got: {scope.kind!r}"
     )
+
+
+def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the trace-backed dossier for one exact ``feat:`` scope."""
+    if scope.kind != "feat":
+        raise ScopeKindError(f"query_feature_context only supports a feat scope, got: {scope.kind!r}")
+    feature_id = _scope_identifier(scope)
+    from factory.system.feature import feature_context
+
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "dossier": feature_context(repo_root, feature_id),
+    }
+
+
+def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the typed V-cycle slice for one exact ``feat:`` or ``sr:`` scope."""
+    if scope.kind not in {"feat", "sr"}:
+        raise ScopeKindError(f"query_vcycle only supports feat or sr scopes, got: {scope.kind!r}")
+    _scope_identifier(scope)
+    from factory.system.vcycle import vcycle_slice
+
+    try:
+        slice_ = vcycle_slice(repo_root, scope.ref)
+    except ValueError as exc:
+        if str(exc) == f"vcycle anchor does not resolve: {scope.ref!r}":
+            raise ScopeNotFoundError(f"{scope.kind} not found: {_scope_identifier(scope)!r}") from exc
+        raise
+    return {"scope": {"kind": scope.kind, "ref": scope.ref}, "vcycle": to_dict(slice_)}

@@ -8,6 +8,7 @@ already owns -- existence and content come only from those loaders.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from factory.system.queries import (
     parse_scope_ref,
     query_brief,
     query_guide,
+    query_diagram,
     query_matrix,
     query_timeline,
     query_traversal,
@@ -66,6 +68,27 @@ def test_parse_scope_ref_accepts_bundle_and_sr():
     assert parse_scope_ref("sr:SR-001") == SystemScopeRef(kind="sr", ref="sr:SR-001")
 
 
+@pytest.mark.parametrize(
+    ("raw", "kind"),
+    [
+        ("feat:FEAT-NAV-017", "feat"),
+        ("metric:MET-NAV-004", "metric"),
+        ("goal:GOAL-NAV-003", "goal"),
+    ],
+)
+def test_parse_scope_ref_accepts_feature_metric_and_goal(raw, kind):
+    assert parse_scope_ref(raw) == SystemScopeRef(kind=kind, ref=raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["Feat:FEAT-NAV-017", "Metric:MET-NAV-004", "Goal:GOAL-NAV-003", "feature:FEAT-NAV-017"],
+)
+def test_parse_scope_ref_rejects_feature_metric_and_goal_aliases_and_capitalization(raw):
+    with pytest.raises(ScopeKindError):
+        parse_scope_ref(raw)
+
+
 @pytest.mark.parametrize("raw", ["spec:x.md", "nonsense", "bundle:", "sr:", ":x", ""])
 def test_parse_scope_ref_rejects_anything_else(raw):
     with pytest.raises(ScopeKindError):
@@ -75,6 +98,12 @@ def test_parse_scope_ref_rejects_anything_else(raw):
 def test_task_and_file_are_now_openable_scopes():
     assert parse_scope_ref("task:T-059").kind == "task"
     assert parse_scope_ref("file:src/drone/planning/reactive.py").kind == "file"
+
+
+def test_diag_is_an_openable_scope():
+    assert parse_scope_ref("diag:DIAG-NAV-001") == SystemScopeRef(
+        kind="diag", ref="diag:DIAG-NAV-001"
+    )
 
 
 def test_spec_and_plan_are_still_not_openable_scopes():
@@ -95,6 +124,49 @@ def test_query_brief_raises_for_nonexistent_bundle(tmp_path):
 def test_query_brief_raises_for_nonexistent_sr(tmp_path):
     with pytest.raises(ScopeNotFoundError):
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-999"))
+
+
+def test_bundle_brief_resolves_feature_metric_and_goal_members_in_declared_order(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    write_bundle(
+        tmp_path / "bundles",
+        "navigator",
+        "Navigator",
+        ["feat:FEAT-NAV-017", "metric:MET-NAV-004", "goal:GOAL-NAV-003"],
+    )
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:navigator"))
+
+    member_claims = result["claims"][1:]
+    assert [claim["text"] for claim in member_claims] == [
+        "feat:FEAT-NAV-017",
+        "metric:MET-NAV-004",
+        "goal:GOAL-NAV-003",
+    ]
+    assert [claim["citations"][0]["path"] for claim in member_claims] == [
+        str(feature),
+        str(metric),
+        str(goal),
+    ]
+    assert all(claim["citations"][0]["kind"] == "trace" for claim in member_claims)
+    assert result["degraded"] is False
 
 
 def test_query_brief_does_not_fuzzy_match_sr_id(tmp_path):
@@ -855,6 +927,35 @@ def test_list_scopes_omits_sr_but_parse_resolves(tmp_path):
     ref = parse_scope_ref("sr:SR-007")
     assert ref.kind == "sr"
     assert ref.ref == "sr:SR-007"
+def test_list_scopes_includes_feature_metric_and_goal_trace_nodes(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    (feature.parent / "FEAT-broken.md").write_text("---\nnot: valid: yaml: at all\n", encoding="utf-8")
+
+    scopes = list_scopes(tmp_path)
+
+    assert {
+        SystemScopeRef(kind="feat", ref="feat:FEAT-NAV-017"),
+        SystemScopeRef(kind="metric", ref="metric:MET-NAV-004"),
+        SystemScopeRef(kind="goal", ref="goal:GOAL-NAV-003"),
+    }.issubset(scopes)
+
 
 
 def test_list_scopes_on_empty_repo_is_empty(tmp_path):
@@ -1305,3 +1406,194 @@ def test_traversal_loads_trace_nodes_once_for_a_multi_sr_bundle(tmp_path, monkey
     query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
 
     assert calls == 1
+def test_list_scopes_includes_diagram_stubs(tmp_path):
+    path = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert SystemScopeRef(kind="diag", ref="diag:DIAG-NAV-001") in list_scopes(tmp_path)
+
+
+def test_query_diagram_resolves_relative_html_path_without_optional_focus(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    diagram = stub.parent / "assets" / "overview.html"
+    diagram.parent.mkdir(parents=True)
+    diagram.write_text("<html></html>\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "illustrates: FEAT-NAV-017\ndiagram_file: assets/overview.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-001") == {
+        "id": "DIAG-NAV-001",
+        "title": "Navigator overview",
+        "diagram_path": str(diagram),
+        "errors": [],
+    }
+
+
+def test_query_diagram_reports_a_missing_declared_path_without_discarding_the_stub(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-002.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-002\nkind: diag\ntitle: Missing asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: assets/missing.html\n---\n",
+        encoding="utf-8",
+    )
+    missing = stub.parent / "assets" / "missing.html"
+
+    result = query_diagram(tmp_path, "DIAG-NAV-002")
+
+    assert result == {
+        "id": "DIAG-NAV-002",
+        "title": "Missing asset",
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {missing}"],
+    }
+    assert "scope_errors" not in result
+
+
+def test_query_diagram_rejects_an_absolute_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-003.md"
+    absolute_diagram = tmp_path / "outside.html"
+    absolute_diagram.write_text("<svg />\n", encoding="utf-8")
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    declared_path = absolute_diagram.as_posix()
+    stub.write_text(
+        "---\nid: DIAG-NAV-003\nkind: diag\ntitle: Absolute asset\n"
+        f"focus: Traceability\nillustrates: ADR-0001\ndiagram_file: {declared_path}\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-003") == {
+        "id": "DIAG-NAV-003",
+        "title": "Absolute asset",
+        "diagram_path": None,
+        "errors": [f"absolute diagram file is not allowed: {declared_path}"],
+    }
+
+
+def test_query_diagram_rejects_a_posix_rooted_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-004.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-004\nkind: diag\ntitle: POSIX-rooted asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: /outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-004") == {
+        "id": "DIAG-NAV-004",
+        "title": "POSIX-rooted asset",
+        "diagram_path": None,
+        "errors": ["absolute diagram file is not allowed: /outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_windows_rooted_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-005.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-005\nkind: diag\ntitle: Windows-rooted asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: \\outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-005") == {
+        "id": "DIAG-NAV-005",
+        "title": "Windows-rooted asset",
+        "diagram_path": None,
+        "errors": ["absolute diagram file is not allowed: \\outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_parent_traversal_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-006.md"
+    outside = stub.parent.parent / "outside.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-006\nkind: diag\ntitle: Traversal asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: ../outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-006") == {
+        "id": "DIAG-NAV-006",
+        "title": "Traversal asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: ../outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_symlink_that_escapes_the_stub_directory(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-007.md"
+    outside = tmp_path / "outside.html"
+    link = stub.parent / "escape.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    stub.write_text(
+        "---\nid: DIAG-NAV-007\nkind: diag\ntitle: Symlink asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: escape.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-007") == {
+        "id": "DIAG-NAV-007",
+        "title": "Symlink asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: escape.html"],
+    }
+
+
+def test_query_diagram_rejects_a_windows_drive_relative_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-008.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-008\nkind: diag\ntitle: Drive-relative asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: C:outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-008") == {
+        "id": "DIAG-NAV-008",
+        "title": "Drive-relative asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: C:outside.html"],
+    }
+
+
+@pytest.mark.parametrize("failing_name", ["diagrams", "loop.html"])
+def test_query_diagram_degrades_when_path_resolution_fails(tmp_path, monkeypatch, failing_name):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-009.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-009\nkind: diag\ntitle: Resolution failure\n"
+        "illustrates: ADR-0001\ndiagram_file: loop.html\n---\n",
+        encoding="utf-8",
+    )
+    original_resolve = Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        if path.name == failing_name:
+            raise RuntimeError("symlink loop")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+
+    assert query_diagram(tmp_path, "DIAG-NAV-009") == {
+        "id": "DIAG-NAV-009",
+        "title": "Resolution failure",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: loop.html"],
+    }
+

@@ -17,6 +17,7 @@ GapKind = Literal[
     "sr_unvalidatable",
     "sr_unvalidated",
     "sr_stale",
+    "dangling_reference",
 ]
 
 Disposition = Literal["pending", "exempt", "deferred"]
@@ -31,7 +32,8 @@ _KIND_ORDER: dict[str, int] = {
     "sr_unvalidated": 6,
     "sr_stale": 7,
     "dangling_upstream": 8,
-    "task_plan_missing": 9,
+    "dangling_reference": 9,
+    "task_plan_missing": 10,
 }
 
 
@@ -108,6 +110,30 @@ def find_gaps(
         for edge in node_edges:
             if edge.kind == "upstream" and edge.dst not in by_id:
                 add(node, "dangling_upstream", f"upstream target missing: {edge.dst}")
+
+    vcycle_kinds = {
+        "parent_of",
+        "verified_by",
+        "demonstrates",
+        "evaluates",
+        "contains",
+        "illustrates",
+    }
+    for edge in edges:
+        if edge.kind not in vcycle_kinds:
+            continue
+        if edge.src not in by_id and edge.dst in by_id:
+            add(
+                by_id[edge.dst],
+                "dangling_reference",
+                f"{edge.kind} source missing: {edge.src}",
+            )
+        elif edge.dst not in by_id and edge.src in by_id:
+            add(
+                by_id[edge.src],
+                "dangling_reference",
+                f"{edge.kind} target missing: {edge.dst}",
+            )
 
     gaps.sort(key=lambda g: (_KIND_ORDER[g.kind], g.node_id))
     return gaps

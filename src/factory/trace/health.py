@@ -63,7 +63,7 @@ def compute_health(nodes: list[Node], gaps: list[Gap]) -> Health:
     deferred = 0
     proposed = 0
     for gap in gaps:
-        if gap.kind in ("dangling_upstream", "task_plan_missing"):
+        if gap.kind in ("dangling_upstream", "dangling_reference", "task_plan_missing"):
             dangling += 1
             continue
         if gap.kind == "sr_proposed":

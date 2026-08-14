@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -522,3 +523,89 @@ def test_bundle_check_reads_a_draft_from_stdin(tmp_path, capsys, monkeypatch):
     assert payload["members_resolved"] == 1
     # There is no filename to compare against when the draft is piped.
     assert payload["id_matches_filename"] is None
+
+
+def _write_feature_repo(root: Path) -> None:
+    """A minimal repo with one feature, its requirement, goal and metric."""
+    (root / "docs" / "features").mkdir(parents=True, exist_ok=True)
+    (root / "docs" / "features" / "FEAT-CLI-001.md").write_text(
+        "---\n"
+        "id: FEAT-CLI-001\n"
+        "title: CLI feature\n"
+        "contains: [SR-001]\n"
+        "---\n\n"
+        "Provide a trace-backed dossier through the CLI.\n",
+        encoding="utf-8",
+    )
+    write_sr(root / "requirements", "SR-001")
+    (root / "goals").mkdir(exist_ok=True)
+    (root / "goals" / "GOAL-CLI-001.md").write_text(
+        "---\n"
+        "id: GOAL-CLI-001\n"
+        "title: CLI goal\n"
+        "demonstrates: [SR-001]\n"
+        "evaluates: [MET-CLI-001]\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    (root / "metrics").mkdir(exist_ok=True)
+    (root / "metrics" / "MET-CLI-001.md").write_text(
+        "---\n"
+        "id: MET-CLI-001\n"
+        "title: CLI metric\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+
+def test_brief_feat_scope_renders_the_dossier(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    rc = main(["brief", "--scope", "feat:FEAT-CLI-001", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "FEAT-CLI-001" in out
+    assert "intent:" in out
+    assert "SR-001" in out
+    assert "GOAL-CLI-001" in out
+    assert "MET-CLI-001" in out
+
+
+def test_brief_feat_json_flag_prints_the_dossier_payload(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    rc = main(["brief", "--scope", "feat:FEAT-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["scope"]["ref"] == "feat:FEAT-CLI-001"
+    assert payload["dossier"]["id"] == "FEAT-CLI-001"
+    assert [r["id"] for r in payload["dossier"]["requirements"]] == ["SR-001"]
+    assert payload["dossier"]["goal_ids"] == ["GOAL-CLI-001"]
+    assert payload["dossier"]["metric_ids"] == ["MET-CLI-001"]
+
+
+def test_brief_feat_unknown_scope_fails_with_structured_error(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    rc = main(["brief", "--scope", "feat:FEAT-UNKNOWN", "--repo-root", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "FEAT-UNKNOWN" in err
+
+
+def test_vcycle_feat_scope_renders_the_slice(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    rc = main(["vcycle", "--scope", "feat:FEAT-CLI-001", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "anchor: feat:FEAT-CLI-001" in out
+    assert "SYSTEM_REQUIREMENTS: SR-001" in out
+    assert "SIMULATION_VERIFICATION: GOAL-CLI-001, MET-CLI-001" in out
+
+
+def test_vcycle_json_flag_prints_the_slice_payload(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    rc = main(["vcycle", "--scope", "feat:FEAT-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["vcycle"]["anchor"] == "feat:FEAT-CLI-001"
+    assert [n["id"] for n in payload["vcycle"]["goals"]] == ["GOAL-CLI-001"]
