@@ -34,6 +34,13 @@ design work (the real prize) is the context/content problem below.**
 
 ## Open work item 1 — Content-bearing context packet (root cause 4)
 
+**STATUS: SPEC + PLAN WRITTEN (not yet implemented)** — see
+`2026-08-14-context-packet-design.md` and `2026-08-14-context-packet-implementation.md`.
+Contains the goal, packet format, wiring to Dev/Review/Grill, token-budget caps, and
+acceptance steps. Implement it next, then item 2.
+
+Design summary from the spec:
+
 The gatherer's manifest should carry content, not just paths, so its work is consumed
 by grill, dev and review instead of discarded:
 - Primary/modify files: full content (or near-full) in the packet.
@@ -88,6 +95,7 @@ later option if the bundled slice proves too coarse.
   layered mechanism: global index from init + per-task packet from gatherer).
 
 ## Suggested next session entry point
-Read this doc + the Option-A spec/plan (now implemented), then write a **spec + implementation plan** for
-open work item 1 (context packet), followed by item 2 (durable bundle). Keep root causes
-in mind so the fix is structural, not a patch.
+Read this doc + the Option-A spec/plan (implemented) and the item-1 spec/plan (written
+2026-08-14, not yet implemented), then **implement item 1** (context packet) per its plan
+(Tasks 1-4), followed by **specifying+planning item 2** (durable tree-sitter bundle). Keep
+root causes in mind so the fix is structural, not a patch.
