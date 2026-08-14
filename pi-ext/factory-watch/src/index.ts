@@ -71,12 +71,9 @@ import type { MissionControlAction } from "./mission-control-dashboard.js";
 import { parseSessionTranscript } from "./session-transcript.js";
 import { SessionTranscriptView } from "./session-transcript-view.js";
 import { resolveSessionPath } from "./session-path.js";
-import {
-  freshSessionJsonl,
-  grillResultPath,
-  grillSessionPath,
-  readFreshExplainerSummary,
-} from "./grill.js";
+import { freshSessionJsonl, grillResultPath, grillSessionPath, readFreshExplainerSummary, } from "./grill.js";
+import { loadNodeRegistry } from "./node-registry.js";
+import { diffBlocked, snapshotStates } from "./pipeline-diff.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -245,13 +242,42 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
     return raw === null ? null : parseStatus(raw);
   };
 
-  // A grill:blocked run is offered its one-time ["Grill now", "Skip"] select
-  // as soon as mission control opens (the grill sits right after context-gather,
-  // before dev). maybeOfferGrill self-guards against re-nagging this run, so
-  // re-entering mission control later (e.g. after a job spawns the next node)
-  // is safe. The grill is strongly-advised but never a hard block: both choices
-  // resolve, and a missing/abandoned grill simply waits on the gate timeout.
-  await maybeOfferGrill(ctx, readRecord);
+  // Transition watcher: pushes blocking conditions to an ALREADY-OPEN mission
+  // control instead of waiting for a re-open of /factory-watch. The old design
+  // called maybeOfferGrill exactly once before the loop, so a grill that
+  // appeared after open (the normal case, since the run is detached/async) was
+  // silently missed. We run the check synchronously at open (so a run that is
+  // already blocked on the grill is offered immediately, prev=[]) AND on an
+  // interval (so a grill that blocks while mission control is open is pushed).
+  // diffBlocked self-guards (a node already blocked in prev is not re-reported)
+  // and maybeOfferGrill self-guards again via offeredGrillFor / the on-disk
+  // grill-result.json, so the watcher can never nag.
+  const lastSeen = new Map<string, ReturnType<typeof snapshotStates>>();
+  const checkTransitions = async (): Promise<void> => {
+    try {
+      const rec = readRecord();
+      if (!rec) return;
+      const prev = lastSeen.get(rec.session_id) ?? [];
+      lastSeen.set(rec.session_id, snapshotStates(rec));
+      const transitions = diffBlocked(prev, snapshotStates(rec), loadNodeRegistry());
+      for (const t of transitions) {
+        if (t.node === "grill") {
+          await maybeOfferGrill(ctx, readRecord);
+        }
+      }
+    } catch {
+      // a transient status-file read/protocol error must not crash the loop
+    }
+  };
+  await checkTransitions();
+  const grillWatcher = setInterval(() => {
+    void checkTransitions();
+  }, POLL_INTERVAL_MS);
+  // (The old one-shot pre-loop `await maybeOfferGrill(...)` is gone: the grill is
+  // now offered by the transition watcher above the moment grill:blocked appears,
+  // even if mission control is already open. The grill is strongly-advised but
+  // never a hard block: both choices resolve, and a missing/abandoned grill
+  // simply waits on the gate timeout.)
 
   loop: for (;;) {
     const action = await ctx.ui.custom<MissionControlAction>((tui, theme, _keybindings, done) => {
@@ -269,6 +295,7 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
 
     switch (action.type) {
       case "quit":
+        clearInterval(grillWatcher);
         break loop;
       case "inspect": {
         const path = action.sessionId === null ? null : resolveSessionPath(action.sessionId);

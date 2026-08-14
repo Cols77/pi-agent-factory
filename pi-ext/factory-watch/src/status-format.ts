@@ -1,3 +1,5 @@
+import { labelForNode } from "./node-registry.js";
+
 export interface PipelineEntry {
   node: string;
   node_state: string;
@@ -54,16 +56,6 @@ export function secondsAgo(isoTimestamp: string, now: Date = new Date()): number
   return Math.max(0, Math.round((now.getTime() - then.getTime()) / 1000));
 }
 
-// Pipeline node display labels
-const NODE_LABELS: Record<string, string> = {
-  "context-gather": "context-gatherer",
-  dev: "developer",
-  validation: "validation",
-  review: "reviewer",
-  "human-review": "human-review",
-  "session-review": "session-reviewer",
-};
-
 // Icons for node states
 const STATE_ICONS: Record<string, string> = {
   running: "●",
@@ -77,10 +69,6 @@ const STATE_ICONS: Record<string, string> = {
 
 export function iconForState(state: string): string {
   return STATE_ICONS[state] || "·";
-}
-
-function labelForNode(node: string): string {
-  return NODE_LABELS[node] || node;
 }
 
 export function formatStatusLines(record: StatusRecord | null, now: Date = new Date()): string[] {
