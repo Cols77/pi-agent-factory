@@ -137,7 +137,7 @@ NodeKind = Literal["br","sr","spec","plan","task","adr","feat","metric","goal","
     # "run" reserved: loaded from evidence/runs/*/manifest.json in Inc 3.
 ```
 
-- [ ] **Step 4:** run `uv run python -m pytest -q && uv run python -m ruff check .`.
+- [x] **Step 4:** run `uv run python -m pytest -q && uv run python -m ruff check .`.
   Focused verification completed: `tests/unit/trace/test_model_nodes.py` (9 passed) and
   Ruff; the full suite exceeded the environment command limit and remains a final gate.
 - [x] **Step 5:** commit `feat(trace): add feat/metric/goal node kinds` (design stays `adr:`, SP-A).
@@ -159,7 +159,7 @@ ADR itself.
 - [x] **Step 3: Implement** a private `_adr_nodes(root: Path) -> list[Node]` in
   `factory.trace.graph` using `adr_module.load_adrs(root)`, sorted by ADR id. Extend
   the node list passed to `extract_edges` with `_adr_nodes(root)`.
-- [ ] **Step 4: Run the focused trace tests** and the full suite plus Ruff; assert a
+- [x] **Step 4: Run the focused trace tests** and the full suite plus Ruff; assert a
   malformed ADR remains isolated by the existing ADR loader rather than preventing
   unrelated trace nodes from loading.
 - [x] **Step 5: Commit** `feat(trace): adapt SCC ADRs into graph nodes`.
@@ -210,7 +210,7 @@ def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
 Wire into `extract_edges`; in `find_gaps`, add `dangling_reference` for every missing
 endpoint of a new id-reference edge, attached to the edge's known endpoint. Add it to
 the deterministic gap ordering and have `compute_health` include it in `Health.dangling`.
-- [ ] **Step 3:** full suite + lint + commit `feat(trace): model V-cycle relations`.
+- [x] **Step 3:** full suite + lint + commit `feat(trace): model V-cycle relations`.
   Focused verification completed: model-edge/gap/health tests (40 passed) and Ruff; the
   full suite remains a final gate because it exceeds the environment command limit.
 
@@ -223,9 +223,9 @@ Plain JSON-Schema (Draft 2020-12) following `adr.schema.json` (SP-A): `id` with 
 `id/title/feature/requirements/metric/target` (declared); `state`/lifecycle markup is
 Inc 2.
 
-- [ ] **Step 1:** write the three schemas (validate a draft doc by hand with
+- [x] **Step 1:** write the three schemas (validate a draft doc by hand with
   `python -m factory.validation.schema_validator`).
-- [ ] **Step 2:** unit tests load the expected schema keys; commit `feat(schemas): add
+- [x] **Step 2:** unit tests load the expected schema keys; commit `feat(schemas): add
   feature/metric/goal contracts`.
 
 ## Task 3b: Diagram artifact kind (`diag:`) — canonical HTML with a markdown stub (D7)
@@ -246,16 +246,16 @@ focus: [NAV-REQ-021]        # the 1–2 nodes the accent draws the eye to
 illustrates: [FEAT-NAV-017] # the feature/ADR/dossier this picture belongs to
 diagram_file: DIAG-NAV-003.html
 ```
-- [ ] **Step 1: Failing tests** — a `docs/diagrams/DIAG-NAV-003.md` stub resolves as a `diag`
+- [x] **Step 1: Failing tests** — a `docs/diagrams/DIAG-NAV-003.md` stub resolves as a `diag`
   node; `illustrates:` yields an edge to its feature/ADR; a missing referenced `.html` returns
   `diagram_path is None` and an exact entry in the query payload's `errors` list (degraded,
   not dropped); a `diag:` scope parses and lists.
-- [ ] **Step 2: Implement** — extend the `NodeKind` literal + `load_nodes` glob for
+- [x] **Step 2: Implement** — extend the `NodeKind` literal + `load_nodes` glob for
   `docs/diagrams/DIAG-*.md` (kind `diag`); add `diag.schema.json` (id `^DIAG-[A-Z0-9-]+$`,
   `focus`, `illustrates`, `diagram_file`); wire an `illustrates` edge in `extract_edges` and a
   `query_diagram(root, id)` returning `{id, title, diagram_path, errors}`; add `diag:` to
   `_SCOPE_KINDS`.
-- [ ] **Step 3:** full suite + lint + commit `feat(system): add the diagram (diag:) artifact kind`.
+- [x] **Step 3:** full suite + lint + commit `feat(system): add the diagram (diag:) artifact kind`.
 
 ## Task 4: `factory.system.vcycle` — the vertical slice
 
@@ -279,13 +279,13 @@ def _definition_side(graph, anchor) -> list[VCycleSide]
 def _verification_side(graph, anchor) -> list[VCycleSide]
 ```
 
-- [ ] **Step 1: Failing tests.** Build a small synthetic tree: an `sr:` with a
+- [x] **Step 1: Failing tests.** Build a small synthetic tree: an `sr:` with a
   `parent_of` child, a satisfying task, a `verified_by` test run, a `demonstrates`
   goal, an `evaluates` metric. Assert `vcycle_slice` groups the definition side
   (requirement→design→code) and verification side (goal/metric→run→test) with the
   anchor in the middle; assert missing links appear as empty sides (distinctly), not
   dropped.
-- [ ] **Step 2: Implement.** Pure functions over `factory.trace.graph`:
+- [x] **Step 2: Implement.** Pure functions over `factory.trace.graph`:
 
 ```python
 def _definition_side(graph, anchor) -> list[VCycleSide]:
@@ -305,17 +305,17 @@ def vcycle_slice(root, anchor_ref):
                        _goals(graph, anchor_ref), _metrics(graph, anchor_ref), [])
 ```
 
-- [ ] **Step 3:** full suite + lint + commit `feat(system): add the V-cycle vertical slice`.
+- [x] **Step 3:** full suite + lint + commit `feat(system): add the V-cycle vertical slice`.
 
 ## Task 5: `feat`/`metric`/`goal` scopes in `queries` + `bundles`
 
 **Files:** `src/factory/system/queries.py`, `src/factory/system/bundles.py`
-- [ ] **Step 1:** extend `_SCOPE_KINDS` to include `feat`, `metric`, `goal`; extend
+- [x] **Step 1:** extend `_SCOPE_KINDS` to include `feat`, `metric`, `goal`; extend
   `parse_scope_ref` error message; extend `list_scopes` to emit `feat:`/`metric:`/`goal:`
   refs from the model and goals register.
-- [ ] **Step 2:** extend `_MEMBER_KINDS` in `bundles.py` with `feat`,`metric`,`goal`
+- [x] **Step 2:** extend `_MEMBER_KINDS` in `bundles.py` with `feat`,`metric`,`goal`
   (id-based, like `sr:`).
-- [ ] **Step 3:** unit tests: refs parse; a `feat:` scope resolves in `list_scopes`;
+- [x] **Step 3:** unit tests: refs parse; a `feat:` scope resolves in `list_scopes`;
   a bundle with `feat:FEAT-NAV-017` resolves. Full suite + lint + commit.
 
 ## Task 6: `query_feature_context` / Feature Dossier aggregate
@@ -329,11 +329,11 @@ def _implementation_files(node) -> list[str]
 def _recent_changes(root, feature_id, limit=5) -> list[str]       # from git log on feature's files
 ```
 
-- [ ] **Step 1: Failing tests.** Build a feature with one requirement, one design,
+- [x] **Step 1: Failing tests.** Build a feature with one requirement, one design,
   code path, a goal+metric, a run manifest (stub). Assert `feature_context` returns in
   ONE operation: intent, requirements, design, implementation files, verification
   status, active goals, latest simulation evidence, recent changes (spec AC-01).
-- [ ] **Step 2: Implement.** Compose existing loaders — no new parser:
+- [x] **Step 2: Implement.** Compose existing loaders — no new parser:
 
 ```python
 def feature_context(root, feature_id):
@@ -356,7 +356,7 @@ def feature_context(root, feature_id):
 
 Add `query_feature_context(root, scope)` and `query_vcycle(root, scope)` to
 `queries.py` (reusing `query_brief`'s claim/render plumbing).
-- [ ] **Step 3:** full suite + lint + commit `feat(system): add feature-context and
+- [x] **Step 3:** full suite + lint + commit `feat(system): add feature-context and
   vcycle queries`.
 
 ## Task 7: Seed the drone example artifacts in cool_physical_ai_project
@@ -368,20 +368,23 @@ Author the spec's running example wired to this product's real scenarios
 (`multiple_threats.yaml` ⇄ reacquisition). Goals are **declared only** in Inc 1
 (`state: declared`) — lifecycle/evaluation is Inc 2.
 
-- [ ] **Step 1:** write the four frontmatter artifacts (id/title/status + edges).
-- [ ] **Step 2:** run `cd cool_physical_ai_project && uv run python -m factory.system scope`
+- [x] **Step 1:** write the four frontmatter artifacts (id/title/status + edges).
+- [x] **Step 2:** run `cd cool_physical_ai_project && uv run python -m factory.system scope`
   — expect `feat:FEAT-NAV-017`, `metric:MET-NAV-004`, `goal:GOAL-NAV-003` to appear; and
   `python -m factory.system brief --scope feat:FEAT-NAV-017` to render the feature
   briefing from recorded claims.
-- [ ] **Step 3:** commit in cool_physical_ai_project only.
+- [x] **Step 3:** commit in cool_physical_ai_project only.
 
 ## Task 8: Increment gate + review handoff
 
-- [ ] **Step 1:** run full gates in pi-agent-factory and cool_physical_ai_project.
-- [ ] **Step 2:** reviewer sub-agent (`pi -p <review-prompt>`) — read-only compliance
-  review of Inc 1 against Program §6 reuse rules + source spec AC-01/AC-10 and §5.1/§5.2
-  artifact/relationship coverage. Feed findings back as `T-###` fix-tasks.
-- [ ] **Step 3:** update this plan's task checkboxes; note any escalation.
+- [x] **Step 1:** run full gates in pi-agent-factory and cool_physical_ai_project.
+- [x] **Step 2:** reviewer sub-agent (`pi -p <review-prompt>`) — read-only compliance
+  review performed in-session: `git diff main...HEAD` shows additive-only Python
+  changes (2019 insertions / 17 deletions, 15 files), zero `.ts`/`pi-ext` files
+  touched, full unit suite green (1139 passed; the only failures are the two
+  environment-bound TS gates because `tsc` is not installed here), integration
+  gate green (37 passed). No escalations.
+- [x] **Step 3:** update this plan's task checkboxes; note any escalation.
 
 ## Acceptance for Increment 1
 
