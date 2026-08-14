@@ -19,11 +19,42 @@ import { describe, expect, test } from "vitest";
 import { ensureDocsServer, stopDocsServer } from "../src/docs-server.js";
 
 // playwright is only required when the gate actually runs (it is not a
-// declared devDependency), so load it lazily inside the test instead of at
-// module scope. The type-only import below is erased at emit time and adds no
-// runtime requirement.
-import type { Browser, Page } from "playwright";
-let chromiumModule: { chromium: { launch(opts: { headless: boolean; channel: string }): Promise<Browser> } } | null = null;
+// declared devDependency), so it is loaded lazily inside the test instead of
+// at module scope. The test must still typecheck in a clean checkout where
+// playwright is absent, so the slice of the Playwright API it uses is
+// described with local structural types rather than an `import type` from
+// "playwright".
+type PlaywrightElement = {
+  click(): Promise<void>;
+  press(key: string): Promise<void>;
+  textContent(): Promise<string | null>;
+};
+type PlaywrightPage = {
+  on(evt: string, fn: (arg: any) => void): PlaywrightPage;
+  $eval<R>(sel: string, fn: (el: Element) => R): Promise<R>;
+  $$eval<R>(sel: string, fn: (els: Element[]) => R): Promise<R>;
+  $(sel: string): Promise<PlaywrightElement | null>;
+  textContent(sel: string): Promise<string | null>;
+  click(sel: string): Promise<void>;
+  fill(sel: string, value: string): Promise<void>;
+  keyboard: { press(key: string): Promise<void> };
+  evaluate<R>(fn: () => R): Promise<R>;
+  waitForSelector(sel: string, opts?: { timeout?: number }): Promise<void>;
+  waitForTimeout(ms: number): Promise<void>;
+  goto(url: string, opts?: { waitUntil?: string }): Promise<unknown>;
+  content(): Promise<string>;
+  route(url: string, handler: (route: { abort(reason: string): void }) => void): Promise<void>;
+  unroute(url: string): Promise<void>;
+  close(): Promise<void>;
+};
+type PlaywrightBrowser = {
+  newPage(opts: { viewport: { width: number; height: number } }): Promise<PlaywrightPage>;
+  close(): Promise<void>;
+};
+type PlaywrightModule = {
+  chromium: { launch(opts: { headless: boolean; channel: string }): Promise<PlaywrightBrowser> };
+};
+let chromiumModule: PlaywrightModule | null = null;
 
 const ENABLED = process.env.BROWSER_GATE === "1";
 const TARGET = process.env.BROWSER_GATE_TARGET ?? "C:/coding/cool_physical_ai_project";
@@ -53,6 +84,9 @@ function record(vp: string, step: string, message: string, element?: string, sev
 describe.skipIf(!ENABLED)("system navigator browser validation", () => {
   test("full visual gate at all three viewports", async () => {
     const loaded =
+      // playwright is only present at gate-run time (never typechecked against
+      // in a clean checkout), so suppress module resolution on this one line.
+      // @ts-ignore -- playwright is an optional runtime dependency, not declared
       chromiumModule ?? ((await import("playwright")) as unknown as Exclude<typeof chromiumModule, null>);
     chromiumModule = loaded;
     const chromium = loaded.chromium;
@@ -132,6 +166,9 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         await page.waitForSelector(".matrix-row", { timeout: 30_000 });
         // ---------------- Trace spine ----------------
         await page.click("#tabTrace");
+        // The trace spine is lazy-loaded; give it up to 30s to render before
+        // asserting, so a slow traversal doesn't look like a missing spine.
+        await page.waitForSelector(".trace-spine-step", { timeout: 30_000 }).catch(() => {});
         const spine = await page.$$eval(".trace-spine-step", (els: Element[]) => els.map((e: Element) => e.textContent?.trim() ?? ""));
         if (spine.length === 0) record(vp.name, "trace-spine", "no trace spine steps rendered when traversal exists", ".trace-spine-step");
 
@@ -262,5 +299,5 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
     }
     // eslint-disable-next-line no-console
     console.log(`BROWSER GATE OK -- warnings: ${findings.length}, console errors: ${consoleErrors.length} (report: ${REPORT})`);
-  }, 600_000);
+  }, 900_000);
 });
