@@ -996,6 +996,34 @@ export default function factoryWatch(pi: PiApi): void {
   };
   pi.registerCommand("system", systemCommand);
 
+  // /goal: thin agent-UX shim over the deterministic `factory.goals` core.
+  // Arg passthrough to the Python CLI; the core owns all state/parsing. Rich
+  // wiring and eng_* agent tools land in Inc 4; this only surfaces the core.
+  pi.registerCommand("goal", {
+    description:
+      "Create and evaluate engineering goals via factory.goals (list|show|create|set-state|evaluate|history)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) {
+        ctx.ui.notify("usage: /goal <list|show|create|set-state|evaluate|history> ...", "error");
+        return;
+      }
+      const sub = parts[0];
+      const result = spawnSync(
+        "uv",
+        ["run", "python", "-m", "factory.goals", ...parts, "--repo", ctx.cwd, "--json"],
+        { cwd: ctx.cwd, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
+      );
+      const stderr = (result.stderr ?? "").trim();
+      if (result.status !== 0) {
+        ctx.ui.notify(`/goal ${sub}: ${stderr || "command failed"}`, "error");
+        return;
+      }
+      const stdout = (result.stdout ?? "").trim();
+      ctx.ui.notify(`/goal ${sub}: ${stdout.slice(0, 240)}`, "info");
+    },
+  });
+
   // /visual-explain: explain parts of the system with a diagram-design SVG +
   // markdown note. Same pattern as /trace-fix: resolve the vendored skill
   // (project .pi/skills first, then the factory's own copy), seed a fresh

@@ -3,6 +3,13 @@
 **Status:** Draft for written review. Assumes locked **D3 (additive, keep v1 working),
 D4 (both), D5 (spec vocabulary)"**. D1 (pi-ext)/D2 (SCC browser; no Obsidian) do not affect
 this increment's Python core.
+**Implementation status (2026-08-13, branch `feature/ec-increment-02`):** Tasks 1–8
+implemented, test-first; full v1 suite green at every commit (1190 passed / 0 failed,
+ruff clean, 694 extension tests). Exit demo verified against the product repo
+(`NOT_REACHED -> REACHED -> REGRESSED`). Compliance review performed inline (harness
+subagent tool unavailable); one D3 finding (restored an overwritten Inc 1 test file) was
+fixed and committed. Awaiting written review + merge; then `cool_physical_ai_project`
+consumes the goals core via its editable path dependency.
 **Source phase:** Engineering Context spec §37 **Phase 2 — `/goal`.**
 **Landing repo:** pi-agent-factory (Python core) + cool_physical_ai_project (declared goal values).
 **Sub-agents:** dev=`pi -p prompts/increment-02-dev.md`, review=`pi -p prompts/increment-02-review.md`.
@@ -64,10 +71,10 @@ def can_transition(from_: GoalState, to: GoalState) -> bool
 def transition(from_: GoalState, to: GoalState) -> GoalState   # raises TransitionError
 ```
 
-- [ ] **Step 1: Failing tests** — encode spec §13 as an adjacency table and assert
+- [x] **Step 1: Failing tests** — encode spec §13 as an adjacency table and assert
   every legal edge + a set of illegal ones (e.g. `REACHED → DECLARED`, `NOT_REACHED → BLOCKED`
   if evidence exists). 
-- [ ] **Step 2: Implement:**
+- [x] **Step 2: Implement:**
 ```python
 _TRANSITIONS = {
   "DECLARED": {"ACTIVE"},
@@ -82,7 +89,7 @@ def transition(f,t):
     if t not in _TRANSITIONS[f]: raise TransitionError(f"{f} -> {t} not allowed")
     return t
 ```
-- [ ] **Step 3:** unit suite + lint + commit.
+- [x] **Step 3:** unit suite + lint + commit.
 
 ## Task 2: Goal schema + registry
 
@@ -105,13 +112,13 @@ def transition(f,t):
 def load_goal(path) -> Goal
 def load_goals(root) -> dict[str, Goal]      # keys by id; duplicate id raises DuplicateGoalIdError
 ```
-- [ ] **Step 1: Failing tests** — parse a well-formed `GOAL-NAV-003.md`; absent frontmatter
+- [x] **Step 1: Failing tests** — parse a well-formed `GOAL-NAV-003.md`; absent frontmatter
   degrades to recorded `scope_errors` (never crashes the set); duplicate id raises.
-- [ ] **Step 2: Implement** mirroring `adr.py` (`parse_adr`/`load_adrs`) exactly, plus
+- [x] **Step 2: Implement** mirroring `adr.py` (`parse_adr`/`load_adrs`) exactly, plus
   `goal.schema.json` requiring `id/title/feature/requirements/metric/target`; `state`
   defaults to `DECLARED`. `target` = `{operator: ">=", value: 0.90}`; `metric` =
   `{name, source_experiment}`.
-- [ ] **Step 3:** unit suite + lint + commit.
+- [x] **Step 3:** unit suite + lint + commit.
 
 ## Task 3: Deterministic evaluator + evidence
 
@@ -124,10 +131,10 @@ OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt,
     operator: str; evidence: dict   # {experiment, run, commit, metrics_path, recorded_at}
 def evaluate(path: Path, value: float, run_id: str, commit: str, metrics_path: Path) -> GoalResult
 ```
-- [ ] **Step 1: Failing tests** — spec AC-04: `0.93 >= 0.90` → `passed=True`, `state=REACHED`;
+- [x] **Step 1: Failing tests** — spec AC-04: `0.93 >= 0.90` → `passed=True`, `state=REACHED`;
   AC-07: later `0.82` from `REACHED` → `REGRESSED`; `NOT_REACHED` when first below target;
   `BLOCKED` when metric source/experiment missing.
-- [ ] **Step 2: Implement:**
+- [x] **Step 2: Implement:**
 ```python
 def evaluate(goal, value, *, run_id, commit, metrics_path):
     if goal.metric is None or goal.metric.get("name") is None or goal.metric.get("source_experiment") is None:
@@ -141,7 +148,7 @@ def evaluate(goal, value, *, run_id, commit, metrics_path):
                       {"experiment": goal.metric["source_experiment"], "run": run_id,
                        "commit": commit, "metrics_path": str(metrics_path)})
 ```
-- [ ] **Step 3:** unit suite + lint + commit.
+- [x] **Step 3:** unit suite + lint + commit.
 
 ## Task 3b: Measurable goal contract + guardrail gate (brief §5.3)
 
@@ -152,7 +159,7 @@ guardrail set and a confidence/stop rule before `/goal create` accepts it; a goa
 REACHED while a guardrail fails**, the minimum evidence count is unmet, or the baseline is
 incomparable (brief "Specification requirement").
 
-- [ ] **Step 1: Failing tests** —
+- [x] **Step 1: Failing tests** —
   - guardrail gate: `reacquisition_rate=0.93 >= 0.90` but `false_reacquisition=0.05 > 0.03` ⇒
     evaluator returns `BLOCKED` (never `REACHED`); if the goal was previously REACHED, a broken
     guardrail returns `REGRESSED` with guardrail evidence recorded.
@@ -163,41 +170,41 @@ incomparable (brief "Specification requirement").
     older, differently-defined baseline is flagged `baseline_mismatch` (not silently compared).
   - `/goal create` without a guardrail/stop_rule is rejected with a clear message listing missing
     contract fields.
-- [ ] **Step 2: Implement** — extend `Goal`/schema with the §5.3 fields; in `evaluate` add a
+- [x] **Step 2: Implement** — extend `Goal`/schema with the §5.3 fields; in `evaluate` add a
   guardrail + confidence + baseline-comparability pre-check that runs *before* the target
   comparison and short-circuits REACHED; record `guardrail_results` + `confidence_met` in the
   evidence bundle; wire the contract fields through `parse_goal_cmd` (`guardrails=..,population=..,
   baseline=..,confidence=..,budget=..,stop=` args) and `goal.schema.json`.
-- [ ] **Step 3:** full suite + lint + commit `feat(goals): add the measurable goal contract + guardrail gate`.
+- [x] **Step 3:** full suite + lint + commit `feat(goals): add the measurable goal contract + guardrail gate`.
 
 ## Task 4: Persist evidence + transition log
 
 **Files:** `src/factory/goals/registry.py` (extend), `src/factory/goals/cli.py`,
 `tests/unit/goals/test_cli.py`
-- [ ] **Step 1: Failing tests** — after `evaluate`, the goal file's frontmatter records
+- [x] **Step 1: Failing tests** — after `evaluate`, the goal file's frontmatter records
   `state`, `result{value,target}`, `evidence{experiment,run,commit,metrics}` (spec §15) and an
   append-only `history` entry; the transition log is appended, never rewritten.
-- [ ] **Step 2: Implement** a `record(result, goal_path)` that reads frontmatter, sets
+- [x] **Step 2: Implement** a `record(result, goal_path)` that reads frontmatter, sets
   `state`+`result`+`evidence`, pushes to `history`, and writes back atomically. Append-only
   `goals/<id>-transitions.jsonl` for audit; deterministic ordering by recorded timestamp.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 5: `factory goals` CLI + `query_goal`/`query_goals` in `system`
 
 **Files:** `src/factory/goals/cli.py`, `src/factory/system/queries.py`
-- [ ] **Step 1:** CLI subcommands `list/show/create/set-state/evaluate/history`. `create`
+- [x] **Step 1:** CLI subcommands `list/show/create/set-state/evaluate/history`. `create`
   writes a goal file from `--feature/--requirements/--metric/--target/--state`.
-- [ ] **Step 2:** in `system/queries.py`, add `query_goal(root, id)` (single goal +
+- [x] **Step 2:** in `system/queries.py`, add `query_goal(root, id)` (single goal +
   current state + latest evidence + history) and `query_goals(root, scope)` (goals bound to a
   feat:/sr: via `demonstrates` edges) — output renders through the existing claim/freshness
   plumbing (goals exposed to agent in Inc 4, human view in Inc 6).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 6: `/goal` command + goal-reached notification
 
 **Files:** `src/factory/commands/goal.py`, `pi-ext/factory-watch` `/goal` wiring,
 `tests/unit/commands/test_goal.py`
-- [ ] **Step 1:** handler for spec §12 UX:
+- [x] **Step 1:** handler for spec §12 UX:
 ```python
 def parse_goal_cmd(arg: str) -> dict:
     # short form: "NAV-REQ-021 reacquisition_rate >= 0.90"
@@ -207,33 +214,33 @@ def parse_goal_cmd(arg: str) -> dict:
 def create_goal(root, parsed) -> Goal
 ```
 Agent MAY infer missing config when unambiguous (spec §12); anything ambiguous escalates to the human.
-- [ ] **Step 2:** notification shim `notify_goal_transition(prev, result)` called after
+- [x] **Step 2:** notification shim `notify_goal_transition(prev, result)` called after
   `evaluate` — prints the spec §16 "✓ GOAL REACHED" block (rich cockpit notification is Inc 4/6);
   regression path uses spec §17 wording.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 7: goal-aware requirement status (additive)
 
 **Files:** `src/factory/trace/validation_status.py` (extend), `tests/unit/trace/test_validation_status.py`
-- [ ] **Step 1:** map goal outcome into the D5 vocabulary without disturbing v1 status:
+- [x] **Step 1:** map goal outcome into the D5 vocabulary without disturbing v1 status:
   a requirement all of whose goals are `REACHED` reports `VALIDATED`; a `REGRESSED` goal reports
   `REGRESSED`; goals exist but none reached yet reports `VERIFICATION_PENDING`; no goals → v1 behavior unchanged.
-- [ ] **Step 2:** this is **derived** (computed from goals), never stored — matching spec §28
+- [x] **Step 2:** this is **derived** (computed from goals), never stored — matching spec §28
   ("shall not become VALIDATED merely because implementation exists"). Add a `requirement_validation(goals)` pure function + tests.
-- [ ] **Step 3:** full v1 suite MUST stay green; commit.
+- [x] **Step 3:** full v1 suite MUST stay green; commit.
 
 ## Task 8: Phase 2 exit demo + review handoff
 
-- [ ] **Step 1:** author `cool_physical_ai_project/scripts/demo_goal_cycle.py`:
+- [x] **Step 1:** author `cool_physical_ai_project/scripts/demo_goal_cycle.py`:
 ```python
 g = load_goal("goals/GOAL-NAV-003.md")
 results = [evaluate(g, v, run_id=f"RUN-demo{i}", commit=sha, metrics_path="evidence/runs/x/metrics.json")
            for i, v in enumerate([0.71, 0.93, 0.82])]
 # assert states == [NOT_REACHED, REACHED, REGRESSED]
 ```
-- [ ] **Step 2:** reviewer sub-agent — compliance review vs spec §11–§18 (state model, AC-04..07,
+- [x] **Step 2:** reviewer sub-agent — compliance review vs spec §11–§18 (state model, AC-04..07,
   evidence retention, notification, regression) + D3 additive rule. Fix findings as `T-###`.
-- [ ] **Step 3:** update task checkboxes; note escalations.
+- [x] **Step 3:** update task checkboxes; note escalations.
 
 ## Acceptance for Increment 2
 

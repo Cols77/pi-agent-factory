@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-from factory.trace.validation_status import load_validation
+from factory.goals.schema import Goal
+from factory.trace.validation_status import load_validation, requirement_validation
 
 pytestmark = pytest.mark.unit
 
@@ -71,3 +72,30 @@ def test_unreadable_report_yields_empty_map(tmp_path):
     path.write_text("{not json", encoding="utf-8")
 
     assert load_validation(tmp_path) == {}
+
+
+# ── Task 7: derived goal-aware requirement status (additive) ─────────────
+
+
+def _goal(state: str) -> Goal:
+    return Goal(id="GOAL-NAV-003", title="t", path=Path("goals/x.md"), state=state)  # type: ignore[arg-type]
+
+
+def test_no_goals_yields_none():
+    assert requirement_validation([]) is None
+
+
+def test_goal_all_reached_yields_validated():
+    assert requirement_validation([_goal("REACHED"), _goal("REACHED")]) == "VALIDATED"
+
+
+def test_goal_any_regressed_yields_regressed():
+    assert requirement_validation([_goal("REACHED"), _goal("REGRESSED")]) == "REGRESSED"
+
+
+def test_goal_none_reached_yields_verification_pending():
+    assert requirement_validation([_goal("DECLARED"), _goal("NOT_REACHED")]) == "VERIFICATION_PENDING"
+
+
+def test_goal_blocked_counts_as_pending_not_reached():
+    assert requirement_validation([_goal("BLOCKED")]) == "VERIFICATION_PENDING"
