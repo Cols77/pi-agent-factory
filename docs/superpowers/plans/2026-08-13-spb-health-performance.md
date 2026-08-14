@@ -340,7 +340,7 @@
 
 **Files:** No source changes expected.
 
-- [ ] **Step 1: Run Python gate and lint**
+- [x] **Step 1: Run Python gate and lint**
 
   Run: `uv run python -m pytest -q -m 'unit or integration' && uv run python -m ruff check .`
 
@@ -369,7 +369,7 @@
   `#content` is visible, `#healthSummary` has text, and `#scopeList` contains at least one
   readiness group or the explicitly rendered empty state. Record browser console errors if any.
 
-- [ ] **Step 5: Commit plan checkbox updates if changed**
+- [x] **Step 5: Commit plan checkbox updates if changed**
 
   ```bash
   git add docs/superpowers/plans/2026-08-13-spb-health-performance.md
