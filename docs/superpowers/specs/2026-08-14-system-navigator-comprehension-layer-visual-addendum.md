@@ -22,12 +22,17 @@ Every value below already exists in `system-shell.ts:78`. No new hue is introduc
 | Signal, affordances | `--signal` | `#65d9ff` |
 | Absence attention | `--stale` | `#ffc857` |
 | Failure | `--degraded` | `#ff6b6b` |
-| Gloss text | `--text-dim` | `#698089` |
+| Gloss text | `--text-muted` | `#91a8b0` |
 | Ids, paths, commands | `--font-mono` | Cascadia Code |
 | Reading text | `--font-body` | Aptos |
 
 Two derived tokens are added for intent, both aliases of the above so the palette
-does not grow: `--absence: var(--stale)` and `--gloss: var(--text-dim)`.
+does not grow: `--absence: var(--stale)` and `--gloss: var(--text-muted)`.
+
+**Contrast, measured not assumed.** Revision 1 set `--gloss` to `--text-dim`
+(`#698089`). At 12 px that is 4.26:1 on `--surface` and 3.83:1 on `--surface-raised` —
+both below the 4.5:1 AA floor, and cards sit on exactly those grounds. `--text-muted`
+(`#91a8b0`) clears it. The browser gate measures this rather than eyeballing it.
 
 ## The organising idea
 
@@ -53,6 +58,12 @@ distinction belongs.
 Colour on the rail follows severity, never kind: `--line-strong` normally,
 `--absence` for an absence, `--degraded` for a genuine failure. Text always names the
 state; the rail never carries meaning alone.
+
+**Scope of the absence treatment.** It applies only to the empty states the browser
+decides itself — the explicit `if (!x.length)` branches. The existing red `degraded:`
+banner is unchanged in this increment, because its reasons are free-text sentences the
+browser cannot classify without interpreting them. See the design's "Severity,
+narrowed".
 
 ### Signature moment — the command line
 
