@@ -19,6 +19,7 @@ from pathlib import Path
 from factory.system import bundles as bundles_module
 from factory.system import health as health_module
 from factory.system import labels as labels_module
+from factory.system import remediation as remediation_module
 from factory.system import vocabulary as vocabulary_module
 from factory.system.bundles import list_bundles
 from factory.system.coverage import bundle_coverage, member_target
@@ -172,6 +173,10 @@ def cmd_labels(repo_root: Path) -> dict:
 
 def cmd_vocabulary() -> dict:
     return vocabulary_module.build_vocabulary()
+
+
+def cmd_remediation() -> dict:
+    return remediation_module.build_remediation()
 
 
 def cmd_memberships(repo_root: Path, ref: str) -> dict:
@@ -409,6 +414,15 @@ def _render_vocabulary(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_remediation(result: dict) -> str:
+    states = result["states"]
+    lines = [f"remediation: {len(states)} states"]
+    for state, entry in states.items():
+        lines.append(f"  {state} [{entry['severity']}]: {entry['headline']}")
+        lines.append(f"    {entry['command']}")
+    return "\n".join(lines)
+
+
 def _render_memberships(result: dict) -> str:
     if not result["bundles"]:
         return f"{result['ref']} in no bundle"
@@ -474,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("vocabulary", parents=[common])
 
+    sub.add_parser("remediation", parents=[common])
+
     p_memberships = sub.add_parser("memberships", parents=[common])
     p_memberships.add_argument("ref")
 
@@ -533,6 +549,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "vocabulary":
             result = cmd_vocabulary()
             rendered = _render_vocabulary(result)
+        elif args.cmd == "remediation":
+            result = cmd_remediation()
+            rendered = _render_remediation(result)
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)
