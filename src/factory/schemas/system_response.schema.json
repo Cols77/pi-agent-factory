@@ -53,14 +53,30 @@
       "description": "Matches `factory.system.story.query_story` (increment B, forward half of the V-cycle): one task's implementation story, assembled from recorded evidence manifests and session records.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["scope", "task", "runs", "requirements", "degraded", "degraded_reasons"],
+      "required": ["scope", "task", "runs", "requirements", "degraded", "degraded_reasons", "plan_section"],
       "properties": {
         "scope": {"$ref": "#/$defs/storyScopeRef"},
         "task": {"$ref": "#/$defs/storyTask"},
         "runs": {"type": "array", "items": {"$ref": "#/$defs/storyRun"}},
         "requirements": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "degraded": {"type": "boolean"},
-        "degraded_reasons": {"type": "array", "items": {"type": "string"}}
+        "degraded_reasons": {"type": "array", "items": {"type": "string"}},
+        "plan_section": {
+          "description": "The source plan's `### Task N:` section for this task, or null when the task declares no source_plan, the plan file is unreadable, or no section matches.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["plan_path", "heading", "body"],
+              "properties": {
+                "plan_path": { "type": "string", "minLength": 1 },
+                "heading": { "type": "string", "minLength": 1 },
+                "body": { "type": "string" }
+              }
+            }
+          ]
+        }
       }
     },
     "reverse": {
@@ -241,11 +257,16 @@
       "description": "The resolved task record a story is about (design increment B): the ledger's own id/title/status. No separate `ref` -- it would always equal `scope.ref` (both come from the same resolved task id), so it isn't duplicated here.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "title", "status"],
+      "required": ["id", "title", "status", "dod"],
       "properties": {
         "id": {"type": "string", "pattern": "^T-[0-9]+$"},
         "title": {"type": "string"},
-        "status": {"type": "string"}
+        "status": {"type": "string"},
+        "dod": {
+          "description": "The task's definition of done, as recorded in its frontmatter and parsed by the ledger.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     },
     "storyImplementation": {

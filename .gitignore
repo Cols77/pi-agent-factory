@@ -15,16 +15,21 @@ test_output.txt
 *pytest_out.txt
 *pytest_err.txt
 
-# Factory run-time artifacts: transcript logs, live status/lock, regenerated
-# summaries. These are per-run scratch the orchestrator writes via `git add -A`
-# during commit_all; they bloat history and never belong in the repo. The
-# durable per-run records (sessions/*.session.json) stay tracked.
-sessions/.factory-transcripts/
-sessions/.factory-status.json
-sessions/.factory-run.log
-sessions/.factory-run.lock
-sessions/latest.md
-sessions/.factory-runs/
+# Factory run-time artifacts. The whole of sessions/ is local-only: transcript
+# logs, live status/lock, regenerated summaries, the per-run *.session.json
+# records and the session-report retrospectives. The orchestrator writes these
+# via `git add -A` during commit_all and they bloat history badly -- these
+# records are machine transcripts of whole runs, and four of them alone reached
+# ~300MB against ~1KB for the early ones. Nothing reads them through git:
+# load_session_runs globs the directory from disk and returns [] when it is
+# absent, and write_session mkdirs it. .gitkeep stays tracked so a fresh clone
+# still has the directory.
+#
+# git_ops.py excludes sessions/.factory-runs/ and sessions/.factory-transcripts/
+# by path as well, because that fix must hold in a target repo that never
+# inherits this file.
+sessions/*
+!sessions/.gitkeep
 
 # Content-addressed evidence blobs; compact evidence/runs manifests stay tracked.
 .factory/artifacts/

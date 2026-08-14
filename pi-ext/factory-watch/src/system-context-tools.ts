@@ -15,6 +15,7 @@ import {
   loadSystemStory,
   loadSystemTimeline,
 } from "./system-cli.js";
+import { buildSystemContext, unknownSource } from "./system-context.js";
 
 interface ToolCtx { cwd: string }
 
@@ -57,15 +58,6 @@ function result(value: unknown) {
   return { content: [{ type: "text" as const, text }], details: value };
 }
 
-function unknown(source: string, error: string): Record<string, unknown> {
-  return {
-    status: "unknown",
-    source,
-    error,
-    instruction: "Missing evidence is unknown. Do not infer or manufacture it.",
-  };
-}
-
 export function buildSystemContextTools(deps: Dependencies = defaultDependencies) {
   const systemContext = {
     name: "system_context",
@@ -83,40 +75,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       _onUpdate: unknown,
       ctx: ToolCtx,
     ) {
-      const graphResult = deps.graph(ctx.cwd);
-      if (!graphResult.ok) return result(unknown("trace", graphResult.error));
-      const node = graphResult.graph.nodes.find((item) => item.id === params.id);
-      if (node === undefined) return result(unknown("trace", `node not found: ${params.id}`));
-      const edges = graphResult.graph.edges.filter(
-        (edge) => edge.src === params.id || edge.dst === params.id,
-      );
-      const neighbourIds = new Set(
-        edges.flatMap((edge) => [edge.src, edge.dst]).filter((id) => id !== params.id),
-      );
-      const neighbours = graphResult.graph.nodes.filter((item) => neighbourIds.has(item.id));
-      const taskEvidence = node.kind === "task"
-        ? deps.taskEvidence(ctx.cwd, params.id)
-        : null;
-      const freshness = node.kind === "task" ? deps.preflight(ctx.cwd, params.id) : null;
-      return result({
-        node,
-        edges,
-        neighbours,
-        freshness: freshness === null
-          ? { status: "not-applicable", reason: "freshness is task-scoped" }
-          : freshness.ok ? freshness.value : unknown("preflight", freshness.error),
-        evidence: taskEvidence === null
-          ? { status: "not-applicable", reason: "implementation evidence is task-scoped" }
-          : taskEvidence.ok
-            ? { runs: taskEvidence.value.runs.map((run) => ({
-                run_id: run.run_id,
-                outcome: run.outcome,
-                start_commit: run.start_commit,
-                result_commit: run.result_commit,
-              })) }
-            : unknown("evidence", taskEvidence.error),
-        provenance: "recorded and deterministically derived project data only",
-      });
+      return result(buildSystemContext(ctx.cwd, params.id, deps).context);
     },
   };
 
@@ -135,7 +94,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.taskEvidence(ctx.cwd, params.task_id);
-      return result(value.ok ? value.value : unknown("evidence", value.error));
+      return result(value.ok ? value.value : unknownSource("evidence", value.error));
     },
   };
 
@@ -154,13 +113,13 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const graphResult = deps.graph(ctx.cwd);
-      if (!graphResult.ok) return result(unknown("trace", graphResult.error));
+      if (!graphResult.ok) return result(unknownSource("trace", graphResult.error));
       const node = graphResult.graph.nodes.find((item) => item.id === params.id);
-      if (node === undefined) return result(unknown("trace", `node not found: ${params.id}`));
+      if (node === undefined) return result(unknownSource("trace", `node not found: ${params.id}`));
       const status = graphResult.graph.validation[params.id];
       return result({
         node,
-        validation: status ?? unknown("validation", `no validation entry for ${params.id}`),
+        validation: status ?? unknownSource("validation", `no validation entry for ${params.id}`),
       });
     },
   };
@@ -180,7 +139,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.reconcile(ctx.cwd, params.task_id);
-      return result(value.ok ? value.value : unknown("reconciliation", value.error));
+      return result(value.ok ? value.value : unknownSource("reconciliation", value.error));
     },
   };
 
@@ -200,7 +159,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.scopes(ctx.cwd);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -222,7 +181,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.briefing(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -244,7 +203,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.matrix(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -266,7 +225,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.timeline(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -289,7 +248,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.guide(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -313,7 +272,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.story(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 
@@ -336,7 +295,7 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
       ctx: ToolCtx,
     ) {
       const value = deps.reverse(ctx.cwd, params.scope);
-      return result(value.ok ? value.value : unknown("system", value.error));
+      return result(value.ok ? value.value : unknownSource("system", value.error));
     },
   };
 

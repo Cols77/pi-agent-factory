@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,7 +7,10 @@ import {
   parseReviewPlansArgs,
   readSurfacePref,
   writeSurfacePref,
+  readLayoutPref,
+  writeLayoutPref,
 } from "../src/review-surface.js";
+import { DEFAULT_LAYOUT } from "../src/review-layout.js";
 
 const dirs: string[] = [];
 function tmp() {
@@ -33,6 +36,18 @@ describe("surface pref", () => {
     // sessions/ may not exist yet; writeSurfacePref must create it, so write then corrupt
     writeSurfacePref(d, "browser");
     writeFileSync(join(d, "sessions", ".factory-review-surface.json"), "not json");
+    expect(readSurfacePref(d)).toBe("terminal");
+  });
+  test("a non-string surface value does not stringify its way into browser", () => {
+    const d = tmp();
+    mkdirSync(join(d, "sessions"), { recursive: true });
+    // Array.prototype.toString() on ["browser"] is exactly "browser"; a strict
+    // comparison must not be fooled by that coincidence.
+    writeFileSync(
+      join(d, "sessions", ".factory-review-surface.json"),
+      '{"surface":["browser"]}',
+      "utf-8",
+    );
     expect(readSurfacePref(d)).toBe("terminal");
   });
 });
@@ -73,5 +88,32 @@ describe("surface preference keys", () => {
     const d = tmp();
     writeSurfacePref(d, "browser");
     expect(readSurfacePref(d)).toBe("browser");
+  });
+});
+
+describe("layout preference", () => {
+  test("round-trips through the surface preference file", () => {
+    const cwd = tmp();
+    writeLayoutPref(cwd, { collapsed: ["tree"], zoomed: "diff" });
+    expect(readLayoutPref(cwd)).toEqual({ collapsed: ["tree"], zoomed: "diff" });
+  });
+
+  test("does not disturb the surface preference stored in the same file", () => {
+    const cwd = tmp();
+    writeSurfacePref(cwd, "browser");
+    writeLayoutPref(cwd, { collapsed: ["comments"], zoomed: null });
+    expect(readSurfacePref(cwd)).toBe("browser");
+  });
+
+  test("a missing file yields the default layout", () => {
+    expect(readLayoutPref(tmp())).toEqual(DEFAULT_LAYOUT);
+  });
+
+  test("a corrupt stored layout yields the default rather than throwing", () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, "sessions"), { recursive: true });
+    writeFileSync(join(cwd, "sessions", ".factory-review-surface.json"),
+      '{"layout":{"collapsed":["bogus"],"zoomed":"nope"}}', "utf-8");
+    expect(readLayoutPref(cwd)).toEqual(DEFAULT_LAYOUT);
   });
 });

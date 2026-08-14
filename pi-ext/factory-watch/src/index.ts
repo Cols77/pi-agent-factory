@@ -329,7 +329,7 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
                 banner: opts.banner,
                 guide: opts.guide ?? null,
               });
-              const srv = await startReviewServer(pageData);
+              const srv = await startReviewServer(pageData, { cwd: ctx.cwd });
               ctx.ui.notify(`review open in your browser: ${srv.url}`, "info");
               openInBrowser(srv.url);
               decision = await srv.decision; // resolves on submit; null if the server is closed without a post

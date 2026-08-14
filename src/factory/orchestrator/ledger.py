@@ -17,6 +17,11 @@ class Task:
     body: str
     path: Path
     satisfies: list[str] = field(default_factory=list)
+    # Read here rather than re-parsed in factory.system.story, for the same
+    # reason `satisfies` is: the ledger is the one place task frontmatter is
+    # parsed. A task written before these fields existed simply has None.
+    source_plan: str | None = None
+    source_task: int | None = None
 
 
 def _parse(path: Path) -> Task:
@@ -36,6 +41,15 @@ def _parse(path: Path) -> Task:
         satisfies = [satisfies_value]
     else:
         satisfies = [str(s) for s in satisfies_value]  # type: ignore[union-attr]
+    source_plan_value = meta.get("source_plan")
+    source_plan = str(source_plan_value) if source_plan_value else None
+    # A hand-edited task file can carry anything here. A non-integer is not a
+    # section number, so it is absent rather than an error: the plan section is
+    # optional context, never a gate.
+    try:
+        source_task = int(meta["source_task"]) if meta.get("source_task") is not None else None
+    except (TypeError, ValueError):
+        source_task = None
     return Task(
         id=str(meta["id"]),
         title=str(meta["title"]),
@@ -44,6 +58,8 @@ def _parse(path: Path) -> Task:
         body=post.content,
         path=path,
         satisfies=satisfies,
+        source_plan=source_plan,
+        source_task=source_task,
     )
 
 
