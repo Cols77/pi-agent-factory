@@ -19,6 +19,7 @@ from pathlib import Path
 from factory.system import bundles as bundles_module
 from factory.system import health as health_module
 from factory.system import labels as labels_module
+from factory.system import vocabulary as vocabulary_module
 from factory.system.bundles import list_bundles
 from factory.system.coverage import bundle_coverage, member_target
 from factory.system.guide import export_guide
@@ -167,6 +168,10 @@ def cmd_health(repo_root: Path, recency_source=None) -> dict:
 
 def cmd_labels(repo_root: Path) -> dict:
     return labels_module.build_labels(repo_root)
+
+
+def cmd_vocabulary() -> dict:
+    return vocabulary_module.build_vocabulary()
 
 
 def cmd_memberships(repo_root: Path, ref: str) -> dict:
@@ -396,6 +401,14 @@ def _render_labels(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_vocabulary(result: dict) -> str:
+    terms = result["terms"]
+    lines = [f"vocabulary: {len(terms)} terms"]
+    for term, entry in terms.items():
+        lines.append(f"  {term} [{entry['group']}]: {entry['gloss']}")
+    return "\n".join(lines)
+
+
 def _render_memberships(result: dict) -> str:
     if not result["bundles"]:
         return f"{result['ref']} in no bundle"
@@ -459,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("labels", parents=[common])
 
+    sub.add_parser("vocabulary", parents=[common])
+
     p_memberships = sub.add_parser("memberships", parents=[common])
     p_memberships.add_argument("ref")
 
@@ -515,6 +530,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "labels":
             result = cmd_labels(args.repo_root)
             rendered = _render_labels(result)
+        elif args.cmd == "vocabulary":
+            result = cmd_vocabulary()
+            rendered = _render_vocabulary(result)
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)
