@@ -88,6 +88,7 @@ The projection composes existing loaders. It forks no parser and persists no ind
 | Kind | Title | Description | Description source field |
 |---|---|---|---|
 | `sr` | `Requirement.title` | `Requirement.statement` | `statement` — a required field (`requirements/register.py:12`), so an SR always has one |
+| `sr` (deferred) | as above | additionally carries `trace_deferred` when present | `trace_deferred` — the recorded reason the requirement is deferred (see below) |
 | `task` | ledger/frontmatter `title` | `dod` entries joined, then the body's `Modify:`/`Test:` lines | `dod` |
 | `adr` | `AdrDocument.title` | first paragraph of the `Decision` section (`system/adr.py:50` already sections the body) | `decision` |
 | `spec`, `plan` | `Node.title` (`trace/model.py:31`) | the `Purpose` section's first paragraph when the document has one; otherwise the first paragraph after the H1 | `purpose` |
@@ -97,6 +98,15 @@ The projection composes existing loaders. It forks no parser and persists no ind
 
 A ref absent from the index is rendered as its raw ref plus the visible note
 `not in the label index`. It is never guessed and never silently blanked.
+
+**`trace_deferred` is recorded remediation context.** Measured on
+`cool_physical_ai_project/requirements/SR-002.md`, a deferred requirement records
+*why* it is deferred in its own frontmatter — for SR-002, that no candidate task
+covers energy-cost estimation, return-to-base selection, the safety margin, and the
+5% floor together. That text is already the answer a reader wants when they see
+`deferred`, so the label index carries it and Component 3 renders it above the
+generic remediation entry for `sr_proposed` / deferral states. A recorded reason
+always outranks the table's generic wording.
 
 ### Rendering
 
@@ -117,6 +127,46 @@ One helper, `refChip(ref)`, replaces every bare-ref emission in
 The chip renders `T-060 · Wire the safety governor into the planner loop`: the id in
 the monospace face, the title in the reading face. The chip carries no description —
 an SR `statement` is long enough to break a matrix row.
+
+### Bounded ref collections
+
+Several sites render a comma-joined run of refs. Measured on
+`bundle:reactive-planner` in `cool_physical_ai_project`, the traversal spine's
+Requirement step renders fifteen refs — `SR-030, SR-033, SR-038, SR-086, SR-087,
+SR-088, SR-089, SR-095, SR-096, SR-097, SR-100, SR-101, SR-166, SR-167, SR-168` — and
+its Files step renders nineteen full paths as a wall of wrapped monospace that
+dominates the viewport.
+
+Attaching a title to each ref in a comma-joined run would make these strictly worse.
+So every site that renders a collection of refs renders a **bounded list**, not a
+joined string:
+
+- one chip per row, never comma-joined;
+- the first five rows shown, the remainder behind a native `<details>` labelled
+  `+ N more` — consistent with the evidence disclosure pattern already used by
+  `renderClaim`;
+- the count is always visible, so the size of the collection is never hidden.
+
+This applies to the traversal spine's four steps, `renderStory`'s requirements list,
+`renderTrace`'s task hops, and the `member of bundles` line. Ordering stays exactly as
+Python emitted it; the browser bounds the display, it never sorts or filters.
+
+### Sidebar row structure
+
+Sidebar rows currently concatenate the label and its counts into one wrapping
+paragraph — `Deterministic safety governor 15 SR · 14 bound · 15 covered · 14 current
+· 1 deferred · 0 validated` wraps to three lines with no visual separation between the
+feature's name and its numbers. Rows become two distinct blocks: the label on its own
+line in the reading face, the counts beneath in the mono metadata size. The label is
+never visually continuous with the counts.
+
+### Health class denominators
+
+The landing shows `SR satisfied 102/181` beside `SR validated 1/43`. Nothing explains
+why the denominators differ, and the overall `179/300` is a sum across heterogeneous
+classes. Each health class's vocabulary entry therefore states its denominator rule in
+words — what is counted, and what is excluded — and the overall metric's entry states
+that it sums the classes and is not a percentage of requirements.
 
 The card, opened on hover, on keyboard focus, and on tap, carries: id, kind, status,
 title, the description clamped to three lines, the `description_source` shown as
@@ -369,11 +419,22 @@ bundles; degradation paths for each of the three projections.
 
 ### Browser
 
-A Playwright pass at 1440×900, 1024×768, and 390×844 against a populated fixture
-repository and against this repository's zero-bundle state, checking: no console
-errors, no horizontal page overflow, cards reachable by keyboard and by tap, contrast
-of the new muted gloss text, and `prefers-reduced-motion` respected by the card
-transition.
+**Extend the existing gate; do not build a second harness.**
+`test/system-browser-validation.test.ts` already boots the real docs server and drives
+Chromium through Playwright at 1440×900, 1024×768, and 390×844, gated behind
+`BROWSER_GATE=1` and defaulting to `C:\coding\cool_physical_ai_project`. New assertions
+go there.
+
+That target is the correct one: it holds 182 requirements, 44 tasks, and 14 bundles,
+and it is the repository whose refs the surface must make legible. This repository's
+zero-bundle state is the second target, exercising the first-run path, via
+`BROWSER_GATE_TARGET`.
+
+Added assertions: no console errors; no horizontal page overflow; cards reachable by
+keyboard and by tap; `Escape` returns focus; contrast of the gloss text at 12 px;
+`prefers-reduced-motion` respected by the card transition; the traversal spine bounded
+to five rows with its `+ N more` disclosure; and every visible `Not recorded` carrying
+a Next step.
 
 **Harness note.** Serving the extension through `tsx` injects esbuild's `keepNames`
 `__name` helper into the function bodies that `system-shell.ts` stringifies into the
