@@ -22,6 +22,56 @@
 - **Every state word stays visible as text.** Colour and border style never carry meaning alone.
 - **Commit after every task.** Run `npm test` in `pi-ext/factory-watch` and `uv run pytest tests/unit/system` before each commit.
 
+### Codebase facts every task depends on
+
+These were each verified against source on 2026-08-14. Getting one wrong makes a task
+unable to pass its own test.
+
+1. **`pyproject.toml:31` sets `addopts = "-m unit"`.** Every new Python test module
+   MUST declare `pytestmark = pytest.mark.unit` at module level. Without it pytest
+   reports `1 deselected` and exits **5** — which looks like a pass to a careless
+   reader and like a failure to a careful one, but is neither.
+2. **Fixture helpers take a subdirectory, not the repo root.**
+   `_fixtures.write_sr(requirements_dir, …)` (`_fixtures.py:105`) and
+   `_fixtures.write_task(tasks_dir, …)` (`_fixtures.py:120`). Call them as
+   `write_sr(tmp_path / "requirements", …)` and `write_task(tmp_path / "tasks", …)`.
+   By contrast `write_spec(repo_root, filename, *, title)` (`:148`) and
+   `write_bundle(bundles_dir, id, label, members)` (`:73`) take what their names say.
+3. **`tests/unit/system/test_bundles.py` does not import `_fixtures`**, and
+   `test_queries.py` uses `from ._fixtures import (…)` binding bare names. Add the
+   import you need; `test_bundles.py` also has its own unrelated
+   `_write_bundle(bundles_dir, bundle_id, payload: dict)` at `:26` — do not confuse
+   the two.
+4. **`src/factory/system/cli.py` has no `_emit`.** Dispatch is a flat `if/elif` chain
+   on **`args.cmd`** (`cli.py:470-519`) that assigns `result` and `rendered`, then
+   falls through to a shared print at `:516`. Every subcommand goes through a `cmd_*`
+   wrapper (e.g. `cmd_health` at `:162`). Follow that exactly; never `return` from a
+   branch.
+5. **`query_traversal(repo_root: Path, scope: SystemScopeRef)`** (`queries.py:1545`) —
+   the second argument is a parsed ref, not a string. Tests must call
+   `query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))`. The parameter is named
+   `repo_root`, not `root`.
+6. **`trace_model.load_nodes` (`trace/model.py:102`) emits only** `sr`, `br`, `feat`,
+   `diag`, `metric`, `goal`, `task`, `plan`, `spec`. **There are no `adr`, `file`, or
+   `bundle` nodes.** Those three kinds must be built from their own loaders, or from
+   the path itself, never from the graph.
+7. **A requirement's deferral reason is `Node.deferred`** (`trace/model.py:34`,
+   populated from `trace_deferred` frontmatter by `_disposition` at `:48`).
+   `Requirement` (`requirements/register.py:29`) has **no** `trace_deferred`
+   attribute.
+8. **`renderTraversal`, `renderHealthSummary`, `renderBundleList` and
+   `setScopeHeading` are inner functions of `systemBootstrap`** (`system-bootstrap.ts`
+   lines 755, 694, 777, 154). They are not exported and cannot be called from a test.
+   Browser-side tests for them go through the existing `loadPage()` harness
+   (`test/system-page-dom.test.ts:154`), which renders the whole page into JSDOM with
+   `runScripts: "dangerously"` and a mocked `fetch`.
+9. **`vitest.config.ts` sets `environment: "node"`** — there is no global `document`.
+   A test that renders directly must build its own JSDOM and assign
+   `globalThis.document`, as Task 9 does.
+10. **Every page test mocks `fetch` and throws on unknown paths.** Adding
+    `/api/system/labels` breaks all of them (see Task 7's step list for the exact
+    file set).
+
 ---
 
 ## File Structure
@@ -67,17 +117,23 @@
 # tests/unit/system/test_labels.py
 from pathlib import Path
 
+import pytest
+
 from factory.system.labels import build_alias_map, normalize_ref
 from tests.unit.system import _fixtures
 
+# Required: pyproject.toml:31 sets addopts = "-m unit". Without this marker
+# every test here is deselected and pytest exits 5.
+pytestmark = pytest.mark.unit
+
 
 def test_normalize_bare_task_id(tmp_path: Path) -> None:
-    _fixtures.write_task(tmp_path, "T-060", title="Wire the governor")
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
     assert normalize_ref(tmp_path, "T-060") == "task:T-060"
 
 
 def test_normalize_prefixed_task_ref_is_idempotent(tmp_path: Path) -> None:
-    _fixtures.write_task(tmp_path, "T-060", title="Wire the governor")
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
     assert normalize_ref(tmp_path, "task:T-060") == "task:T-060"
 
 
@@ -95,13 +151,16 @@ def test_normalize_unresolvable_returns_none(tmp_path: Path) -> None:
 
 def test_alias_map_contains_basename_and_bare_forms(tmp_path: Path) -> None:
     _fixtures.write_spec(tmp_path, "2026-07-16-foo-design.md", title="Foo")
-    _fixtures.write_task(tmp_path, "T-060", title="Wire the governor")
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
     aliases = build_alias_map(tmp_path)
     assert aliases["spec:2026-07-16-foo-design.md"] == (
         "spec:docs/superpowers/specs/2026-07-16-foo-design.md"
     )
     assert aliases["T-060"] == "task:T-060"
 ```
+
+Note the first argument to `write_task` and `write_sr`: a **subdirectory**
+(`_fixtures.py:105,120`), not the repo root. `write_spec` genuinely takes the root.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -158,9 +217,13 @@ def build_alias_map(root: Path, nodes: list[trace_model.Node] | None = None) -> 
         canonical = canonical_ref(root, node)
         aliases[canonical] = canonical
         aliases[node.id] = canonical
-        aliases[f"{node.kind}:{node.id}"] = canonical
         if node.kind in _PATH_KINDS:
+            # `_file_node` already sets id = "<kind>:<basename>"
+            # (trace/model.py:86), so node.id is ALREADY the basename spelling.
+            # Prefixing it again would mint junk keys like "spec:spec:foo.md".
             aliases[f"{node.kind}:{Path(node.path).name}"] = canonical
+        else:
+            aliases[f"{node.kind}:{node.id}"] = canonical
     return aliases
 
 
@@ -210,6 +273,11 @@ git commit -m "feat(system): canonical ref normalisation for the label index"
 
 ```python
 # append to tests/unit/system/test_bundles.py
+# FIRST add this import — the file does not currently import _fixtures, and its
+# own `_write_bundle` at :26 has a DIFFERENT signature (payload dict).
+from tests.unit.system import _fixtures
+
+
 def test_bundle_description_is_parsed_when_present(tmp_path):
     bundles_dir = tmp_path / "bundles"
     bundles_dir.mkdir()
@@ -281,15 +349,25 @@ Note: `members`, `unresolved` and `citation` have no defaults, so `description` 
     )
 ```
 
-`src/factory/system/health.py` — in the bundle row dict built around line 178, add:
+`src/factory/system/health.py` — `BundleReadinessRow` (`health.py:34-47`) has eleven
+fields and **none of them are defaulted**, and it has two construction sites with
+different calling conventions:
+
+- `health.py:125-128` is **positional**: `BundleReadinessRow(bundle.id, bundle.label,
+  "weak", 0, 0, 0, 0, 0, 0, len(bundle.members), None)`
+- `health.py:136-148` is keyword.
+
+So: append `description: str | None = None` as the **last** field of
+`BundleReadinessRow`, and pass `description=bundle.description` as a **keyword** at
+both sites. Inserting it after `label` (as models.py does) would make the positional
+call at `:125` raise `TypeError: missing 1 required positional argument:
+'recency_iso'`.
+
+Then in the bundle row dict built around line 178, add:
 
 ```python
             "description": row.description,
 ```
-
-and carry `description: str | None` through `BundleReadinessRow`, populated from
-`bundle.description` at both construction sites (the empty-flags branch and the main
-one).
 
 `tests/unit/system/_fixtures.py:73`:
 
@@ -343,7 +421,8 @@ from factory.system.labels import build_labels
 
 
 def test_sr_description_is_the_statement(tmp_path):
-    _fixtures.write_sr(tmp_path, "SR-121", title="Battery-aware return",
+    _fixtures.write_sr(tmp_path / "requirements", "SR-121",
+                       title="Battery-aware return",
                        statement="The system shall return to base.")
     entry = build_labels(tmp_path)["labels"]["sr:SR-121"]
     assert entry["title"] == "Battery-aware return"
@@ -353,13 +432,44 @@ def test_sr_description_is_the_statement(tmp_path):
 
 
 def test_task_has_no_description_but_carries_relations(tmp_path):
-    _fixtures.write_task(tmp_path, "T-060", title="Wire the governor",
+    _fixtures.write_sr(tmp_path / "requirements", "SR-121", title="Battery")
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor",
                          satisfies=["SR-121"])
     entry = build_labels(tmp_path)["labels"]["task:T-060"]
     assert entry["title"] == "Wire the governor"
     assert entry["description"] is None
     assert entry["description_source"] is None
     assert entry["relations"]["satisfies"] == ["sr:SR-121"]
+
+
+def test_adr_entries_exist_even_though_the_graph_has_no_adr_nodes(tmp_path):
+    # trace/model.py:102 emits no adr nodes -- ADRs come from load_adrs.
+    adr_dir = tmp_path / "docs" / "adr"
+    adr_dir.mkdir(parents=True)
+    (adr_dir / "0001-use-bundles.md").write_text(
+        "---\nid: ADR-0001\ntitle: Use bundles\nstatus: accepted\n---\n\n"
+        "## Context\n\nSomething.\n\n## Decision\n\nWe group by feature bundle.\n",
+        encoding="utf-8",
+    )
+    entry = build_labels(tmp_path)["labels"]["adr:ADR-0001"]
+    assert entry["title"] == "Use bundles"
+    assert entry["description"] == "We group by feature bundle."
+    assert entry["description_source"] == "decision"
+
+
+def test_deferral_reason_comes_from_the_trace_node(tmp_path):
+    # Requirement has no trace_deferred attribute; Node.deferred does
+    # (trace/model.py:34, populated by _disposition at :48).
+    reqs = tmp_path / "requirements"
+    reqs.mkdir(parents=True)
+    (reqs / "SR-002.md").write_text(
+        "---\nid: SR-002\ntitle: Battery\nstatement: Shall return.\n"
+        "domain: behavioral\nupstream: []\n"
+        "trace_deferred: No candidate task covers the 5% floor.\n---\n",
+        encoding="utf-8",
+    )
+    entry = build_labels(tmp_path)["labels"]["sr:SR-002"]
+    assert entry["deferral_reason"] == "No candidate task covers the 5% floor."
 
 
 def test_spec_is_not_an_openable_scope(tmp_path):
@@ -469,28 +579,30 @@ def build_labels(root: Path) -> dict:
         relations: dict[str, list[str]] = {}
         deferral_reason: str | None = None
 
+        # The deferral reason lives on the trace node, not on Requirement
+        # (trace/model.py:34,48). Requirement has no trace_deferred attribute.
+        deferral_reason = node.deferred
+
         if node.kind == "sr" and node.id in requirements:
             req = requirements[node.id]
             description, source = req.statement.strip(), "statement"
-            deferral_reason = getattr(req, "trace_deferred", None)
         elif node.kind == "task" and node.id in tasks:
             task = tasks[node.id]
             status = task.status
             satisfies = [aliases.get(s, s) for s in task.satisfies]
             if satisfies:
                 relations["satisfies"] = satisfies
-        elif node.kind == "adr" and node.id in adrs:
-            body = (root / node.path).read_text(encoding="utf-8")
-            found = _section_paragraph(body, "Decision")
-            if found:
-                description, source = found, "decision"
         elif node.kind in _PATH_KINDS:
             body = (root / node.path).read_text(encoding="utf-8")
-            found = _section_paragraph(body, "Purpose") or _first_paragraph(
-                body.split("\n", 1)[-1]
-            )
+            found = _section_paragraph(body, "Purpose")
             if found:
                 description, source = found, "purpose"
+            else:
+                # A lead paragraph is not a named field. Reporting it as
+                # "purpose" would be a false attribution -- Global Constraint 2.
+                lead = _first_paragraph(body.split("\n", 1)[-1])
+                if lead:
+                    description, source = lead, "lead_paragraph"
 
         labels[ref] = {
             "ref": ref,
@@ -505,6 +617,25 @@ def build_labels(root: Path) -> dict:
             "path": _relative_posix(root, root / node.path),
             "scope_href": _scope_href(ref, node.kind),
         }
+
+    # ADRs are NOT in the trace graph (trace/model.py:102 emits no adr nodes),
+    # so they are added from their own loader. Without this the label index
+    # contains zero ADR entries and every `design` hop in the traversal spine
+    # renders as "not in the label index".
+    for adr_id, doc in adrs.items():
+        ref = f"adr:{adr_id}"
+        body = doc.path.read_text(encoding="utf-8") if doc.path.exists() else ""
+        found = _section_paragraph(body, "Decision")
+        labels[ref] = {
+            "ref": ref, "id": adr_id, "kind": "adr", "title": doc.title or adr_id,
+            "description": found,
+            "description_source": "decision" if found else None,
+            "deferral_reason": None, "status": doc.status, "relations": {},
+            "path": _relative_posix(root, doc.path),
+            "scope_href": _scope_href(ref, "adr"),
+        }
+        aliases[ref] = ref
+        aliases[adr_id] = ref
 
     for bundle in bundles_module.list_bundles(root / "bundles"):
         ref = f"bundle:{bundle.id}"
@@ -522,17 +653,48 @@ def build_labels(root: Path) -> dict:
     return {"labels": labels, "aliases": aliases, "degraded": degraded}
 ```
 
+**File refs.** There are no `file` nodes either, and a file has no recorded title or
+description — its path *is* its identity. So `build_labels` does not enumerate files.
+Instead export a helper the traversal and changed-file renderers use:
+
+```python
+def file_entry(root: Path, relative_path: str) -> dict:
+    """A label entry for a repo path. The path is the identity -- nothing is
+    invented, and `description` is always None."""
+    ref = f"file:{relative_path}"
+    return {
+        "ref": ref, "id": relative_path.rsplit("/", 1)[-1], "kind": "file",
+        "title": relative_path, "description": None, "description_source": None,
+        "deferral_reason": None, "status": None, "relations": {},
+        "path": relative_path, "scope_href": _scope_href(ref, "file"),
+    }
+```
+
+Task 4 calls this for every traversal `files` entry so those refs resolve; Task 10's
+`renderChangedFiles` does the same. A file chip therefore shows the basename as its id
+and the full path as its title.
+
 `src/factory/system/cli.py` — register the subcommand beside `health` (around line 445):
 
 ```python
     sub.add_parser("labels", parents=[common])
 ```
 
-and in the dispatch, mirroring how `health` is handled:
+Add a `cmd_labels` wrapper beside `cmd_health` (`cli.py:162`):
 
 ```python
-    if args.command == "labels":
-        return _emit(labels_module.build_labels(root), args, _render_labels)
+def cmd_labels(repo_root: Path) -> dict:
+    return labels_module.build_labels(repo_root)
+```
+
+and a branch in the dispatch chain at `cli.py:470-519`. **There is no `_emit`
+function**, the attribute is `args.cmd` (not `args.command`), and a branch must assign
+`result`/`rendered` and fall through to the shared print at `:516` — never `return`:
+
+```python
+    elif args.cmd == "labels":
+        result = cmd_labels(args.repo_root)
+        rendered = _render_labels(result)
 ```
 
 with a plain human renderer:
@@ -546,8 +708,8 @@ def _render_labels(result: dict) -> str:
     return "\n".join(lines)
 ```
 
-Read `cli.py:440-470` first and follow the exact `_emit`/dispatch pattern already used
-by `health` — do not invent a new one.
+Read `cli.py:440-520` first and follow the `cmd_*` + `elif args.cmd` pattern already
+used by `health` exactly — do not invent a new one.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -580,25 +742,47 @@ git commit -m "feat(system): label index projection with recorded descriptions"
 
 ```python
 # append to tests/unit/system/test_queries.py
+# NOTE: this file uses `from ._fixtures import (...)` and binds bare names --
+# add write_sr / write_task / write_bundle to that import list rather than
+# using an `_fixtures.` prefix, which is not bound here.
+# NOTE: query_traversal takes a parsed SystemScopeRef (queries.py:1545), not a
+# string, and its first parameter is named repo_root.
 def test_traversal_emits_canonical_ref_lists_for_a_bundle(tmp_path):
-    _fixtures.write_sr(tmp_path, "SR-001", title="One", statement="s")
-    _fixtures.write_sr(tmp_path, "SR-002", title="Two", statement="s")
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_sr(tmp_path / "requirements", "SR-002", title="Two", statement="s")
     bundles_dir = tmp_path / "bundles"
     bundles_dir.mkdir()
-    _fixtures.write_bundle(bundles_dir, "b1", "Bundle one", ["sr:SR-001", "sr:SR-002"])
-    result = query_traversal(tmp_path, "bundle:b1")
+    write_bundle(bundles_dir, "b1", "Bundle one", ["sr:SR-001", "sr:SR-002"])
+    result = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
     assert result["requirement"] == ["sr:SR-001", "sr:SR-002"]
     assert isinstance(result["tasks"], list)
-    assert all(":" in ref for ref in result["requirement"])
 
 
 def test_traversal_task_refs_are_prefixed(tmp_path):
-    _fixtures.write_sr(tmp_path, "SR-001", title="One", statement="s")
-    _fixtures.write_task(tmp_path, "T-001", title="Do it", satisfies=["SR-001"])
-    result = query_traversal(tmp_path, "sr:SR-001")
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_task(tmp_path / "tasks", "T-001", title="Do it", satisfies=["SR-001"])
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
     assert result["requirement"] == ["sr:SR-001"]
     assert result["tasks"] == ["task:T-001"]
+
+
+def test_traversal_files_are_file_refs(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert all(ref.startswith("file:") for ref in result["files"])
 ```
+
+**Four existing tests assert the old shape and must be updated in this task**
+(`tests/unit/system/test_queries.py`):
+
+| Line | Today | Becomes |
+|---|---|---|
+| `:1328` | `trav["requirement"] == "SR-001"` | `== ["sr:SR-001"]` |
+| `:1329-1330` | `"T-001" in trav["tasks"]` | `"task:T-001" in trav["tasks"]` |
+| `:1356-1357` | same, plus `"src/a.py" in trav["files"]` | `"task:T-001"`, `"file:src/a.py"` |
+| `:1367-1368` | `"SR-001" in trav["requirement"]` | `"sr:SR-001" in trav["requirement"]` |
+
+Update them — do not delete them. Step 4 does not pass until they are green.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -611,22 +795,30 @@ In `queries.py`, build an alias map once at the top of `query_traversal` and map
 emitted value through it:
 
 ```python
+    # inside query_traversal(repo_root, scope) -- the parameter is repo_root,
+    # NOT root. A function-local import keeps the module import graph acyclic
+    # (labels.py imports system.bundles and system.adr; neither reaches here).
     from factory.system.labels import build_alias_map
 
-    aliases = build_alias_map(root)
+    aliases = build_alias_map(repo_root)
 
     def _ref(raw: str) -> str:
         # Unresolvable values are emitted unchanged so nothing is invented;
         # the browser renders them as "not in the label index".
         return aliases.get(raw, raw)
+
+    def _file_ref(raw: str) -> str:
+        # There are no file nodes in the graph (trace/model.py:102), so a path
+        # can only be prefixed directly. The path is the file's identity.
+        return raw if raw.startswith("file:") else f"file:{raw}"
 ```
 
 Replace the `", ".join(sr_ids)` at line 1588 with `[_ref(s) for s in sr_ids]`, the
-single `sr_id` at 1565 with `[_ref(sr_id)]`, and map `tasks`, `design`, `files`
-through `_ref` likewise. `files` are repo-relative paths and become `file:<path>`.
+single `sr_id` at 1565 with `[_ref(sr_id)]`, map `tasks` and `design` through `_ref`,
+and map `files` through `_file_ref`.
 
-Read lines 1500-1600 before editing; preserve the existing ordering exactly — this
-change is shape-only, never order.
+The function spans `queries.py:1545-1596`. Read all of it before editing; preserve the
+existing ordering exactly — this change is shape-only, never order.
 
 `pi-ext/factory-watch/src/system-cli.ts:252`:
 
@@ -642,7 +834,15 @@ export interface SystemTraversal {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/unit/system -v && cd pi-ext/factory-watch && npx tsc --noEmit`
-Expected: PASS. `tsc` will flag `renderTraversal`'s `addStep('Requirement', [trav.requirement])` — leave it for Task 9; if it blocks, change it to `trav.requirement` now.
+Expected: PASS, including the four updated traversal tests.
+
+`tsc` will **not** flag `renderTraversal` — it takes `trav: any`
+(`system-bootstrap.ts:755`) and `SystemTraversal` is never applied to it. Its rendering
+is fixed in Task 10.
+
+Also update `_render_traversal` (`cli.py:392-397`): it does
+`f"requirement: {result['requirement']}"`, which now prints a Python list repr. Join
+the list for the human rendering.
 
 - [ ] **Step 5: Commit**
 
@@ -692,6 +892,15 @@ def test_glosses_are_at_most_eight_words():
 
 def test_computed_by_is_always_a_list():
     assert all(isinstance(e["computed_by"], list) for e in VOCABULARY.values())
+
+
+def test_every_entry_has_a_readable_label():
+    assert all(e.get("label") for e in VOCABULARY.values())
+
+
+def test_health_class_labels_are_readable_not_arrow_notation():
+    for name in ("task->plan", "task->SR", "plan->spec"):
+        assert "->" not in VOCABULARY[name]["label"]
 
 
 def test_claim_kinds_match_the_typescript_union():
@@ -768,6 +977,10 @@ VOCABULARY: dict[str, dict] = {
     "recorded": {
         "term": "recorded",
         "group": "claim-kind",
+        # `label` is the readable primary label. It is what the health strip
+        # renders instead of `task->plan`; Task 11 reads it. For terms whose
+        # contract word is already readable, label == term.
+        "label": "recorded",
         "gloss": "straight from a file, not inferred",
         "definition": (
             "Copied verbatim out of an artifact file. Nothing was computed or "
@@ -879,8 +1092,16 @@ def test_every_shell_command_names_a_real_subparser():
         parts = entry["command"].split()
         module = parts[parts.index("-m") + 1]
         sub = parts[parts.index("-m") + 2]
-        source = Path(module.replace(".", "/")) / "cli.py"
-        assert f'add_parser("{sub}"' in source.read_text(encoding="utf-8"), entry
+        # src layout: the package lives under src/, not at the repo root.
+        source = Path("src") / module.replace(".", "/") / "cli.py"
+        text = source.read_text(encoding="utf-8")
+        assert f'add_parser("{sub}"' in text, entry
+        # Two-level commands (e.g. `factory.system bundle check`) must name a
+        # nested subparser too. factory.system has no top-level `check`.
+        if len(parts) > parts.index("-m") + 3:
+            nested = parts[parts.index("-m") + 3]
+            if not nested.startswith("-"):
+                assert f'add_parser("{nested}"' in text, entry
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -949,6 +1170,9 @@ REMEDIATION: dict[str, dict] = {
 def build_remediation() -> dict:
     return {"version": 1, "states": REMEDIATION}
 ```
+
+`/trace-fix` **is** registered (`index.ts:842`), so `"command": "/trace-fix {id}"`
+passes the slash-command gate. Do not "fix" it.
 
 **`factory.system check` does not exist.** The only `check` is
 `factory.system bundle check --draft <path>` (`system/cli.py:452`) and it requires
@@ -1073,6 +1297,25 @@ full interpreter start.
 and update the comment at `docs-server.ts:258` — it says "only these eight exact paths
 exist" and is now wrong.
 
+**Every page test mocks `fetch` and throws on an unknown path.** Task 13 wires the
+labels fetch into `systemBootstrap`, which breaks all of them at once. Add the
+`/api/system/labels` case — returning `{labels:{}, aliases:{}, degraded:[]}` unless
+the test needs seeded labels — to each mock now, so the breakage lands in the task
+that introduced the endpoint rather than five tasks later:
+
+- `test/system-page-dom.test.ts:146`
+- `test/system-landing.test.ts:103, 206, 289`
+- `test/system-page-navigation.test.ts:53`
+- `test/system-page-sidebar.test.ts:16`
+- `test/system-page-trace.test.ts:32`
+- `test/system-page-vcycle.test.ts:115`
+- `test/system-page-implementation-summary.test.ts:81`
+- `test/system-membership.test.ts:51`
+- `test/system-page-visual-identity.test.ts` — twelve sites, `:93` through `:696`
+
+Grep for the throw-on-unknown handler in each file and extend it; do not rewrite the
+harnesses.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd pi-ext/factory-watch && npx tsc --noEmit && npm test`
@@ -1110,9 +1353,11 @@ test("the page inlines the vocabulary and remediation tables", () => {
   expect(html).toContain('"sr_unsatisfied"');
 });
 
-test("the page declares mutable label bindings before the renderers", () => {
+test("the page declares mutable label bindings and a setter", () => {
   const html = renderSystemPageHtml();
-  expect(html.indexOf("var LABELS =")).toBeLessThan(html.indexOf("function refChip"));
+  expect(html).toContain("var LABELS =");
+  expect(html).toContain("var ALIASES =");
+  expect(html).toContain("function setLabels(");
 });
 
 test("gloss text uses --text-muted, never --text-dim", () => {
@@ -1130,15 +1375,9 @@ Expected: FAIL — `var VOCABULARY =` not found
 
 - [ ] **Step 3: Write minimal implementation**
 
-`system-shell.ts` — the tables are read from Python **once at module load** and frozen
-into the page. Add near the top:
-
-```ts
-import { runJsonCli } from './cli-runner.js';
-```
-
-No — do not spawn at render time. Instead, generate the two tables into a checked-in
-TypeScript constant module and import it:
+The tables must **not** be spawned at render time — `renderSystemPageHtml()` is
+synchronous and runs per request. Generate them into a checked-in TypeScript constant
+module and import that:
 
 - Create `pi-ext/factory-watch/src/system-vocabulary-data.ts` exporting
   `export const VOCABULARY_DATA = { … } as const;` and
@@ -1191,7 +1430,6 @@ CSS — add to the `<style>` block, deriving every value from the existing token
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 11px; cursor: pointer; }
-  .info-card { position: absolute; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
   .presence-rail { border-left: 3px solid var(--line-strong); padding-left: 12px; }
   .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
   .presence-rail.is-failure { border-left-style: solid; border-left-color: var(--degraded); }
@@ -1199,9 +1437,35 @@ CSS — add to the `<style>` block, deriving every value from the existing token
   .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }
   .next-step .prompt { color: var(--signal); }
   .bounded-list { display: grid; gap: 4px; }
-  @media (prefers-reduced-motion: reduce) { .info-card { transition: none; } }
-  @media (min-width: 1200px) { .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; } }
 ```
+
+**Two existing rules must be worked with, not around:**
+
+1. `#landingPanel, #scopeWorkspace { width: min(100%, 1040px) }` (`system-shell.ts:229`)
+   and `.panel { width: min(100%, 1040px) }` (`:271`) cap the workspace. A 300 px rail
+   inside that cap is *carved out of* the panel, not added beside it. So raise the cap
+   only when the rail is present:
+
+```css
+  @media (min-width: 1200px) {
+    .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
+    #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
+    .workspace-split > .panel { width: 100%; }
+  }
+```
+
+2. `#content { overflow: auto }` (`:229`) **clips an absolutely positioned card**, and
+   there is no positioned ancestor to escape through. So `infoCard` (Task 9) appends
+   to `document.body` and uses `position: fixed` with coordinates from the trigger's
+   `getBoundingClientRect()`:
+
+```css
+  .info-card { position: fixed; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
+```
+
+Replace the `.info-card` rule given above with this one. Do **not** add a
+`prefers-reduced-motion` block for it: `system-shell.ts:362` already applies
+`transition-duration: .01ms !important` to `*`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1282,6 +1546,16 @@ test("bounded list shows five rows and hides the rest behind a disclosure", () =
 
 test("bounded list under the limit renders no disclosure", () => {
   expect(boundedList(["T-060"]).querySelector("details")).toBeNull();
+});
+```
+
+```ts
+// append to pi-ext/factory-watch/test/system-page.test.ts -- refChip must
+// reach the page, and must be declared after the bindings it reads.
+test("refChip is inlined into the page after the label bindings", () => {
+  const html = renderSystemPageHtml();
+  expect(html).toContain("function refChip");
+  expect(html.indexOf("var LABELS =")).toBeLessThan(html.indexOf("function refChip"));
 });
 ```
 
@@ -1392,10 +1666,35 @@ git commit -m "feat(system): ref chips, info cards and bounded ref lists"
 **Interfaces:**
 - Consumes: `refChip`, `boundedList` (Task 9); list-shaped traversal (Task 4)
 
+### How to test this task, and Tasks 11 and 12
+
+`renderTraversal`, `renderHealthSummary`, `renderBundleList` and `setScopeHeading` are
+**inner functions of `systemBootstrap`** (`system-bootstrap.ts:755, 694, 777, 154`).
+They are not exported and cannot be imported or called from a test. `vitest.config.ts`
+also sets `environment: "node"`, so there is no global `document`.
+
+There are therefore exactly two legitimate test shapes, and every snippet below uses
+one of them:
+
+- **For functions exported from `system-renderers.ts` or `system-comprehension.ts`**
+  (`renderMatrix`, `renderStory`, `refChip`, `badge`, …): import them and build a
+  JSDOM in `beforeEach`, assigning `globalThis.document` — the pattern Task 9
+  established.
+- **For anything inside `systemBootstrap`**: go through the existing `loadPage()`
+  harness (`test/system-page-dom.test.ts:154`), which renders the whole page with
+  `renderSystemPageHtml()` into `new JSDOM(html, { runScripts: "dangerously" })`
+  behind a mocked `fetch`, then assert against `dom.window.document`. Seed behaviour
+  by changing what the mock returns for `/api/system/labels`, `/api/system/health` and
+  `/api/system/traversal`.
+
+Do not extract or export the inner functions. That refactor is not in this plan.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // append to pi-ext/factory-watch/test/system-page-dom.test.ts
+// renderMatrix IS exported from system-renderers.ts, so this half uses the
+// import + JSDOM shape. Add the import and a beforeEach as Task 9 did.
 test("matrix rows render the requirement title, not just its id", () => {
   // build the page DOM as the existing tests in this file do, seed LABELS
   // with sr:SR-121 -> "Battery-aware return", then:
@@ -1408,23 +1707,35 @@ test("matrix rows render the requirement title, not just its id", () => {
   expect(row.querySelector(".chip-title")?.textContent).toBe("Battery-aware return");
 });
 
-test("the traversal spine renders one chip per row, bounded at five", () => {
-  renderTraversal({
-    requirement: ["sr:SR-030", "sr:SR-033", "sr:SR-038", "sr:SR-086", "sr:SR-087",
-                  "sr:SR-088", "sr:SR-089"],
-    tasks: [], design: [], files: [],
+// renderTraversal is INSIDE systemBootstrap, so it goes through loadPage().
+// Extend loadPage's fetch mock to return this traversal payload and label set.
+test("the traversal spine renders one chip per row, bounded at five", async () => {
+  const dom = await loadPage({
+    scope: "bundle:b1",
+    traversal: {
+      requirement: ["sr:SR-030", "sr:SR-033", "sr:SR-038", "sr:SR-086",
+                    "sr:SR-087", "sr:SR-088", "sr:SR-089"],
+      tasks: [], design: [], files: [],
+    },
   });
-  const step = document.querySelector(".trace-spine-step .bounded-list")!;
+  const step = dom.window.document.querySelector(".trace-spine-step .bounded-list")!;
   expect(step.querySelectorAll(":scope > .ref-chip").length).toBe(5);
   expect(step.querySelector("summary")?.textContent).toBe("+ 2 more");
 });
 
-test("an empty traversal step reads Not recorded, not an empty row", () => {
-  renderTraversal({ requirement: ["sr:SR-030"], tasks: [], design: [], files: [] });
-  expect(document.querySelector(".trace-spine-step:nth-child(3)")?.textContent)
-    .toContain("Not recorded");
+test("an empty traversal step reads Not recorded, not an empty row", async () => {
+  const dom = await loadPage({
+    scope: "bundle:b1",
+    traversal: { requirement: ["sr:SR-030"], tasks: [], design: [], files: [] },
+  });
+  const steps = dom.window.document.querySelectorAll(".trace-spine-step");
+  expect(steps[2].textContent).toContain("Not recorded");
 });
 ```
+
+`loadPage` currently takes no options — extend its signature to accept the payloads a
+test wants to seed, keeping its existing default behaviour for every call site that
+passes nothing.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1515,15 +1826,22 @@ test("Escape closes the definition card and returns focus", () => {
   // document.activeElement is the trigger
 });
 
-test("health class labels render readable text with the raw name as metadata", () => {
-  renderHealthSummary({ health: { classes: [
-    { name: "task->plan", satisfied: 21, expected: 21, exempt: 0 },
-  ], satisfied: 21, expected: 21, percent: 100, dangling: 0, deferred: 0, proposed: 0 } });
-  const metric = document.querySelector(".health-metric")!;
-  expect(metric.querySelector(".health-metric-label")?.textContent)
-    .toBe("Tasks linked to a plan");
-  expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("task->plan");
-});
+// renderHealthSummary is INSIDE systemBootstrap -- use loadPage().
+test("health class labels render readable text with the raw name as metadata",
+  async () => {
+    const dom = await loadPage({
+      health: { health: { classes: [
+        { name: "task->plan", satisfied: 21, expected: 21, exempt: 0 },
+      ], satisfied: 21, expected: 21, percent: 100, dangling: 0, deferred: 0,
+        proposed: 0 }, coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+        bundles: [], unbundled: {}, ordering_available: true, sr_listed: false,
+        degraded: [] },
+    });
+    const metric = dom.window.document.querySelector(".health-metric")!;
+    expect(metric.querySelector(".health-metric-label")?.textContent)
+      .toBe("Tasks linked to a plan");
+    expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("task->plan");
+  });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1599,20 +1917,24 @@ test("an absence uses the dashed rail, not the failure rail", () => {
   expect(empty.className).not.toContain("is-failure");
 });
 
-test("the scope heading is the title, with the ref as metadata", () => {
-  (globalThis as any).LABELS = { "task:T-001": {
-    ref: "task:T-001", id: "T-001", kind: "task", title: "Load skills",
-    description: null, description_source: null, deferral_reason: null,
-    status: "done", relations: {}, path: "tasks/T-001.md", scope_href: null } };
-  (globalThis as any).ALIASES = { "task:T-001": "task:T-001" };
-  setScopeHeading("task:T-001");
-  expect(document.getElementById("scopeHeader")?.textContent).toBe("Load skills");
-  expect(document.getElementById("scopeRef")?.textContent).toBe("task:T-001");
+// setScopeHeading and renderBundleList are INSIDE systemBootstrap -- loadPage().
+test("the scope heading is the title, with the ref as metadata", async () => {
+  const dom = await loadPage({
+    scope: "task:T-001",
+    labels: { labels: { "task:T-001": {
+      ref: "task:T-001", id: "T-001", kind: "task", title: "Load skills",
+      description: null, description_source: null, deferral_reason: null,
+      status: "done", relations: {}, path: "tasks/T-001.md", scope_href: null } },
+      aliases: { "task:T-001": "task:T-001" }, degraded: [] },
+  });
+  const doc = dom.window.document;
+  expect(doc.getElementById("scopeHeader")?.textContent).toBe("Load skills");
+  expect(doc.getElementById("scopeRef")?.textContent).toBe("task:T-001");
 });
 
-test("zero bundles renders the first-run card, not an empty directory", () => {
-  renderBundleList({ bundles: [] });
-  const list = document.getElementById("bundleList")!;
+test("zero bundles renders the first-run card, not an empty directory", async () => {
+  const dom = await loadPage();  // default health payload has no bundles
+  const list = dom.window.document.getElementById("bundleList")!;
   expect(list.textContent).toContain("No features defined yet");
   expect(list.querySelector(".next-step")).not.toBeNull();
 });
@@ -1709,16 +2031,32 @@ def test_remediation_mirror_matches_python():
 ```
 
 ```ts
-// append to pi-ext/factory-watch/test/system-browser-validation.test.ts,
-// inside the existing BROWSER_GATE describe block
-// - assert no console errors on landing and on bundle:reactive-planner
-// - assert document.body.scrollWidth <= window.innerWidth at all three viewports
-// - assert every .trace-spine-step .bounded-list has at most 5 direct chips
-// - assert every element whose text is "Not recorded" has a .next-step sibling
+// pi-ext/factory-watch/test/system-browser-validation.test.ts
+//
+// STRUCTURE, verified: the file is ONE `describe.skipIf(!ENABLED)` (:82)
+// containing ONE test, "full visual gate at all three viewports" (:83). It
+// does NOT use bare `expect` per assertion -- it accumulates findings via
+// `record(vp, step, message, element)` (:79) and writes a report. Playwright
+// is loaded by a lazy `await import("playwright")` (:88).
+//
+// So: add STEPS INSIDE the existing test, reporting through record(). Do NOT
+// add new test() blocks -- that breaks the report contract.
+//
+// Steps to add, each calling record() on failure:
+// - no console errors on the landing and on bundle:reactive-planner
+// - document.body.scrollWidth <= window.innerWidth at all three viewports
+// - every .trace-spine-step .bounded-list has at most 5 direct .ref-chip children
+// - every element whose text is exactly "Not recorded" has a .next-step in its panel
 // - focus a .ref-chip by keyboard, assert .info-card appears, press Escape,
-//   assert it closes and activeElement is the chip
-// - measure computed colour of .gloss against its background and assert >= 4.5
+//   assert it closes and document.activeElement is the chip
+// - read computed colour and background of .gloss, compute the WCAG ratio,
+//   record a finding if it is below 4.5
 ```
+
+Env vars are real: `BROWSER_GATE` (`:59`), `BROWSER_GATE_TARGET` (`:60`, defaulting to
+`C:/coding/cool_physical_ai_project`), `BROWSER_GATE_REPORT` (`:61`). Playwright is
+**not** a declared devDependency — it resolves from the ambient install. If the import
+fails, install it rather than weakening the gate.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1787,4 +2125,37 @@ Component 1).
 `nextStepBlock`/`glossFor`/`definitionTrigger`/`renderVocabularyPanel` are named
 identically in every task that references them. `SystemTraversal.requirement` is
 `string[]` from Task 4 onward, and Task 10's traversal test uses the list shape.
-`setLabels` is defined in Task 8 and called in Task 13.
+`setLabels` is defined in Task 8 and called in Task 13. `file_entry` is defined in
+Task 3 and used in Tasks 4 and 10. The vocabulary `label` field is defined in Task 5
+and read in Task 11.
+
+---
+
+## Plan review resolutions
+
+An independent executability review ran against the code on 2026-08-14. Every finding
+and its resolution:
+
+| Finding | Resolution |
+|---|---|
+| `write_sr`/`write_task` take a subdirectory, not the repo root — every test in Tasks 1, 3, 4 would fail | Calls corrected; Codebase Fact 2 added |
+| `cli.py` has no `_emit`; dispatch is `args.cmd` with `cmd_*` wrappers | Task 3's snippet rewritten; Codebase Fact 4 added; Tasks 5 and 6 now point at it |
+| `query_traversal` takes a `SystemScopeRef`, and its parameter is `repo_root` | Tests use `parse_scope_ref`; implementation snippet renamed |
+| Task 4 breaks four existing traversal tests | Listed by line with their new expectations |
+| `renderTraversal`/`renderHealthSummary`/`renderBundleList`/`setScopeHeading` are inner functions and cannot be called from a test | Tasks 10–12 rewritten onto the existing `loadPage()` harness; the two legitimate test shapes are stated up front |
+| `system-page-dom.test.ts` has no direct-render harness and there is no global `document` | Same; Codebase Facts 8 and 9 added |
+| Task 8's test referenced `refChip`, which Task 9 creates | Assertion moved to Task 9 |
+| New Python test files would be silently deselected by `addopts = "-m unit"` | `pytestmark` required; Codebase Fact 1 added |
+| `test_bundles.py` does not import `_fixtures`; `test_queries.py` binds bare names | Import instructions added to both |
+| Remediation gate used `factory/...` instead of `src/factory/...`, and could not handle two-level commands | Both fixed |
+| `load_nodes` emits no `adr`, `file` or `bundle` nodes — the ADR branch was dead code and file refs could never resolve | ADRs loaded separately; `file_entry` helper added; Codebase Fact 6 added |
+| `deferral_reason` read a nonexistent `Requirement.trace_deferred` | Reads `Node.deferred`; Codebase Fact 7 added |
+| Adding `/api/system/labels` breaks ~22 fetch mocks across 9 files | Enumerated in Task 7 with line numbers |
+| `VOCABULARY.terms[].label` was read in Task 11 but defined nowhere | Added to Task 5's entry shape and its tests |
+| Spec/plan fallback reported `description_source: "purpose"` for a lead paragraph — a false attribution | Reports `lead_paragraph` |
+| `BundleReadinessRow` has a positional construction site | Explicit: append last, keyword at both sites |
+| `.workspace-split` sits inside a 1040 px cap; `#content { overflow: auto }` clips an absolute card | Cap raised only when the rail is present; card is `position: fixed` on `document.body` |
+| Browser gate is one test using `record()`, not per-assertion `expect` | Task 13 rewritten to add steps inside it |
+| `_render_traversal` would print a list repr | Noted in Task 4 |
+| Alias map would mint `spec:spec:foo.md` | Guarded |
+| Reviewer claimed `/trace-fix` is unregistered | **Rejected** — it is registered at `index.ts:842`; the reviewer's grep escaping failed. Noted in Task 6 so nobody "fixes" it |
