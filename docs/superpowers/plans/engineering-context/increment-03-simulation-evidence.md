@@ -161,7 +161,7 @@ for a feature if it stays green after the feature is removed. The reference slic
 same evidence **fails or materially changes** when the capability under test is disabled, on
 paired seeds.
 
-- [ ] **Step 1: Failing tests** — define the sensitivity harness contract: run scenario on the
+- [x] **Step 1: Failing tests** — define the sensitivity harness contract: run scenario on the
   implementation, then with the behavior disabled, and assert the target metric degrades beyond a
   threshold on **paired seeds** (same seed both ways).
   - persistent-belief: disable `target_memory`/belief merge ⇒ duplicate investigations rise or
@@ -170,10 +170,10 @@ paired seeds.
     rejects it and the fallback is visible in the run trace.
   - (Inc 6/7 follow-up) visualisation: corrupt/remove one evidence artifact ⇒ only the affected
     view degrades while the cockpit exposes the missing dependency (honest-incompleteness).
-- [ ] **Step 2: Implement** `sensitivity.evaluate(feature, enabled_evidence, disabled_evidence,
+- [x] **Step 2: Implement** `sensitivity.evaluate(feature, enabled_evidence, disabled_evidence,
   keys, tol)` returning per-metric deltas + a `SENSITIVE/INSENSITIVE` verdict; expose via a
   `sensitivity` subcommand; wire a gate note (not a hard CI block this slice) in the seed runs.
-- [ ] **Step 3:** full suite + lint + commit `feat(sim): add evidence-sensitivity (patch-reversal) check`.
+- [x] **Step 3:** full suite + lint + commit `feat(sim): add evidence-sensitivity (patch-reversal) check`.
 
 ## Task 7: Review handoff
 
