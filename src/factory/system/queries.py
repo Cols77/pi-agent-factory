@@ -39,6 +39,8 @@ from factory.goals import registry as goal_registry
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
+from factory.simulation import evidence as sim_evidence
+from factory.simulation import registry as sim_registry
 from factory.system import adr as adr_module
 from factory.system import bundles
 from factory.system._claims import (
@@ -317,6 +319,54 @@ def query_goals(repo_root: Path, scope_ref: str) -> dict:
             for g in selected
         ],
     }
+
+
+def _sim_run_payload(run: sim_registry.Run) -> dict:
+    return {
+        "run": run.run_id,
+        "experiment": run.experiment,
+        "feature": run.feature,
+        "requirements": run.requirements,
+        "goals": run.goals,
+        "commit": run.commit,
+        "result": run.result,
+        "scope_errors": run.scope_errors,
+    }
+
+
+def query_simulation_run(repo_root: Path, run_id: str) -> dict:
+    """Return one simulation run by its run id (spec §20 bundle).
+
+    Runs are loaded through the simulation registry — the same tolerant loader
+    the rest of Inc 3 uses — so a run that no bundle declares is a resolution
+    failure, never a fuzzy guess.
+    """
+    for run in sim_registry.load_runs(_evidence_dir(repo_root)):
+        if run.run_id == run_id:
+            return _sim_run_payload(run)
+    raise ScopeNotFoundError(f"no simulation run with id {run_id!r}")
+
+
+def query_latest_simulation(repo_root: Path, feature: str) -> dict | None:
+    """Latest simulation run for a feature (deterministic by run id).
+
+    AC-01's "latest simulation evidence" slot: derived from the registry, so
+    the answer matches what `query_simulation_run` reports for the same run.
+    None is a legitimate state (no run yet), not an error.
+    """
+    latest = sim_registry.latest_run(_evidence_dir(repo_root), feature)
+    return _sim_run_payload(latest) if latest is not None else None
+
+
+def query_latest_failure(repo_root: Path, feature: str) -> dict | None:
+    """Most recent non-passed simulation run for a feature, or None."""
+    failure = sim_evidence.latest_failure(_evidence_dir(repo_root), feature)
+    return _sim_run_payload(failure) if failure is not None else None
+
+
+def query_metric_history(repo_root: Path, metric_id: str) -> list[dict]:
+    """Ascending metric history across runs (spec §9.3 style), deterministic."""
+    return sim_evidence.metric_history(_evidence_dir(repo_root), metric_id)
 
 
 @dataclass(frozen=True)

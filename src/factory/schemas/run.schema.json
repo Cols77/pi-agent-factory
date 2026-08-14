@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/run.schema.json",
+  "title": "Simulation run manifest (spec §20)",
+  "description": "The manifest inside a RUN-<ts>/ simulation run bundle. Fields per Engineering-Context spec §20: run, experiment, feature, requirements, goals, commit, result. Feature/commit/result are optional and default-safe; unknown fields are preserved untouched by the tolerant loader.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["run", "experiment"],
+  "properties": {
+    "run": {"type": "string", "minLength": 1},
+    "experiment": {"type": "string", "minLength": 1},
+    "feature": {"type": ["string", "null"]},
+    "requirements": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "goals": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "commit": {"type": ["string", "null"]},
+    "result": {"type": ["string", "null"]}
+  }
+}

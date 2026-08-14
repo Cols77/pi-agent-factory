@@ -411,7 +411,23 @@ Verified to exist on 2026-08-14. Slash commands: `/factory-init`, `/factory-doct
 
 Module invocations: `uv run python -m factory.requirements {new,bind,defer}`,
 `… factory.trace {link,exempt,defer}`, `… factory.doctor {mint,promote}`,
-`… factory.system {bundle,coverage}`.
+`… factory.system {bundle,coverage}`, `… factory.validation run --satisfies <SR-###>`.
+
+**`factory.validation run` was missing from revision 2's inventory**, which caused the
+validation gaps (`sr_unvalidated`, `sr_stale`, `sr_unvalidatable`, `matrix_never_run`)
+to be routed to `/trace-fix`. That is wrong: `.pi/skills/trace-fix/SKILL.md:17` states
+plainly "You do **not** own validation… An unvalidated or stale requirement closes by
+running validation." `/trace-fix` drives only `trace_link`/`trace_exempt`/`trace_defer`
+and structurally cannot close those gaps.
+
+**Known limitation — no command creates a bundle.** `factory.system bundle check
+--draft <path>` validates a draft; its own docstring (`system/cli.py:103`) says "It
+proposes nothing and writes nothing — the draft is judged, not generated." There is no
+create/write path anywhere in the CLI. So the remediation entries for `no_bundles`,
+`no_description` and `unbundled_artifact` must say plainly that the bundle file is
+hand-authored and the command only checks it. Offering it as though it creates the
+bundle would be the same false-helpfulness this design exists to remove. Adding a
+bundle-authoring command is out of scope here and recorded as a gap.
 
 **`factory.system check` does not exist.** The only `check` is
 `factory.system bundle check --draft <path>` (`system/cli.py:452`), which requires
