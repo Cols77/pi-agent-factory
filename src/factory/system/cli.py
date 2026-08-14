@@ -18,6 +18,7 @@ from pathlib import Path
 
 from factory.system import bundles as bundles_module
 from factory.system import health as health_module
+from factory.system import labels as labels_module
 from factory.system.bundles import list_bundles
 from factory.system.coverage import bundle_coverage, member_target
 from factory.system.guide import export_guide
@@ -162,6 +163,10 @@ def cmd_bundle_check(repo_root: Path, draft_raw: str) -> dict:
 def cmd_health(repo_root: Path, recency_source=None) -> dict:
     """The composed health projection: the single landing document."""
     return health_module.query_health(repo_root, recency_source=recency_source)
+
+
+def cmd_labels(repo_root: Path) -> dict:
+    return labels_module.build_labels(repo_root)
 
 
 def cmd_memberships(repo_root: Path, ref: str) -> dict:
@@ -383,6 +388,14 @@ def _render_health(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_labels(result: dict) -> str:
+    lines = [f"labels: {len(result['labels'])}"]
+    for ref, entry in result["labels"].items():
+        described = "described" if entry["description"] else "no description"
+        lines.append(f"  {ref}: {entry['title']} [{described}]")
+    return "\n".join(lines)
+
+
 def _render_memberships(result: dict) -> str:
     if not result["bundles"]:
         return f"{result['ref']} in no bundle"
@@ -444,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("health", parents=[common])
 
+    sub.add_parser("labels", parents=[common])
+
     p_memberships = sub.add_parser("memberships", parents=[common])
     p_memberships.add_argument("ref")
 
@@ -497,6 +512,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "health":
             result = cmd_health(args.repo_root)
             rendered = _render_health(result)
+        elif args.cmd == "labels":
+            result = cmd_labels(args.repo_root)
+            rendered = _render_labels(result)
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)
