@@ -36,6 +36,37 @@ function taskResult(text: string): { content: { type: "text"; text: string }[]; 
 }
 
 /**
+ * Turn a pure argv command into the shape `spawnSync` needs for this platform.
+ *
+ * On Windows the npm `pi` bin is a `.cmd`/`.sh` shim that Node's `spawnSync`
+ * cannot launch directly (`pi` -> ENOENT, `pi.cmd` -> EINVAL); it must run
+ * through a shell. A bare `shell: true` is not enough on its own either:
+ * Node does not quote the argument list for the shell, so any argument
+ * containing whitespace (e.g. a temp packet or extension path under a
+ * directory with a space) would be split into several arguments. We therefore
+ * pre-quote every element that contains whitespace or a double quote, using
+ * cmd.exe's escape rule (a double quote is doubled).
+ *
+ * On POSIX the `pi` shebang script can be exec'd directly, so we keep the
+ * original argv split form with no shell.
+ *
+ * Platform is an injected parameter so the branching is unit-testable on any
+ * host without actually spawning.
+ */
+export function planSubagentSpawn(
+  cmd: string[],
+  platform: NodeJS.Platform = process.platform,
+): { file: string; args: string[]; shell: boolean } {
+  if (platform === "win32") {
+    const quoted = cmd.map((part) =>
+      /[\s"]/.test(part) ? `"${part.replace(/"/g, '""')}"` : part,
+    );
+    return { file: quoted.join(" "), args: [], shell: true };
+  }
+  return { file: cmd[0]!, args: cmd.slice(1), shell: false };
+}
+
+/**
  * Construct the child pi invocation for a delegated sub-task. Pure and
  * unit-testable: it only builds the command array + env; callers decide whether
  * to spawn (a real model is required, so tests only exercise the builder).
@@ -128,11 +159,13 @@ export async function executeSubagent(
     );
   }
 
-  const proc = spawnSync(invocation.cmd[0]!, invocation.cmd.slice(1), {
+  const plan = planSubagentSpawn(invocation.cmd);
+  const proc = spawnSync(plan.file, plan.args, {
     cwd: root, // project root: same AGENTS.md / bootstrap as the parent
     env: invocation.env,
     encoding: "utf-8",
     timeout: 600_000,
+    shell: plan.shell,
   });
   let stdout = proc.stdout ?? "";
   if (proc.status !== 0) {

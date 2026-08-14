@@ -24,6 +24,7 @@ import {
 import {
   MAX_SUBAGENT_DEPTH,
   buildSubagentInvocation,
+  planSubagentSpawn,
 } from "../src/subagent-tool.js";
 import { subagentTool } from "../src/subagent-tool.js";
 
@@ -272,6 +273,41 @@ test("subagent child starts in the project root with context files enabled", () 
 test("subagent invocation refuses beyond the recursion bound", () => {
   const inv = buildSubagentInvocation({ root: makeDir(), task: "x", currentDepth: MAX_SUBAGENT_DEPTH });
   expect(inv).toBeNull();
+});
+
+// 13c. Spawn planning: on Windows the `pi` npm shim (.cmd/.sh) needs a shell,
+// and any argument containing whitespace must be pre-quoted because Node does
+// not quote the argv for a shell. On POSIX the shebang script execs directly.
+test("subagent spawn plan on win32 goes through a shell and quotes whitespace args", () => {
+  const plan = planSubagentSpawn(
+    ["pi", "-p", "@C:/path with space/packet.md", "--mode", "json", "--extension", "C:/a b/src/index.ts"],
+    "win32",
+  );
+  expect(plan.shell).toBe(true);
+  expect(plan.args).toEqual([]);
+  // cmd.exe escape rule: a double quote inside an arg is doubled.
+  expect(plan.file).toContain('"@C:/path with space/packet.md"');
+  expect(plan.file).toContain('"C:/a b/src/index.ts"');
+  // Plain elements are not wrapped.
+  expect(plan.file).toContain("-p");
+  expect(plan.file).toContain("--mode");
+});
+
+test("subagent spawn plan escapes embedded double quotes on win32", () => {
+  const plan = planSubagentSpawn(["pi", "-p", '@C:/a"b/packet.md'], "win32");
+  expect(plan.shell).toBe(true);
+  // cmd.exe doubles an embedded double quote; the @file prefix is preserved.
+  expect(plan.file).toContain('"@C:/a""b/packet.md"');
+});
+
+test("subagent spawn plan on posix execs the argv directly with no shell", () => {
+  const plan = planSubagentSpawn(
+    ["pi", "-p", "@C:/path with space/packet.md", "--mode", "json"],
+    "linux",
+  );
+  expect(plan.shell).toBe(false);
+  expect(plan.file).toBe("pi");
+  expect(plan.args).toEqual(["-p", "@C:/path with space/packet.md", "--mode", "json"]);
 });
 
 // 14. Registered subagent tool exposes its prompt snippet and guidelines.
