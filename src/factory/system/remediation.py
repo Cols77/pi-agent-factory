@@ -153,15 +153,24 @@ REMEDIATION: dict[str, dict] = {
             "ran but produced no verdict "
             "(validation_status.py `SrState`; gaps.py surfaces the "
             "recorded error, or \"validation could not run\" if none was "
-            "recorded)."
+            "recorded). This gap only fires once the SR already has a "
+            "binding (gaps.py:90-108's `else` branch of `if node.proposed`, "
+            "where `proposed` itself means \"no binding\" -- "
+            "trace/model.py:73) -- the binding exists, so `factory."
+            "requirements bind` is not the fix."
         ),
         "why_it_matters": (
             "An errored harness leaves the requirement's actual status "
             "unknown -- it is neither confirmed working nor confirmed "
-            "broken."
+            "broken. If the recorded binding names a harness that isn't "
+            "actually configured, re-running validation surfaces that "
+            "configuration error directly rather than silently passing; "
+            "no command in the current surface repairs a missing harness "
+            "declaration -- that still requires editing the binding by "
+            "hand."
         ),
-        "command": "/trace-fix {id}",
-        "command_kind": "slash",
+        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command_kind": "shell",
         "severity": "failure",
     },
     "sr_unvalidated": {
@@ -177,8 +186,8 @@ REMEDIATION: dict[str, dict] = {
             "checked against its own metric, so passing or failing is "
             "still unknown."
         ),
-        "command": "/trace-fix {id}",
-        "command_kind": "slash",
+        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command_kind": "shell",
         "severity": "absence",
     },
     "sr_stale": {
@@ -195,8 +204,8 @@ REMEDIATION: dict[str, dict] = {
             "what the requirement currently says or how it's measured, so "
             "it can't be trusted as current evidence."
         ),
-        "command": "/trace-fix {id}",
-        "command_kind": "slash",
+        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command_kind": "shell",
         "severity": "failure",
     },
     "dangling_reference": {
@@ -387,11 +396,18 @@ REMEDIATION: dict[str, dict] = {
         "what_it_means": (
             "A feature bundle groups the requirements, tasks, and "
             "decisions you read together to understand one part of the "
-            "system."
+            "system. Bundles are hand-authored, not generated: create "
+            "`bundles/<id>.json` with `id`, `label`, and `members` (a "
+            "list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and "
+            "optionally a `description` of at most 280 characters."
         ),
         "why_it_matters": (
             "Bundles are how this project is browsed, so until one "
-            "exists the directory stays empty."
+            "exists the directory stays empty. The command below only "
+            "checks a draft file you've already written -- its own "
+            "docstring says it \"proposes nothing and writes nothing; "
+            "the draft is judged, not generated\" (system/cli.py:103-111) "
+            "-- there is no CLI that creates the bundle file for you."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
         "command_kind": "shell",
@@ -409,7 +425,14 @@ REMEDIATION: dict[str, dict] = {
         ),
         "why_it_matters": (
             "Without a recorded description, the card that opens on "
-            "hover or focus has nothing to show beyond the id and title."
+            "hover or focus has nothing to show beyond the id and title. "
+            "For a bundle, add a `description` (<=280 characters) to its "
+            "hand-authored `bundles/<id>.json` by hand, then use the "
+            "command below to check it -- the command validates a draft "
+            "you edit yourself; it does not write the field for you "
+            "(system/cli.py:103-111). For a spec or plan, there is no "
+            "CLI at all -- add the named section or `**Goal:**` line "
+            "directly in the document."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
         "command_kind": "shell",
@@ -435,17 +458,21 @@ REMEDIATION: dict[str, dict] = {
         "state": "matrix_never_run",
         "headline": "Requirement was never validated",
         "what_it_means": (
-            "This Matrix row's status is `never_run`: `query_matrix` "
-            "found no validation-report entry for the SR "
-            "(queries.py _sr_missing_matrix_row / \"never validated\" "
-            "branch)."
+            "This Matrix row's status is `never_run`: the SR resolves and "
+            "carries a binding, but `_sr_matrix_row` found no entry for "
+            "it in the validation report (`status is None and not "
+            "report_corrupt` -> `MatrixStatus.NEVER_RUN`, summary "
+            "\"never validated\" -- queries.py:1026-1034). This is "
+            "distinct from an SR ref that doesn't resolve at all, which "
+            "`_sr_missing_matrix_row` reports separately as `unknown` / "
+            "\"sr does not exist\"."
         ),
         "why_it_matters": (
             "A row that has never run carries no evidence either way -- "
             "it is not passing, not failing, simply unchecked."
         ),
-        "command": "/trace-fix {id}",
-        "command_kind": "slash",
+        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command_kind": "shell",
         "severity": "absence",
     },
     "unbundled_artifact": {
@@ -459,7 +486,12 @@ REMEDIATION: dict[str, dict] = {
         "why_it_matters": (
             "Unbundled artifacts are unreachable by browsing the "
             "feature directory -- only a direct ref or the Trace tab "
-            "reaches them."
+            "reaches them. To fix this, add this ref to the `members` "
+            "list of an existing (or new) hand-authored "
+            "`bundles/<id>.json` -- the command below only checks that "
+            "edit; it does not add the membership for you "
+            "(system/cli.py:103-111, \"the draft is judged, not "
+            "generated\")."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
         "command_kind": "shell",
@@ -478,7 +510,13 @@ REMEDIATION: dict[str, dict] = {
         "why_it_matters": (
             "A ref that can't resolve means the id it names is either "
             "misspelled or was never created, so whatever it points at "
-            "can't be reached from here."
+            "can't be reached from here. `/trace-fix` only helps when "
+            "the broken ref is a trace edge (satisfies/source_plan/"
+            "spec_ref/upstream) -- for the `member_of` flavour of this "
+            "gap (a bundle listing a member ref that doesn't resolve), "
+            "`factory.trace link` has no `--member-of` flag, so the fix "
+            "is to hand-edit the bundle's `members` list directly; "
+            "running `/trace-fix {id}` will not touch it."
         ),
         "command": "/trace-fix {id}",
         "command_kind": "slash",

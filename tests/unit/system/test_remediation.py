@@ -69,4 +69,21 @@ def test_every_shell_command_names_a_real_subparser():
         if len(parts) > parts.index("-m") + 3:
             nested = parts[parts.index("-m") + 3]
             if not nested.startswith(("-", "{", "<")):
-                assert f'add_parser("{nested}"' in text, entry
+                # Scoped, not a flat substring search over the whole file:
+                # find the variable `sub`'s own parser was assigned to, then
+                # the subparsers object built from *that* variable, then look
+                # for `nested` only on that object. A flat `f'add_parser(
+                # "{nested}"' in text` search would also pass if `nested`
+                # happened to match an unrelated top-level parser elsewhere
+                # in the same cli.py.
+                parent_match = re.search(
+                    rf'(\w+)\s*=\s*\w+\.add_parser\("{re.escape(sub)}"', text
+                )
+                assert parent_match, entry
+                parent_var = parent_match.group(1)
+                nested_subparsers_match = re.search(
+                    rf'(\w+)\s*=\s*{re.escape(parent_var)}\.add_subparsers\(', text
+                )
+                assert nested_subparsers_match, entry
+                nested_var = nested_subparsers_match.group(1)
+                assert f'{nested_var}.add_parser("{nested}"' in text, entry
