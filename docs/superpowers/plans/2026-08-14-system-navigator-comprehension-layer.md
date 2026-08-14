@@ -37,7 +37,13 @@ unable to pass its own test.
    `write_sr(tmp_path / "requirements", …)` and `write_task(tmp_path / "tasks", …)`.
    By contrast `write_spec(repo_root, filename, *, title)` (`:148`) and
    `write_bundle(bundles_dir, id, label, members)` (`:73`) take what their names say.
-3. **`tests/unit/system/test_bundles.py` does not import `_fixtures`**, and
+3. **Import fixtures relatively: `from . import _fixtures`.** There is no
+   `tests/__init__.py` or `tests/unit/__init__.py` — only
+   `tests/unit/system/__init__.py` — so `from . import _fixtures`
+   resolves under a bare `python` run from the repo root but raises
+   `ModuleNotFoundError: No module named 'tests'` under pytest. Every sibling test
+   file uses the relative form; match it. (Verified in Task 1.)
+4. **`tests/unit/system/test_bundles.py` does not import `_fixtures`**, and
    `test_queries.py` uses `from ._fixtures import (…)` binding bare names. Add the
    import you need; `test_bundles.py` also has its own unrelated
    `_write_bundle(bundles_dir, bundle_id, payload: dict)` at `:26` — do not confuse
@@ -120,7 +126,7 @@ from pathlib import Path
 import pytest
 
 from factory.system.labels import build_alias_map, normalize_ref
-from tests.unit.system import _fixtures
+from . import _fixtures
 
 # Required: pyproject.toml:31 sets addopts = "-m unit". Without this marker
 # every test here is deselected and pytest exits 5.
@@ -275,7 +281,7 @@ git commit -m "feat(system): canonical ref normalisation for the label index"
 # append to tests/unit/system/test_bundles.py
 # FIRST add this import — the file does not currently import _fixtures, and its
 # own `_write_bundle` at :26 has a DIFFERENT signature (payload dict).
-from tests.unit.system import _fixtures
+from . import _fixtures
 
 
 def test_bundle_description_is_parsed_when_present(tmp_path):
