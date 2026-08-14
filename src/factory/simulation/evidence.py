@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 from factory.simulation.registry import Run, load_runs, runs_for
+from factory.goals.evaluator import evaluate
+from factory.goals.registry import record
 
 
 def metric_values(run: Run, metrics_json: dict) -> dict[str, float]:
@@ -60,3 +62,41 @@ def latest_failure(evidence_dir: Path, feature: str) -> Run | None:
 def evidence_for_goal(evidence_dir: Path, goal_id: str) -> list[Run]:
     """Runs whose manifest lists ``goal_id`` (ascending by run id)."""
     return runs_for(evidence_dir, goal=goal_id)
+
+
+def evaluate_goals_from_runs(evidence_dir: Path, goals) -> list:
+    """Automatically evaluate every given goal against its latest experiment run.
+
+    Spec §14/§16/§17 pipeline: for each goal, take the latest run of its
+    ``source_experiment``, read the goal's ``metric.name`` from that run's
+    metrics.json, call ``factory.goals.evaluator.evaluate``, then persist via
+    ``factory.goals.registry.record``. ``goals`` is the dict from
+    ``factory.goals.registry.load_goals``. Returns the list of GoalResult in goal
+    id order. A goal with no matching run (or no measurable metric value) is
+    left untouched and produces no result.
+    """
+    results: list = []
+    for goal in goals.values():
+        if not goal.metric or not goal.metric.get("name"):
+            continue
+        experiment = goal.metric.get("source_experiment")
+        if not experiment:
+            continue
+        runs = runs_for(evidence_dir, experiment=experiment)
+        if not runs:
+            continue
+        latest = max(runs, key=lambda r: r.run_id)
+        metrics = metric_values(latest, _manifest_metrics(latest))
+        value = metrics.get(goal.metric["name"])
+        if value is None:
+            continue
+        result = evaluate(
+            goal,
+            value,
+            run_id=latest.run_id,
+            commit=latest.commit or "",
+            metrics_path=latest.path.parent / "metrics.json",
+        )
+        record(result, goal.path)
+        results.append(result)
+    return results
