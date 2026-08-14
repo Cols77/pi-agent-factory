@@ -104,11 +104,18 @@ export function renderClaim(claim: any): HTMLElement {
   if (claim.implementation_summary) {
     row.appendChild(renderImplementationSummary(claim.implementation_summary));
   }
+  const evidenceCount = (claim.citations?.length || 0) + (claim.spans?.length || 0);
+  if (evidenceCount === 0) return row;
+  const details = document.createElement('details');
+  details.className = 'evidence-disclosure';
+  const summary = document.createElement('summary');
+  summary.appendChild(document.createTextNode('Evidence · ' + evidenceCount));
+  details.appendChild(summary);
   if (claim.citations && claim.citations.length) {
     const cites = document.createElement('div');
     cites.className = 'citations';
     claim.citations.forEach((c: any) => cites.appendChild(citationLine(c)));
-    row.appendChild(cites);
+    details.appendChild(cites);
   }
   if (claim.spans && claim.spans.length) {
     const spans = document.createElement('div');
@@ -121,8 +128,9 @@ export function renderClaim(claim: any): HTMLElement {
       sp.appendChild(document.createTextNode('quoted from ' + source + ': "' + s.text + '"'));
       spans.appendChild(sp);
     });
-    row.appendChild(spans);
+    details.appendChild(spans);
   }
+  row.appendChild(details);
   return row;
 }
 
@@ -172,13 +180,17 @@ export function renderMatrixRow(row: any): HTMLElement {
   const head = document.createElement('div');
   head.className = 'row-head';
   const subject = document.createElement('span');
+  subject.className = 'matrix-subject';
   subject.appendChild(document.createTextNode(row.subject.ref));
   head.appendChild(subject);
-  head.appendChild(badge(row.status, 'status-' + row.status));
-  head.appendChild(freshnessBadge(row.freshness));
+  const status = document.createElement('span');
+  status.className = 'matrix-status';
+  status.appendChild(badge(row.status, 'status-' + row.status));
+  status.appendChild(freshnessBadge(row.freshness));
+  head.appendChild(status);
   el.appendChild(head);
   const summary = document.createElement('div');
-  summary.className = 'claim-text';
+  summary.className = 'claim-text matrix-summary';
   summary.appendChild(document.createTextNode(row.summary));
   el.appendChild(summary);
   if (row.evidence && row.evidence.length) {

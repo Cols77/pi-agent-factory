@@ -35,6 +35,10 @@ export async function systemBootstrap(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
   const picker = document.getElementById('picker') as HTMLElement;
   const content = document.getElementById('content') as HTMLElement;
+  const landingPanel = document.getElementById('landingPanel') as HTMLElement;
+  const scopeWorkspace = document.getElementById('scopeWorkspace') as HTMLElement;
+  const healthStatus = document.getElementById('healthStatus') as HTMLElement;
+  const retryHealth = document.getElementById('retryHealth') as HTMLButtonElement;
 
   function showBanner(text: string): void {
     banner.textContent = text || '';
@@ -45,6 +49,7 @@ export async function systemBootstrap(): Promise<void> {
   function setLoading(on: boolean, ok?: boolean): void {
     const loading = document.getElementById('loading');
     if (loading) loading.hidden = !on;
+    content.setAttribute('aria-busy', String(on));
     if (ok) {
       const loadedAt = document.getElementById('loadedAt');
       if (loadedAt) {
@@ -61,19 +66,20 @@ export async function systemBootstrap(): Promise<void> {
   let traceLoaded = false;
   let traceData: any = null;
   let healthBundles: any[] = [];
+  let healthController: AbortController | null = null;
+  let healthGeneration = 0;
+  let scopeController: AbortController | null = null;
+  let navigationGeneration = 0;
+  const HEALTH_TIMEOUT_MS = 15_000;
+  const TRAVERSAL_TIMEOUT_MS = 8_000;
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
   let currentScope: string | null = null;
 
-  // Task B (system nav): eager SR capture for an sr: scope opened at boot, read
-  // synchronously before the first await so a Trace click has the SR to invert.
-  const bootScope = new URLSearchParams(window.location.search).get('scope');
-  if (bootScope && scopeKind(bootScope) === 'sr') scopeSrRefs = [bootScope];
-
   // Task 2 (system nav): records the active scope in the URL via pushState.
   function pushScope(ref: string): void {
     try {
-      history.pushState({ scope: ref }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
+      history.pushState({ scope: ref, tab: null }, '', location.pathname + '?scope=' + encodeURIComponent(ref));
     } catch {
       /* ignore: SPA URL is best-effort */
     }
@@ -81,12 +87,79 @@ export async function systemBootstrap(): Promise<void> {
 
   function setPickerClass(focused: boolean): void {
     document.body.classList.toggle('focus', !!focused);
+    document.body.classList.remove('picker-open');
     const toggle = document.getElementById('scopeToggle');
-    if (toggle) toggle.setAttribute('aria-expanded', String(!focused));
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.textContent = 'Browse scopes';
+    }
+  }
+
+  function setPickerOpen(open: boolean): void {
+    document.body.classList.toggle('picker-open', open);
+    const toggle = document.getElementById('scopeToggle');
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.textContent = open ? 'Close scopes' : 'Browse scopes';
+    }
+  }
+
+  function showLanding(): void {
+    landingPanel.hidden = false;
+    scopeWorkspace.hidden = true;
+    content.setAttribute('aria-busy', 'false');
+    currentScope = null;
+    document.querySelectorAll('.scope-item, .feature-row').forEach((item: Element) => {
+      item.classList.remove('is-active');
+      item.removeAttribute('aria-current');
+    });
+    setPickerClass(false);
+  }
+
+  function showWorkspace(): void {
+    landingPanel.hidden = true;
+    scopeWorkspace.hidden = false;
+    setPickerClass(true);
+  }
+
+  function isCurrentNavigation(generation: number, scopeRef: string): boolean {
+    return generation === navigationGeneration && currentScope === scopeRef;
+  }
+
+  function invalidateHealth(): void {
+    healthGeneration += 1;
+    healthController?.abort();
+    healthController = null;
+  }
+
+  function setHealthStatus(message: string, retry: boolean): void {
+    healthStatus.textContent = message;
+    healthStatus.hidden = message === '';
+    retryHealth.hidden = !retry;
   }
 
   function scopeHref(ref: string): string {
     return '/system?scope=' + encodeURIComponent(ref);
+  }
+
+  function markActiveScope(scopeRef: string): void {
+    document.querySelectorAll('.scope-item, .feature-row').forEach((item: Element) => {
+      const active = item.getAttribute('href') === scopeHref(scopeRef);
+      item.classList.toggle('is-active', active);
+      if (active) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+  }
+
+  function setScopeHeading(scopeRef: string): void {
+    const kind = scopeKind(scopeRef);
+    const bundle = kind === 'bundle'
+      ? healthBundles.find((candidate) => candidate.id === scopeRef.slice('bundle:'.length))
+      : null;
+    (document.getElementById('scopeKind') as HTMLElement).textContent = kind + ' scope';
+    (document.getElementById('scopeHeader') as HTMLElement).textContent = bundle?.label || scopeRef;
+    (document.getElementById('scopeRef') as HTMLElement).textContent = scopeRef;
+    markActiveScope(scopeRef);
   }
 
   // SP-B Task 7: the feature-first sidebar. Python's `health` projection owns
@@ -125,10 +198,9 @@ export async function systemBootstrap(): Promise<void> {
       group.className = 'scope-group';
       group.dataset.readiness = readiness;
       group.dataset.expanded = String(expanded);
-      const title = document.createElement('div');
+      const title = document.createElement('button');
+      title.type = 'button';
       title.className = 'scope-group-title';
-      title.setAttribute('role', 'button');
-      title.setAttribute('tabindex', '0');
       title.setAttribute('aria-expanded', String(expanded));
       title.appendChild(document.createTextNode(readiness.charAt(0).toUpperCase() + readiness.slice(1)));
       const groupCount = document.createElement('span');
@@ -153,7 +225,7 @@ export async function systemBootstrap(): Promise<void> {
         a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
-          loadScope('bundle:' + b.id);
+          void loadScope('bundle:' + b.id);
         });
         row.appendChild(a);
         group.appendChild(row);
@@ -182,10 +254,13 @@ export async function systemBootstrap(): Promise<void> {
       group.className = 'scope-group';
       group.dataset.group = 'unbundled';
       group.dataset.expanded = 'true';
-      const title = document.createElement('div');
+      const title = document.createElement('button');
+      title.type = 'button';
       title.className = 'scope-group-title';
+      title.setAttribute('aria-expanded', 'true');
       title.appendChild(document.createTextNode('Unbundled'));
       group.appendChild(title);
+      const rowEls: HTMLElement[] = [];
       unbundledRefs.forEach((ref: string) => {
         const row = document.createElement('div');
         row.className = 'scope-row';
@@ -195,10 +270,17 @@ export async function systemBootstrap(): Promise<void> {
         a.appendChild(document.createTextNode(ref));
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
-          loadScope(ref);
+          void loadScope(ref);
         });
         row.appendChild(a);
         group.appendChild(row);
+        rowEls.push(row);
+      });
+      title.addEventListener('click', () => {
+        const nowExpanded = group.dataset.expanded !== 'true';
+        group.dataset.expanded = String(nowExpanded);
+        title.setAttribute('aria-expanded', String(nowExpanded));
+        rowEls.forEach((row: HTMLElement) => { row.style.display = nowExpanded ? '' : 'none'; });
       });
       list.appendChild(group);
     }
@@ -234,27 +316,6 @@ export async function systemBootstrap(): Promise<void> {
   // filter over the payload, no matching logic of its own); a bare artifact
   // id gets the right kind prefix (`SR-137` -> `sr:SR-137`); a typed
   // `kind:ref` is posted verbatim. No fuzzy matching.
-  async function resolveScopeRef(ref: string): Promise<any | null> {
-    try {
-      const res = await fetch(ref);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showBanner('could not resolve ' + ref + ': ' + (body.error || res.status));
-        return null;
-      }
-      const result = await res.json();
-      const scope = result && result.scope;
-      if (!scope || !scope.ref) {
-        showBanner('could not resolve ' + ref + ': no scope returned');
-        return null;
-      }
-      return scope;
-    } catch (err) {
-      showBanner('could not resolve ' + ref + ': ' + String(err));
-      return null;
-    }
-  }
-
   async function searchGo(): Promise<void> {
     const q = scopeFilter.value.trim();
     if (!q) return;
@@ -268,38 +329,83 @@ export async function systemBootstrap(): Promise<void> {
     // Otherwise the term is an artifact ref: a bare id gets its kind prefix,
     // a typed ref is posted verbatim -- both as the exact ref.
     const ref = q.indexOf(':') !== -1 ? q : 'sr:' + q;
-    const scope = await resolveScopeRef(ref);
-    if (scope) await loadScope(scope.ref);
+    await loadScope(ref);
   }
   (document.getElementById('searchGo') as HTMLElement).onclick = () => {
     searchGo();
   };
+  scopeFilter.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void searchGo();
+  });
 
   // The toggle re-opens the collapsed list (removes body.focus).
   if (scopeToggle) {
-    scopeToggle.addEventListener('click', () => setPickerClass(false));
+    scopeToggle.addEventListener('click', () => {
+      setPickerOpen(!document.body.classList.contains('picker-open'));
+    });
   }
 
-  function showTab(name: string): void {
-    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'].forEach((tab) => {
-      (document.getElementById('tab' + tab) as HTMLElement).setAttribute('aria-selected', String(tab === name));
-      (document.getElementById('panel' + tab) as HTMLElement).hidden = tab !== name;
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
+  const TABS_BY_KIND: Record<string, string[]> = {
+    bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    sr: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    task: ['Story'],
+    file: ['Reverse'],
+  };
+
+  function configureTabs(kind: string): void {
+    const available = TABS_BY_KIND[kind] || TABS_BY_KIND.bundle!;
+    TAB_ORDER.forEach((name: string) => {
+      const tab = document.getElementById('tab' + name) as HTMLElement;
+      const panel = document.getElementById('panel' + name) as HTMLElement;
+      const included = available.includes(name);
+      tab.hidden = !included;
+      tab.setAttribute('aria-hidden', String(!included));
+      if (!included) {
+        tab.setAttribute('aria-selected', 'false');
+        tab.setAttribute('tabindex', '-1');
+        panel.hidden = true;
+      }
+    });
+  }
+
+  function showTab(name: string, updateUrl = true): void {
+    const selected = document.getElementById('tab' + name) as HTMLElement | null;
+    if (!selected || selected.hidden) return;
+    TAB_ORDER.forEach((tab) => {
+      const tabNode = document.getElementById('tab' + tab) as HTMLElement;
+      const active = tab === name && !tabNode.hidden;
+      tabNode.setAttribute('aria-selected', String(active));
+      tabNode.setAttribute('tabindex', active ? '0' : '-1');
+      (document.getElementById('panel' + tab) as HTMLElement).hidden = !active;
     });
     // Keep the active tab in the URL hash (replaceState, not pushState, so tab
     // switching does not pad the back-stack).
-    try {
-      history.replaceState(null, '', location.pathname + location.search + '#' + name.toLowerCase());
-    } catch {
-      /* ignore: hash update is best-effort */
+    if (updateUrl) {
+      try {
+        history.replaceState(
+          { scope: currentScope, tab: name.toLowerCase() },
+          '',
+          location.pathname + location.search + '#' + name.toLowerCase()
+        );
+      } catch {
+        /* ignore: hash update is best-effort */
+      }
     }
   }
 
   // Picks the boot tab from the URL hash when it names a valid tab, else the
   // scope kind's default tab.
-  function selectInitialTab(kindDefault: string): void {
+  function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
     const names: Record<string, string> = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
-    showTab(names[hash] || kindDefault);
+    const requested = names[hash];
+    const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
+    const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
+    showTab(selected, updateUrl);
+    return selected;
   }
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
@@ -308,24 +414,51 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
   (document.getElementById('tabStory') as HTMLElement).onclick = () => showTab('Story');
   (document.getElementById('tabReverse') as HTMLElement).onclick = () => showTab('Reverse');
-  (document.getElementById('tabTrace') as HTMLElement).onclick = () => { showTab('Trace'); if (scopeSrRefs.length) loadTrace(); };
+  (document.getElementById('tabTrace') as HTMLElement).onclick = () => {
+    showTab('Trace');
+    if (currentScope) void loadTrace(navigationGeneration, currentScope, scopeController?.signal);
+  };
 
   // The Refresh button re-runs the current scope's load in place.
-  (document.getElementById('refresh') as HTMLElement).onclick = () => { if (currentScope) loadScope(currentScope); };
+  (document.getElementById('refresh') as HTMLElement).onclick = () => {
+    if (currentScope) void loadScope(currentScope, false, false);
+  };
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]!);
       e.preventDefault();
       return;
     }
+    const tabTarget = e.target instanceof HTMLElement ? e.target.closest('.tab') as HTMLElement | null : null;
+    if (tabTarget && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+      const visibleTabs = TAB_ORDER
+        .map((name) => document.getElementById('tab' + name) as HTMLElement)
+        .filter((tab) => !tab.hidden);
+      const current = visibleTabs.indexOf(tabTarget);
+      if (current === -1 || !visibleTabs.length) return;
+      e.preventDefault();
+      let nextIndex = current;
+      if (e.key === 'Home') nextIndex = 0;
+      else if (e.key === 'End') nextIndex = visibleTabs.length - 1;
+      else nextIndex = (current + (e.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length;
+      const next = visibleTabs[nextIndex]!;
+      next.focus();
+      showTab(next.getAttribute('aria-label') || next.textContent || '');
+      return;
+    }
     const el = (e.target instanceof HTMLElement && e.target.closest('.scope-item')) ? e.target : null;
     if (el && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       const items = Array.from(scopeList.querySelectorAll('.scope-item'))
-        .filter((item) => (item as HTMLElement).style.display !== 'none');
+        .filter((item) => {
+          const node = item as HTMLElement;
+          const row = node.closest('.scope-row') as HTMLElement | null;
+          const group = node.closest('.scope-group') as HTMLElement | null;
+          return !node.hidden && node.style.display !== 'none' &&
+            row?.style.display !== 'none' && group?.style.display !== 'none';
+        });
       const idx = items.indexOf(el);
       if (idx === -1) return;
       const delta = e.key === 'ArrowDown' ? 1 : -1;
@@ -341,89 +474,100 @@ export async function systemBootstrap(): Promise<void> {
     return idx === -1 ? '' : ref.slice(0, idx);
   }
 
-  async function loadStoryScope(scopeRef: string): Promise<void> {
-    const res = await fetch('/api/system/story?scope=' + encodeURIComponent(scopeRef));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      content.hidden = true;
-      picker.hidden = false;
-      setPickerClass(false);
-      setLoading(false);
-      return;
+  function defaultTab(kind: string): string {
+    if (kind === 'task') return 'Story';
+    if (kind === 'file') return 'Reverse';
+    return 'Brief';
+  }
+
+  function resetScopeEvidence(scopeRef: string): void {
+    const kind = scopeKind(scopeRef);
+    scopeSrRefs = kind === 'sr' ? [scopeRef] : [];
+    traceLoaded = false;
+    traceData = null;
+    TAB_ORDER.forEach((tab) => clear(document.getElementById('panel' + tab) as HTMLElement));
+    if (kind === 'task' || kind === 'file') {
+      renderTraversalStatus('Traversal is not applicable for this scope.');
+      renderNotApplicable(
+        'panelTrace',
+        'Not applicable for this scope. See the Story or Reverse tab.'
+      );
+    } else {
+      renderTraversalStatus('Loading traversal for this scope…');
+      renderNotApplicable('panelTrace', 'Trace map has not been loaded for this scope.');
     }
-    showBanner('');
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
-    scopeSrRefs = [];
-    renderStory(await res.json());
+  }
+
+  async function responseFailure(res: Response): Promise<string> {
+    const body = await res.json().catch(() => ({}));
+    return String(body.error || res.status);
+  }
+
+  async function loadStoryScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const res = await fetch('/api/system/story?scope=' + encodeURIComponent(scopeRef), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const story = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderStory(story);
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Reverse', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a task: scope. See the Story tab.'
     ));
-    selectInitialTab('Story');
+    configureTabs('task');
+    selectInitialTab('Story', updateUrl);
     setLoading(false, true);
   }
 
-  async function loadReverseScope(scopeRef: string): Promise<void> {
-    const res = await fetch('/api/system/reverse?scope=' + encodeURIComponent(scopeRef));
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || res.status));
-      content.hidden = true;
-      picker.hidden = false;
-      setPickerClass(false);
-      setLoading(false);
-      return;
-    }
-    showBanner('');
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
-    scopeSrRefs = [];
-    renderReverse(await res.json());
+  async function loadReverseScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const res = await fetch('/api/system/reverse?scope=' + encodeURIComponent(scopeRef), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const reverse = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderReverse(reverse);
     ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Trace'].forEach((tab) => renderNotApplicable(
       'panel' + tab, 'Not applicable for a file: scope. See the Reverse tab.'
     ));
-    selectInitialTab('Reverse');
+    configureTabs('file');
+    selectInitialTab('Reverse', updateUrl);
     setLoading(false, true);
   }
 
-  async function loadBundleScope(scopeRef: string): Promise<void> {
+  async function loadBundleScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
     const scopeParam = encodeURIComponent(scopeRef);
     // The guide fetch is intentionally not in the failure gate below: a
     // failed/unavailable guide degrades only its own tab.
     const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
-      fetch('/api/system/brief?scope=' + scopeParam),
-      fetch('/api/system/matrix?scope=' + scopeParam),
-      fetch('/api/system/timeline?scope=' + scopeParam),
-      fetch('/api/system/guide?scope=' + scopeParam),
+      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
+      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
+      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
+      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
     ]);
     const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
-    if (failed) {
-      const body = await failed.json().catch(() => ({}));
-      showBanner('could not resolve scope ' + scopeRef + ': ' + (body.error || failed.status));
-      content.hidden = true;
-      picker.hidden = false;
-      setPickerClass(false);
-      setLoading(false);
-      return;
-    }
-    showBanner('');
-    const [brief, matrix, timeline] = await Promise.all([
+    if (failed) throw new Error(await responseFailure(failed));
+    const [brief, matrix, timeline, guide] = await Promise.all([
       briefRes.json(), matrixRes.json(), timelineRes.json(),
+      guideRes.ok ? guideRes.json() : Promise.resolve(null),
     ]);
-    content.hidden = false;
-    setPickerClass(true);
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = scopeRef;
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     renderBrief(brief);
     renderMatrix(matrix);
     renderTimeline(timeline);
-    if (guideRes.ok) {
-      renderGuide(await guideRes.json());
-    } else {
-      renderGuideFallback();
-    }
+    if (guide) renderGuide(guide);
+    else renderGuideFallback();
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
@@ -437,57 +581,108 @@ export async function systemBootstrap(): Promise<void> {
         if (row.subject && row.subject.kind === 'sr') scopeSrRefs.push(row.subject.ref);
       });
     }
-    traceLoaded = false;
-    traceData = null;
     // SP-B Task 9: working traversal for this sr:/bundle: scope (best-effort;
     // a missing/unavailable endpoint degrades only the #traversalPath node).
+    const traversalController = new AbortController();
+    const cancelTraversal = () => traversalController.abort();
+    signal.addEventListener('abort', cancelTraversal, { once: true });
+    const traversalTimeout = window.setTimeout(
+      () => traversalController.abort(),
+      TRAVERSAL_TIMEOUT_MS
+    );
     try {
-      const travRes = await fetch('/api/system/traversal?scope=' + scopeParam);
-      if (travRes.ok) {
-        renderTraversal(await travRes.json());
-      }
+      const travRes = await fetch('/api/system/traversal?scope=' + scopeParam, {
+        signal: traversalController.signal,
+      });
+      if (!travRes.ok) throw new Error(String(travRes.status));
+      const traversal = await travRes.json();
+      if (isCurrentNavigation(generation, scopeRef)) renderTraversal(traversal);
     } catch {
-      /* traversal is best-effort; failure degrades only its own node */
+      if (isCurrentNavigation(generation, scopeRef)) {
+        renderTraversalStatus('Traversal is unavailable for this scope.');
+      }
+    } finally {
+      window.clearTimeout(traversalTimeout);
+      signal.removeEventListener('abort', cancelTraversal);
     }
-    selectInitialTab('Brief');
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    const selectedTab = selectInitialTab('Brief', updateUrl);
+    if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);
   }
 
-  async function loadScope(scopeRef: string): Promise<void> {
+  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
+    invalidateHealth();
+    const generation = ++navigationGeneration;
+    scopeController?.abort();
+    const controller = new AbortController();
+    scopeController = controller;
     currentScope = scopeRef;
-    pushScope(scopeRef);
+    if (pushHistory) pushScope(scopeRef);
     const kind = scopeKind(scopeRef);
-    if (kind === 'task') {
-      await loadStoryScope(scopeRef);
-      return;
+    showBanner('');
+    configureTabs(kind);
+    resetScopeEvidence(scopeRef);
+    showWorkspace();
+    setScopeHeading(scopeRef);
+    selectInitialTab(defaultTab(kind), updateUrl);
+    setLoading(true);
+    try {
+      if (kind === 'task') {
+        await loadStoryScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'file') {
+        await loadReverseScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);
+    } catch (err) {
+      if (!isCurrentNavigation(generation, scopeRef)) return;
+      showBanner('could not resolve scope ' + scopeRef + ': ' + String(err));
+      picker.hidden = false;
+      showLanding();
+      setLoading(false);
     }
-    if (kind === 'file') {
-      await loadReverseScope(scopeRef);
-      return;
-    }
-    await loadBundleScope(scopeRef);
   }
 
   // Task B (system nav): the lazy trace loader. Fetches /api/graph only on the
   // first click of the Trace tab (never during scope load). Lives here because
   // it reads bootstrap state.
-  async function loadTrace(): Promise<void> {
+  async function loadTrace(
+    generation: number,
+    scopeRef: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    if (!isCurrentNavigation(generation, scopeRef)) return;
     if (!scopeSrRefs.length) {
-      renderNotApplicable('panelTrace', 'Not applicable for this scope. See the Story or Reverse tabs.');
+      const pending = content.getAttribute('aria-busy') === 'true';
+      renderNotApplicable(
+        'panelTrace',
+        pending
+          ? 'Trace will load after current-scope evidence resolves.'
+          : 'No trace recorded for this scope. See the Brief, Story, or Reverse tabs.'
+      );
       return;
     }
     if (traceLoaded) {
       renderTrace(invertTraceForScope(traceData, scopeSrRefs));
       return;
     }
+    const refs = scopeSrRefs.slice();
     try {
-      const res = await fetch('/api/graph');
+      const res = await fetch('/api/graph', signal ? { signal } : undefined);
       if (!res.ok) throw new Error('graph fetch failed');
-      traceData = await res.json();
+      const graph = await res.json();
+      if (!isCurrentNavigation(generation, scopeRef)) return;
+      traceData = graph;
       traceLoaded = true;
-      renderTrace(invertTraceForScope(traceData, scopeSrRefs));
+      renderTrace(invertTraceForScope(traceData, refs));
     } catch (err) {
-      renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+      if (isCurrentNavigation(generation, scopeRef)) {
+        renderNotApplicable('panelTrace', 'Trace map is unavailable for this scope. See the Brief, Story, or Reverse tabs.');
+      }
     }
   }
 
@@ -500,16 +695,31 @@ export async function systemBootstrap(): Promise<void> {
     const summary = document.getElementById('healthSummary') as HTMLElement;
     clear(summary);
     const h = payload.health || {};
-    const pct = document.createElement('div');
-    pct.className = 'health-line';
-    pct.appendChild(document.createTextNode('Overall ' + h.satisfied + '/' + h.expected + ' satisfied (' + h.percent + '%)'));
-    summary.appendChild(pct);
+    const overall = document.createElement('div');
+    overall.className = 'health-overall';
+    if (h.expected === 0) {
+      overall.appendChild(document.createTextNode('No measurable evidence · 0 / 0'));
+    } else {
+      overall.appendChild(document.createTextNode(
+        'Overall ' + h.satisfied + '/' + h.expected + ' satisfied · ' + h.percent + '%'
+      ));
+    }
+    summary.appendChild(overall);
+    const metrics = document.createElement('div');
+    metrics.className = 'health-metrics';
     (h.classes || []).forEach((c: any) => {
       const line = document.createElement('div');
-      line.className = 'health-line';
-      line.appendChild(document.createTextNode(c.name + ' ' + c.satisfied + '/' + c.expected));
-      summary.appendChild(line);
+      line.className = 'health-metric';
+      const label = document.createElement('span');
+      label.className = 'health-metric-label';
+      label.appendChild(document.createTextNode(c.name));
+      const ratio = document.createElement('strong');
+      ratio.appendChild(document.createTextNode(c.satisfied + '/' + c.expected));
+      line.appendChild(label);
+      line.appendChild(ratio);
+      metrics.appendChild(line);
     });
+    summary.appendChild(metrics);
   }
 
   // Minimal Task 6 bundle list (label per bundle). The feature-first grouping
@@ -517,7 +727,7 @@ export async function systemBootstrap(): Promise<void> {
   // SP-B Task 9: working traversal -- requirement -> satisfying tasks -> design
   // decisions -> changed files, rendered from `factory.system traversal --json`
   // (non-fatal: a failure degrades only this node). Text nodes only.
-  function renderTraversal(trav: any): void {
+  function traversalNode(): HTMLElement {
     let node = document.getElementById('traversalPath') as HTMLElement | null;
     if (!node) {
       node = document.createElement('div');
@@ -530,76 +740,156 @@ export async function systemBootstrap(): Promise<void> {
         document.getElementById('content')?.appendChild(node);
       }
     }
+    return node;
+  }
+
+  function renderTraversalStatus(message: string): void {
+    const node = traversalNode();
     clear(node);
-    const row = document.createElement('div');
-    row.className = 'health-line';
-    row.appendChild(document.createTextNode(
-      trav.requirement + ' → tasks: ' + (trav.tasks.join(', ') || '(none)') +
-      ' → design: ' + (trav.design.join(', ') || '(none)') +
-      ' → files: ' + (trav.files.join(', ') || '(none)')
-    ));
-    node.appendChild(row);
+    const status = document.createElement('div');
+    status.className = 'empty traversal-status';
+    status.appendChild(document.createTextNode(message));
+    node.appendChild(status);
+  }
+
+  function renderTraversal(trav: any): void {
+    const node = traversalNode();
+    clear(node);
+    function addStep(label: string, values: string[]): void {
+      const step = document.createElement('div');
+      step.className = 'trace-spine-step';
+      const stepLabel = document.createElement('div');
+      stepLabel.className = 'trace-spine-label';
+      stepLabel.appendChild(document.createTextNode(label));
+      const stepValue = document.createElement('div');
+      stepValue.className = 'trace-spine-value';
+      stepValue.appendChild(document.createTextNode(values.join(', ') || 'Not recorded'));
+      step.appendChild(stepLabel);
+      step.appendChild(stepValue);
+      node.appendChild(step);
+    }
+    addStep('Requirement', [trav.requirement]);
+    addStep('Tasks', trav.tasks);
+    addStep('Design', trav.design);
+    addStep('Files', trav.files);
   }
 
   function renderBundleList(payload: any): void {
-    let list = document.getElementById('bundleList') as HTMLElement;
-    if (!list) {
-      list = document.createElement('div');
-      list.id = 'bundleList';
-      const scopeHeader = document.getElementById('scopeHeader');
-      if (scopeHeader) {
-        scopeHeader.parentElement!.insertBefore(list, scopeHeader);
-      } else {
-        content.appendChild(list);
-      }
-    }
+    const list = document.getElementById('bundleList') as HTMLElement;
     clear(list);
     (payload.bundles || []).forEach((b: any) => {
-      const row = document.createElement('div');
-      row.className = 'bundle-row';
-      row.appendChild(document.createTextNode(b.label || b.id));
+      const row = document.createElement('a');
+      row.className = 'feature-row readiness-' + b.readiness;
+      row.href = scopeHref('bundle:' + b.id);
+      row.dataset.readiness = b.readiness;
+      const heading = document.createElement('strong');
+      heading.appendChild(document.createTextNode(b.label || b.id));
+      const readiness = document.createElement('span');
+      readiness.className = 'feature-readiness';
+      readiness.appendChild(document.createTextNode(b.readiness));
+      const members = document.createElement('span');
+      members.className = 'feature-members';
+      members.appendChild(document.createTextNode(String(b.members) + ' artifacts'));
+      const counts = document.createElement('span');
+      counts.className = 'readiness-counts';
+      counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+      row.appendChild(heading);
+      row.appendChild(readiness);
+      row.appendChild(members);
+      row.appendChild(counts);
+      row.addEventListener('click', (clickEvent: Event) => {
+        clickEvent.preventDefault();
+        void loadScope('bundle:' + b.id);
+      });
       list.appendChild(row);
     });
   }
 
-  async function loadHealth(): Promise<void> {
+  async function loadHealth(): Promise<boolean> {
+    healthController?.abort();
+    const controller = new AbortController();
+    const generation = ++healthGeneration;
+    healthController = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, HEALTH_TIMEOUT_MS);
+    content.setAttribute('aria-busy', 'true');
+    setHealthStatus('Reading project evidence…', false);
     try {
-      const res = await fetch('/api/system/health');
+      const res = await fetch('/api/system/health', { signal: controller.signal });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showBanner('could not load project health: ' + (body.error || res.status));
-        return;
+        throw new Error(String(res.status));
       }
       const payload = await res.json();
+      if (generation !== healthGeneration || healthController !== controller) return false;
       renderHealthSummary(payload);
       renderBundleList(payload);
       renderFeatureSidebar(payload);
+      setHealthStatus('', false);
+      showBanner('');
+      showLanding();
     } catch (err) {
-      showBanner('could not load project health: ' + String(err));
+      if (generation !== healthGeneration || healthController !== controller) return false;
+      showLanding();
+      if (timedOut) {
+        setHealthStatus(
+          'Project evidence is taking longer than expected. The scan was stopped; retry when ready.',
+          true
+        );
+      } else {
+        setHealthStatus(
+          'Project evidence is unavailable. The navigator is still running; retry the health scan.',
+          true
+        );
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (healthController === controller) healthController = null;
     }
+    return generation === healthGeneration;
   }
+
+  retryHealth.addEventListener('click', () => { void loadHealth(); });
+
+  function restoreLocation(): void {
+    const scopeRef = new URLSearchParams(window.location.search).get('scope');
+    if (scopeRef) {
+      void loadScope(scopeRef, false, false);
+      return;
+    }
+    navigationGeneration += 1;
+    scopeController?.abort();
+    scopeController = null;
+    showBanner('');
+    showLanding();
+    setLoading(false);
+  }
+
+  window.addEventListener('popstate', restoreLocation);
 
   // Boot sequence: the landing page opens on the health projection (summary,
   // bundle list, feature-first sidebar); scope choice navigates into focus
   // mode. The sidebar renders from the health payload -- `list_scopes` is no
   // longer fetched by the client.
   setPickerClass(false);
-  await loadHealth();
+  const healthOwnsLanding = await loadHealth();
+  if (!healthOwnsLanding) return;
   const requestedScope = new URLSearchParams(window.location.search).get('scope');
   if (requestedScope) {
     try {
-      await loadScope(requestedScope);
+      await loadScope(requestedScope, false, false);
     } catch (err) {
       showBanner('could not resolve scope ' + requestedScope + ': ' + String(err));
-      content.hidden = true;
       picker.hidden = false;
-      setPickerClass(false);
+      showLanding();
       setLoading(false);
     }
   } else {
     // Landing: no scope chosen, so the health summary + bundle list + the
     // existing tabs are the page. Python composes the projection; this only
     // renders it.
-    content.hidden = false;
+    showLanding();
   }
 }

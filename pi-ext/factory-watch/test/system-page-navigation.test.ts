@@ -94,7 +94,7 @@ describe("system-page navigation", () => {
   test("collapses the scope list into a compact bar once a scope loads", async () => {
     const dom = await loadPage("bundle:evidence-lifecycle");
     await vi.waitFor(
-      () => expect(dom.window.document.getElementById("content")!.hidden).toBe(false),
+      () => expect(dom.window.document.getElementById("scopeWorkspace")!.hidden).toBe(false),
       { timeout: 2000 },
     );
     expect(dom.window.document.body.classList.contains("focus")).toBe(true);

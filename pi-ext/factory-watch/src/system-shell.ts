@@ -1,17 +1,4 @@
-// SP-B Task 5 split — system shell (HTML + CSS + inline-script assembly).
-//
-// This module owns the `/system` HTML template and its inline CSS. It renders
-// the exact same page as before the split, with the full client script embedded
-// inline so the DOM tests (which parse this HTML and execute its inline <script>
-// via jsdom `runScripts: "dangerously"`) keep passing unchanged.
-//
-// The client script is split *for maintenance* across two other modules:
-//   - system-renderers.ts  : the pure per-tab DOM renderers
-//   - system-bootstrap.ts  : the client controller (systemBootstrap)
-// The shell embeds them into one flat IIFE via `Function.prototype.toString()`
-// so they share a single scope (renderers reference `clear` and each other;
-// bootstrap references the renderers). "Python computes, this only renders"
-// is unchanged.
+// System Navigator shell: semantic HTML, visual system, and inline client assembly.
 
 import { systemBootstrap } from './system-bootstrap.js';
 import {
@@ -41,8 +28,6 @@ import {
 } from './system-renderers.js';
 
 function clientSource(): string {
-  // `clear` is shared by the renderers and the bootstrap, so it is defined at
-  // the IIFE scope (not inside either embedded module).
   const clear = `
   function clear(el) {
     el.innerHTML = '';
@@ -86,101 +71,309 @@ await systemBootstrap();
 
 export function renderSystemPageHtml(): string {
   return `<!doctype html>
-<html>
+<html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>System Navigator</title>
 <style>
   :root {
-    color-scheme: light dark;
-    --line: color-mix(in srgb, currentColor 18%, transparent);
-    --sunk: color-mix(in srgb, currentColor 6%, transparent);
-    --hover: color-mix(in srgb, currentColor 12%, transparent);
-    --fresh: #3fa14a; --stale: #c8871a; --degraded: #d24b3f; --na: #8a8a8a;
+    color-scheme: dark;
+    --bg: #071015;
+    --bg-deep: #04090c;
+    --surface: #0d1a20;
+    --surface-raised: #12242c;
+    --surface-soft: #102028;
+    --line: #26404a;
+    --line-strong: #3a606c;
+    --text: #e7f2f5;
+    --text-muted: #91a8b0;
+    --text-dim: #698089;
+    --signal: #65d9ff;
+    --signal-soft: rgba(101, 217, 255, .12);
+    --fresh: #72e6a6;
+    --stale: #ffc857;
+    --degraded: #ff6b6b;
+    --na: #91a8b0;
+    --font-display: "Bahnschrift", "Aptos Display", "Segoe UI Variable Display", sans-serif;
+    --font-body: "Aptos", "Segoe UI Variable Text", sans-serif;
+    --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --shadow-raised: 0 18px 50px rgba(0, 0, 0, .28);
   }
   * { box-sizing: border-box; }
-  body { font: 13px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; height: 100vh; overflow: hidden; }
-  header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 15px; margin: 0; }
-  #banner { padding: 8px 20px; background: color-mix(in srgb, var(--degraded) 15%, transparent); }
-  #banner:empty { display: none; }
-  #layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: calc(100vh - 60px); }
-  #picker { border-right: 1px solid var(--line); overflow: auto; padding: 10px 14px 24px; }
-  #picker h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 0 0 6px; }
-  #scopeFilter { width: 100%; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: Canvas; color: inherit; }
-  .search-row { display: flex; gap: 6px; margin-bottom: 6px; }
-  .search-row #scopeFilter { flex: 1; margin-bottom: 0; }
-  #searchGo { font: inherit; padding: 2px 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
-  .search-row #searchGo { margin-bottom: 0; }
-  .scope-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; margin: 10px 0 2px; }
-  .scope-group-title[role="button"] { cursor: pointer; user-select: none; display: inline-flex; gap: 4px; align-items: baseline; }
-  .scope-row { display: flex; align-items: center; }
-  .scope-item { display: block; flex: 1; padding: 3px 8px; border: none; border-radius: 3px; margin: 1px 0; text-decoration: none; color: inherit; font: inherit; text-align: left; width: 100%; }
-  .scope-item:hover, .scope-item:focus-visible { background: var(--hover); outline: 2px solid currentColor; outline-offset: 1px; }
-  .scope-kind { font-size: 10px; text-transform: uppercase; opacity: .55; margin-right: 6px; }
-  #scopeToggle { display: none; }
-  @media (max-width: 760px) {
-    body.focus #scopeList, body.focus .scope-group-title, body.focus #scopeFilter, body.focus #picker h2 { display: none; }
-    #scopeToggle { display: inline-block; font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); cursor: pointer; }
-    body.focus #scopeToggle { display: inline-block; }
+  [hidden] { display: none !important; }
+  html { min-height: 100%; background: var(--bg-deep); }
+  body {
+    margin: 0;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: hidden;
+    color: var(--text);
+    background:
+      radial-gradient(circle at 78% -15%, rgba(101, 217, 255, .12), transparent 36rem),
+      linear-gradient(rgba(101, 217, 255, .025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(101, 217, 255, .025) 1px, transparent 1px),
+      var(--bg);
+    background-size: auto, 32px 32px, 32px 32px, auto;
+    font: 14px/1.62 var(--font-body);
   }
-  .scope-meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 2px; font-size: 11px; opacity: .8; }
-  #refresh { font: inherit; padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--sunk); cursor: pointer; }
-  #content { overflow: auto; padding: 8px 24px 48px; }
-  a:focus-visible, button:focus-visible, input:focus-visible, .tab:focus-visible, .scope-item:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-  #tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 12px; position: sticky; top: 0; z-index: 3; background: Canvas; }
-  .tab { font: inherit; padding: 6px 12px; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; color: inherit; }
-  .tab[aria-selected="true"] { border-bottom-color: currentColor; font-weight: 600; }
+  .app-header {
+    min-height: 82px;
+    padding: 13px 24px 14px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(4, 9, 12, .84);
+    backdrop-filter: blur(18px);
+  }
+  .app-header h1 {
+    margin: 1px 0 0;
+    font: 650 clamp(20px, 2vw, 27px)/1.1 var(--font-display);
+    letter-spacing: -.02em;
+  }
+  .app-header p { margin: 4px 0 0; color: var(--text-muted); max-width: 68ch; }
+  .eyebrow, .section-heading > span {
+    color: var(--signal);
+    font: 650 12px/1.3 var(--font-mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  #banner {
+    padding: 8px 24px;
+    border-bottom: 1px solid rgba(255, 107, 107, .5);
+    background: rgba(255, 107, 107, .1);
+    color: #ffd3d3;
+  }
+  #banner:empty { display: none; }
+  #layout {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  #picker {
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+    overflow: auto;
+    padding: 18px 16px 30px;
+    background: rgba(7, 16, 21, .88);
+  }
+  #picker h2 {
+    margin: 0 0 10px;
+    color: var(--text-muted);
+    font: 600 13px/1.3 var(--font-display);
+    letter-spacing: .04em;
+  }
+  #scopeFilter {
+    width: 100%;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+  }
+  #scopeFilter::placeholder { color: var(--text-dim); }
+  .search-row { display: flex; gap: 7px; margin-bottom: 10px; }
+  .search-row #scopeFilter { flex: 1; margin-bottom: 0; }
+  button { color: inherit; }
+  #searchGo, #refresh, #scopeToggle, .secondary-action {
+    padding: 9px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 650 12px/1 var(--font-body);
+  }
+  .scope-group-title {
+    margin: 14px 0 5px;
+    color: var(--text-muted);
+    font: 650 12px/1.3 var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: .09em;
+  }
+  .scope-group-title[role="button"], button.scope-group-title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 3px 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+  }
+  .scope-row { display: flex; align-items: center; }
+  .scope-item {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    margin: 1px 0;
+    padding: 7px 9px;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    color: var(--text-muted);
+    font: 13px/1.45 var(--font-body);
+    text-align: left;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .scope-item:hover { color: var(--text); background: var(--surface-soft); border-left-color: var(--line-strong); }
+  .scope-item.is-active, .scope-item[aria-current="page"] { color: var(--text); background: var(--signal-soft); border-left-color: var(--signal); }
+  .scope-kind { margin-right: 7px; color: var(--text-dim); font: 600 12px/1.2 var(--font-mono); text-transform: uppercase; }
+  #scopeToggle { display: none; }
+  #content { min-width: 0; min-height: 0; overflow: auto; padding: 34px clamp(24px, 4vw, 64px) 64px; }
+  #landingPanel, #scopeWorkspace { width: min(100%, 1040px); margin: 0 auto; }
+  .landing-intro { max-width: 72ch; padding: 8px 0 22px; }
+  .landing-intro h2, .scope-heading h2 {
+    margin: 6px 0 7px;
+    font: 650 clamp(28px, 4vw, 46px)/1.04 var(--font-display);
+    letter-spacing: -.035em;
+  }
+  .landing-intro p { margin: 0; max-width: 64ch; color: var(--text-muted); font-size: 16px; }
+  .scope-heading { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  #scopeRef { color: var(--text-muted); font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+  .scope-meta { display: flex; align-items: center; gap: 11px; margin: 12px 0 18px; color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
+  .loading-state { margin: 12px 0; padding: 12px 14px; border-left: 3px solid var(--signal); background: var(--signal-soft); }
+  .feature-directory { margin-top: 34px; }
+  .section-heading h3 { margin: 5px 0 12px; font: 650 21px/1.2 var(--font-display); }
+  a:focus-visible, button:focus-visible, input:focus-visible, .tab:focus-visible, .scope-item:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 3px;
+  }
+  #tabs {
+    display: flex;
+    gap: 2px;
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    margin: 0 0 20px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(7, 16, 21, .96);
+  }
+  .tab {
+    flex: 0 0 auto;
+    padding: 13px 14px 12px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: 650 13px/1 var(--font-body);
+  }
+  .tab:hover { color: var(--text); background: var(--surface-soft); }
+  .tab[aria-selected="true"] { border-bottom-color: var(--signal); color: var(--signal); }
   .panel[hidden] { display: none; }
-  .claim, .matrix-row, .timeline-event { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
-  .claim-head, .row-head, .event-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .badge { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
-  .freshness { font-size: 11px; border-radius: 3px; padding: 1px 5px; border: 1px solid currentColor; }
-  .freshness-fresh { color: var(--fresh); }
-  .freshness-stale { color: var(--stale); }
-  .freshness-degraded { color: var(--degraded); }
-  .freshness-n-a { color: var(--na); }
-  .claim-text { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .panel { width: min(100%, 1040px); }
+  .claim, .matrix-row, .timeline-event, .run, .path, .trace-sr, .trace-task {
+    margin: 10px 0;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(13, 26, 32, .74);
+  }
+  .claim-head, .row-head, .event-head, .run-head, .story-task { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: 650 12px/1.3 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+  .freshness { padding: 3px 6px; border: 1px solid currentColor; border-radius: var(--radius-sm); font: 650 12px/1.3 var(--font-mono); }
+  .freshness-fresh, .source-manifest, .validation-passed { color: var(--fresh); }
+  .freshness-stale, .source-session, .validation-stale { color: var(--stale); }
+  .freshness-degraded, .validation-failed { color: var(--degraded); }
+  .freshness-n-a, .validation-none { color: var(--na); }
+  .claim-text { max-width: 90ch; margin-top: 9px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .span { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .citation, .evidence-item { overflow-wrap: anywhere; }
-  .citations, .spans, .evidence { margin-top: 4px; font-size: 11px; opacity: .8; }
-  .citation, .span, .evidence-item { padding: 1px 0; }
-  .degraded-banner { border: 1px solid var(--degraded); color: var(--degraded); border-radius: 4px; padding: 6px 10px; margin: 8px 0; }
-  .empty { opacity: .7; }
-  .run, .path { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
-  .run-head, .story-task { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .source-manifest { color: var(--fresh); }
-  .source-session { color: var(--stale); }
-  .commit-range, .stops-at { margin-top: 4px; font-size: 11px; opacity: .8; overflow-wrap: anywhere; }
-  .changed-files { margin-top: 4px; font-size: 11px; }
-  .changed-file { padding: 1px 0; overflow-wrap: anywhere; }
-  .implementation-summary { margin-top: 6px; font-size: 11px; opacity: .85; }
-  .summary-line { padding: 1px 0; }
-  .validation-passed { color: var(--fresh); }
-  .validation-stale { color: var(--stale); }
-  .validation-failed { color: var(--degraded); }
-  .validation-none { color: var(--na); }
-  .path-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
-  .path-chain .arrow { opacity: .6; }
-  .requirements { margin-top: 8px; font-size: 12px; }
+  .citation, .evidence-item, .changed-file, .trace-hop { overflow-wrap: anywhere; }
+  .citations, .spans, .evidence { margin-top: 7px; color: var(--text-muted); font: 12px/1.6 var(--font-mono); }
+  .citation, .span, .evidence-item, .changed-file, .summary-line { padding: 2px 0; }
+  .evidence-disclosure { margin-top: 11px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .evidence-disclosure summary { width: fit-content; color: var(--signal); cursor: pointer; font: 650 12px/1.5 var(--font-mono); }
+  .evidence-disclosure[open] summary { margin-bottom: 5px; }
+  .degraded-banner { margin: 10px 0; padding: 10px 14px; border: 1px solid var(--degraded); border-left-width: 3px; border-radius: var(--radius-sm); background: rgba(255, 107, 107, .08); color: #ffd3d3; }
+  .empty { color: var(--text-muted); }
+  .commit-range, .stops-at { margin-top: 6px; color: var(--text-muted); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+  .changed-files { margin-top: 7px; font: 12px/1.55 var(--font-mono); }
+  .implementation-summary { margin-top: 9px; color: var(--text-muted); font-size: 13px; }
+  .path-chain, .trace-chain { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .path-chain .arrow, .trace-arrow { color: var(--text-dim); }
+  .requirements { margin-top: 8px; font-size: 13px; }
   .requirement { padding: 1px 0; }
-  .trace-sr, .trace-task { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; }
-  .trace-chain { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
-  .trace-hop { padding: 1px 0; overflow-wrap: anywhere; }
-  .trace-arrow { opacity: .6; }
-  .trace-upstream { font-size: 11px; opacity: .8; margin-top: 2px; }
-  /* SP-B: the health landing + feature-first sidebar (Tasks 6-7). */
-  #healthSummary { margin: 4px 0 14px; }
-  .health-line { padding: 1px 0; }
-  .bundle-group { margin: 10px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .6; }
-  .readiness-counts { font-size: 11px; opacity: .8; margin-left: 6px; }
+  .trace-upstream { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
+  .traversal-path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 6px 0 20px; counter-reset: trace-step; }
+  .trace-spine-step { position: relative; min-width: 0; padding: 12px 14px 12px 37px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(13, 26, 32, .62); counter-increment: trace-step; }
+  .trace-spine-step:first-child { border-left: 1px solid var(--line); border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .trace-spine-step:last-child { border-right: 1px solid var(--line); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .trace-spine-step::before { content: counter(trace-step); position: absolute; top: 14px; left: 13px; width: 20px; height: 20px; border: 1px solid var(--signal); border-radius: 50%; color: var(--signal); font: 650 12px/18px var(--font-mono); text-align: center; }
+  .trace-spine-step:not(:last-child)::after { content: ""; position: absolute; z-index: 1; top: 21px; right: -5px; width: 9px; height: 9px; border-top: 1px solid var(--signal); border-right: 1px solid var(--signal); background: var(--surface); transform: rotate(45deg); }
+  .trace-spine-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .trace-spine-value { margin-top: 4px; color: var(--text); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+  .matrix-row { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(0, 1.3fr); gap: 8px 18px; }
+  .matrix-row .row-head { min-width: 0; align-content: start; }
+  .matrix-subject { width: 100%; color: var(--text); font: 650 13px/1.45 var(--font-mono); overflow-wrap: anywhere; }
+  .matrix-status { display: flex; gap: 6px; flex-wrap: wrap; }
+  .matrix-summary { margin-top: 0; }
+  .matrix-row .evidence { grid-column: 1 / -1; }
+  #healthSummary { margin: 4px 0 16px; }
+  .health-overall { margin: 4px 0 12px; padding: 18px 20px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 650 clamp(18px, 2.4vw, 27px)/1.2 var(--font-display); }
+  .health-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+  .health-metric { display: flex; flex-direction: column; min-width: 0; padding: 10px 11px; border-top: 1px solid var(--line); background: rgba(13, 26, 32, .5); }
+  .health-metric-label { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+  .health-metric strong { margin-top: 2px; color: var(--text); font: 650 13px/1.4 var(--font-mono); }
+  .health-line { padding: 2px 0; }
+  .bundle-group { margin: 14px 0 4px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+  .readiness-counts { margin-left: 6px; color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
+  .feature-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; margin: 7px 0; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .72); color: var(--text); text-decoration: none; }
+  .feature-row:hover { border-color: var(--line-strong); background: var(--surface-raised); }
+  .feature-row > strong { min-width: 0; font: 650 16px/1.35 var(--font-display); overflow-wrap: anywhere; }
+  .feature-readiness { justify-self: end; color: var(--stale); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+  .feature-members { color: var(--text-muted); font-size: 12px; }
+  .readiness-ready { border-left-color: var(--fresh); }
+  .readiness-strong { border-left-color: var(--fresh); }
+  .readiness-medium { border-left-color: var(--signal); }
+  .readiness-weak { border-left-color: var(--stale); }
+  .readiness-blocked { border-left-color: var(--degraded); }
+  .readiness-missing { border-left-color: var(--na); }
+  .readiness-strong .feature-readiness { color: var(--fresh); }
+  .readiness-medium .feature-readiness { color: var(--signal); }
+  @media (max-width: 760px) {
+    .app-header { min-height: 94px; padding: 12px 16px 13px; }
+    .app-header p { font-size: 13px; }
+    #layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    #picker { max-height: 42vh; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+    body.focus #picker nav, body.focus #picker h2 { display: none; }
+    body.focus.picker-open #picker nav, body.focus.picker-open #picker h2 { display: block; }
+    body.focus:not(.picker-open) #picker { max-height: none; }
+    body.focus #scopeToggle { display: inline-flex; }
+    #content { min-width: 0; padding: 18px 16px 44px; }
+    #tabs { overflow-x: auto; scrollbar-width: thin; }
+    .matrix-row, .feature-row { grid-template-columns: minmax(0, 1fr); }
+    .traversal-path { grid-template-columns: minmax(0, 1fr); }
+    .trace-spine-step { border: 1px solid var(--line); border-bottom: 0; border-radius: 0; }
+    .trace-spine-step:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+    .trace-spine-step:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+    .trace-spine-step:not(:last-child)::after { top: auto; right: auto; bottom: -5px; left: 17px; transform: rotate(135deg); }
+    .health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .feature-readiness { justify-self: start; }
+    .landing-intro h2, .scope-heading h2 { font-size: 30px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  }
 </style></head>
 <body>
-  <nav aria-label="System navigator"><header><h1>System Navigator</h1></header></nav>
+  <header class="app-header">
+    <div class="eyebrow">PIF / EVIDENCE</div>
+    <h1>System Navigator</h1>
+    <p>Trace what the system claims, what validates it, and where the evidence leads.</p>
+  </header>
   <div id="banner" role="status"></div>
   <div id="layout">
     <aside id="picker">
       <h2>Declared scopes</h2>
-      <button id="scopeToggle" aria-expanded="false">All scopes ▾</button>
+      <button id="scopeToggle" type="button" aria-expanded="false">Browse scopes</button>
       <nav aria-label="Scopes">
         <div class="search-row">
           <input id="scopeFilter" type="search" placeholder="Search bundles or a ref…" aria-label="Filter scopes" />
@@ -190,28 +383,43 @@ export function renderSystemPageHtml(): string {
         <div id="scopeErrors"></div>
       </nav>
     </aside>
-    <section id="content" hidden>
-      <div id="healthSummary"></div>
-      <h2 id="scopeHeader"></h2>
-      <div id="loading" role="status" hidden>Loading…</div>
-      <div class="scope-meta"><button id="refresh">Refresh</button> <span id="loadedAt"></span></div>
-      <nav aria-label="System navigator"><div id="tabs" role="tablist">
-        <button id="tabBrief" class="tab" role="tab" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
-        <button id="tabMatrix" class="tab" role="tab" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
-        <button id="tabTimeline" class="tab" role="tab" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
-        <button id="tabGuide" class="tab" role="tab" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
-        <button id="tabStory" class="tab" role="tab" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
-        <button id="tabReverse" class="tab" role="tab" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
-        <button id="tabTrace" class="tab" role="tab" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
-      </div></nav>
-      <div id="panelBrief" class="panel"></div>
-      <div id="panelMatrix" class="panel" hidden></div>
-      <div id="panelTimeline" class="panel" hidden></div>
-      <div id="panelGuide" class="panel" hidden></div>
-      <div id="panelStory" class="panel" hidden></div>
-      <div id="panelReverse" class="panel" hidden></div>
-      <div id="panelTrace" class="panel" hidden></div>
-    </section>
+    <main id="content" aria-busy="true">
+      <section id="landingPanel" aria-labelledby="landingTitle">
+        <div class="landing-intro">
+          <div class="eyebrow">PROJECT EVIDENCE</div>
+          <h2 id="landingTitle">See the system clearly.</h2>
+          <p>Start with weak or unbundled features, then follow their evidence spine.</p>
+        </div>
+        <div id="healthStatus" class="loading-state" role="status">Reading project evidence…</div>
+        <button id="retryHealth" class="secondary-action" type="button" hidden>Retry health scan</button>
+        <div id="healthSummary"></div>
+        <section class="feature-directory" aria-labelledby="featureDirectoryTitle">
+          <div class="section-heading"><span>FEATURE DIRECTORY</span><h3 id="featureDirectoryTitle">Browse by readiness</h3></div>
+          <div id="bundleList"></div>
+        </section>
+      </section>
+      <section id="scopeWorkspace" hidden>
+        <div class="scope-heading"><div id="scopeKind" class="eyebrow"></div><h2 id="scopeHeader"></h2><div id="scopeRef"></div></div>
+        <div id="loading" role="status" hidden>Loading…</div>
+        <div class="scope-meta"><button id="refresh" type="button">Refresh</button> <span id="loadedAt"></span></div>
+        <nav aria-label="System navigator"><div id="tabs" role="tablist">
+          <button id="tabBrief" class="tab" role="tab" tabindex="0" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
+          <button id="tabMatrix" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
+          <button id="tabTimeline" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
+          <button id="tabGuide" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
+          <button id="tabStory" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
+          <button id="tabReverse" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
+          <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
+        </div></nav>
+        <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
+        <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
+        <div id="panelTimeline" class="panel" role="tabpanel" aria-labelledby="tabTimeline" hidden></div>
+        <div id="panelGuide" class="panel" role="tabpanel" aria-labelledby="tabGuide" hidden></div>
+        <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
+        <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
+        <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+      </section>
+    </main>
   </div>
 ${clientSource()}
 </body></html>`;

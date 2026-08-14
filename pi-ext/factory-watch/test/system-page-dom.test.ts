@@ -61,7 +61,10 @@ const BRIEF = {
     {
       kind: "synthesized",
       text: 'This guide covers the declared bundle "Evidence lifecycle".',
-      citations: [{ kind: "bundle", path: "bundles/evidence-lifecycle.yaml", sha256: "a".repeat(64), anchor: null }],
+      citations: [
+        { kind: "bundle", path: "bundles/evidence-lifecycle.yaml", sha256: "a".repeat(64), anchor: null },
+        { kind: "requirement", path: "requirements\\SR-034.md", sha256: "d".repeat(64), anchor: null },
+      ],
       spans: [{ text: "Evidence lifecycle", citation_index: 0 }],
       freshness: { state: "fresh", reason: null, dependencies: [] },
     },
@@ -243,10 +246,22 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(synthesized?.querySelector(".span")?.textContent).toContain("Evidence lifecycle");
   });
 
+  test("groups citations and quoted spans in a counted native disclosure", async () => {
+    const dom = await loadPage({ scope: "bundle:evidence-lifecycle" });
+    const claim = dom.window.document.querySelector("#panelBrief .claim-synthesized");
+    const evidence = claim?.querySelector(".evidence-disclosure");
+    expect(evidence?.tagName).toBe("DETAILS");
+    expect(evidence?.querySelector("summary")?.textContent).toBe("Evidence · 3");
+    expect(evidence?.textContent).toContain("requirements\\SR-034.md");
+  });
+
   test("renders the matrix row with its status and freshness, including the unknown status", async () => {
     const dom = await loadPage({ scope: "bundle:evidence-lifecycle" });
     const doc = dom.window.document;
     const row = doc.querySelector("#panelMatrix .matrix-row");
+    expect(row?.querySelector(".matrix-subject")?.textContent).toBe("sr:SR-001");
+    expect(row?.querySelector(".matrix-status")?.textContent).toContain("unknown");
+    expect(row?.querySelector(".matrix-summary")?.textContent).toBe("validation report unreadable");
     expect(row).not.toBeNull();
     expect(row?.querySelector(".badge")?.textContent).toBe("unknown");
     expect(row?.querySelector(".freshness")?.textContent).toBe("degraded");
