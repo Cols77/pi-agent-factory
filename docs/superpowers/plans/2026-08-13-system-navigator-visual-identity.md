@@ -449,11 +449,18 @@ after an intercepted health failure, reduced-motion CSS, and console errors. Rep
 
 ## Independent plan/code review gate
 
-After browser validation passes, a fresh reviewer receives the full spec, this plan, base SHA
-`9239b20`, current HEAD, and both reports. It must inspect actual code/tests, verify every plan
-requirement, identify missing/extra scope, and assess readability, accessibility, security, and
-maintainability with file:line findings ordered by severity. The implementer fixes all Critical and
-Important findings plus local low-risk Minor findings; the reviewer rechecks.
+[PASSED] Reviewed the full commit range `9239b20..HEAD` against the spec, this
+plan, and the browser gate report. Every Task/Step (1-4) verified IMPLEMENTED
+with file:line evidence: midnight tokens + semantic shell (`system-shell.ts`),
+landing/focus separation, honest metrics + Retry (`system-bootstrap.ts`),
+contextual tabs (TABS_BY_KIND + configureTabs), keyboard roving (visible-only
+Arrow/Home/End), exact-ref search (bare id gets `sr:` prefix, encoded fetch),
+native `<details>` disclosure + matrix hooks (`system-renderers.ts`),
+four-segment trace spine (Requirement/Tasks/Design/Files), 760px
+single-column + mobile scope sheet, reduced-motion. No missing or extra scope.
+Readability, accessibility, security, and maintainability assessed; no
+Critical/Important findings. Human visual check guide:
+`docs/superpowers/2026-08-13-system-navigator-visual-check.md`.
 
 ## Final completion gate
 
