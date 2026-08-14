@@ -144,13 +144,13 @@ def evidence_for_goal(evidence_dir, goal_id) -> list[Run]   # runs whose manifes
 
 ## Task 6: Wire drone scenarios + seed evidence (cool_physical_ai_project)
 
-- [ ] **Step 1:** `scripts/run_simulation.py`: load the `sim-testbench` harness config, run a
+- [x] **Step 1:** `scripts/run_simulation.py`: load the `sim-testbench` harness config, run a
   scenario, write a `RUN-<ts>/` bundle (manifest + metrics.json + optional events/report) under
   `evidence/runs/`.
-- [ ] **Step 2:** bind `multiple_threats.yaml`/`shark_warning.yaml` to experiments that score
+- [x] **Step 2:** bind `multiple_threats.yaml`/`shark_warning.yaml` to experiments that score
   the reacquisition metric from `drone.validation.scorers`. Run the harness, commit 3 seed runs
   (one above, one below, one after a regression) so Inc 4/Inc 6 have real data.
-- [ ] **Step 3:** run `python -m factory.system` queries against the seed runs; full gates green.
+- [x] **Step 3:** run `python -m factory.system` queries against the seed runs; full gates green.
 
 ## Task 6b: Evidence sensitivity — patch-reversal (brief §5.2)
 
