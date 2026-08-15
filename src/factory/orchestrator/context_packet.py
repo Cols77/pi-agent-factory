@@ -10,7 +10,49 @@ from typing import TYPE_CHECKING
 from factory.orchestrator.deliverables import parse_deliverables
 
 if TYPE_CHECKING:
+    from factory.codeindex.model import CodeIndex
     from factory.orchestrator.ledger import Task
+
+try:
+    from factory.codeindex import file_signatures as _idx_file_signatures
+    from factory.codeindex import is_fresh as _idx_is_fresh
+    from factory.codeindex import load_latest as _idx_load_latest
+
+    _HAS_INDEX = True
+except Exception:  # pragma: no cover - defensive; codeindex should import
+    _idx_file_signatures = None
+    _idx_is_fresh = None
+    _idx_load_latest = None
+    _HAS_INDEX = False
+
+
+def _reference_signatures(
+    rel: Path, repo_root: Path, max_sigs: int, index: "CodeIndex | None" = None
+) -> list[dict]:
+    """Use the durable code index for reference-file signatures when a fresh index
+    exists; otherwise fall back to the stdlib extractor. A stale index is never
+    trusted (is_fresh is recomputed once per packet build, not per file)."""
+    if index is not None and _idx_file_signatures is not None:
+        try:
+            sigs = _idx_file_signatures(index, rel.as_posix())
+            if sigs is not None:
+                return sigs[:max_sigs]
+        except Exception:
+            pass
+    return signature_summary_for_file(rel, repo_root, max_sigs)
+
+
+def _resolve_index(repo_root: Path) -> "CodeIndex | None":
+    """Load the durable code index once, only when it is fresh (cheap checksum)."""
+    if not _HAS_INDEX or _idx_load_latest is None or _idx_is_fresh is None:
+        return None
+    try:
+        index = _idx_load_latest(repo_root)
+        if index is not None and _idx_is_fresh(index, repo_root):
+            return index
+    except Exception:
+        pass
+    return None
 
 # Env-tunable token-budget caps (mirroring the FACTORY_*_TIMEOUT_S contract).
 _PRIMARY_CAP = int(os.environ.get("FACTORY_PACKET_PRIMARY_CAP_CHARS", "12000"))
@@ -120,6 +162,7 @@ def build_context_packet(task: "Task", manifest: dict, repo_root: Path) -> dict:
         source = []
     primary = primary_paths(task, manifest)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    index = _resolve_index(repo_root)
 
     files: dict[str, dict] = {}
     missing: list[str] = []
@@ -147,7 +190,7 @@ def build_context_packet(task: "Task", manifest: dict, repo_root: Path) -> dict:
 
         if size > _PRIMARY_CAP and is_primary:
             # Over-cap primary -> degrade to signatures, not truncated junk.
-            sigs = signature_summary_for_file(Path(rel), repo_root, _REF_MAX_SIGS)
+            sigs = _reference_signatures(Path(rel), repo_root, _REF_MAX_SIGS, index)
             entry = {
                 "primary": True,
                 "kind": "signatures",
@@ -156,7 +199,7 @@ def build_context_packet(task: "Task", manifest: dict, repo_root: Path) -> dict:
                 "reason": "over-cap primary file",
             }
         elif _file_kind(rel) == "code":
-            sigs = signature_summary_for_file(Path(rel), repo_root, _REF_MAX_SIGS)
+            sigs = _reference_signatures(Path(rel), repo_root, _REF_MAX_SIGS, index)
             if is_primary:
                 try:
                     content = path.read_text(encoding="utf-8", errors="replace")

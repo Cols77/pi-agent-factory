@@ -97,6 +97,13 @@ export interface BeforeAgentStartEventResult {
   systemPrompt?: string;
 }
 
+export interface SessionStartEvent {
+  type: "session_start";
+  // "startup" for a fresh session; other reasons (fork/reload/etc.) indicate a
+  // non-startup trigger we may want to skip cheap work for.
+  reason?: string;
+}
+
 export interface SessionShutdownEvent {
   type: "session_shutdown";
   reason: string;
@@ -120,6 +127,10 @@ export interface PiApi {
   on(
     event: "before_agent_start",
     handler: (event: BeforeAgentStartEvent, ctx: EventCtx) => BeforeAgentStartEventResult | void,
+  ): void;
+  on(
+    event: "session_start",
+    handler: (event: SessionStartEvent, ctx: EventCtx) => void,
   ): void;
   on(
     event: "session_shutdown",

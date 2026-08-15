@@ -6,6 +6,8 @@
 // Pi-free, unit-testable); everything here is glue that touches Pi APIs.
 
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import {
   BLOCK_END,
   BLOCK_START,
@@ -31,6 +33,28 @@ function parseArgs(args: string): { refresh: boolean; check: boolean } {
   const refresh = /(^|\s)--refresh(\s|$)/.test(args);
   const check = /(^|\s)--check(\s|$)/.test(args);
   return { refresh, check };
+}
+
+// Best-effort durable code index build (item 2). Runs the Python builder;
+// /factory-init never fails on it — a missing/failed index just means
+// consumers fall back to the stdlib signature extractor. Tries `uv run python`
+// first (this repo), then plain `python`. `ensure` reuses a fresh index and
+// rebuilds ONLY when the cheap checksum shows the code changed.
+function buildCodeIndex(root: string, ensure: boolean): void {
+  const args = ["-m", "factory.codeindex", "--root", root];
+  if (ensure) args.push("--ensure");
+  const candidates: Array<[string, string[]]> = [
+    ["uv", ["run", "python", ...args]],
+    ["python", args],
+  ];
+  for (const [bin, binArgs] of candidates) {
+    try {
+      const r = spawnSync(bin, binArgs, { encoding: "utf-8", timeout: 120000 });
+      if (r.status === 0) return;
+    } catch {
+      // try next candidate
+    }
+  }
 }
 
 function renderBlockPreview(root: string): string {
@@ -112,6 +136,11 @@ export function registerFactoryInit(pi: PiApi): void {
         await seedContextFeeds(ctx, root);
       }
 
+      // Build the durable code index on init/refresh (full build once).
+      if (mode === "init" || mode === "refresh") {
+        buildCodeIndex(root, false);
+      }
+
       if (mode === "check") {
         for (const line of reportLines(result)) ctx.ui.notify(line, "info");
         ctx.ui.notify(
@@ -152,6 +181,22 @@ export function registerFactoryInit(pi: PiApi): void {
       const check = runFactoryCheck(root);
       for (const line of renderDoctor(check)) ctx.ui.notify(line, "info");
     },
+  });
+
+  // "A new session opened": keep the durable code index current — recompute
+  // ONLY when the cheap checksum (fingerprint) shows the code changed. Best-
+  // effort and non-fatal: a missing python/factory just leaves the stdlib
+  // fallback in place. Fires on session startup (reason "startup"); skip
+  // forks/reloads so a mid-session reload doesn't rescan.
+  pi.on("session_start", (event, ctx) => {
+    try {
+      const reason = (event as { reason?: string }).reason;
+      if (reason !== undefined && reason !== "startup") return;
+      const { root } = resolveProjectRoot(ctx.cwd);
+      buildCodeIndex(root, true);
+    } catch {
+      // never take the session down over an index refresh
+    }
   });
 
   // Register the subagent tool so its prompt metadata reaches the parent model.

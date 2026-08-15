@@ -40,3 +40,6 @@ sessions/*
 
 # Obsidian per-window UI state (churns constantly; not project config)
 .obsidian/workspace.json
+
+# Durable code-context bundle (item 2) - recomputed on change at session open
+.factory/code-index/

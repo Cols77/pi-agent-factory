@@ -11,6 +11,13 @@ dependencies = [
   "openai>=1.50",
 ]
 
+[project.optional-dependencies]
+# Optional accelerator for the durable code index (item 2). The index fallback
+# (stdlib ast) works without these; install for multi-language tree-sitter
+# parsing. NOTE: tree_sitter_languages wheels can be ABI-mismatched with the
+# top-level tree_sitter binding -- the engine degrades to stdlib on any failure.
+code-index = ["tree-sitter>=0.20", "tree-sitter-languages>=1.9"]
+
 [dependency-groups]
 dev = ["ruff>=0.6", "pyright>=1.1.380", "pytest>=8.0"]
 
