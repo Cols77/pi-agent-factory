@@ -19,6 +19,7 @@ import {
   loadSystemBriefing,
   loadSystemGuide,
   loadSystemHealthAsync,
+  loadSystemLabelsAsync,
   loadSystemMatrix,
   loadSystemReverse,
   loadSystemScopes,
@@ -255,7 +256,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these eight exact paths exist -- anything else falls through
+  // and only these ten exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
@@ -270,6 +271,18 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // SP-B Task 6: the composed landing projection the browser renders on load.
   if (req.method === "GET" && url.pathname === "/api/system/health") {
     const result = await loadSystemHealthAsync(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // The label index: every ref's title and recorded description. Async only --
+  // this reads every spec and plan body, so it must not block the event loop.
+  if (req.method === "GET" && url.pathname === "/api/system/labels") {
+    const result = await loadSystemLabelsAsync(cwd);
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

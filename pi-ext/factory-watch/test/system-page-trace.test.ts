@@ -29,6 +29,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/timeline") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-086" }, events: [], degraded: false, degraded_reasons: [] });
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-086" }, sections: [] });
     if (url.pathname === "/api/graph") return jsonResponse(GRAPH);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

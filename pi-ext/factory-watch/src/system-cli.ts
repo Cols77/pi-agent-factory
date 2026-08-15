@@ -379,3 +379,31 @@ export function loadSystemReverse(cwd: string, scope: string): CliResult<SystemR
   const cmd = buildSystemCommand(["reverse", "--scope", scope, "--json"]);
   return runJsonCli<SystemReverse>(cwd, cmd.bin, cmd.args);
 }
+
+// Mirrors `factory.system labels --json`. Titles and descriptions are read
+// from recorded fields in Python; this file renders them and never derives a
+// description, a title, or a ref.
+export interface SystemLabelEntry {
+  ref: string;
+  id: string;
+  kind: string;
+  title: string;
+  description: string | null;
+  description_source: string | null;
+  deferral_reason: string | null;
+  status: string | null;
+  relations: Record<string, string[]>;
+  path: string;
+  scope_href: string | null;
+}
+
+export interface SystemLabels {
+  labels: Record<string, SystemLabelEntry>;
+  aliases: Record<string, string>;
+  degraded: string[];
+}
+
+export function loadSystemLabelsAsync(cwd: string): Promise<CliResult<SystemLabels>> {
+  const cmd = buildSystemCommand(["labels", "--json"]);
+  return runJsonCliAsync<SystemLabels>(cwd, cmd.bin, cmd.args);
+}

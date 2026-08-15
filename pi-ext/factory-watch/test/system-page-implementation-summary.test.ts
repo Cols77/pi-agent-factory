@@ -78,6 +78,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
     if (url.pathname === "/api/system/guide") return jsonResponse(GUIDE);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

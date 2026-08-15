@@ -50,6 +50,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: EMPTY.scope, sections: [] });
     if (url.pathname === "/api/system/brief")
       return jsonResponse({ scope: EMPTY.scope, claims: [], degraded: false, degraded_reasons: [] });
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

@@ -13,6 +13,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/matrix") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, rows: [] });
     if (url.pathname === "/api/system/timeline") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, events: [], degraded: false, degraded_reasons: [] });
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, sections: [] });
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

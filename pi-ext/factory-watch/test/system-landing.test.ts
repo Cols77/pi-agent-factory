@@ -100,6 +100,7 @@ function mockFetch(health: unknown) {
     const url = new URL(String(input), "http://localhost/");
     if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
     if (url.pathname === "/api/system/health") return jsonResponse(health);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }
@@ -203,6 +204,7 @@ describe("system landing page", () => {
         return jsonResponse({ scope: { kind: "bundle", ref: "bundle:b1" }, events: [], degraded: false, degraded_reasons: [] });
       if (url.pathname === "/api/system/guide")
         return jsonResponse({ scope: { kind: "bundle", ref: "bundle:b1" }, sections: [] });
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       throw new Error(`unmocked fetch: ${String(input)}`);
     });
     const dom = new JSDOM(renderSystemPageHtml(), {
@@ -286,6 +288,7 @@ describe("SP-B Task 9 working traversal", () => {
       }
       if (url.pathname === "/api/system/traversal")
         return jsonResponse({ requirement: "SR-001", tasks: ["T-001"], design: ["adr:ADR-0001"], files: ["src/a.py"] });
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       throw new Error(`unmocked fetch: ${String(input)}`);
     });
     const dom = new JSDOM(renderSystemPageHtml(), {

@@ -143,6 +143,7 @@ function mockFetch(guideFails = false) {
         ? jsonResponse({ error: "synthesis failed", kind: "RuntimeError" }, 503)
         : jsonResponse(GUIDE);
     }
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

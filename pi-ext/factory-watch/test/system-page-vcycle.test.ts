@@ -112,6 +112,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/scope") return jsonResponse(SCOPE_LIST);
     if (url.pathname === "/api/system/story") return jsonResponse(STORY);
     if (url.pathname === "/api/system/reverse") return jsonResponse(REVERSE);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }

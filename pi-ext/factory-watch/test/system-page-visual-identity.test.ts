@@ -90,6 +90,7 @@ function scopeResponse(pathname: string): Promise<Response> {
   if (pathname === "/api/system/matrix") return jsonResponse({ scope, rows: [] });
   if (pathname === "/api/system/timeline") return jsonResponse({ scope, events: [], degraded: false, degraded_reasons: [] });
   if (pathname === "/api/system/guide") return jsonResponse({ scope, sections: [] });
+  if (pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
   return Promise.reject(new Error(`unmocked fetch: ${pathname}`));
 }
 
@@ -129,6 +130,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -164,6 +166,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -205,6 +208,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -253,6 +257,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -315,6 +320,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock, "http://localhost/system?scope=sr%3ASR-NEW#trace");
@@ -351,6 +357,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock, "http://localhost/system?scope=sr%3ASR-OLD#trace");
@@ -490,6 +497,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -532,6 +540,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -568,6 +577,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -616,6 +626,7 @@ describe("system navigator landing and focus modes", () => {
           degraded: false, degraded_reasons: [],
         });
       }
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${url.pathname}`));
     });
     const dom = loadDom(fetchMock);
@@ -693,6 +704,7 @@ describe("system navigator landing and focus modes", () => {
         return jsonResponse({ scope, claims: [], rows: [], events: [], sections: [], degraded: false, degraded_reasons: [] });
       }
       if (String(input) === "sr:SR-137") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-137" } });
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       return Promise.reject(new Error(`unmocked fetch: ${String(input)}`));
     });
     const dom = loadDom(fetchMock);

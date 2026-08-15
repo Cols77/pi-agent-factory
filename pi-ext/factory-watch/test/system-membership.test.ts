@@ -48,6 +48,7 @@ async function loadSrPage(): Promise<JSDOM> {
       return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, events: [], degraded: false, degraded_reasons: [] });
     if (url.pathname === "/api/system/guide")
       return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, sections: [] });
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
   const dom = new JSDOM(renderSystemPageHtml(), {
