@@ -4,15 +4,21 @@ import { systemBootstrap } from './system-bootstrap.js';
 import {
   boundedList,
   closeOpenCard,
+  definitionCardFields,
+  definitionTrigger,
   ensureCardController,
+  glossFor,
   infoCard,
   refCardFields,
   refChip,
+  renderVocabularyPanel,
   resolveLabel,
+  vocabularyBadgeFor,
 } from './system-comprehension.js';
 import { REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
   badge,
+  badgeSpan,
   citationLine,
   freshnessBadge,
   invertTraceForScope,
@@ -35,6 +41,7 @@ import {
   renderTimeline,
   renderTimelineEvent,
   renderTrace,
+  withGloss,
 } from './system-renderers.js';
 
 function clientSource(): string {
@@ -51,6 +58,20 @@ function clientSource(): string {
     ALIASES = (payload && payload.aliases) || {};
   }`;
   const renderers = [
+    badgeSpan,
+    resolveLabel,
+    refChip,
+    boundedList,
+    infoCard,
+    refCardFields,
+    ensureCardController,
+    closeOpenCard,
+    glossFor,
+    definitionTrigger,
+    withGloss,
+    vocabularyBadgeFor,
+    definitionCardFields,
+    renderVocabularyPanel,
     badge,
     freshnessBadge,
     citationLine,
@@ -74,13 +95,6 @@ function clientSource(): string {
     renderNotApplicable,
     invertTraceForScope,
     renderTrace,
-    resolveLabel,
-    refChip,
-    boundedList,
-    infoCard,
-    refCardFields,
-    ensureCardController,
-    closeOpenCard,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -146,12 +160,14 @@ export function renderSystemPageHtml(): string {
     font: 14px/1.62 var(--font-body);
   }
   .app-header {
+    position: relative;
     min-height: 82px;
     padding: 13px 24px 14px;
     border-bottom: 1px solid var(--line);
     background: rgba(4, 9, 12, .84);
     backdrop-filter: blur(18px);
   }
+  #vocabularyToggle { position: absolute; top: 14px; right: 24px; }
   .app-header h1 {
     margin: 1px 0 0;
     font: 650 clamp(20px, 2vw, 27px)/1.1 var(--font-display);
@@ -346,6 +362,7 @@ export function renderSystemPageHtml(): string {
   .health-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
   .health-metric { display: flex; flex-direction: column; min-width: 0; padding: 10px 11px; border-top: 1px solid var(--line); background: rgba(13, 26, 32, .5); }
   .health-metric-label { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+  .health-metric-raw { margin-top: 1px; color: var(--text-dim); font: 12px/1.4 var(--font-mono); overflow-wrap: anywhere; }
   .health-metric strong { margin-top: 2px; color: var(--text); font: 650 13px/1.4 var(--font-mono); }
   .health-line { padding: 2px 0; }
   .bundle-group { margin: 14px 0 4px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -366,6 +383,7 @@ export function renderSystemPageHtml(): string {
   @media (max-width: 760px) {
     .app-header { min-height: 94px; padding: 12px 16px 13px; }
     .app-header p { font-size: 13px; }
+    #vocabularyToggle { position: static; margin-top: 10px; }
     #layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
     #picker { max-height: 42vh; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
     body.focus #picker nav, body.focus #picker h2 { display: none; }
@@ -394,6 +412,8 @@ export function renderSystemPageHtml(): string {
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
+  .badge-wrap { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; min-width: 0; }
+  .badge-wrap .gloss { flex-basis: 100%; }
   .info-card { position: fixed; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
   .presence-rail { border-left: 3px solid var(--line-strong); padding-left: 12px; }
   .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
@@ -414,6 +434,31 @@ export function renderSystemPageHtml(): string {
   .info-card-path { color: var(--text-muted); }
   .info-card-open { margin-top: 8px; }
   .info-card-open a { color: var(--signal); font: 650 12px/1.3 var(--font-mono); text-decoration: none; }
+  .info-card-badge { margin-top: 0; }
+  .info-card-definition { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+  .info-card-siblings, .info-card-computed-by { margin-top: 6px; font: 12px/1.5 var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+  #vocabularyPanel { width: min(100%, 1040px); margin: 0 auto; }
+  .vocab-group { margin: 20px 0 8px; }
+  .vocab-group-title {
+    margin: 0 0 10px;
+    color: var(--text-muted);
+    font: 650 12px/1.3 var(--font-mono);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+  }
+  .vocab-entries { display: grid; gap: 10px; }
+  .vocab-entry {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(13, 26, 32, .74);
+  }
+  .vocab-definition { margin-top: 8px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+  .vocab-siblings, .vocab-computed-by { margin-top: 6px; font: 12px/1.5 var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+  @media (min-width: 1200px) {
+    .vocab-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   .info-card-open a:hover, .info-card-open a:focus-visible { text-decoration: underline; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
@@ -427,6 +472,7 @@ export function renderSystemPageHtml(): string {
     <div class="eyebrow">PIF / EVIDENCE</div>
     <h1>System Navigator</h1>
     <p>Trace what the system claims, what validates it, and where the evidence leads.</p>
+    <button id="vocabularyToggle" class="secondary-action" type="button" aria-pressed="false">Vocabulary</button>
   </header>
   <div id="banner" role="status"></div>
   <div id="layout">
@@ -477,6 +523,14 @@ export function renderSystemPageHtml(): string {
         <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
         <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
         <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+      </section>
+      <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
+        <div class="landing-intro">
+          <div class="eyebrow">REFERENCE</div>
+          <h2 id="vocabularyTitle">Vocabulary</h2>
+          <p>Every term this system uses, with its real badge, definition, and where it's computed.</p>
+        </div>
+        <div id="vocabularyGroups"></div>
       </section>
     </main>
   </div>

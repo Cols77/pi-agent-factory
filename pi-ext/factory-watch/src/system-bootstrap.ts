@@ -32,6 +32,8 @@ declare const renderTimeline: (timeline: any) => void;
 declare const renderTrace: (trace: any[]) => void;
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
+declare const VOCABULARY: { terms: Record<string, any> };
+declare const renderVocabularyPanel: () => void;
 
 export async function systemBootstrap(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
@@ -39,6 +41,7 @@ export async function systemBootstrap(): Promise<void> {
   const content = document.getElementById('content') as HTMLElement;
   const landingPanel = document.getElementById('landingPanel') as HTMLElement;
   const scopeWorkspace = document.getElementById('scopeWorkspace') as HTMLElement;
+  const vocabularyPanel = document.getElementById('vocabularyPanel') as HTMLElement;
   const healthStatus = document.getElementById('healthStatus') as HTMLElement;
   const retryHealth = document.getElementById('retryHealth') as HTMLButtonElement;
 
@@ -109,6 +112,8 @@ export async function systemBootstrap(): Promise<void> {
   function showLanding(): void {
     landingPanel.hidden = false;
     scopeWorkspace.hidden = true;
+    vocabularyPanel.hidden = true;
+    setVocabularyPressed(false);
     content.setAttribute('aria-busy', 'false');
     currentScope = null;
     document.querySelectorAll('.scope-item, .feature-row').forEach((item: Element) => {
@@ -121,7 +126,25 @@ export async function systemBootstrap(): Promise<void> {
   function showWorkspace(): void {
     landingPanel.hidden = true;
     scopeWorkspace.hidden = false;
+    vocabularyPanel.hidden = true;
+    setVocabularyPressed(false);
     setPickerClass(true);
+  }
+
+  // The vocabulary panel (visual addendum, "Vocabulary panel"): a full
+  // workspace view, not a modal, wired to a header control so it's reachable
+  // from anywhere. It replaces whichever of landing/workspace was showing;
+  // toggling the control again (or navigating elsewhere) restores it.
+  function setVocabularyPressed(pressed: boolean): void {
+    const toggle = document.getElementById('vocabularyToggle');
+    if (toggle) toggle.setAttribute('aria-pressed', String(pressed));
+  }
+
+  function showVocabulary(): void {
+    landingPanel.hidden = true;
+    scopeWorkspace.hidden = true;
+    vocabularyPanel.hidden = false;
+    setVocabularyPressed(true);
   }
 
   function isCurrentNavigation(generation: number, scopeRef: string): boolean {
@@ -346,6 +369,22 @@ export async function systemBootstrap(): Promise<void> {
   if (scopeToggle) {
     scopeToggle.addEventListener('click', () => {
       setPickerOpen(!document.body.classList.contains('picker-open'));
+    });
+  }
+
+  // VOCABULARY is static page-scope data (Task 8), so the panel content can
+  // be rendered once up front rather than on first open.
+  renderVocabularyPanel();
+  const vocabularyToggle = document.getElementById('vocabularyToggle');
+  if (vocabularyToggle) {
+    vocabularyToggle.addEventListener('click', () => {
+      if (vocabularyPanel.hidden) {
+        showVocabulary();
+      } else if (currentScope) {
+        showWorkspace();
+      } else {
+        showLanding();
+      }
     });
   }
 
@@ -712,12 +751,17 @@ export async function systemBootstrap(): Promise<void> {
     (h.classes || []).forEach((c: any) => {
       const line = document.createElement('div');
       line.className = 'health-metric';
+      const term = VOCABULARY && VOCABULARY.terms ? VOCABULARY.terms[c.name] : null;
       const label = document.createElement('span');
       label.className = 'health-metric-label';
-      label.appendChild(document.createTextNode(c.name));
+      label.appendChild(document.createTextNode(term ? term.label : c.name));
+      const raw = document.createElement('span');
+      raw.className = 'health-metric-raw';
+      raw.appendChild(document.createTextNode(c.name));
       const ratio = document.createElement('strong');
       ratio.appendChild(document.createTextNode(c.satisfied + '/' + c.expected));
       line.appendChild(label);
+      line.appendChild(raw);
       line.appendChild(ratio);
       metrics.appendChild(line);
     });

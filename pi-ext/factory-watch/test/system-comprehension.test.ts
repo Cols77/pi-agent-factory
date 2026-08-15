@@ -3,11 +3,16 @@ import { beforeEach, expect, test, vi } from "vitest";
 import {
   boundedList,
   closeOpenCard,
+  definitionCardFields,
+  definitionTrigger,
   ensureCardController,
+  glossFor,
   infoCard,
   refCardFields,
   refChip,
+  renderVocabularyPanel,
 } from "../src/system-comprehension.js";
+import { badge, badgeSpan, freshnessBadge } from "../src/system-renderers.js";
 
 const T060 = {
   ref: "task:T-060", id: "T-060", kind: "task",
@@ -26,8 +31,24 @@ const SR121 = {
   path: "requirements/SR-121.md", scope_href: null,
 };
 
+const RECORDED_TERM = {
+  term: "recorded", group: "claim-kind", label: "recorded",
+  gloss: "straight from a file, not inferred",
+  definition: "Copied verbatim out of an artifact file.",
+  siblings: ["derived"], computed_by: ["src/factory/system/queries.py"],
+};
+
+const FRESH_TERM = {
+  term: "fresh", group: "freshness", label: "fresh",
+  gloss: "cited inputs still match what is recorded now",
+  definition: "Every dependency still matches its recorded current state.",
+  siblings: ["stale", "degraded", "n/a"], computed_by: ["src/factory/system/models.py"],
+};
+
 beforeEach(() => {
-  const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
+  const dom = new JSDOM("<!doctype html><body><div id=\"vocabularyGroups\"></div></body>", {
+    pretendToBeVisual: true,
+  });
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).LABELS = { "task:T-060": T060, "sr:SR-121": SR121 };
@@ -35,6 +56,15 @@ beforeEach(() => {
     "T-060": "task:T-060", "task:T-060": "task:T-060",
     "SR-121": "sr:SR-121", "sr:SR-121": "sr:SR-121",
   };
+  (globalThis as any).VOCABULARY = { terms: {} };
+  // badge()/freshnessBadge() (system-renderers.ts) and renderVocabularyPanel()
+  // reference these as free variables, exactly as they do in the assembled
+  // page (system-shell.ts's clientSource()) -- wiring them onto globalThis
+  // here reproduces that same page-scope resolution for a unit test.
+  (globalThis as any).badgeSpan = badgeSpan;
+  (globalThis as any).glossFor = glossFor;
+  (globalThis as any).definitionTrigger = definitionTrigger;
+  (globalThis as any).clear = (el: HTMLElement) => { el.innerHTML = ""; };
 });
 
 test("a known ref renders id and title inline", () => {
@@ -230,4 +260,115 @@ test("closeOpenCard closes the currently open card without moving focus", () => 
   closeOpenCard();
   expect(document.querySelector(".info-card")).toBeNull();
   expect(chip.getAttribute("aria-expanded")).toBe("false");
+});
+
+// --- Task 11: badge glosses, definition cards and the vocabulary panel ---
+
+test("a badge carries its gloss inline and a definition trigger", () => {
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
+  const el = badge("recorded", "kind-recorded");
+  expect(el.textContent).toContain("recorded");
+  const wrap = el.parentElement ?? el;
+  expect(wrap.querySelector(".gloss")?.textContent)
+    .toBe("straight from a file, not inferred");
+  expect(wrap.querySelector(".info-trigger")?.getAttribute("aria-label"))
+    .toBe("What does recorded mean?");
+});
+
+test("the badge's own contract word is untouched by the gloss wrap", () => {
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
+  const el = badge("recorded", "kind-recorded");
+  const wrap = el.parentElement ?? el;
+  expect(wrap.querySelector(".badge")?.textContent).toBe("recorded");
+  expect(wrap.querySelector(".badge")?.className).toBe("badge kind-recorded");
+});
+
+test("an unknown term renders the badge with no gloss and no trigger", () => {
+  (globalThis as any).VOCABULARY = { terms: {} };
+  const el = badge("mystery", "");
+  const wrap = el.parentElement ?? el;
+  expect(wrap.querySelector(".gloss")).toBeNull();
+  expect(wrap.querySelector(".info-trigger")).toBeNull();
+  // Renders exactly as today: no wrapper at all, the plain badge itself.
+  expect(el.className).toBe("badge");
+  expect(el.parentElement).toBeNull();
+});
+
+test("freshnessBadge carries its gloss inline too, keyed off freshness.state", () => {
+  (globalThis as any).VOCABULARY = { terms: { fresh: FRESH_TERM } };
+  const el = freshnessBadge({ state: "fresh", reason: null });
+  const wrap = el.parentElement ?? el;
+  expect(wrap.querySelector(".freshness")?.textContent).toBe("fresh");
+  expect(wrap.querySelector(".gloss")?.textContent)
+    .toBe("cited inputs still match what is recorded now");
+});
+
+test("freshnessBadge with an unrecorded state (n/a) still renders plainly with no VOCABULARY entry", () => {
+  (globalThis as any).VOCABULARY = { terms: {} };
+  const el = freshnessBadge({ state: "n/a", reason: null });
+  expect(el.className).toBe("freshness freshness-n-a");
+  expect(el.parentElement).toBeNull();
+});
+
+test("Escape closes the definition card and returns focus to the trigger", () => {
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
+  const wrap = badge("recorded", "kind-recorded");
+  document.body.appendChild(wrap);
+  const trigger = wrap.querySelector(".info-trigger") as HTMLElement;
+  expect(trigger).not.toBeNull();
+  trigger.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  trigger.focus();
+  expect(document.querySelector(".info-card")).not.toBeNull();
+  document.dispatchEvent(new (window as any).KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(document.querySelector(".info-card")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+test("clicking the info trigger opens a definition card with the definition, siblings and computed_by", () => {
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
+  const wrap = badge("recorded", "kind-recorded");
+  document.body.appendChild(wrap);
+  const trigger = wrap.querySelector(".info-trigger") as HTMLElement;
+  trigger.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  const card = document.querySelector(".info-card");
+  expect(card).not.toBeNull();
+  expect(card?.querySelector(".info-card-badge .badge")?.textContent).toBe("recorded");
+  expect(card?.querySelector(".info-card-definition")?.textContent).toBe(RECORDED_TERM.definition);
+  expect(card?.querySelector(".info-card-siblings")?.textContent).toBe("siblings: derived");
+  expect(card?.querySelector(".info-card-computed-by")?.textContent)
+    .toBe("computed by: src/factory/system/queries.py");
+});
+
+test("definitionCardFields orders badge, definition, siblings, computed_by", () => {
+  const fields = definitionCardFields(RECORDED_TERM);
+  expect(fields.map((f) => f.className)).toEqual([
+    "info-card-badge",
+    "info-card-definition",
+    "info-card-siblings",
+    "info-card-computed-by",
+  ]);
+  expect(fields[0]?.node?.textContent).toBe("recorded");
+});
+
+test("renderVocabularyPanel groups entries by group and shows the real badge beside its definition", () => {
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM, fresh: FRESH_TERM } };
+  renderVocabularyPanel();
+  const root = document.getElementById("vocabularyGroups") as HTMLElement;
+  const groupTitles = Array.from(root.querySelectorAll(".vocab-group-title")).map((el) => el.textContent);
+  expect(groupTitles).toEqual(["claim-kind", "freshness"]);
+  const entries = root.querySelectorAll(".vocab-entry");
+  expect(entries.length).toBe(2);
+  const recordedEntry = entries[0] as HTMLElement;
+  expect(recordedEntry.querySelector(".badge")?.textContent).toBe("recorded");
+  expect(recordedEntry.querySelector(".gloss")?.textContent).toBe(RECORDED_TERM.gloss);
+  expect(recordedEntry.querySelector(".vocab-definition")?.textContent).toBe(RECORDED_TERM.definition);
+  expect(recordedEntry.querySelector(".vocab-siblings")?.textContent).toBe("siblings: derived");
+  const freshEntry = entries[1] as HTMLElement;
+  expect(freshEntry.querySelector(".freshness")?.textContent).toBe("fresh");
+});
+
+test("renderVocabularyPanel does nothing when the panel root is not on the page", () => {
+  document.getElementById("vocabularyGroups")?.remove();
+  (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
+  expect(() => renderVocabularyPanel()).not.toThrow();
 });

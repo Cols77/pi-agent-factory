@@ -15,11 +15,25 @@
 
 declare const LABELS: Record<string, any>;
 declare const ALIASES: Record<string, string>;
+declare const VOCABULARY: { terms: Record<string, VocabularyTerm> };
+declare const badgeSpan: (text: string, extraClass: string) => HTMLElement;
+declare const clear: (el: HTMLElement) => void;
+
+export interface VocabularyTerm {
+  term: string;
+  group: string;
+  label: string;
+  gloss: string;
+  definition: string;
+  siblings: string[];
+  computed_by: string[];
+}
 
 export interface InfoCardField {
-  text: string;
+  text?: string;
   className?: string;
   href?: string;
+  node?: HTMLElement;
 }
 
 export function resolveLabel(raw: string): any | null {
@@ -82,16 +96,18 @@ export function infoCard(fields: InfoCardField[]): HTMLElement {
   const el = document.createElement('div');
   el.className = 'info-card';
   fields.forEach((field) => {
-    if (!field || !field.text) return;
+    if (!field || (!field.text && !field.node)) return;
     const line = document.createElement('div');
     line.className = 'info-card-line' + (field.className ? ' ' + field.className : '');
-    if (field.href) {
+    if (field.node) {
+      line.appendChild(field.node);
+    } else if (field.href) {
       const link = document.createElement('a');
       link.href = field.href;
-      link.appendChild(document.createTextNode(field.text));
+      link.appendChild(document.createTextNode(field.text as string));
       line.appendChild(link);
     } else {
-      line.appendChild(document.createTextNode(field.text));
+      line.appendChild(document.createTextNode(field.text as string));
     }
     el.appendChild(line);
   });
@@ -124,6 +140,129 @@ export function refCardFields(entry: any): InfoCardField[] {
   return fields;
 }
 
+// A term with no VOCABULARY entry has nothing to gloss -- degrades silently
+// (null), never a placeholder (visual addendum, "Badge with gloss").
+export function glossFor(term: string): HTMLElement | null {
+  const entry = VOCABULARY && VOCABULARY.terms ? VOCABULARY.terms[term] : null;
+  if (!entry || !entry.gloss) return null;
+  const el = document.createElement('div');
+  el.className = 'gloss';
+  el.appendChild(document.createTextNode(entry.gloss));
+  return el;
+}
+
+// The real <button>, keyboard reachable, that opens the definition card for
+// `term` (visual addendum, "Badge with gloss"). Absent VOCABULARY entry ->
+// null, same silent-degrade rule as glossFor.
+export function definitionTrigger(term: string): HTMLElement | null {
+  const entry = VOCABULARY && VOCABULARY.terms ? VOCABULARY.terms[term] : null;
+  if (!entry) return null;
+  ensureCardController();
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'info-trigger';
+  btn.dataset.term = term;
+  btn.setAttribute('aria-label', 'What does ' + term + ' mean?');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.appendChild(document.createTextNode('ⓘ'));
+  return btn;
+}
+
+// The same real badge a vocabulary term renders as elsewhere in the
+// interface -- a freshness pill for the `freshness` group (identical class
+// naming to freshnessBadge), the plain `.badge` styling for every other
+// group, since none of the remaining groups render as any other visible
+// chrome today. Used by the definition card and the vocabulary panel so
+// "the badge exactly as it appears in the interface" is literally the same
+// markup, not a lookalike.
+export function vocabularyBadgeFor(entry: VocabularyTerm): HTMLElement {
+  if (entry.group === 'freshness') {
+    const el = document.createElement('span');
+    el.className = 'freshness freshness-' + String(entry.term).replace('/', '-');
+    el.appendChild(document.createTextNode(entry.term));
+    return el;
+  }
+  return badgeSpan(entry.term, '');
+}
+
+// Definition card contents, in the order the visual addendum specifies: the
+// term as it actually renders as a badge, the definition, siblings, and
+// computed_by module paths in mono.
+export function definitionCardFields(entry: VocabularyTerm): InfoCardField[] {
+  const fields: InfoCardField[] = [
+    { node: vocabularyBadgeFor(entry), className: 'info-card-badge' },
+    { text: entry.definition, className: 'info-card-definition' },
+  ];
+  if (entry.siblings && entry.siblings.length) {
+    fields.push({ text: 'siblings: ' + entry.siblings.join(', '), className: 'info-card-siblings' });
+  }
+  if (entry.computed_by && entry.computed_by.length) {
+    fields.push({ text: 'computed by: ' + entry.computed_by.join(', '), className: 'info-card-computed-by' });
+  }
+  return fields;
+}
+
+// The vocabulary panel (visual addendum, "Vocabulary panel"): a full
+// workspace view, not a modal, grouped by `group`. Each entry renders the
+// real badge beside its gloss, definition, siblings, and computed_by paths
+// -- seeing the real badge beside its definition is what makes it a legend
+// rather than a word list.
+export function renderVocabularyPanel(): void {
+  const root = document.getElementById('vocabularyGroups');
+  if (!root) return;
+  clear(root);
+  const terms: VocabularyTerm[] = Object.keys(VOCABULARY.terms || {})
+    .map((key) => VOCABULARY.terms[key])
+    .filter((entry): entry is VocabularyTerm => !!entry);
+  const groups: Record<string, VocabularyTerm[]> = {};
+  const order: string[] = [];
+  terms.forEach((entry) => {
+    let bucket = groups[entry.group];
+    if (!bucket) {
+      bucket = [];
+      groups[entry.group] = bucket;
+      order.push(entry.group);
+    }
+    bucket.push(entry);
+  });
+  order.forEach((group) => {
+    const section = document.createElement('section');
+    section.className = 'vocab-group';
+    const title = document.createElement('h3');
+    title.className = 'vocab-group-title';
+    title.appendChild(document.createTextNode(group));
+    section.appendChild(title);
+    const entries = document.createElement('div');
+    entries.className = 'vocab-entries';
+    (groups[group] || []).forEach((entry) => {
+      const row = document.createElement('div');
+      row.className = 'vocab-entry';
+      row.appendChild(vocabularyBadgeFor(entry));
+      const gloss = glossFor(entry.term);
+      if (gloss) row.appendChild(gloss);
+      const definition = document.createElement('div');
+      definition.className = 'vocab-definition';
+      definition.appendChild(document.createTextNode(entry.definition));
+      row.appendChild(definition);
+      if (entry.siblings && entry.siblings.length) {
+        const siblings = document.createElement('div');
+        siblings.className = 'vocab-siblings';
+        siblings.appendChild(document.createTextNode('siblings: ' + entry.siblings.join(', ')));
+        row.appendChild(siblings);
+      }
+      if (entry.computed_by && entry.computed_by.length) {
+        const computedBy = document.createElement('div');
+        computedBy.className = 'vocab-computed-by';
+        computedBy.appendChild(document.createTextNode('computed by: ' + entry.computed_by.join(', ')));
+        row.appendChild(computedBy);
+      }
+      entries.appendChild(row);
+    });
+    section.appendChild(entries);
+    root.appendChild(section);
+  });
+}
+
 // Single delegated controller for every ref-chip card on the page. Installed
 // lazily (idempotently) the first time a resolved chip is rendered, so
 // system-shell.ts needs no extra wiring beyond listing these functions.
@@ -146,8 +285,25 @@ export function ensureCardController(): void {
   let hoverTimer: number | null = null;
   let pointerDownOnTrigger = false;
 
+  // One controller drives both card payloads (visual addendum, "Cards": "one
+  // component, two payloads") -- a ref chip and a definition trigger are the
+  // two trigger shapes it recognises.
   function closestTrigger(target: any): HTMLElement | null {
-    return target && target.closest ? target.closest('.ref-chip[data-ref]') : null;
+    return target && target.closest
+      ? target.closest('.ref-chip[data-ref], .info-trigger[data-term]')
+      : null;
+  }
+
+  function fieldsFor(trigger: HTMLElement): InfoCardField[] | null {
+    const anyTrigger = trigger as any;
+    if (anyTrigger.classList && anyTrigger.classList.contains('info-trigger')) {
+      const term = anyTrigger.dataset ? anyTrigger.dataset.term : undefined;
+      const entry = term && VOCABULARY.terms ? VOCABULARY.terms[term] : null;
+      return entry ? definitionCardFields(entry) : null;
+    }
+    const ref = anyTrigger.dataset ? anyTrigger.dataset.ref : undefined;
+    const entry = ref ? LABELS[ref] : null;
+    return entry ? refCardFields(entry) : null;
   }
 
   function closeCard(): void {
@@ -184,11 +340,10 @@ export function ensureCardController(): void {
 
   function openCardFor(trigger: HTMLElement): void {
     if (openTrigger === trigger) return;
-    const ref = trigger.dataset ? trigger.dataset.ref : undefined;
-    const entry = ref ? LABELS[ref] : null;
+    const fields = fieldsFor(trigger);
     closeCard();
-    if (!entry) return;
-    const card = infoCard(refCardFields(entry));
+    if (!fields) return;
+    const card = infoCard(fields);
     openCardEl = card;
     openTrigger = trigger;
     trigger.setAttribute('aria-expanded', 'true');

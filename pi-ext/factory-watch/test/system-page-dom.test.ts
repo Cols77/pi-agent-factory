@@ -131,10 +131,10 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
   } as Response);
 }
 
-function mockFetch(guideFails = false) {
+function mockFetch(guideFails = false, health: unknown = HEALTH) {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
-    if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+    if (url.pathname === "/api/system/health") return jsonResponse(health);
     if (url.pathname === "/api/system/brief") return jsonResponse(BRIEF);
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
@@ -152,12 +152,14 @@ function mockFetch(guideFails = false) {
  * fixtures above, and waits for the page's own async bootstrap
  * (`loadScopes()` then, when `?scope=` is present, `loadScope()`) to finish
  * populating the DOM before handing control back to the test. */
-async function loadPage(opts: { scope?: string; guideFails?: boolean } = {}): Promise<JSDOM> {
+async function loadPage(
+  opts: { scope?: string; guideFails?: boolean; health?: unknown } = {},
+): Promise<JSDOM> {
   const html = renderSystemPageHtml();
   const url = opts.scope
     ? `http://localhost/system?scope=${encodeURIComponent(opts.scope)}`
     : "http://localhost/system";
-  const fetchMock = mockFetch(opts.guideFails ?? false);
+  const fetchMock = mockFetch(opts.guideFails ?? false, opts.health ?? HEALTH);
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
     resources: "usable",
@@ -307,5 +309,61 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(doc.getElementById("panelGuide")?.textContent).toContain("Guide synthesis is unavailable");
     // Brief/matrix/timeline are unaffected by the guide-only failure.
     expect(doc.querySelectorAll("#panelBrief .claim").length).toBe(BRIEF.claims.length);
+  });
+
+  // Task 11: renderHealthSummary is a closure inside systemBootstrap, not
+  // exported -- exercised only through the real page via loadPage().
+  test("health class labels render readable text with the raw name as metadata", async () => {
+    const dom = await loadPage({
+      health: {
+        health: {
+          classes: [{ name: "task->plan", satisfied: 21, expected: 21, exempt: 0 }],
+          satisfied: 21, expected: 21, percent: 100, dangling: 0, deferred: 0, proposed: 0,
+        },
+        coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+        bundles: [], unbundled: { sr: ["sr:SR-999"] }, ordering_available: true, sr_listed: false, degraded: [],
+      },
+    });
+    const metric = dom.window.document.querySelector(".health-metric")!;
+    expect(metric.querySelector(".health-metric-label")?.textContent).toBe("Tasks linked to a plan");
+    expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("task->plan");
+  });
+
+  test("a health class with no VOCABULARY entry falls back to its raw name as the label", async () => {
+    const dom = await loadPage({
+      health: {
+        health: {
+          classes: [{ name: "not-a-real-class", satisfied: 1, expected: 1, exempt: 0 }],
+          satisfied: 1, expected: 1, percent: 100, dangling: 0, deferred: 0, proposed: 0,
+        },
+        coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+        bundles: [], unbundled: { sr: ["sr:SR-999"] }, ordering_available: true, sr_listed: false, degraded: [],
+      },
+    });
+    const metric = dom.window.document.querySelector(".health-metric")!;
+    expect(metric.querySelector(".health-metric-label")?.textContent).toBe("not-a-real-class");
+    expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("not-a-real-class");
+  });
+
+  test("the Vocabulary header control opens a workspace view grouped by term group, with a Back to the landing page", async () => {
+    const dom = await loadPage();
+    const doc = dom.window.document;
+    const toggle = doc.getElementById("vocabularyToggle") as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    toggle.click();
+    expect(doc.getElementById("vocabularyPanel")?.hidden).toBe(false);
+    expect(doc.getElementById("landingPanel")?.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    // Grouped by `group`, with the real badge rendered beside its definition.
+    const groups = doc.querySelectorAll("#vocabularyGroups .vocab-group-title");
+    expect(groups.length).toBeGreaterThan(1);
+    const claimKindEntry = Array.from(doc.querySelectorAll("#vocabularyGroups .vocab-entry"))
+      .find((el) => el.querySelector(".badge")?.textContent === "recorded");
+    expect(claimKindEntry?.querySelector(".vocab-definition")?.textContent).toContain("verbatim");
+    // Clicking again returns to the landing page.
+    toggle.click();
+    expect(doc.getElementById("vocabularyPanel")?.hidden).toBe(true);
+    expect(doc.getElementById("landingPanel")?.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
   });
 });

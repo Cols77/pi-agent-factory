@@ -25,27 +25,67 @@
 // body for the inline <script>.
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
+// glossFor/definitionTrigger are defined by system-comprehension.ts and
+// embedded into the same page-scope IIFE as these renderers (see
+// system-shell.ts's clientSource()); referenced here as free variables for
+// the same reason refChip/boundedList are above.
+declare const glossFor: (term: string) => HTMLElement | null;
+declare const definitionTrigger: (term: string) => HTMLElement | null;
 
 export function clear(el: HTMLElement): void {
   el.innerHTML = '';
 }
 
-export function badge(text: string, extraClass: string): HTMLElement {
+// The plain badge, exactly as it always rendered -- no gloss, no trigger.
+// badge() wraps this; the definition card and vocabulary panel also reuse it
+// directly so "the real badge" they show is this literal element, not a
+// lookalike.
+export function badgeSpan(text: string, extraClass: string): HTMLElement {
   const el = document.createElement('span');
   el.className = 'badge' + (extraClass ? ' ' + extraClass : '');
   el.appendChild(document.createTextNode(text));
   return el;
 }
 
+// Wraps a badge/freshness element in a `.badge-wrap` that adds the inline
+// gloss line and the ⓘ definition trigger when `term` has a VOCABULARY entry
+// (visual addendum, "Badge with gloss"). A term with no entry is returned
+// completely unchanged -- same element, same class, no wrapper -- so a badge
+// callers already depend on structurally (renderClaim/renderMatrixRow/
+// renderTimelineEvent/renderStoryRun all `appendChild` this return value
+// directly) never regresses when the vocabulary has nothing to say.
+export function withGloss(el: HTMLElement, term: string): HTMLElement {
+  const gloss = glossFor(term);
+  if (!gloss) return el;
+  const wrap = document.createElement('span');
+  wrap.className = 'badge-wrap';
+  wrap.appendChild(el);
+  const trigger = definitionTrigger(term);
+  if (trigger) wrap.appendChild(trigger);
+  wrap.appendChild(gloss);
+  return wrap;
+}
+
+// badge() keeps its exact contract word as the text of a pristine
+// `<span class="badge">` -- every existing caller and every existing test
+// that asserts `.badge` structure/text directly keeps working unchanged,
+// because that span is always present at the same depth relative to itself.
+// It only grows a `.badge-wrap` ancestor when VOCABULARY has a gloss for the
+// word, which `.querySelector('.badge')` sees straight through.
+export function badge(text: string, extraClass: string): HTMLElement {
+  return withGloss(badgeSpan(text, extraClass), text);
+}
+
 // Freshness is always rendered as its own literal state word (fresh / stale /
 // degraded / n/a) -- the CSS class only adds colour on top of that text, it
-// never stands in for it (design section 6.3).
+// never stands in for it (design section 6.3). Same wrap-only-when-glossed
+// rule as badge() above.
 export function freshnessBadge(freshness: any): HTMLElement {
   const el = document.createElement('span');
   el.className = 'freshness freshness-' + freshness.state.replace('/', '-');
   el.appendChild(document.createTextNode(freshness.state));
   if (freshness.reason) el.title = freshness.reason;
-  return el;
+  return withGloss(el, freshness.state);
 }
 
 export function citationLine(citation: any): HTMLElement {
