@@ -229,6 +229,25 @@ describe("renderSystemPageHtml", () => {
     expect(html).toContain("degraded_reasons");
     expect(html).toContain("degraded");
   });
+
+  test("the page inlines the vocabulary and remediation tables", () => {
+    expect(html).toContain("var VOCABULARY =");
+    expect(html).toContain("var REMEDIATION =");
+    expect(html).toContain('"recorded"');
+    expect(html).toContain('"sr_unsatisfied"');
+  });
+
+  test("the page declares mutable label bindings and a setter", () => {
+    expect(html).toContain("var LABELS =");
+    expect(html).toContain("var ALIASES =");
+    expect(html).toContain("function setLabels(");
+  });
+
+  test("gloss text uses --text-muted, never --text-dim", () => {
+    const gloss = html.match(/\.gloss\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(gloss).toContain("--text-muted");
+    expect(gloss).not.toContain("--text-dim");
+  });
 });
 
 describe("GET /system and /api/system/*", () => {

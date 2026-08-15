@@ -2,11 +2,13 @@
 //
 // This module holds the pure DOM renderer functions that the `/system` client
 // script uses. Each function builds DOM nodes from a payload it is handed; none
-// of them reads fetch/state, none of them sorts, filters by freshness, or
-// decides ordering — "Python computes, this only renders" applies to every
-// function here. The document is reached through the global `document` (these
-// run inside the page's inline <script>), and `clear` is the page helper that
-// empties a panel before the renderer repopulates it.
+// of them fetches, sorts, filters by freshness, or decides ordering —
+// "Python computes, this only renders" applies to every function here. They
+// MAY read the frozen page-scope lookups (LABELS, ALIASES, VOCABULARY,
+// REMEDIATION), which are data Python computed, not state this file owns.
+// The document is reached through the global `document` (these run inside
+// the page's inline <script>), and `clear` is the page helper that empties a
+// panel before the renderer repopulates it.
 //
 // NOTE: these are embedded into the page's inline <script> via
 // `Function.prototype.toString()` (see system-shell.ts), so they must be plain

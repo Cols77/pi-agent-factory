@@ -1,6 +1,7 @@
 // System Navigator shell: semantic HTML, visual system, and inline client assembly.
 
 import { systemBootstrap } from './system-bootstrap.js';
+import { REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
   badge,
   citationLine,
@@ -28,9 +29,17 @@ import {
 } from './system-renderers.js';
 
 function clientSource(): string {
-  const clear = `
+  const preamble = `
   function clear(el) {
     el.innerHTML = '';
+  }
+  var LABELS = {};
+  var ALIASES = {};
+  var VOCABULARY = ${JSON.stringify(VOCABULARY_DATA)};
+  var REMEDIATION = ${JSON.stringify(REMEDIATION_DATA)};
+  function setLabels(payload) {
+    LABELS = (payload && payload.labels) || {};
+    ALIASES = (payload && payload.aliases) || {};
   }`;
   const renderers = [
     badge,
@@ -61,7 +70,7 @@ function clientSource(): string {
     .join('\n');
   return `<script>
 (async () => {
-${clear}
+${preamble}
 ${renderers}
 ${systemBootstrap.toString()}
 await systemBootstrap();
@@ -361,6 +370,27 @@ export function renderSystemPageHtml(): string {
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  }
+  .ref-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; }
+  .ref-chip .chip-id { padding: 0 3px; border-radius: 3px; background: var(--signal-soft); font: 12px/1.5 var(--font-mono); }
+  .ref-chip .chip-sep { color: var(--text-dim); }
+  .ref-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
+  .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+  .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
+  .info-card { position: fixed; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
+  .presence-rail { border-left: 3px solid var(--line-strong); padding-left: 12px; }
+  .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
+  .presence-rail.is-failure { border-left-style: solid; border-left-color: var(--degraded); }
+  .next-step { margin: 12px 0; }
+  .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }
+  .next-step .prompt { color: var(--signal); }
+  .bounded-list { display: grid; gap: 4px; }
+  @media (min-width: 1200px) {
+    .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
+    #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
+    .workspace-split > .panel { width: 100%; }
+    .context-rail { position: sticky; top: 0; align-self: start; border-left: 1px solid var(--line); padding-left: 16px; background: var(--surface-soft); }
   }
 </style></head>
 <body>
