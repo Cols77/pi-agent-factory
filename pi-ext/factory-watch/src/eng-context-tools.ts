@@ -5,6 +5,7 @@ import {
   loadSystemGoal,
   loadSystemGoalEvaluate,
   loadSystemGoalsList,
+  loadSystemPresent,
   loadSystemSimFailure,
   loadSystemSimGoalEvidence,
   loadSystemSimLatest,
@@ -18,6 +19,7 @@ import {
   formatGoal,
   formatGoalEvaluate,
   formatGoalList,
+  formatPresent,
   formatSimFailure,
   formatSimGoalEvidence,
   formatSimLatest,
@@ -42,6 +44,7 @@ interface Dependencies {
   goal: typeof loadSystemGoal;
   goalsList: typeof loadSystemGoalsList;
   goalEvaluate: typeof loadSystemGoalEvaluate;
+  present: typeof loadSystemPresent;
   traversal: typeof loadSystemTraversal;
 }
 
@@ -56,6 +59,7 @@ const defaultDependencies: Dependencies = {
   goal: loadSystemGoal,
   goalsList: loadSystemGoalsList,
   goalEvaluate: loadSystemGoalEvaluate,
+  present: loadSystemPresent,
   traversal: loadSystemTraversal,
 };
 
@@ -95,7 +99,7 @@ function formatTraversalForRequirement(
 // The action tools write goal state and must stay separable from the read-only
 // set (Task 3 Step 3): a reviewer can forbid these ids without touching the
 // read-only tools' registration.
-export const ENG_ACTION_TOOL_IDS = ["eng_evaluate_goal"] as const;
+export const ENG_ACTION_TOOL_IDS = ["eng_evaluate_goal", "eng_present"] as const;
 
 export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
   const engGetVcycle = {
@@ -268,6 +272,30 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     },
   };
 
+  // ACTION tool (Task 3 Step 2): request a human-facing presentation of an
+  // artifact. The Inc 5 router is not landed yet, so in Inc 4 this validates
+  // the args, records the intent, and returns the resolution plan as a
+  // declaration — it never dispatches an adapter or fabricates a target
+  // (forward/declare only).
+  const engPresent = {
+    name: "eng_present",
+    label: "Engineering context: present artifact (ACTION)",
+    description:
+      "ACTION (requests human-facing presentation). Validate the presentation intent " +
+      "(artifact, optional focus) and return the resolution plan. The Inc 5 presentation " +
+      "router (spec §22–§24) is not landed yet, so Inc 4 records the intent and declares " +
+      "the plan only — it never dispatches an adapter, opens UI, or fabricates a target. " +
+      "This is an action (not read-only); a reviewer can forbid it with the other action.",
+    parameters: Type.Object({
+      artifact: Type.String({ description: "Artifact to present, e.g. feat:FEAT-NAV-017, sr:SR-001, or a file path" }),
+      focus: Type.Optional(Type.String({ description: "Optional focus within the artifact, e.g. a node id or line number" })),
+    }),
+    async execute(_id: string, params: { artifact: string; focus?: string }, _sig: AbortSignal | undefined, _u: unknown, ctx: ToolCtx) {
+      const res = deps.present(ctx.cwd, params.artifact, params.focus ?? undefined);
+      return result(res.ok ? formatPresent(res.value) : `eng_present failed: ${res.error}`, res.ok ? res.value : null);
+    },
+  };
+
   return [
     engGetVcycle,
     engGetDiagram,
@@ -280,6 +308,7 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     engGetMetricHistory,
     engGetSimulationRun,
     engEvaluateGoal,
+    engPresent,
   ];
 }
 

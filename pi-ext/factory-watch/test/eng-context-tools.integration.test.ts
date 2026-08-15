@@ -43,4 +43,13 @@ describe("eng-context tools against the real CLI", () => {
     expect(out).toContain("eng_evaluate_goal failed");
     expect(out).toContain("no goal with id");
   }, 120_000);
+
+  // An empty artifact is rejected with no side effect: eng_present records
+  // intent and declares the plan, it never opens UI or routes (Inc 5 does).
+  test("eng_present validates the artifact and rejects an empty one", async () => {
+    const tool = tools.find((t) => t.name === "eng_present")!;
+    const out = await run(tool, { artifact: "" });
+    expect(out).toContain("eng_present failed");
+    expect(out).toContain("non-empty artifact");
+  }, 120_000);
 });

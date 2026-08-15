@@ -6,6 +6,7 @@ import {
 } from "../src/eng-context-tools.js";
 import type {
   GoalEvaluate,
+  PresentResult,
   SystemDiagram,
   SystemGoal,
   SystemGoalsList,
@@ -80,6 +81,16 @@ function deps(overrides: Record<string, unknown> = {}) {
       blocked_reason: null,
     },
   };
+  const present: PresentResult = {
+    artifact: "feat:FEAT-NAV-017",
+    focus: "overview",
+    level: "INSPECT",
+    intent: { artifact: "feat:FEAT-NAV-017", focus: "overview" },
+    resolution: "deferred: presentation router lands in Inc 5; no adapter dispatched in Inc 4",
+    adapter: null,
+    target: null,
+    note: "Inc 4 records the intent and declares the plan only; Inc 5 routes it.",
+  };
   const traversal = {
     requirement: ["SR-001"],
     tasks: ["T-001"],
@@ -97,6 +108,7 @@ function deps(overrides: Record<string, unknown> = {}) {
     goal: () => ({ ok: true as const, value: goal }),
     goalsList: () => ({ ok: true as const, value: goalsList }),
     goalEvaluate: () => ({ ok: true as const, value: goalEvaluate }),
+    present: () => ({ ok: true as const, value: present }),
     traversal: () => ({ ok: true as const, value: traversal }),
     ...overrides,
   };
@@ -129,6 +141,7 @@ describe("eng-context tools (unit, mocked deps)", () => {
       "eng_get_metric_history",
       "eng_get_simulation_run",
       "eng_evaluate_goal",
+      "eng_present",
     ]) {
       expect(ids).toContain(id);
     }
@@ -190,6 +203,13 @@ describe("eng-context tools (unit, mocked deps)", () => {
     const out = await run(findTool("eng_evaluate_goal"), { goal_id: "GOAL-NAV-003" });
     expect(out).toContain("transition: EVALUATING -> REACHED (recorded)");
     expect(out).toContain("passed: true");
+  });
+
+  test("eng_present records the intent and declares the deferred plan", async () => {
+    const out = await run(findTool("eng_present"), { artifact: "feat:FEAT-NAV-017", focus: "overview" });
+    expect(out).toContain("intent: present(feat:FEAT-NAV-017, focus=overview)");
+    expect(out).toContain("level: INSPECT");
+    expect(out).toContain("deferred: presentation router lands in Inc 5");
   });
 
   test("action tools are distinct from read-only tools (Task 3 Step 3)", () => {

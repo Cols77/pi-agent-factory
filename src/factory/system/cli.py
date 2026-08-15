@@ -107,6 +107,29 @@ def cmd_goal_evaluate(repo_root: Path, goal_id: str) -> dict:
     return evaluate_goal_from_runs(_evidence_dir(repo_root), goals, goal_id)
 
 
+def cmd_present(repo_root: Path, artifact: str, focus: str | None) -> dict:
+    """Record a presentation intent and declare the resolution plan (Inc 4).
+
+    The actual routing/dispatch is the Inc 5 presentation router (spec §22–§24),
+    which is not landed yet. Inc 4 therefore validates the args, records the
+    intent, and returns the plan as a declaration — it never shells out, picks
+    an adapter, or fabricates a target (Program §6: forward/declare only).
+    """
+    if not artifact or not artifact.strip():
+        raise ValueError("present requires a non-empty artifact")
+    return {
+        "artifact": artifact,
+        "focus": focus,
+        # spec §23 default level; PRESENT/REVIEW are decided by the Inc 5 router.
+        "level": "INSPECT",
+        "intent": {"artifact": artifact, "focus": focus},
+        "resolution": "deferred: presentation router lands in Inc 5; no adapter dispatched in Inc 4",
+        "adapter": None,
+        "target": None,
+        "note": "Inc 4 records the intent and declares the plan only; Inc 5 routes it.",
+    }
+
+
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_matrix(repo_root, scope)
@@ -399,6 +422,15 @@ def _render_goal_evaluate(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_present(result: dict) -> str:
+    lines = [
+        f"intent: present({result['artifact']}{', focus=' + result['focus'] if result['focus'] else ''})",
+        f"  level: {result['level']}",
+        f"  resolution: {result['resolution']}",
+    ]
+    return "\n".join(lines)
+
+
 def _render_matrix(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
     for row in result["rows"]:
@@ -635,6 +667,10 @@ def main(argv: list[str] | None = None) -> int:
     p_goal_evaluate = goal_sub.add_parser("evaluate", parents=[common])
     p_goal_evaluate.add_argument("goal_id")
 
+    p_present = sub.add_parser("present", parents=[common])
+    p_present.add_argument("artifact")
+    p_present.add_argument("--focus", default=None)
+
     sub.add_parser("scope", parents=[common])
 
     sub.add_parser("health", parents=[common])
@@ -742,6 +778,9 @@ def main(argv: list[str] | None = None) -> int:
             else:  # evaluate
                 result = cmd_goal_evaluate(args.repo_root, args.goal_id)
                 rendered = _render_goal_evaluate(result)
+        elif args.cmd == "present":
+            result = cmd_present(args.repo_root, args.artifact, args.focus)
+            rendered = _render_present(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

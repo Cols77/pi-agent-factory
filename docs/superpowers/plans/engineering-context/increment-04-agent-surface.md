@@ -103,10 +103,13 @@ const TOOLS = {
   `can_transition`: an illegal lifecycle edge or a goal with no measurable run is reported
   without writing. (Python `evidence.evaluate_goal_from_runs` + `factory.system goal evaluate`
   backstop; TS `eng_evaluate_goal` action tool, distinct from the read-only set.)
-- [ ] **Step 2:** `eng_present` validates args (artifact, optional focus) and forwards to the
-  Inc 5 router; in Inc 4 it records the intent and returns the resolution plan (router lands Inc 5).
-- [ ] **Step 3:** tests assert action tools are distinct from read tools (a reviewer can forbid
-  the former without touching the latter). Full suite + lint + commit.
+- [x] **Step 2:** `eng_present` validates args (artifact, optional focus), records the intent,
+  and returns the resolution plan; the Inc 5 router is not landed, so Inc 4 is forward/declare
+  only — no fabricated dispatch, no UI, no repo write. (`factory.system present` backstop + TS
+  `eng_present` action tool.)
+- [x] **Step 3:** tests assert action tools (`eng_evaluate_goal`, `eng_present`, via
+  `ENG_ACTION_TOOL_IDS`) are disjoint from the read-only set, and that a reviewer can forbid them
+  without touching read-only registration. Full suite + lint green.
 
 ## Task 4: `/task FEAT-...` workflow start (thin)
 

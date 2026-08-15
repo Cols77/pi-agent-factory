@@ -12,6 +12,7 @@ import type {
   SystemGoalsList,
   SystemVcycle,
   GoalEvaluate,
+  PresentResult,
 } from "./system-cli.js";
 
 export function formatDiagram(d: SystemDiagram): string {
@@ -118,5 +119,16 @@ export function formatGoalEvaluate(result: GoalEvaluate): string {
     }
     if (result.note) lines.push(`  note: ${result.note}`);
   }
+  return lines.join("\n");
+}
+
+export function formatPresent(result: PresentResult): string {
+  const focus = result.focus ? `, focus=${result.focus}` : "";
+  const lines = [
+    `intent: present(${result.artifact}${focus})`,  
+    `  level: ${result.level}`,                       
+    `  resolution: ${result.resolution}`,             
+    `  note: ${result.note}`,                         
+  ];                                                          
   return lines.join("\n");
 }

@@ -571,6 +571,23 @@ export function loadSystemGoalEvaluate(cwd: string, goalId: string): CliResult<G
   return runJsonCli<GoalEvaluate>(cwd, cmd.bin, cmd.args);
 }
 
+export interface PresentResult {
+  artifact: string;
+  focus: string | null;
+  level: string;
+  intent: { artifact: string; focus: string | null };
+  resolution: string;
+  adapter: string | null;
+  target: string | null;
+  note: string;
+}
+
+export function loadSystemPresent(cwd: string, artifact: string, focus?: string): CliResult<PresentResult> {
+  const args = focus ? ["present", artifact, "--focus", focus, "--json"] : ["present", artifact, "--json"];
+  const cmd = buildSystemCommand(args);
+  return runJsonCli<PresentResult>(cwd, cmd.bin, cmd.args);
+}
+
 export function loadSystemGoalsList(cwd: string, scope: string): CliResult<SystemGoalsList> {
   const cmd = buildSystemCommand(["goal", "list", "--scope", scope, "--json"]);
   return runJsonCli<SystemGoalsList>(cwd, cmd.bin, cmd.args);

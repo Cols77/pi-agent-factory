@@ -788,3 +788,22 @@ def test_goal_evaluate_unknown_goal_is_a_structured_error(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 1
     assert "no goal with id" in err
+
+
+def test_present_records_intent_and_declares_deferred_plan(tmp_path, capsys):
+    rc = main(["present", "feat:FEAT-NAV-017", "--focus", "overview", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["artifact"] == "feat:FEAT-NAV-017"
+    assert payload["focus"] == "overview"
+    assert payload["level"] == "INSPECT"
+    assert payload["intent"] == {"artifact": "feat:FEAT-NAV-017", "focus": "overview"}
+    assert "Inc 5" in payload["resolution"]
+
+
+def test_present_rejects_empty_artifact(tmp_path, capsys):
+    rc = main(["present", "", "--repo-root", str(tmp_path), "--json"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "non-empty artifact" in err
