@@ -135,7 +135,7 @@ Definition card contents: the term as it actually renders as a badge, the defini
   straight from a file, not inferred
 ```
 
-The badge keeps its exact contract word. `ⓘ` is a text glyph in `--signal` at 11 px,
+The badge keeps its exact contract word. `ⓘ` is a text glyph in `--signal` at 12 px,
 a real `<button>` so it is keyboard reachable, with an accessible name of
 `What does <term> mean?`. The gloss line sits beneath at 12 px in `--gloss`.
 
