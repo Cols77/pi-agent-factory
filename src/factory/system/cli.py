@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 from factory.goals.registry import load_goals
+from factory.presentation.level import parse_level
+from factory.presentation.router import present
 from factory.simulation.evidence import evaluate_goal_from_runs
 from factory.system._claims import evidence_dir as _evidence_dir
 from factory.system import bundles as bundles_module
@@ -107,27 +109,16 @@ def cmd_goal_evaluate(repo_root: Path, goal_id: str) -> dict:
     return evaluate_goal_from_runs(_evidence_dir(repo_root), goals, goal_id)
 
 
-def cmd_present(repo_root: Path, artifact: str, focus: str | None) -> dict:
-    """Record a presentation intent and declare the resolution plan (Inc 4).
+def cmd_present(repo_root: Path, artifact: str, focus: str | None, level: str | None = None) -> dict:
+    """Route a presentation intent to the Inc 5 router (spec §22–§24).
 
-    The actual routing/dispatch is the Inc 5 presentation router (spec §22–§24),
-    which is not landed yet. Inc 4 therefore validates the args, records the
-    intent, and returns the plan as a declaration — it never shells out, picks
-    an adapter, or fabricates a target (Program §6: forward/declare only).
+    This delegates to ``factory.presentation.router.present`` so the CLI keeps
+    the exact JSON shape the pi-ext ``eng_present`` tool consumes. The router
+    never shells out with unvalidated strings and never fabricates a target;
+    the actual UI open is the caller's (browser/IDE/Inc 6).
     """
-    if not artifact or not artifact.strip():
-        raise ValueError("present requires a non-empty artifact")
-    return {
-        "artifact": artifact,
-        "focus": focus,
-        # spec §23 default level; PRESENT/REVIEW are decided by the Inc 5 router.
-        "level": "INSPECT",
-        "intent": {"artifact": artifact, "focus": focus},
-        "resolution": "deferred: presentation router lands in Inc 5; no adapter dispatched in Inc 4",
-        "adapter": None,
-        "target": None,
-        "note": "Inc 4 records the intent and declares the plan only; Inc 5 routes it.",
-    }
+    level_obj = parse_level(level) if level is not None else None
+    return present(repo_root, artifact, focus, level=level_obj)
 
 
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
@@ -426,8 +417,13 @@ def _render_present(result: dict) -> str:
     lines = [
         f"intent: present({result['artifact']}{', focus=' + result['focus'] if result['focus'] else ''})",
         f"  level: {result['level']}",
-        f"  resolution: {result['resolution']}",
+        f"  adapter: {result['adapter']}",
     ]
+    if result.get("target"):
+        lines.append(f"  target: {result['target']}")
+    lines.append(f"  resolution: {result['resolution']}")
+    if result.get("note"):
+        lines.append(f"  note: {result['note']}")
     return "\n".join(lines)
 
 
@@ -670,6 +666,11 @@ def main(argv: list[str] | None = None) -> int:
     p_present = sub.add_parser("present", parents=[common])
     p_present.add_argument("artifact")
     p_present.add_argument("--focus", default=None)
+    p_present.add_argument(
+        "--level",
+        default=None,
+        help="INSPECT, PRESENT or REVIEW (default: decided by policy — INSPECT with no facts)",
+    )
 
     sub.add_parser("scope", parents=[common])
 
@@ -779,7 +780,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = cmd_goal_evaluate(args.repo_root, args.goal_id)
                 rendered = _render_goal_evaluate(result)
         elif args.cmd == "present":
-            result = cmd_present(args.repo_root, args.artifact, args.focus)
+            result = cmd_present(args.repo_root, args.artifact, args.focus, args.level)
             rendered = _render_present(result)
         else:
             result = cmd_scope(args.repo_root)

@@ -86,10 +86,10 @@ function deps(overrides: Record<string, unknown> = {}) {
     focus: "overview",
     level: "INSPECT",
     intent: { artifact: "feat:FEAT-NAV-017", focus: "overview" },
-    resolution: "deferred: presentation router lands in Inc 5; no adapter dispatched in Inc 4",
-    adapter: null,
-    target: null,
-    note: "Inc 4 records the intent and declares the plan only; Inc 5 routes it.",
+    resolution: "INSPECT — no application focus change.",
+    adapter: "browser",
+    target: "system?scope=feat:FEAT-NAV-017",
+    note: "Feature Dossier lands in Inc 6; degrading to the scope's Brief page (D2).",
   };
   const traversal = {
     requirement: ["SR-001"],
@@ -205,11 +205,12 @@ describe("eng-context tools (unit, mocked deps)", () => {
     expect(out).toContain("passed: true");
   });
 
-  test("eng_present records the intent and declares the deferred plan", async () => {
+  test("eng_present routes the intent to the Inc 5 router", async () => {
     const out = await run(findTool("eng_present"), { artifact: "feat:FEAT-NAV-017", focus: "overview" });
     expect(out).toContain("intent: present(feat:FEAT-NAV-017, focus=overview)");
     expect(out).toContain("level: INSPECT");
-    expect(out).toContain("deferred: presentation router lands in Inc 5");
+    expect(out).toContain("adapter: browser");
+    expect(out).toContain("target: system?scope=feat:FEAT-NAV-017");
   });
 
   test("action tools are distinct from read-only tools (Task 3 Step 3)", () => {
