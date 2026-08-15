@@ -248,6 +248,13 @@ describe("renderSystemPageHtml", () => {
     expect(gloss).toContain("--text-muted");
     expect(gloss).not.toContain("--text-dim");
   });
+
+  // Task 9: refChip must reach the page, and must be declared after the
+  // bindings it reads.
+  test("refChip is inlined into the page after the label bindings", () => {
+    expect(html).toContain("function refChip");
+    expect(html.indexOf("var LABELS =")).toBeLessThan(html.indexOf("function refChip"));
+  });
 });
 
 describe("GET /system and /api/system/*", () => {

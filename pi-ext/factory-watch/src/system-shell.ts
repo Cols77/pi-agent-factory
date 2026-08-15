@@ -1,6 +1,14 @@
 // System Navigator shell: semantic HTML, visual system, and inline client assembly.
 
 import { systemBootstrap } from './system-bootstrap.js';
+import {
+  boundedList,
+  ensureCardController,
+  infoCard,
+  refCardFields,
+  refChip,
+  resolveLabel,
+} from './system-comprehension.js';
 import { REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
   badge,
@@ -65,6 +73,12 @@ function clientSource(): string {
     renderNotApplicable,
     invertTraceForScope,
     renderTrace,
+    resolveLabel,
+    refChip,
+    boundedList,
+    infoCard,
+    refCardFields,
+    ensureCardController,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -386,6 +400,19 @@ export function renderSystemPageHtml(): string {
   .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }
   .next-step .prompt { color: var(--signal); }
   .bounded-list { display: grid; gap: 4px; }
+  .ref-chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 3px; }
+  .info-card { opacity: 0; animation: info-card-in .12s ease forwards; }
+  @keyframes info-card-in { from { opacity: 0; } to { opacity: 1; } }
+  .info-card-meta { color: var(--text-dim); font: 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
+  .info-card-title { margin-top: 4px; color: var(--text); font: 650 14px/1.35 var(--font-display); }
+  .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .info-card-empty { font-style: italic; }
+  .info-card-from, .info-card-path { margin-top: 6px; font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+  .info-card-from { color: var(--text-dim); }
+  .info-card-path { color: var(--text-muted); }
+  .info-card-open { margin-top: 8px; }
+  .info-card-open a { color: var(--signal); font: 650 12px/1.3 var(--font-mono); text-decoration: none; }
+  .info-card-open a:hover, .info-card-open a:focus-visible { text-decoration: underline; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
