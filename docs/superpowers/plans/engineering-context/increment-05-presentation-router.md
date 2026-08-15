@@ -45,48 +45,48 @@ This sits behind `eng_present` (Inc 4).
 
 ## Task 1: Levels + policy
 
-- [ ] **Step 1: Failing tests** — encode spec §23/§24:
+- [x] **Step 1: Failing tests** — encode spec §23/§24:
   - default level is INSPECT for any bare lookup;
   - `"show me X"` / `"where is X"` → PRESENT;
   - a significant simulation failure (goal not reached) → PRESENT the failing run (spec §24);
   - newly REACHED goal → PRESENT successful run (spec §24);
   - unit test pass → no UI (stays INSPECT);
   - an explicit feature/task review checkpoint → REVIEW (multi-artifact context).
-- [ ] **Step 2: Implement** `Level` enum + `decide(dialect_intent-ish, facts) -> Level` pure function.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 2: Implement** `Level` enum + `decide(dialect_intent-ish, facts) -> Level` pure function.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 2: Artifact → target resolution + path traversal guard
 
-- [ ] **Step 1: Failing tests** — artifact refs (`feat:`/`sr:`/`goal:`/`metric:`/file path) resolve
+- [x] **Step 1: Failing tests** — artifact refs (`feat:`/`sr:`/`goal:`/`metric:`/file path) resolve
   to a concrete adapter target; a `../../etc/passwd` style path resolves to `None`/error, never a shell call.
-- [ ] **Step 2: Implement** `resolve_intent(artifact, focus, repo_root) -> ResolvedIntent{level, adapter, target}`.
+- [x] **Step 2: Implement** `resolve_intent(artifact, focus, repo_root) -> ResolvedIntent{level, adapter, target}`.
   Keep the spec §22 mapping (`present(artifact=...) → SCC-browser V-cycle / dossier / IDE line / sim@event`).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Adapters (IDE + SCC browser + sim)
 
-- [ ] **Step 1: IDE** — given a resolved file+line, build a sanitized URI and hand it to the
+- [x] **Step 1: IDE** — given a resolved file+line, build a sanitized URI and hand it to the
   cockpit's existing opener (proven non-exec for non-file inputs).
-- [ ] **Step 2: SCC browser** — resolve to the SP-B docs page for the artifact's scope (V-cycle/
+- [x] **Step 2: SCC browser** — resolve to the SP-B docs page for the artifact's scope (V-cycle/
   Feature/Goal page landed in Inc 6); this is the sole human surface (D2). Never error loudly
   when the page is not yet built — degrade to the scope's Brief page. **Diagram (D7):**
   `present(diag:DIAG-NAV-003)` resolves to the canonical `docs/diagrams/DIAG-NAV-003.html`
   artifact, opened/embedded in the browser at its `focus` node — it links the committed HTML,
   never re-derives the graph in TS.
-- [ ] **Step 3: Simulation** — resolve run+focus to a viewer URL/entry point; stub returns the
+- [x] **Step 3: Simulation** — resolve run+focus to a viewer URL/entry point; stub returns the
   run's evidence path + a "viewer in Inc 6" marker until Inc 6 lands the viewer.
-- [ ] **Step 4:** full suite + lint + commit.
+- [x] **Step 4:** full suite + lint + commit.
 
 ## Task 4: `present` CLI + wire into `eng_present`
 
-- [ ] **Step 1:** `python -m factory.presentation present <artifact> [--focus F] [--level L] --repo-root R`
+- [x] **Step 1:** `python -m factory.presentation present <artifact> [--focus F] [--level L] --repo-root R`
   for headless/agent use (returns the resolved action as JSON).
-- [ ] **Step 2:** point `eng_present` (Inc 4) at this CLI; action tools stay gated (only present/evaluate are actions).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 2:** point `eng_present` (Inc 4) at this CLI; action tools stay gated (only present/evaluate are actions).
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 5: Review handoff
 
-- [ ] **Step 1:** reviewer sub-agent — compliance vs spec §22–§24 (levels, noise policy, no UI for
+- [x] **Step 1:** reviewer sub-agent — compliance vs spec §22–§24 (levels, noise policy, no UI for
   every lookup, traversal safety) + D3 additive rule.
 
 ## Acceptance for Increment 5
