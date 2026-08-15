@@ -1335,15 +1335,22 @@ labels fetch into `systemBootstrap`, which breaks all of them at once. Add the
 the test needs seeded labels — to each mock now, so the breakage lands in the task
 that introduced the endpoint rather than five tasks later:
 
-- `test/system-page-dom.test.ts:146`
-- `test/system-landing.test.ts:103, 206, 289`
-- `test/system-page-navigation.test.ts:53`
-- `test/system-page-sidebar.test.ts:16`
-- `test/system-page-trace.test.ts:32`
-- `test/system-page-vcycle.test.ts:115`
-- `test/system-page-implementation-summary.test.ts:81`
-- `test/system-membership.test.ts:51`
-- `test/system-page-visual-identity.test.ts` — twelve sites, `:93` through `:696`
+Find them by grepping for the throw-on-unknown handler, `unmocked fetch:` —
+**ten** files, 24 sites (re-measured 2026-08-15; an earlier enumeration in this plan
+was wrong, so trust the grep, not a list):
+
+| File | sites |
+|---|---|
+| `test/system-page-visual-identity.test.ts` | 12 |
+| `test/system-landing.test.ts` | 3 |
+| `test/review-html-dom.test.ts` | 2 |
+| `test/system-membership.test.ts` | 1 |
+| `test/system-page-dom.test.ts` | 1 |
+| `test/system-page-implementation-summary.test.ts` | 1 |
+| `test/system-page-navigation.test.ts` | 1 |
+| `test/system-page-sidebar.test.ts` | 1 |
+| `test/system-page-trace.test.ts` | 1 |
+| `test/system-page-vcycle.test.ts` | 1 |
 
 Grep for the throw-on-unknown handler in each file and extend it; do not rewrite the
 harnesses.
@@ -1765,9 +1772,9 @@ test("an empty traversal step reads Not recorded, not an empty row", async () =>
 });
 ```
 
-`loadPage` currently takes no options — extend its signature to accept the payloads a
-test wants to seed, keeping its existing default behaviour for every call site that
-passes nothing.
+`loadPage` ALREADY takes an options object — `loadPage(opts)` with `opts.scope` and
+`opts.guideFails` (`test/system-page-dom.test.ts:155`). Extend that existing shape with
+the payloads a test wants to seed; do not refactor its signature.
 
 - [ ] **Step 2: Run test to verify it fails**
 
