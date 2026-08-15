@@ -154,10 +154,11 @@ REMEDIATION: dict[str, dict] = {
             "(validation_status.py `SrState`; gaps.py surfaces the "
             "recorded error, or \"validation could not run\" if none was "
             "recorded). This gap only fires once the SR already has a "
-            "binding (gaps.py:90-108's `else` branch of `if node.proposed`, "
-            "where `proposed` itself means \"no binding\" -- "
-            "trace/model.py:73) -- the binding exists, so `factory."
-            "requirements bind` is not the fix."
+            "binding: it's raised in `find_gaps`'s (gaps.py:58) `else` "
+            "branch of `if node.proposed`, and `proposed` itself means "
+            "\"no binding\" -- set in `_id_node` (trace/model.py:59) -- so "
+            "the binding exists, and `factory.requirements bind` is not "
+            "the fix."
         ),
         "why_it_matters": (
             "An errored harness leaves the requirement's actual status "
@@ -406,8 +407,9 @@ REMEDIATION: dict[str, dict] = {
             "exists the directory stays empty. The command below only "
             "checks a draft file you've already written -- its own "
             "docstring says it \"proposes nothing and writes nothing; "
-            "the draft is judged, not generated\" (system/cli.py:103-111) "
-            "-- there is no CLI that creates the bundle file for you."
+            "the draft is judged, not generated\" (`cmd_bundle_check`, "
+            "system/cli.py:103) -- there is no CLI that creates the "
+            "bundle file for you."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
         "command_kind": "shell",
@@ -430,8 +432,9 @@ REMEDIATION: dict[str, dict] = {
             "hand-authored `bundles/<id>.json` by hand, then use the "
             "command below to check it -- the command validates a draft "
             "you edit yourself; it does not write the field for you "
-            "(system/cli.py:103-111). For a spec or plan, there is no "
-            "CLI at all -- add the named section or `**Goal:**` line "
+            "(`cmd_bundle_check`, system/cli.py:103). For a spec or "
+            "plan, there is no CLI at all -- add the named section or "
+            "`**Goal:**` line "
             "directly in the document."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
@@ -459,13 +462,13 @@ REMEDIATION: dict[str, dict] = {
         "headline": "Requirement was never validated",
         "what_it_means": (
             "This Matrix row's status is `never_run`: the SR resolves and "
-            "carries a binding, but `_sr_matrix_row` found no entry for "
-            "it in the validation report (`status is None and not "
-            "report_corrupt` -> `MatrixStatus.NEVER_RUN`, summary "
-            "\"never validated\" -- queries.py:1026-1034). This is "
-            "distinct from an SR ref that doesn't resolve at all, which "
-            "`_sr_missing_matrix_row` reports separately as `unknown` / "
-            "\"sr does not exist\"."
+            "carries a binding, but `_sr_matrix_row` (queries.py:1040) "
+            "found no entry for it in the validation report -- its "
+            "`status is None and not report_corrupt` branch returns "
+            "`MatrixStatus.NEVER_RUN`, summary \"never validated\" "
+            "(queries.py:1078-1083). This is distinct from an SR ref "
+            "that doesn't resolve at all, which `_sr_missing_matrix_row` "
+            "reports separately as `unknown` / \"sr does not exist\"."
         ),
         "why_it_matters": (
             "A row that has never run carries no evidence either way -- "
@@ -490,8 +493,8 @@ REMEDIATION: dict[str, dict] = {
             "list of an existing (or new) hand-authored "
             "`bundles/<id>.json` -- the command below only checks that "
             "edit; it does not add the membership for you "
-            "(system/cli.py:103-111, \"the draft is judged, not "
-            "generated\")."
+            "(`cmd_bundle_check`, system/cli.py:103, \"the draft is "
+            "judged, not generated\")."
         ),
         "command": "uv run python -m factory.system bundle check --draft <path>",
         "command_kind": "shell",
