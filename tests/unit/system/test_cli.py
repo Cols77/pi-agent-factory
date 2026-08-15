@@ -790,7 +790,7 @@ def test_goal_evaluate_unknown_goal_is_a_structured_error(tmp_path, capsys):
     assert "no goal with id" in err
 
 
-def test_present_records_intent_and_declares_deferred_plan(tmp_path, capsys):
+def test_present_routes_to_router(tmp_path, capsys):
     rc = main(["present", "feat:FEAT-NAV-017", "--focus", "overview", "--repo-root", str(tmp_path), "--json"])
     out = capsys.readouterr().out
     assert rc == 0
@@ -799,7 +799,16 @@ def test_present_records_intent_and_declares_deferred_plan(tmp_path, capsys):
     assert payload["focus"] == "overview"
     assert payload["level"] == "INSPECT"
     assert payload["intent"] == {"artifact": "feat:FEAT-NAV-017", "focus": "overview"}
-    assert "Inc 5" in payload["resolution"]
+    assert payload["adapter"] == "browser"
+    assert payload["target"] == "system?scope=feat:FEAT-NAV-017"
+
+
+def test_present_routes_with_level_override(tmp_path, capsys):
+    rc = main(["present", "sr:SR-066", "--level", "PRESENT", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["level"] == "PRESENT"
+    assert "PRESENT" in payload["resolution"]
 
 
 def test_present_rejects_empty_artifact(tmp_path, capsys):

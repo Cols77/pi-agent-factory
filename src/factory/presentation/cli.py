@@ -39,11 +39,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.cmd == "present":
-        level = parse_level(args.level) if args.level is not None else None
-        result = present(args.repo_root, args.artifact, args.focus, level=level)
-    else:  # pragma: no cover - argparse enforces subcommand
-        parser.error(f"unknown command: {args.cmd}")
+    try:
+        if args.cmd == "present":
+            level = parse_level(args.level) if args.level is not None else None
+            result = present(args.repo_root, args.artifact, args.focus, level=level)
+        else:  # pragma: no cover - argparse enforces subcommand
+            parser.error(f"unknown command: {args.cmd}")
+            return 1
+    except (FileNotFoundError, ValueError) as exc:
+        _print_error(exc)
+        return 1
 
     if args.json:
         print(json.dumps(result, indent=2))
@@ -58,8 +63,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (FileNotFoundError, ValueError) as exc:
-        _print_error(exc)
-        raise SystemExit(1)
+    raise SystemExit(main())
