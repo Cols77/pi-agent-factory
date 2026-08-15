@@ -43,3 +43,12 @@ sessions/*
 
 # Durable code-context bundle (item 2) - recomputed on change at session open
 .factory/code-index/
+
+# Per-session runtime state (regenerated on every session open). project-profile.json
+# above stays tracked: it is the durable /factory-init discovery+profile config.
+.pi/factory/session-context.json
+.pi/factory/session-memory.json
+
+# Playwright MCP + vitest runtime caches/logs (browser capture, results)
+.playwright-mcp/
+.vite/
