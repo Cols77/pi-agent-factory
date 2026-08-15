@@ -170,6 +170,12 @@ export function buildSystemCommand(sub: string[]): { bin: string; args: string[]
   return { bin: "uv", args: ["run", "python", "-m", "factory.system", ...sub] };
 }
 
+// The presentation router lives in its own package (Inc 5, spec §22-§24), so
+// ``eng_present`` invokes ``factory.presentation`` rather than ``factory.system``.
+export function buildPresentationCommand(sub: string[]): { bin: string; args: string[] } {
+  return { bin: "uv", args: ["run", "python", "-m", "factory.presentation", ...sub] };
+}
+
 export function loadSystemScopes(cwd: string): CliResult<SystemScopeList> {
   const cmd = buildSystemCommand(["scope", "--json"]);
   return runJsonCli<SystemScopeList>(cwd, cmd.bin, cmd.args);
@@ -584,7 +590,7 @@ export interface PresentResult {
 
 export function loadSystemPresent(cwd: string, artifact: string, focus?: string): CliResult<PresentResult> {
   const args = focus ? ["present", artifact, "--focus", focus, "--json"] : ["present", artifact, "--json"];
-  const cmd = buildSystemCommand(args);
+  const cmd = buildPresentationCommand(args);
   return runJsonCli<PresentResult>(cwd, cmd.bin, cmd.args);
 }
 

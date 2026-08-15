@@ -281,11 +281,12 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     name: "eng_present",
     label: "Engineering context: present artifact (ACTION)",
     description:
-      "ACTION (requests human-facing presentation). Validate the presentation intent " +
-      "(artifact, optional focus) and return the resolution plan. The Inc 5 presentation " +
-      "router (spec §22–§24) is not landed yet, so Inc 4 records the intent and declares " +
-      "the plan only — it never dispatches an adapter, opens UI, or fabricates a target. " +
-      "This is an action (not read-only); a reviewer can forbid it with the other action.",
+      "ACTION (requests human-facing presentation). Resolve the presentation " +
+      "intent (artifact, optional focus) through the Inc 5 router to the chosen " +
+      "level + adapter + target. It never shells out with unvalidated strings and " +
+      "never opens UI itself — the caller/Inc 6 performs the open from the returned " +
+      "target. This is an action (not read-only); a reviewer can forbid it with the " +
+      "other action.",
     parameters: Type.Object({
       artifact: Type.String({ description: "Artifact to present, e.g. feat:FEAT-NAV-017, sr:SR-001, or a file path" }),
       focus: Type.Optional(Type.String({ description: "Optional focus within the artifact, e.g. a node id or line number" })),

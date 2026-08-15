@@ -125,10 +125,12 @@ export function formatGoalEvaluate(result: GoalEvaluate): string {
 export function formatPresent(result: PresentResult): string {
   const focus = result.focus ? `, focus=${result.focus}` : "";
   const lines = [
-    `intent: present(${result.artifact}${focus})`,  
-    `  level: ${result.level}`,                       
-    `  resolution: ${result.resolution}`,             
-    `  note: ${result.note}`,                         
-  ];                                                          
+    `intent: present(${result.artifact}${focus})`,
+    `  level: ${result.level}`,
+    `  adapter: ${result.adapter ?? "none"}`,
+  ];
+  if (result.target) lines.push(`  target: ${result.target}`);
+  lines.push(`  resolution: ${result.resolution}`);
+  if (result.note) lines.push(`  note: ${result.note}`);
   return lines.join("\n");
 }
