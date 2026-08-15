@@ -6,6 +6,11 @@
 **Plan:** `docs/superpowers/plans/engineering-context/increment-04-agent-surface.md`
 **Dev/review prompts:** `docs/superpowers/plans/engineering-context/prompts/increment-04-{dev,review}.md`
 
+> **UPDATE (2026-08-16):** ALL remaining work is now DONE and committed on
+> `feature/increment-04` (see "What REMAINS" -> marked complete below). The only
+> step left is the coordinated merge-back to main — do NOT merge while the
+> concurrent session's main working tree is dirty.
+
 ## ⚠️ Critical context before any work
 
 1. **There is a concurrently-active session committing on the MAIN repo**
@@ -63,6 +68,13 @@ Committing to `feature/increment-04`, all verified green in the worktree:
 - Task 1 (3/3), Task 2 (3/3), **Task 3 Step 0** (`eng_get_diagram`, read-only).
 
 ## What REMAINS (in order)
+
+> **DONE as of 2026-08-16** — all of the below is implemented, tested and
+> committed on `feature/increment-04` (1eb2098 eng_evaluate_goal; b8fe18a
+> eng_present + action/read tests; 74124f5 /task preamble; 0648a63 reviewer
+> outcome). Task 3/4/5 checkboxes are ticked in the plan. Only the merge-back
+> (below) remains, and only once the concurrent main session is clean.
+
 
 **Task 3 — Action tools behind policy** (remember: D1 pi-ext, deterministic, read-only-by-default):
 - [ ] **Step 1:** `eng_evaluate_goal(goal_id)` — the ONLY tool that writes goal state. Calls the
