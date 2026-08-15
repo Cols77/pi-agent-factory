@@ -21,6 +21,18 @@ def test_context_gatherer_prompt_documents_typed_checks():
     assert "Modify:" in prompt
 
 
+def test_context_gatherer_prompt_bans_invented_file_contains_literals():
+    # Regression: T-064 (repo cool_physical_ai_project) was rejected because the
+    # gatherer asserted a `file_contains` literal that only exists as a comment in
+    # scripts/gates/_proc.py, then resubmitted the identical failing check on the
+    # retry. The prompt must require verbatim literals and forbid resubmitting a
+    # check the validator already rejected.
+    prompt = ROLE_PROMPTS[AgentRole.CONTEXT_GATHERER]
+    assert "verbatim" in prompt
+    assert "Feedback to address" in prompt
+    assert "rejects the run" in prompt
+
+
 def test_review_prompt_tells_the_agent_bash_is_disabled():
     # roles.py gives REVIEW Scope(bash="deny"), but only CONTEXT_GATHERER's prompt
     # said so. Without it the agent hit the denial at runtime with no guidance and
