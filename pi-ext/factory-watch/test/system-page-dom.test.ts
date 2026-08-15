@@ -131,19 +131,36 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
   } as Response);
 }
 
-function mockFetch(guideFails = false, health: unknown = HEALTH) {
+// No test in this file exercised /api/system/traversal before Fix round 1 --
+// it fell through to mockFetch's `unmocked fetch` throw, which loadScope()'s
+// try/catch swallows into "Traversal is unavailable for this scope." (see
+// system-bootstrap.ts:634-648). That behaviour is preserved by default here
+// (DEFAULT_TRAVERSAL renders four genuinely-empty steps, each "Not
+// recorded" -- never an error, and no prior test asserted on the error
+// text either) while letting tests opt into real traversal payloads via
+// opts.traversal, the same style Task 11 established for opts.health.
+const DEFAULT_TRAVERSAL = { requirement: [], tasks: [], design: [], files: [] };
+const DEFAULT_LABELS = { labels: {}, aliases: {}, degraded: [] };
+
+function mockFetch(
+  guideFails = false,
+  health: unknown = HEALTH,
+  traversal: unknown = DEFAULT_TRAVERSAL,
+  labels: unknown = DEFAULT_LABELS,
+) {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
     if (url.pathname === "/api/system/health") return jsonResponse(health);
     if (url.pathname === "/api/system/brief") return jsonResponse(BRIEF);
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
+    if (url.pathname === "/api/system/traversal") return jsonResponse(traversal);
     if (url.pathname === "/api/system/guide") {
       return guideFails
         ? jsonResponse({ error: "synthesis failed", kind: "RuntimeError" }, 503)
         : jsonResponse(GUIDE);
     }
-    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
+    if (url.pathname === "/api/system/labels") return jsonResponse(labels);
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }
@@ -153,13 +170,18 @@ function mockFetch(guideFails = false, health: unknown = HEALTH) {
  * (`loadScopes()` then, when `?scope=` is present, `loadScope()`) to finish
  * populating the DOM before handing control back to the test. */
 async function loadPage(
-  opts: { scope?: string; guideFails?: boolean; health?: unknown } = {},
+  opts: { scope?: string; guideFails?: boolean; health?: unknown; traversal?: unknown; labels?: unknown } = {},
 ): Promise<JSDOM> {
   const html = renderSystemPageHtml();
   const url = opts.scope
     ? `http://localhost/system?scope=${encodeURIComponent(opts.scope)}`
     : "http://localhost/system";
-  const fetchMock = mockFetch(opts.guideFails ?? false, opts.health ?? HEALTH);
+  const fetchMock = mockFetch(
+    opts.guideFails ?? false,
+    opts.health ?? HEALTH,
+    opts.traversal ?? DEFAULT_TRAVERSAL,
+    opts.labels ?? DEFAULT_LABELS,
+  );
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
     resources: "usable",
@@ -343,6 +365,73 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     const metric = dom.window.document.querySelector(".health-metric")!;
     expect(metric.querySelector(".health-metric-label")?.textContent).toBe("not-a-real-class");
     expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("not-a-real-class");
+  });
+
+  // Fix round 1, Task 10: renderTraversal is a closure inside systemBootstrap,
+  // not exported -- exercised only through the real page via loadPage(), the
+  // same shape Task 11 used for renderHealthSummary above. boundedList's
+  // cap/disclosure behaviour is already covered generically in
+  // system-comprehension.test.ts; these two assert the real wiring at the
+  // traversal-spine call site (system-bootstrap.ts:757-781), which had no
+  // direct test.
+  //
+  // Title resolution is intentionally NOT asserted here: `setLabels` (defined
+  // system-shell.ts:56) is never invoked by systemBootstrap -- nothing in
+  // src/system-bootstrap.ts fetches /api/system/labels -- so LABELS stays
+  // `{}` inside the running page regardless of what opts.labels seeds into
+  // mockFetch. That wiring is out of this fix round's scope (forbidden files:
+  // system-bootstrap.ts/system-renderers.ts/system-comprehension.ts) and is
+  // reportedly Task 12's job. Every requirement ref below therefore resolves
+  // through the real, currently-shipped "not in the label index" path
+  // (system-comprehension.ts's refChip absent branch) -- which is itself real
+  // behaviour worth asserting precisely, just not title text that cannot
+  // reach the page yet.
+  test("the traversal spine caps a long requirement list at five chips with a real +N more disclosure", async () => {
+    const refs = Array.from({ length: 7 }, (_, i) => `sr:SR-${101 + i}`);
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      traversal: { requirement: refs, tasks: [], design: [], files: [] },
+    });
+    const doc = dom.window.document;
+    const steps = Array.from(doc.querySelectorAll("#traversalPath .trace-spine-step"));
+    const reqStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Requirement")!;
+    expect(reqStep).toBeTruthy();
+    const list = reqStep.querySelector(".trace-spine-value > .bounded-list")!;
+    expect(list).toBeTruthy();
+    const directChips = list.querySelectorAll(":scope > .ref-chip");
+    expect(directChips.length).toBe(5);
+    expect(Array.from(directChips).map((chip) => chip.querySelector(".chip-id")?.textContent)).toEqual([
+      "sr:SR-101", "sr:SR-102", "sr:SR-103", "sr:SR-104", "sr:SR-105",
+    ]);
+    // Every direct chip is the real absent-ref rendering (no title index
+    // wired up yet), not a guessed or blank label.
+    expect(Array.from(directChips).every((chip) => chip.className.includes("is-absent"))).toBe(true);
+    expect(directChips[0].querySelector(".chip-title")?.textContent).toBe("not in the label index");
+    const details = list.querySelector(":scope > details")!;
+    expect(details).toBeTruthy();
+    expect(details.querySelector("summary")?.textContent).toBe("+ 2 more");
+    const overflowChips = details.querySelectorAll(".ref-chip");
+    expect(overflowChips.length).toBe(2);
+    expect(Array.from(overflowChips).map((chip) => chip.querySelector(".chip-id")?.textContent)).toEqual([
+      "sr:SR-106", "sr:SR-107",
+    ]);
+  });
+
+  test("an empty traversal step renders \"Not recorded\", never an empty bounded list", async () => {
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      traversal: { requirement: ["sr:SR-001"], tasks: ["task:T-001"], design: [], files: ["src/example.ts"] },
+    });
+    const doc = dom.window.document;
+    const steps = Array.from(doc.querySelectorAll("#traversalPath .trace-spine-step"));
+    const designStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Design")!;
+    expect(designStep).toBeTruthy();
+    const value = designStep.querySelector(".trace-spine-value")!;
+    expect(value.textContent).toBe("Not recorded");
+    expect(value.querySelector(".bounded-list")).toBeNull();
+    // Sibling steps with data are unaffected by the empty one.
+    const filesStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Files")!;
+    expect(filesStep.querySelector(".trace-spine-value .bounded-list")).not.toBeNull();
   });
 
   test("the Vocabulary header control opens a workspace view grouped by term group, with a Back to the landing page", async () => {
