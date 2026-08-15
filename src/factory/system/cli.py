@@ -31,9 +31,17 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_diagram,
     query_feature_context,
+    query_goal,
+    query_goal_evidence,
+    query_goals,
     query_guide,
+    query_latest_failure,
+    query_latest_simulation,
     query_matrix,
+    query_metric_history,
+    query_simulation_run,
     query_timeline,
     query_traversal,
     query_vcycle,
@@ -57,6 +65,38 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
 def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_vcycle(repo_root, scope)
+
+
+def cmd_diagram(repo_root: Path, diagram_id: str) -> dict:
+    return query_diagram(repo_root, diagram_id)
+
+
+def cmd_sim_run(repo_root: Path, run_id: str) -> dict:
+    return query_simulation_run(repo_root, run_id)
+
+
+def cmd_sim_latest(repo_root: Path, feature: str) -> dict:
+    return query_latest_simulation(repo_root, feature) or {}
+
+
+def cmd_sim_failure(repo_root: Path, feature: str) -> dict:
+    return query_latest_failure(repo_root, feature) or {}
+
+
+def cmd_sim_metric(repo_root: Path, metric_id: str) -> dict:
+    return query_metric_history(repo_root, metric_id)
+
+
+def cmd_sim_goal_evidence(repo_root: Path, goal_id: str) -> dict:
+    return query_goal_evidence(repo_root, goal_id)
+
+
+def cmd_goal_show(repo_root: Path, goal_id: str) -> dict:
+    return query_goal(repo_root, goal_id)
+
+
+def cmd_goal_list(repo_root: Path, scope_raw: str) -> dict:
+    return query_goals(repo_root, scope_raw)
 
 
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
@@ -267,6 +307,72 @@ def _render_vcycle_side(lines: list[str], side: dict) -> None:
         lines.append(f"    {side['label']}: {', '.join(nodes)}")
     else:
         lines.append(f"    {side['label']}: (empty)")
+
+
+def _render_diagram(result: dict) -> str:
+    lines = [f"diagram: {result['id']}", f"  title: {result['title']}"]
+    if result.get("diagram_path"):
+        lines.append(f"  path: {result['diagram_path']}")
+    else:
+        lines.append("  path: (none)")
+    for err in result.get("errors", []):
+        lines.append(f"  ! {err}")
+    return "\n".join(lines)
+
+
+def _render_sim_run(result: dict) -> str:
+    if not result:
+        return "no simulation run"
+    lines = [
+        f"run: {result['run']}",
+        f"  experiment: {result['experiment']}",
+        f"  feature: {result['feature']}",
+        f"  result: {result['result']}",
+    ]
+    for goal in result.get("goals", []):
+        lines.append(f"  goal: {goal}")
+    for err in result.get("scope_errors", []):
+        lines.append(f"  ! scope error: {err}")
+    return "\n".join(lines)
+
+
+def _render_sim_metric(result: list) -> str:
+    lines = [f"metric history: {len(result)} entry(ies)"]
+    for entry in result:
+        lines.append(f"  {entry['run']}: {entry['value']}")
+    return "\n".join(lines)
+
+
+def _render_goal_evidence(result: dict) -> str:
+    lines = [f"goal: {result['goal']}"]
+    for run in result["runs"]:
+        lines.append(f"  {run['run']} ({run['result']})")
+    if not result["runs"]:
+        lines.append("  no runs")
+    return "\n".join(lines)
+
+
+def _render_goal(result: dict) -> str:
+    lines = [
+        f"goal: {result['id']}",
+        f"  title: {result['title']}",
+        f"  state: {result['state']}",
+        f"  feature: {', '.join(result['feature'])}",
+        f"  requirements: {', '.join(result['requirements'])}",
+        f"  target: {result['target']}",
+    ]
+    for err in result.get("scope_errors", []):
+        lines.append(f"  ! scope error: {err}")
+    return "\n".join(lines)
+
+
+def _render_goal_list(result: dict) -> str:
+    lines = [f"scope: {result['scope']}"]
+    for goal in result["goals"]:
+        lines.append(f"  {goal['id']} [{goal['state']}] {goal['title']}")
+    if not result["goals"]:
+        lines.append("  no goals")
+    return "\n".join(lines)
 
 
 def _render_matrix(result: dict) -> str:
@@ -480,6 +586,29 @@ def main(argv: list[str] | None = None) -> int:
     p_vcycle = sub.add_parser("vcycle", parents=[common])
     p_vcycle.add_argument("--scope", required=True)
 
+    p_diagram = sub.add_parser("diagram", parents=[common])
+    p_diagram.add_argument("diagram_id")
+
+    p_sim = sub.add_parser("sim")
+    sim_sub = p_sim.add_subparsers(dest="sim_cmd", required=True)
+    p_sim_run = sim_sub.add_parser("run", parents=[common])
+    p_sim_run.add_argument("run_id")
+    p_sim_latest = sim_sub.add_parser("latest", parents=[common])
+    p_sim_latest.add_argument("--feature", required=True)
+    p_sim_failure = sim_sub.add_parser("failure", parents=[common])
+    p_sim_failure.add_argument("--feature", required=True)
+    p_sim_metric = sim_sub.add_parser("metric", parents=[common])
+    p_sim_metric.add_argument("--metric", required=True)
+    p_sim_goal_evidence = sim_sub.add_parser("goal-evidence", parents=[common])
+    p_sim_goal_evidence.add_argument("--goal", required=True)
+
+    p_goal = sub.add_parser("goal")
+    goal_sub = p_goal.add_subparsers(dest="goal_cmd", required=True)
+    p_goal_show = goal_sub.add_parser("show", parents=[common])
+    p_goal_show.add_argument("goal_id")
+    p_goal_list = goal_sub.add_parser("list", parents=[common])
+    p_goal_list.add_argument("--scope", required=True)
+
     sub.add_parser("scope", parents=[common])
 
     sub.add_parser("health", parents=[common])
@@ -558,6 +687,32 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "traversal":
             result = cmd_traversal(args.repo_root, args.scope)
             rendered = _render_traversal(result)
+        elif args.cmd == "diagram":
+            result = cmd_diagram(args.repo_root, args.diagram_id)
+            rendered = _render_diagram(result)
+        elif args.cmd == "sim":
+            if args.sim_cmd == "run":
+                result = cmd_sim_run(args.repo_root, args.run_id)
+                rendered = _render_sim_run(result)
+            elif args.sim_cmd == "latest":
+                result = cmd_sim_latest(args.repo_root, args.feature)
+                rendered = _render_sim_run(result)
+            elif args.sim_cmd == "failure":
+                result = cmd_sim_failure(args.repo_root, args.feature)
+                rendered = _render_sim_run(result)
+            elif args.sim_cmd == "metric":
+                result = cmd_sim_metric(args.repo_root, args.metric)
+                rendered = _render_sim_metric(result)
+            else:  # goal-evidence
+                result = cmd_sim_goal_evidence(args.repo_root, args.goal)
+                rendered = _render_goal_evidence(result)
+        elif args.cmd == "goal":
+            if args.goal_cmd == "show":
+                result = cmd_goal_show(args.repo_root, args.goal_id)
+                rendered = _render_goal(result)
+            else:  # list
+                result = cmd_goal_list(args.repo_root, args.scope)
+                rendered = _render_goal_list(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

@@ -27,6 +27,7 @@ import {
 } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
+import { registerEngContextTools } from "./eng-context-tools.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { registerFactoryInit } from "./factory-init-command.js";
 import { registerSessionMemory } from "./session-memory-command.js";
@@ -521,6 +522,7 @@ export default function factoryWatch(pi: PiApi): void {
   // enumerating, validating and writing.
   registerTraceTools(pi);
   registerSystemContextTools(pi);
+  registerEngContextTools(pi);
   registerSessionReviewSuggestTools(pi);
   // The deterministic project bootstrap: /factory-init, /factory-doctor, and the
   // subagent tool with its prompt metadata.

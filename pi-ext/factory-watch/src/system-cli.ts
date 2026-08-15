@@ -407,3 +407,149 @@ export function loadSystemLabelsAsync(cwd: string): Promise<CliResult<SystemLabe
   const cmd = buildSystemCommand(["labels", "--json"]);
   return runJsonCliAsync<SystemLabels>(cwd, cmd.bin, cmd.args);
 }
+
+// ---------------------------------------------------------------------------
+// Increment 4 -- Engineering Context agent surface (D1: pi-ext tools).
+//
+// These loaders mirror `factory.system` subcommands that back the deterministic
+// `eng_*` agent tools. As everywhere in this file: this layer renders JSON the
+// Python side already computed, it never re-derives freshness, ordering, or
+// provenance. The eng_* tools call one of these and format the payload.
+// ---------------------------------------------------------------------------
+
+export interface SystemVcycleNode {
+  id: string;
+  kind: string;
+}
+
+export interface SystemVcycleSide {
+  label: string;
+  nodes: SystemVcycleNode[];
+}
+
+export interface SystemVcycle {
+  scope: { kind: "feat" | "sr"; ref: string };
+  vcycle: {
+    anchor: string;
+    definition: SystemVcycleSide[];
+    verification: SystemVcycleSide[];
+    goals: SystemVcycleNode[];
+    metrics: SystemVcycleNode[];
+  };
+}
+
+export function loadSystemVcycle(cwd: string, scope: string): CliResult<SystemVcycle> {
+  const cmd = buildSystemCommand(["vcycle", "--scope", scope, "--json"]);
+  return runJsonCli<SystemVcycle>(cwd, cmd.bin, cmd.args);
+}
+
+export interface SystemDiagram {
+  id: string;
+  title: string;
+  diagram_path: string | null;
+  errors: string[];
+}
+
+export function loadSystemDiagram(cwd: string, diagramId: string): CliResult<SystemDiagram> {
+  const cmd = buildSystemCommand(["diagram", diagramId, "--json"]);
+  return runJsonCli<SystemDiagram>(cwd, cmd.bin, cmd.args);
+}
+
+export interface SimRun {
+  run: string;
+  experiment: string;
+  feature: string;
+  requirements: string[];
+  goals: string[];
+  commit: string | null;
+  result: string | null;
+  scope_errors: string[];
+}
+
+export interface SimLatest {
+  run: string;
+  experiment: string;
+  feature: string;
+  requirements: string[];
+  goals: string[];
+  commit: string | null;
+  result: string | null;
+  scope_errors: string[];
+}
+
+export interface SimMetricEntry {
+  run: string;
+  commit: string | null;
+  value: number;
+  ts: string | null;
+}
+
+export interface SimGoalEvidence {
+  goal: string;
+  runs: SimRun[];
+}
+
+export function loadSystemSimRun(cwd: string, runId: string): CliResult<SimRun> {
+  const cmd = buildSystemCommand(["sim", "run", runId, "--json"]);
+  return runJsonCli<SimRun>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemSimLatest(cwd: string, feature: string): CliResult<SimLatest> {
+  const cmd = buildSystemCommand(["sim", "latest", "--feature", feature, "--json"]);
+  return runJsonCli<SimLatest>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemSimFailure(cwd: string, feature: string): CliResult<SimLatest> {
+  const cmd = buildSystemCommand(["sim", "failure", "--feature", feature, "--json"]);
+  return runJsonCli<SimLatest>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemSimMetric(cwd: string, metricId: string): CliResult<SimMetricEntry[]> {
+  const cmd = buildSystemCommand(["sim", "metric", "--metric", metricId, "--json"]);
+  return runJsonCli<SimMetricEntry[]>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemSimGoalEvidence(cwd: string, goalId: string): CliResult<SimGoalEvidence> {
+  const cmd = buildSystemCommand(["sim", "goal-evidence", "--goal", goalId, "--json"]);
+  return runJsonCli<SimGoalEvidence>(cwd, cmd.bin, cmd.args);
+}
+
+export interface SystemGoal {
+  id: string;
+  title: string;
+  state: string;
+  version: number;
+  feature: string[];
+  requirements: string[];
+  metric: Record<string, unknown> | null;
+  target: string;
+  evidence: unknown[];
+  history: unknown[];
+  scope_errors: string[];
+}
+
+export interface SystemGoalsList {
+  scope: string;
+  goals: Array<{
+    id: string;
+    title: string;
+    state: string;
+    feature: string[];
+    requirements: string[];
+    metric: Record<string, unknown> | null;
+    target: string;
+    evidence: unknown[];
+    history: unknown[];
+  }>;
+}
+
+export function loadSystemGoal(cwd: string, goalId: string): CliResult<SystemGoal> {
+  const cmd = buildSystemCommand(["goal", "show", goalId, "--json"]);
+  return runJsonCli<SystemGoal>(cwd, cmd.bin, cmd.args);
+}
+
+export function loadSystemGoalsList(cwd: string, scope: string): CliResult<SystemGoalsList> {
+  const cmd = buildSystemCommand(["goal", "list", "--scope", scope, "--json"]);
+  return runJsonCli<SystemGoalsList>(cwd, cmd.bin, cmd.args);
+}
+

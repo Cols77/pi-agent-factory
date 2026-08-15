@@ -609,3 +609,116 @@ def test_vcycle_json_flag_prints_the_slice_payload(tmp_path, capsys):
     payload = json.loads(out)
     assert payload["vcycle"]["anchor"] == "feat:FEAT-CLI-001"
     assert [n["id"] for n in payload["vcycle"]["goals"]] == ["GOAL-CLI-001"]
+
+
+def _seed_sim_runs(root: Path) -> None:
+    """Seed two simulation run manifests (one pass, one fail) for a feature."""
+    from factory.evidence.manifests import write_run_manifest
+
+    evidence = root / "evidence"
+    evidence.mkdir(parents=True, exist_ok=True)
+    write_run_manifest(
+        evidence,
+        {
+            "run": "RUN-2",
+            "experiment": "SIM-X",
+            "feature": "FEAT-CLI-001",
+            "requirements": [],
+            "goals": ["GOAL-CLI-001"],
+            "commit": "f92b004",
+            "result": "failed",
+        },
+    )
+    write_run_manifest(
+        evidence,
+        {
+            "run": "RUN-3",
+            "experiment": "SIM-X",
+            "feature": "FEAT-CLI-001",
+            "requirements": [],
+            "goals": ["GOAL-CLI-001"],
+            "commit": "f92b005",
+            "result": "passed",
+        },
+    )
+
+
+def _write_goal_file(root: Path, goal_id: str = "GOAL-CLI-001") -> None:
+    (root / "goals").mkdir(exist_ok=True)
+    (root / "goals" / f"{goal_id}.md").write_text(
+        "---\n"
+        f"id: {goal_id}\n"
+        "title: CLI goal\n"
+        "feature: [FEAT-CLI-001]\n"
+        "requirements: [SR-001]\n"
+        "metric: m\n"
+        "source_experiment: SIM-X\n"
+        "target: '>=0.9'\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+
+def test_diagram_subcommand_renders_and_json(tmp_path, capsys):
+    (tmp_path / "docs" / "diagrams").mkdir(parents=True)
+    (tmp_path / "docs" / "diagrams" / "DIAG-CLI-001.md").write_text(
+        "---\nid: DIAG-CLI-001\ntitle: CLI diagram\ndiagram_file: assets/overview.html\n---\n",
+        encoding="utf-8",
+    )
+    rc = main(["diagram", "DIAG-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["id"] == "DIAG-CLI-001"
+    # The declared file does not exist, so path is None and errors are listed.
+    assert payload["diagram_path"] is None
+    assert payload["errors"]
+
+
+def test_sim_latest_returns_most_recent_run_for_feature(tmp_path, capsys):
+    _seed_sim_runs(tmp_path)
+    rc = main(["sim", "latest", "--feature", "FEAT-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["run"] == "RUN-3"
+    assert payload["result"] == "passed"
+
+
+def test_sim_failure_returns_most_recent_failed_run(tmp_path, capsys):
+    _seed_sim_runs(tmp_path)
+    rc = main(["sim", "failure", "--feature", "FEAT-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["run"] == "RUN-2"
+    assert payload["result"] == "failed"
+
+
+def test_sim_goal_evidence_lists_runs_for_goal(tmp_path, capsys):
+    _seed_sim_runs(tmp_path)
+    rc = main(["sim", "goal-evidence", "--goal", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["goal"] == "GOAL-CLI-001"
+    assert [r["run"] for r in payload["runs"]] == ["RUN-2", "RUN-3"]
+
+
+def test_goal_show_and_list_subcommands(tmp_path, capsys):
+    _write_feature_repo(tmp_path)
+    # Seed a goal that binds to the feature by frontmatter so feat-scope
+    # listing resolves it (the _write_feature_repo goal only demonstrates SR).
+    _write_goal_file(tmp_path)
+    rc = main(["goal", "show", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["id"] == "GOAL-CLI-001"
+
+    rc = main(["goal", "list", "--scope", "feat:FEAT-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["scope"] == "feat:FEAT-CLI-001"
+    assert "GOAL-CLI-001" in [g["id"] for g in payload["goals"]]

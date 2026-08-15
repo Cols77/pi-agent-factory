@@ -63,10 +63,10 @@ and evidence, and present artifacts — without a separate MCP server.
 
 ## Task 1: Register the read-only tool set
 
-- [ ] **Step 1: Failing tests** — copy the v1 tool-registration pattern; assert each tool id is
+- [x] **Step 1: Failing tests** — copy the v1 tool-registration pattern; assert each tool id is
   registered with a non-empty description and a JSON-schema args block; read-only tools declare
   no side-effect.
-- [ ] **Step 2: Implement** `eng-context-tools.ts`: map each tool to a `system-cli` invocation,
+- [x] **Step 2: Implement** `eng-context-tools.ts`: map each tool to a `system-cli` invocation,
   e.g.:
 ```ts
 const TOOLS = {
@@ -77,19 +77,21 @@ const TOOLS = {
   // ... each maps to a python subcommand (extend cli.py where a subcommand is missing)
 };
 ```
-- [ ] **Step 3:** TS unit + `uv run python -m pytest -q` green + lint + commit.
+- [x] **Step 3:** TS unit + `uv run python -m pytest -q` green + lint + commit.
 
 ## Task 2: Python subcommand backstop
 
-- [ ] **Step 1:** add any missing `factory.goals show`/`factory.simulation` CLI subcommands the
+- [x] **Step 1:** add any missing `factory.goals show`/`factory.simulation` CLI subcommands the
   tools reference (additive only; `--json` output shape stable and documented).
-- [ ] **Step 2:** integration tests drive a tool end-to-end against a seeded repo (a
+  Added `factory.system` subcommands `diagram`, `sim run/latest/failure/metric/goal-evidence`,
+  `goal show/list` (+ `query_goal_evidence`) — additive, existing verbs untouched.
+- [x] **Step 2:** integration tests drive a tool end-to-end against a seeded repo (a
   `feat:`/`sr:`/`goal:`/run fixture) and assert the returned JSON is well-formed and cites sources.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Action tools (`eng_evaluate_goal`, `eng_present`) behind policy
 
-- [ ] **Step 0 (read): `eng_get_diagram(diagram_id)`** — resolve a `diag:` stub → return the
+- [x] **Step 0 (read): `eng_get_diagram(diagram_id)`** — resolve a `diag:` stub → return the
   canonical HTML path + `focus` + `illustrates` refs (D7). Read-only; `present(diag:..)` routes the
   artifact to the browser via Inc 5. Add the row above to `eng-context-tools.ts` and a `diag:`
   subcommand backstop in Task 2 if missing. Comprehension verification (D8) is **not** an `eng_*`
