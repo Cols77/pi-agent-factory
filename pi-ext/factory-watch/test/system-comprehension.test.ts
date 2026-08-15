@@ -2,6 +2,7 @@ import { JSDOM } from "jsdom";
 import { beforeEach, expect, test, vi } from "vitest";
 import {
   boundedList,
+  closeOpenCard,
   ensureCardController,
   infoCard,
   refCardFields,
@@ -167,4 +168,66 @@ test("Escape closes the open card and returns focus to the trigger", () => {
   document.dispatchEvent(new (window as any).KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   expect(document.querySelector(".info-card")).toBeNull();
   expect(document.activeElement).toBe(chip);
+});
+
+test("a keydown outside the card (e.g. Alt+2 tab navigation) closes the open card", () => {
+  ensureCardController();
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  expect(document.querySelector(".info-card")).not.toBeNull();
+  document.dispatchEvent(
+    new (window as any).KeyboardEvent("keydown", { key: "2", altKey: true, bubbles: true }),
+  );
+  expect(document.querySelector(".info-card")).toBeNull();
+});
+
+test("a keydown originating inside the open card does not close it", () => {
+  ensureCardController();
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  const card = document.querySelector(".info-card") as HTMLElement | null;
+  expect(card).not.toBeNull();
+  card!.dispatchEvent(new (window as any).KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+  expect(document.querySelector(".info-card")).not.toBeNull();
+});
+
+test("a keydown that closes the card outside it does not steal focus", () => {
+  ensureCardController();
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  chip.focus();
+  const other = document.createElement("input");
+  document.body.appendChild(other);
+  other.focus();
+  other.dispatchEvent(
+    new (window as any).KeyboardEvent("keydown", { key: "2", altKey: true, bubbles: true }),
+  );
+  expect(document.querySelector(".info-card")).toBeNull();
+  expect(document.activeElement).toBe(other);
+});
+
+test("aria-expanded flips to true when the card opens and back to false when it closes", () => {
+  ensureCardController();
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  expect(chip.getAttribute("aria-expanded")).toBe("false");
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  chip.focus();
+  expect(chip.getAttribute("aria-expanded")).toBe("true");
+  document.dispatchEvent(new (window as any).KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(chip.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("closeOpenCard closes the currently open card without moving focus", () => {
+  ensureCardController();
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  expect(document.querySelector(".info-card")).not.toBeNull();
+  closeOpenCard();
+  expect(document.querySelector(".info-card")).toBeNull();
+  expect(chip.getAttribute("aria-expanded")).toBe("false");
 });

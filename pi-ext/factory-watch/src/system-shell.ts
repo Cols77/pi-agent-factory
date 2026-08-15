@@ -3,6 +3,7 @@
 import { systemBootstrap } from './system-bootstrap.js';
 import {
   boundedList,
+  closeOpenCard,
   ensureCardController,
   infoCard,
   refCardFields,
@@ -79,6 +80,7 @@ function clientSource(): string {
     infoCard,
     refCardFields,
     ensureCardController,
+    closeOpenCard,
   ]
     .map((fn) => fn.toString())
     .join('\n');

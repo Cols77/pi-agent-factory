@@ -130,8 +130,10 @@ export function refCardFields(entry: any): InfoCardField[] {
 //
 // Behaviour (visual addendum, "Cards"): opens after a 120ms hover delay,
 // immediately on keyboard focus, and on tap as a toggle; Escape closes and
-// returns focus to the trigger; only one card is open at a time. Positioning
-// is `position: fixed` off the trigger's own rect (#content clips absolute
+// returns focus to the trigger; any other keystroke outside the card also
+// closes it (without moving focus), so keyboard-only tab navigation can't
+// orphan an open card; only one card is open at a time. Positioning is
+// `position: fixed` off the trigger's own rect (#content clips absolute
 // positioning and has no positioned ancestor to escape through), offset 6px
 // and flipped to stay in the viewport.
 export function ensureCardController(): void {
@@ -154,9 +156,14 @@ export function ensureCardController(): void {
       hoverTimer = null;
     }
     if (openCardEl && openCardEl.parentNode) openCardEl.parentNode.removeChild(openCardEl);
+    if (openTrigger) {
+      openTrigger.setAttribute('aria-expanded', 'false');
+      openTrigger.removeAttribute('aria-controls');
+    }
     openCardEl = null;
     openTrigger = null;
   }
+  anyDocument.__refCardClose = closeCard;
 
   function positionCard(card: HTMLElement, trigger: HTMLElement): void {
     document.body.appendChild(card);
@@ -184,6 +191,8 @@ export function ensureCardController(): void {
     const card = infoCard(refCardFields(entry));
     openCardEl = card;
     openTrigger = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+    if (card.id) trigger.setAttribute('aria-controls', card.id);
     positionCard(card, trigger);
   }
 
@@ -226,10 +235,31 @@ export function ensureCardController(): void {
     if (openCardEl && !openCardEl.contains(e.target)) closeCard();
   });
 
+  // Any keystroke that didn't originate inside the open card closes it. This
+  // is what keeps the card from being orphaned by keyboard-only navigation
+  // (Alt+[1-7] tab switches, arrow/Home/End tab traversal, Tab itself) that
+  // never fires a click for the "click outside" branch above to catch --
+  // mouse navigation self-heals via that branch, keyboard does not. Escape
+  // keeps its existing behaviour of also returning focus to the trigger;
+  // every other key just closes without stealing focus, since the user is
+  // deliberately moving it elsewhere.
   document.addEventListener('keydown', (e: any) => {
-    if (e.key !== 'Escape' || !openCardEl) return;
-    const trigger = openTrigger;
-    closeCard();
-    if (trigger) trigger.focus();
+    if (!openCardEl) return;
+    if (e.key === 'Escape') {
+      const trigger = openTrigger;
+      closeCard();
+      if (trigger) trigger.focus();
+      return;
+    }
+    if (!openCardEl.contains(e.target)) closeCard();
   });
+}
+
+// Closes the currently open ref card, if any, without moving focus. Exposed
+// for other modules (e.g. tab-navigation wiring) to call explicitly; reaches
+// into the delegated controller's state via the document, since these
+// functions share no module-scope closures.
+export function closeOpenCard(): void {
+  const anyDocument = document as any;
+  if (typeof anyDocument.__refCardClose === 'function') anyDocument.__refCardClose();
 }
