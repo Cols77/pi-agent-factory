@@ -121,8 +121,22 @@ const TOOLS = {
 
 ## Task 5: Review handoff
 
-- [ ] **Step 1:** reviewer sub-agent — compliance vs spec §25 tool list + D1 (no MCP server, no
+- [x] **Step 1:** reviewer sub-agent — compliance vs spec §25 tool list + D1 (no MCP server, no
   TS re-derivation) + D3 (additive registration). Fix findings as fixes; update checkboxes.
+
+  Reviewed commits 1eb2098..74124f5: **COMPLIANT** (no T-### fix-tickets). Additive-only;
+  reuse (all eng tools + /task shell `factory.system` and render its JSON, no TS re-derivation /
+  forked parser); deterministic (run-id ordering, numeric metric compare, no LLM/mtime); policy
+  (`eng_evaluate_goal` the only goal-state writer, gated on spec §13 `can_transition`;
+  `eng_present` forward/declare only); actions disjoint from read tools; unit+integration tests,
+  full py 1364 / TS 908 green.
+
+  Non-blocking notes tracked (not defects): (1) §25 read surface is intentionally partial
+  (get_requirement_implementation / get_verification_status / get_recent_feature_changes /
+  get_change_impact / get_goal_history / standalone get_feature_context are not distinct tools;
+  `brief --scope feat:` covers the dossier) — the whole-increment acceptance line is partly unmet
+  and should be closed/deferred explicitly. (2) `eng_present` "records intent" is capture+declare;
+  durable intent persistence is deferred to the Inc 5 router (documented dependency).
 
 ## Acceptance for Increment 4
 
