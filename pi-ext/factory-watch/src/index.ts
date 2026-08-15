@@ -74,6 +74,7 @@ import { resolveSessionPath } from "./session-path.js";
 import { freshSessionJsonl, grillResultPath, grillSessionPath, readFreshExplainerSummary, } from "./grill.js";
 import { loadNodeRegistry } from "./node-registry.js";
 import { diffBlocked, snapshotStates } from "./pipeline-diff.js";
+import { readContextPacket, renderPacketSlice } from "./context-packet.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -186,11 +187,17 @@ function openGrillWindow(ctx: ExtCommandCtx, rec: StatusRecord): void {
   const skillBlocks = buildGrillSkillBlocks(ctx);
   const freshSummary = readFreshExplainerSummary(ctx.cwd);
   const resultPath = grillResultPath(ctx.cwd, rec.session_id);
+  // Feed the gatherer's content-bearing packet to the grill when one exists, so
+  // the grill agent arrives already knowing the task + code instead of reading
+  // the codebase from zero. Degrades to task-text-only when unavailable.
+  const packet = readContextPacket(ctx.cwd, rec.session_id);
+  const packetSlice = packet ? renderPacketSlice(packet) : null;
   const seed = buildGrillSeedPrompt(
-    taskText ?? `(task file for ${rec.task_id} not found)`, 
+    taskText ?? `(task file for ${rec.task_id} not found)`,
     skillBlocks,
     freshSummary,
     resultPath,
+    packetSlice,
   );
   const sessionPath = grillSessionPath(ctx.cwd, rec.session_id);
   mkdirSync(dirname(sessionPath), { recursive: true });

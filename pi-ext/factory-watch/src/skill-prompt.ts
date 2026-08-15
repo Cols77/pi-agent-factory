@@ -52,6 +52,7 @@ export function buildGrillSeedPrompt(
   skillBlocks: string[],
   freshExplainerSummary: string,
   grillResultPath: string,
+  packetSlice: string | null = null,
 ): string {
   const instructions = [
     "You are running the grill for this task BEFORE it is implemented. Use the loaded `grill-understanding` skill. Your job is to verify the user genuinely understands the task, its definition of done, and the code they will later review — not to rubber-stamp it. This grill is strongly-advised but never a hard block.",
@@ -65,6 +66,10 @@ export function buildGrillSeedPrompt(
     `Task to grill about (scope: body, DoD, satisfies: trace targets, touched code paths):\n${taskText}`,
     `Visual explainers to consider (from docs/visual-explain/; verify each one's dependency fingerprint is current before reusing it, else generate a new one):\n${freshExplainerSummary}`,
   ].join("\n\n");
+
+  if (packetSlice !== null && packetSlice.trim() !== "") {
+    return [...skillBlocks, instructions, content, packetSlice].join("\n\n");
+  }
 
   return [...skillBlocks, instructions, content].join("\n\n");
 }

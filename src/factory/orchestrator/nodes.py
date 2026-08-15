@@ -271,6 +271,7 @@ def run_dev(
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
     events: list[NodeEvent] | None = None,
+    packet: dict | None = None,
 ) -> tuple[NodeOutcome, NodeEvent]:
     result: AgentResult | None = None
     captured_session_id: str | None = None
@@ -313,6 +314,7 @@ def run_dev(
             kb_entries,
             feedback,
             skills_dir=repo_root / ".pi" / "skills",
+            packet=packet,
         )
         result = backend.run(
             AgentRole.DEV,
@@ -489,6 +491,7 @@ def run_review(
     transcript_dir: Path | None = None,
     status: StatusReporter = NullStatusReporter(),
     events: list[NodeEvent] | None = None,
+    packet: dict | None = None,
 ) -> tuple[NodeOutcome, NodeEvent, list[str]]:
     status.report(task_id=task.id, node="review", node_state="running", attempt=1, max_attempts=1)
     captured_session_id: str | None = None
@@ -524,6 +527,7 @@ def run_review(
             task,
             kb_entries=kb_entries,
             skills_dir=repo_root / ".pi" / "skills",
+            packet=packet,
             # Tells the reviewer the gates already ran, so it stops asking the
             # human to run suites the validation node executed before it started.
             events=events,

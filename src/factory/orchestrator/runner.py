@@ -13,6 +13,7 @@ from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import GitOps, SubprocessGitOps, ensure_factory_ignores
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
 from factory.orchestrator.grill import GrillGate, GrillResult
+from factory.orchestrator.context_packet import build_context_packet, write_context_packet
 from factory.orchestrator.ledger import (
     Task,
     TaskNotFoundError,
@@ -147,6 +148,19 @@ def run_task(
     kb_ids = select_entries(repo_root / "kb", manifest["context"].get("source_files", []), [])
     kb_entries = _load_kb_entries(repo_root / "kb", kb_ids)
 
+    # Materialize the content-bearing context packet once the gatherer passes, so
+    # Dev, Review and (via the persisted file) the grill all consume the gathered
+    # context instead of re-reading the codebase. Persisted before the grill gate
+    # so the grill window can read it. Deterministic and token-budgeted; a failure
+    # degrades to stdlib signatures (packet=None is safe).
+    packet: dict | None = None
+    if transcript_dir is not None:
+        try:
+            packet = build_context_packet(task, manifest, repo_root)
+            write_context_packet(packet, transcript_dir)
+        except Exception:
+            packet = None
+
     feedback: str | None = None
     iterations = 0
     first_dev = True  # already_done skips ONLY the very first dev attempt
@@ -225,6 +239,7 @@ def run_task(
                     transcript_dir=transcript_dir,
                     status=status,
                     events=events,
+                    packet=packet,
                 )
                 events.append(d_ev)
                 if execution is not None:
@@ -292,6 +307,7 @@ def run_task(
                 transcript_dir=transcript_dir,
                 status=status,
                 events=list(events),
+                packet=packet,
             )
             events.append(r_ev)
             if execution is not None:
