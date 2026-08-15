@@ -3,6 +3,7 @@ import type { PiApi } from "./pi-types.js";
 import {
   loadSystemDiagram,
   loadSystemGoal,
+  loadSystemGoalEvaluate,
   loadSystemGoalsList,
   loadSystemSimFailure,
   loadSystemSimGoalEvidence,
@@ -15,6 +16,7 @@ import {
 import {
   formatDiagram,
   formatGoal,
+  formatGoalEvaluate,
   formatGoalList,
   formatSimFailure,
   formatSimGoalEvidence,
@@ -39,6 +41,7 @@ interface Dependencies {
   simGoalEvidence: typeof loadSystemSimGoalEvidence;
   goal: typeof loadSystemGoal;
   goalsList: typeof loadSystemGoalsList;
+  goalEvaluate: typeof loadSystemGoalEvaluate;
   traversal: typeof loadSystemTraversal;
 }
 
@@ -52,6 +55,7 @@ const defaultDependencies: Dependencies = {
   simGoalEvidence: loadSystemSimGoalEvidence,
   goal: loadSystemGoal,
   goalsList: loadSystemGoalsList,
+  goalEvaluate: loadSystemGoalEvaluate,
   traversal: loadSystemTraversal,
 };
 
@@ -87,6 +91,11 @@ function formatTraversalForRequirement(
   lines.push(`  files: ${res.value.files.length ? res.value.files.join(", ") : "none"}`);
   return lines.join("\n");
 }
+
+// The action tools write goal state and must stay separable from the read-only
+// set (Task 3 Step 3): a reviewer can forbid these ids without touching the
+// read-only tools' registration.
+export const ENG_ACTION_TOOL_IDS = ["eng_evaluate_goal"] as const;
 
 export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
   const engGetVcycle = {
@@ -237,6 +246,28 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     },
   };
 
+  // ACTION tool (Task 3 Step 1): the ONLY tool that writes goal state. It runs
+  // the Inc 3 auto-eval for one goal and records the resulting state IF the
+  // lifecycle (spec §13 can_transition) permits it; an illegal or unmeasurable
+  // edge is reported without writing.
+  const engEvaluateGoal = {
+    name: "eng_evaluate_goal",
+    label: "Engineering context: evaluate goal (ACTION)",
+    description:
+      "ACTION (writes goal state). Run the Inc 3 auto-eval for one goal against its latest " +
+      "simulation run and record the resulting transition when the lifecycle (spec §13) " +
+      "permits it. An illegal lifecycle edge or a goal with no measurable run is reported " +
+      "without writing. This is the only tool that writes goal state; a reviewer can forbid " +
+      "it without touching any read-only eng_* tool.",
+    parameters: Type.Object({
+      goal_id: Type.String({ description: "Goal id, e.g. GOAL-NAV-003" }),
+    }),
+    async execute(_id: string, params: { goal_id: string }, _sig: AbortSignal | undefined, _u: unknown, ctx: ToolCtx) {
+      const res = deps.goalEvaluate(ctx.cwd, params.goal_id);
+      return result(res.ok ? formatGoalEvaluate(res.value) : `eng_evaluate_goal failed: ${res.error}`, res.ok ? res.value : null);
+    },
+  };
+
   return [
     engGetVcycle,
     engGetDiagram,
@@ -248,6 +279,7 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     engGetGoalEvidence,
     engGetMetricHistory,
     engGetSimulationRun,
+    engEvaluateGoal,
   ];
 }
 

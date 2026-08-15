@@ -16,6 +16,9 @@ import json
 import sys
 from pathlib import Path
 
+from factory.goals.registry import load_goals
+from factory.simulation.evidence import evaluate_goal_from_runs
+from factory.system._claims import evidence_dir as _evidence_dir
 from factory.system import bundles as bundles_module
 from factory.system import health as health_module
 from factory.system import labels as labels_module
@@ -97,6 +100,11 @@ def cmd_goal_show(repo_root: Path, goal_id: str) -> dict:
 
 def cmd_goal_list(repo_root: Path, scope_raw: str) -> dict:
     return query_goals(repo_root, scope_raw)
+
+
+def cmd_goal_evaluate(repo_root: Path, goal_id: str) -> dict:
+    goals = load_goals(repo_root)
+    return evaluate_goal_from_runs(_evidence_dir(repo_root), goals, goal_id)
 
 
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
@@ -375,6 +383,22 @@ def _render_goal_list(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_goal_evaluate(result: dict) -> str:
+    lines = [f"goal: {result['goal_id']}"]
+    if result.get("evaluated"):
+        t = result["transition"]
+        d = result["derived"]
+        lines.append(f"  transition: {t['from']} -> {t['to']} (recorded)")
+        lines.append(f"  value: {d['value']} {d['operator'] or ''} {d['target'] if d['target'] is not None else 'n/a'}".rstrip())
+        lines.append(f"  passed: {d['passed']}")
+    else:
+        lines.append(f"  state: {result['state']} (unchanged)")
+        if result.get("derived"):
+            lines.append(f"  derived state: {result['derived']['state']} (NOT written — illegal transition)")
+        lines.append(f"  note: {result['note']}")
+    return "\n".join(lines)
+
+
 def _render_matrix(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
     for row in result["rows"]:
@@ -608,6 +632,8 @@ def main(argv: list[str] | None = None) -> int:
     p_goal_show.add_argument("goal_id")
     p_goal_list = goal_sub.add_parser("list", parents=[common])
     p_goal_list.add_argument("--scope", required=True)
+    p_goal_evaluate = goal_sub.add_parser("evaluate", parents=[common])
+    p_goal_evaluate.add_argument("goal_id")
 
     sub.add_parser("scope", parents=[common])
 
@@ -710,9 +736,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.goal_cmd == "show":
                 result = cmd_goal_show(args.repo_root, args.goal_id)
                 rendered = _render_goal(result)
-            else:  # list
+            elif args.goal_cmd == "list":
                 result = cmd_goal_list(args.repo_root, args.scope)
                 rendered = _render_goal_list(result)
+            else:  # evaluate
+                result = cmd_goal_evaluate(args.repo_root, args.goal_id)
+                rendered = _render_goal_evaluate(result)
         else:
             result = cmd_scope(args.repo_root)
             rendered = _render_scope(result)

@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 
 from factory.simulation.registry import Run, load_runs, runs_for
-from factory.goals.evaluator import evaluate
+from factory.goals.evaluator import GoalResult, evaluate
+from factory.goals.lifecycle import can_transition
 from factory.goals.registry import record
 
+
+class GoalNotFoundError(ValueError):
+    """An eng_evaluate_goal addressed a goal id no file declares."""
 
 def metric_values(run: Run, metrics_json: dict) -> dict[str, float]:
     """Return the run's metric map (id -> numeric value) from a parsed metrics.json."""
@@ -64,6 +68,36 @@ def evidence_for_goal(evidence_dir: Path, goal_id: str) -> list[Run]:
     return runs_for(evidence_dir, goal=goal_id)
 
 
+def _derive_one(goal, evidence_dir: Path) -> GoalResult | None:
+    """Derive (without persisting) one goal's result from its latest run.
+
+    A goal with no metric name, no ``source_experiment``, no matching run, or
+    no measurable metric value yields ``None`` -- the goal is left untouched.
+    Shared by the batch ``evaluate_goals_from_runs`` and the single-goal
+    ``evaluate_goal_from_runs`` so both run the exact same Inc 3 evaluator.
+    """
+    if not goal.metric or not goal.metric.get("name"):
+        return None
+    experiment = goal.metric.get("source_experiment")
+    if not experiment:
+        return None
+    runs = runs_for(evidence_dir, experiment=experiment)
+    if not runs:
+        return None
+    latest = max(runs, key=lambda r: r.run_id)
+    metrics = metric_values(latest, _manifest_metrics(latest))
+    value = metrics.get(goal.metric["name"])
+    if value is None:
+        return None
+    return evaluate(
+        goal,
+        value,
+        run_id=latest.run_id,
+        commit=latest.commit or "",
+        metrics_path=latest.path.parent / "metrics.json",
+    )
+
+
 def evaluate_goals_from_runs(evidence_dir: Path, goals) -> list:
     """Automatically evaluate every given goal against its latest experiment run.
 
@@ -77,26 +111,66 @@ def evaluate_goals_from_runs(evidence_dir: Path, goals) -> list:
     """
     results: list = []
     for goal in goals.values():
-        if not goal.metric or not goal.metric.get("name"):
+        result = _derive_one(goal, evidence_dir)
+        if result is None:
             continue
-        experiment = goal.metric.get("source_experiment")
-        if not experiment:
-            continue
-        runs = runs_for(evidence_dir, experiment=experiment)
-        if not runs:
-            continue
-        latest = max(runs, key=lambda r: r.run_id)
-        metrics = metric_values(latest, _manifest_metrics(latest))
-        value = metrics.get(goal.metric["name"])
-        if value is None:
-            continue
-        result = evaluate(
-            goal,
-            value,
-            run_id=latest.run_id,
-            commit=latest.commit or "",
-            metrics_path=latest.path.parent / "metrics.json",
-        )
         record(result, goal.path)
         results.append(result)
     return results
+
+
+def evaluate_goal_from_runs(evidence_dir: Path, goals, goal_id: str) -> dict:
+    """Evaluate ONE goal (the `eng_evaluate_goal` action) against its run.
+
+    ``goals`` is the ``factory.goals.registry.load_goals`` dict. Returns a
+    structured outcome dict rather than raising on a non-event, because "no
+    measurable run" is a legitimate state for an action tool to report. The
+    derived state is only persisted (via ``record``) when the goal's current
+    lifecycle state legally permits the edge (spec §13 ``can_transition``); an
+    illegal edge is reported without writing, keeping this the single goal-state
+    write path behind policy.
+    """
+    if goal_id not in goals:
+        raise GoalNotFoundError(f"no goal with id {goal_id!r}")
+    goal = goals[goal_id]
+    from_state = goal.state
+    result = _derive_one(goal, evidence_dir)
+    if result is None:
+        return {
+            "evaluated": False,
+            "goal_id": goal_id,
+            "state": from_state,
+            "transition": None,
+            "note": "no measurable run for this goal's metric/source_experiment; goal left untouched",
+        }
+
+    derived = {
+        "state": result.state,
+        "passed": result.passed,
+        "value": result.value,
+        "target": result.target_value,
+        "operator": result.operator,
+        "run": result.evidence.get("run"),
+        "commit": result.evidence.get("commit"),
+        "blocked_reason": result.blocked_reason,
+    }
+    if not can_transition(from_state, result.state):  # spec §13 lifecycle
+        return {
+            "evaluated": False,
+            "goal_id": goal_id,
+            "state": from_state,
+            "transition": None,
+            "derived": derived,
+            "note": (
+                f"derived state {result.state} is not a legal transition from "
+                f"{from_state} (spec §13); move the goal to ACTIVE/EVALUATING "
+                "first. No state written."
+            ),
+        }
+    record(result, goal.path)
+    return {
+        "evaluated": True,
+        "goal_id": goal_id,
+        "transition": {"from": from_state, "to": result.state, "legal": True},
+        "derived": derived,
+    }

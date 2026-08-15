@@ -34,4 +34,13 @@ describe("eng-context tools against the real CLI", () => {
     const out = await run(tool, { requirement_id: "SR-999999" });
     expect(out).toContain("trace for SR-999999:");
   }, 120_000);
+
+  // The action tool is exercised only on its failure path here: a successful
+  // evaluate would WRITE goal state into the repo, which tests must never do.
+  test("eng_evaluate_goal on a missing goal surfaces a real CLI failure", async () => {
+    const tool = tools.find((t) => t.name === "eng_evaluate_goal")!;
+    const out = await run(tool, { goal_id: "GOAL-DOES-NOT-EXIST-000" });
+    expect(out).toContain("eng_evaluate_goal failed");
+    expect(out).toContain("no goal with id");
+  }, 120_000);
 });

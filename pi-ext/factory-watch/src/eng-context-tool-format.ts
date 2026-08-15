@@ -11,6 +11,7 @@ import type {
   SystemGoal,
   SystemGoalsList,
   SystemVcycle,
+  GoalEvaluate,
 } from "./system-cli.js";
 
 export function formatDiagram(d: SystemDiagram): string {
@@ -99,5 +100,23 @@ export function formatGoalList(list: SystemGoalsList): string {
     return lines.join("\n");
   }
   for (const g of list.goals) lines.push(`  ${g.id}  [${g.state}]  ${g.title}`);
+  return lines.join("\n");
+}
+
+export function formatGoalEvaluate(result: GoalEvaluate): string {
+  const lines = [`goal: ${result.goal_id}`];
+  if (result.evaluated) {
+    const t = result.transition;
+    const d = result.derived!;
+    lines.push(`  transition: ${t!.from} -> ${t!.to} (recorded)`);
+    lines.push(`  value: ${d.value} ${d.operator ?? ""} ${d.target ?? "n/a"}`.trimEnd());
+    lines.push(`  passed: ${d.passed}`);
+  } else {
+    lines.push(`  state: ${result.state} (unchanged)`);
+    if (result.derived) {
+      lines.push(`  derived state: ${result.derived.state} (NOT written — illegal transition)`);
+    }
+    if (result.note) lines.push(`  note: ${result.note}`);
+  }
   return lines.join("\n");
 }

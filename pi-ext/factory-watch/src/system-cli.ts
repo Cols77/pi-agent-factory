@@ -548,6 +548,29 @@ export function loadSystemGoal(cwd: string, goalId: string): CliResult<SystemGoa
   return runJsonCli<SystemGoal>(cwd, cmd.bin, cmd.args);
 }
 
+export interface GoalEvaluate {
+  evaluated: boolean;
+  goal_id: string;
+  state?: string;
+  transition: { from: string; to: string; legal: boolean } | null;
+  derived?: {
+    state: string;
+    passed: boolean;
+    value: number;
+    target: number | null;
+    operator: string | null;
+    run: string | null;
+    commit: string | null;
+    blocked_reason: string | null;
+  };
+  note?: string;
+}
+
+export function loadSystemGoalEvaluate(cwd: string, goalId: string): CliResult<GoalEvaluate> {
+  const cmd = buildSystemCommand(["goal", "evaluate", goalId, "--json"]);
+  return runJsonCli<GoalEvaluate>(cwd, cmd.bin, cmd.args);
+}
+
 export function loadSystemGoalsList(cwd: string, scope: string): CliResult<SystemGoalsList> {
   const cmd = buildSystemCommand(["goal", "list", "--scope", scope, "--json"]);
   return runJsonCli<SystemGoalsList>(cwd, cmd.bin, cmd.args);

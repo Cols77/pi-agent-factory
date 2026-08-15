@@ -98,8 +98,11 @@ const TOOLS = {
   tool — it is the installed `grill-understanding`/`visual-explainer` skills invoked from the
   cockpit surfaces (Inc 6/7), keeping the engineering-context surface deterministic and read-only.
 
-- [ ] **Step 1:** `eng_evaluate_goal` calls the Inc 3 auto-eval and returns the resulting
-  transition; it is the ONLY tool that writes goal state.
+- [x] **Step 1:** `eng_evaluate_goal` calls the Inc 3 auto-eval and returns the resulting
+  transition; it is the ONLY tool that writes goal state. The write is gated on spec §13
+  `can_transition`: an illegal lifecycle edge or a goal with no measurable run is reported
+  without writing. (Python `evidence.evaluate_goal_from_runs` + `factory.system goal evaluate`
+  backstop; TS `eng_evaluate_goal` action tool, distinct from the read-only set.)
 - [ ] **Step 2:** `eng_present` validates args (artifact, optional focus) and forwards to the
   Inc 5 router; in Inc 4 it records the intent and returns the resolution plan (router lands Inc 5).
 - [ ] **Step 3:** tests assert action tools are distinct from read tools (a reviewer can forbid

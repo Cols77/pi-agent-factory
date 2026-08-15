@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   buildEngContextTools,
+  ENG_ACTION_TOOL_IDS,
   registerEngContextTools,
 } from "../src/eng-context-tools.js";
 import type {
+  GoalEvaluate,
   SystemDiagram,
   SystemGoal,
   SystemGoalsList,
@@ -63,6 +65,21 @@ function deps(overrides: Record<string, unknown> = {}) {
     scope: "feat:FEAT-NAV-017",
     goals: [goal],
   };
+  const goalEvaluate: GoalEvaluate = {
+    evaluated: true,
+    goal_id: "GOAL-NAV-003",
+    transition: { from: "EVALUATING", to: "REACHED", legal: true },
+    derived: {
+      state: "REACHED",
+      passed: true,
+      value: 0.93,
+      target: 0.9,
+      operator: ">=",
+      run: "RUN-003",
+      commit: "f92b004",
+      blocked_reason: null,
+    },
+  };
   const traversal = {
     requirement: ["SR-001"],
     tasks: ["T-001"],
@@ -79,6 +96,7 @@ function deps(overrides: Record<string, unknown> = {}) {
     simGoalEvidence: () => ({ ok: true as const, value: simGoalEvidence }),
     goal: () => ({ ok: true as const, value: goal }),
     goalsList: () => ({ ok: true as const, value: goalsList }),
+    goalEvaluate: () => ({ ok: true as const, value: goalEvaluate }),
     traversal: () => ({ ok: true as const, value: traversal }),
     ...overrides,
   };
@@ -110,6 +128,7 @@ describe("eng-context tools (unit, mocked deps)", () => {
       "eng_get_goal_evidence",
       "eng_get_metric_history",
       "eng_get_simulation_run",
+      "eng_evaluate_goal",
     ]) {
       expect(ids).toContain(id);
     }
@@ -165,6 +184,27 @@ describe("eng-context tools (unit, mocked deps)", () => {
     const out = await run(broken, { goal_id: "GOAL-NAV-003" });
     expect(out).toContain("eng_get_goal failed");
     expect(out).toContain("boom");
+  });
+
+  test("eng_evaluate_goal renders the recorded transition", async () => {
+    const out = await run(findTool("eng_evaluate_goal"), { goal_id: "GOAL-NAV-003" });
+    expect(out).toContain("transition: EVALUATING -> REACHED (recorded)");
+    expect(out).toContain("passed: true");
+  });
+
+  test("action tools are distinct from read-only tools (Task 3 Step 3)", () => {
+    const tools = buildEngContextTools(deps());
+    const ids = new Set(tools.map((t) => t.name));
+    const readIds = [...ids].filter((id) => !(ENG_ACTION_TOOL_IDS as readonly string[]).includes(id));
+    // Every action tool id is registered and disjoint from the read-only set.
+    for (const actionId of ENG_ACTION_TOOL_IDS) expect(ids).toContain(actionId);
+    for (const readId of readIds) expect(ENG_ACTION_TOOL_IDS).not.toContain(readId);
+    // An action tool advertises that it writes goal state, so a reviewer can
+    // forbid these ids without touching the read-only registrations.
+    const action = tools.find((t) => t.name === "eng_evaluate_goal");
+    expect(action?.description).toMatch(/writes goal state/i);
+    const readOnly = tools.filter((t) => !(ENG_ACTION_TOOL_IDS as readonly string[]).includes(t.name));
+    for (const tool of readOnly) expect(tool.description).not.toMatch(/writes goal state/i);
   });
 
   test("registerEngContextTools calls registerTool for each tool", () => {

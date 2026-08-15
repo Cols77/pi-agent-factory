@@ -722,3 +722,69 @@ def test_goal_show_and_list_subcommands(tmp_path, capsys):
     payload = json.loads(out)
     assert payload["scope"] == "feat:FEAT-CLI-001"
     assert "GOAL-CLI-001" in [g["id"] for g in payload["goals"]]
+
+
+def _write_goal_evaluate_fixture(root: Path, state: str = "EVALUATING") -> None:
+    """A goal in an evaluable state plus one SIM-X run with a measurable metric."""
+    (root / "goals").mkdir(parents=True, exist_ok=True)
+    (root / "goals" / "GOAL-CLI-001.md").write_text(
+        "---\n"
+        "id: GOAL-CLI-001\n"
+        "title: CLI goal\n"
+        "feature: [FEAT-CLI-001]\n"
+        "requirements: [SR-001]\n"
+        "metric: {name: m, source_experiment: SIM-X}\n"
+        "target: {operator: \">=\", value: 0.9}\n"
+        f"state: {state}\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    from factory.evidence.manifests import write_run_manifest
+
+    evidence = root / "evidence"
+    evidence.mkdir(parents=True, exist_ok=True)
+    man = write_run_manifest(
+        evidence,
+        {
+            "run": "RUN-1",
+            "experiment": "SIM-X",
+            "feature": "FEAT-CLI-001",
+            "requirements": [],
+            "goals": ["GOAL-CLI-001"],
+            "commit": "abc",
+            "result": "passed",
+        },
+    )
+    (man.parent / "metrics.json").write_text(json.dumps({"m": 0.93}), encoding="utf-8")
+
+
+def test_goal_evaluate_records_a_legal_transition(tmp_path, capsys):
+    _write_goal_evaluate_fixture(tmp_path, state="EVALUATING")
+    rc = main(["goal", "evaluate", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["evaluated"] is True
+    assert payload["transition"] == {"from": "EVALUATING", "to": "REACHED", "legal": True}
+    assert payload["derived"]["value"] == 0.93
+    # The goal file's state was actually persisted.
+    rc = main(["goal", "show", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    assert json.loads(capsys.readouterr().out)["state"] == "REACHED"
+
+
+def test_goal_evaluate_refuses_illegal_lifecycle_edge(tmp_path, capsys):
+    _write_goal_evaluate_fixture(tmp_path, state="DECLARED")
+    rc = main(["goal", "evaluate", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["evaluated"] is False
+    assert payload["transition"] is None
+    assert payload["derived"]["state"] == "REACHED"
+
+
+def test_goal_evaluate_unknown_goal_is_a_structured_error(tmp_path, capsys):
+    (tmp_path / "goals").mkdir(parents=True, exist_ok=True)
+    rc = main(["goal", "evaluate", "GOAL-NOPE", "--repo-root", str(tmp_path), "--json"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "no goal with id" in err
