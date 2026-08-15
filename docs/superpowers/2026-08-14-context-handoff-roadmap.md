@@ -1,12 +1,10 @@
 # Memory / Roadmap — Context Handoff, Durable Code Bundle & Web Research
 
-> **Purpose of this doc:** a memory to *come back to* in order to **specify and plan
-> what is still missing**. The Option-A fix (shared pipeline node registry +
-> transition-driven notification, `2026-08-14-pipeline-node-registry-*.md`) has been
-> **implemented** (node-registry.json/ts, pipeline-diff.ts, dashboard/status-format
-> derived from the registry, index.ts transition watcher). Everything below in items 1–2
-> is **not yet specified or planned** — it is the design work still open. Treat it as the
-> starting point for the next session that picks this up.
+> **Status as of 2026-08-14:** ALL three originally-reported issues are fixed and
+> committed. Option A (registry+notification) = c32cdc0; item 1 (content-bearing
+> context packet) = bc79955; item 2 (durable code index) = 5975208. The only
+> remaining *optional* follow-ups are noted at the bottom. The sections below keep
+> the full background for anyone revisiting this.
 
 ## Why this exists (the three reported bugs and one architectural root)
 
@@ -34,17 +32,12 @@ design work (the real prize) is the context/content problem below.**
 
 ## Open work item 1 — Content-bearing context packet (root cause 4)
 
-**STATUS: SPEC + PLAN WRITTEN (not yet implemented)** — see
-`2026-08-14-context-packet-design.md` and `2026-08-14-context-packet-implementation.md`.
-Contains the goal, packet format, wiring to Dev/Review/Grill, token-budget caps, and
-acceptance steps. Implement it next, then item 2.
-
-Design summary from the spec:
-
-The gatherer's manifest should carry content, not just paths, so its work is consumed
-by grill, dev and review instead of discarded:
-- Primary/modify files: full content (or near-full) in the packet.
-- Reference files: signature-level summaries, not full dumps (token budget).
+**STATUS: IMPLEMENTED + COMMITTED (bc79955)** — see the spec/plan. `context_packet.py`
+materializes the manifest into a token-budgeted packet (primary files in full,
+reference files as signatures), persisted to `<transcript_dir>/context-packet.json`,
+threaded into Dev/Review, and read by the grill seed via the extension's
+`readContextPacket`/`renderPacketSlice`. Falls back to path bullets / task-text-only
+seed when absent.
 - Feed the **grill seed** the packet too — currently `openGrillWindow` builds a fresh
   window from raw task text only (`index.ts`), so it re-reads plan + code from zero.
 - Decide the packet's on-disk form (sibling JSON/SRG alongside the manifest?) and how
@@ -52,9 +45,16 @@ by grill, dev and review instead of discarded:
 
 ## Open work item 2 — Durable code-context bundle built by `/factory-init` (root causes 3+5)
 
-Extend the project bootstrap to emit a machine-built, hash-keyed **code index** that is
-reused across sessions/nodes. Reuse the existing `factory.freshness.fingerprint`
-engine (the grill spec explicitly says "do not build a parallel checksum").
+**STATUS: IMPLEMENTED + COMMITTED (5975208)** — `factory.codeindex` (tree-sitter
+preferred, stdlib-ast fallback) persists a hash-keyed symbol index under
+`.factory/code-index/`. `/factory-init` builds it once; an extension `session_start`
+hook runs `--ensure` on every session open, which recomputes ONLY when the cheap
+checksum (fingerprint) shows the code changed (`ensure_fresh`). Item 1's packet
+consumes index signatures for reference files when fresh. See the spec/plan docs.
+
+Note on tree-sitter: wheels of tree_sitter_languages are ABI-mismatched with the
+top-level tree-sitter binding on this machine across versions; the engine reports
+`stdlib-ast` here and degrades safely. The optional dep is documented in pyproject.
 
 ## Web research (2026-08-14) — existing tools to borrow from
 
@@ -94,8 +94,9 @@ later option if the bundled slice proves too coarse.
 - Whether the context packet and the code bundle are one mechanism or two (likely one
   layered mechanism: global index from init + per-task packet from gatherer).
 
-## Suggested next session entry point
-Read this doc + the Option-A spec/plan (implemented) and the item-1 spec/plan (written
-2026-08-14, not yet implemented), then **implement item 1** (context packet) per its plan
-(Tasks 1-4), followed by **specifying+planning item 2** (durable tree-sitter bundle). Keep
-root causes in mind so the fix is structural, not a patch.
+## Suggested next session entry point (OPTIONAL follow-ups only)
+Everything the user asked for is done and committed. If continuing to evolve this
+area, the only remaining *optional* upgrades from the web research are: (a) a
+PageRank-ranked retrieval layer over the index (aider-style), and (b) an MCP/query
+server instead of the bundled static artifact. Both would replace/upgrade
+`render_index_slice`'s consumption path; the index format is stable for that.
