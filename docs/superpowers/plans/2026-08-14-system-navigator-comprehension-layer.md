@@ -1930,6 +1930,32 @@ git commit -m "feat(system): badge glosses, definition cards and the vocabulary 
 - Consumes: `REMEDIATION` (Task 8), `LABELS` (Task 9)
 - Produces: `nextStepBlock(state: string, subject?: string): HTMLElement`
 
+### Wire the labels fetch — MOVED HERE FROM TASK 13, do this first
+
+**Nothing populates `LABELS` today.** `setLabels` exists in the preamble and
+`/api/system/labels` is served, but `systemBootstrap` never calls either — so in a real
+browser every chip renders `not in the label index`. Discovered during Task 10's fix
+round, verified by grep.
+
+It moves here because this task's own heading inversion depends on it: a scope heading
+cannot show the artifact's title until the index is loaded. Doing it first also makes
+every other change in this task verifiable against real data.
+
+Issue the labels fetch BEFORE health and await it in both paths, so
+`renderFeatureSidebar` never renders bare and then reflows:
+
+```ts
+  const labelsPromise = fetch('/api/system/labels')
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  setLabels(await labelsPromise);
+  await loadHealth();
+```
+
+On a null payload `setLabels` leaves the lookups empty and every chip renders the
+`label index unavailable` treatment — the surface degrades, it never blanks. Add a test
+for that path as well as the happy one.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
