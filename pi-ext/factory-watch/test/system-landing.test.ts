@@ -287,7 +287,7 @@ describe("SP-B Task 9 working traversal", () => {
         return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-001" }, claims: [], rows: [], events: [], sections: [], degraded: false, degraded_reasons: [] });
       }
       if (url.pathname === "/api/system/traversal")
-        return jsonResponse({ requirement: "SR-001", tasks: ["T-001"], design: ["adr:ADR-0001"], files: ["src/a.py"] });
+        return jsonResponse({ requirement: ["SR-001"], tasks: ["T-001"], design: ["adr:ADR-0001"], files: ["src/a.py"] });
       if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
       throw new Error(`unmocked fetch: ${String(input)}`);
     });

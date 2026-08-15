@@ -260,7 +260,8 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     const dom = await loadPage({ scope: "bundle:evidence-lifecycle" });
     const doc = dom.window.document;
     const row = doc.querySelector("#panelMatrix .matrix-row");
-    expect(row?.querySelector(".matrix-subject")?.textContent).toBe("sr:SR-001");
+    expect(row?.querySelector(".matrix-subject .chip-id")?.textContent).toBe("sr:SR-001");
+    expect(row?.querySelector(".matrix-subject .ref-chip")?.className).toContain("is-absent");
     expect(row?.querySelector(".matrix-status")?.textContent).toContain("unknown");
     expect(row?.querySelector(".matrix-summary")?.textContent).toBe("validation report unreadable");
     expect(row).not.toBeNull();

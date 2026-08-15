@@ -100,7 +100,7 @@ const HEALTH = {
 };
 
 const TRAVERSAL = {
-  requirement: "sr:SR-001",
+  requirement: ["sr:SR-001"],
   tasks: ["task:T-001"],
   design: ["design:DD-001"],
   files: ["src/example.ts"],

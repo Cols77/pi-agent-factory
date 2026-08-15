@@ -122,7 +122,7 @@ describe("system navigator landing and focus modes", () => {
         return pendingHealth;
       }
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: ["SR-LIVE"], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -158,7 +158,7 @@ describe("system navigator landing and focus modes", () => {
       const url = new URL(String(input), "http://localhost/");
       if (url.pathname === "/api/system/health") return pendingHealth;
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: ["SR-LIVE"], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -200,7 +200,7 @@ describe("system navigator landing and focus modes", () => {
         return pendingRetry;
       }
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: "SR-LIVE", tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: ["SR-LIVE"], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -249,7 +249,7 @@ describe("system navigator landing and focus modes", () => {
         });
       }
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: [scope], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -348,7 +348,7 @@ describe("system navigator landing and focus modes", () => {
       if (url.pathname === "/api/graph") return jsonResponse(graph);
       if (url.pathname === "/api/system/story") return pendingStory;
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: "SR-OLD", tasks: ["T-OLD"], design: ["old-design"], files: ["old.ts"] });
+        return jsonResponse({ requirement: ["SR-OLD"], tasks: ["T-OLD"], design: ["old-design"], files: ["old.ts"] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -489,7 +489,7 @@ describe("system navigator landing and focus modes", () => {
       if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
       if (url.pathname === "/api/system/brief" && scope === "bundle:older") return oldBrief;
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [`${scope}.ts`] });
+        return jsonResponse({ requirement: [scope], tasks: [], design: [], files: [`${scope}.ts`] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -532,7 +532,7 @@ describe("system navigator landing and focus modes", () => {
       if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
       if (url.pathname === "/api/system/brief" && scope === "bundle:older") return oldBrief;
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: [scope], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -569,7 +569,7 @@ describe("system navigator landing and focus modes", () => {
       const scope = url.searchParams.get("scope") ?? "";
       if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: [scope], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({
@@ -618,7 +618,7 @@ describe("system navigator landing and focus modes", () => {
       const scope = url.searchParams.get("scope") ?? "";
       if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
       if (url.pathname === "/api/system/traversal") {
-        return jsonResponse({ requirement: scope, tasks: [], design: [], files: [] });
+        return jsonResponse({ requirement: [scope], tasks: [], design: [], files: [] });
       }
       if (["/api/system/brief", "/api/system/matrix", "/api/system/timeline", "/api/system/guide"].includes(url.pathname)) {
         return jsonResponse({

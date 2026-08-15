@@ -17,6 +17,15 @@
 
 /* eslint-disable no-undef */
 
+// refChip/boundedList are defined by system-comprehension.ts and embedded
+// into the same page-scope IIFE as these renderers (see system-shell.ts's
+// clientSource()); referenced here as free variables, the same convention
+// system-bootstrap.ts uses for its cross-file renderer calls, so that
+// Function.prototype.toString() keeps emitting a plain, import-free function
+// body for the inline <script>.
+declare const refChip: (raw: string) => HTMLElement;
+declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
+
 export function clear(el: HTMLElement): void {
   el.innerHTML = '';
 }
@@ -147,7 +156,8 @@ export function renderBrief(brief: any): void {
     const member = document.createElement('div');
     member.id = 'memberOf';
     member.className = 'member-of';
-    member.appendChild(document.createTextNode('member of bundles: ' + brief.member_of.join(', ')));
+    member.appendChild(document.createTextNode('member of bundles:'));
+    member.appendChild(boundedList(brief.member_of));
     panel.appendChild(member);
   }
   if (brief.degraded) {
@@ -183,7 +193,7 @@ export function renderMatrixRow(row: any): HTMLElement {
   head.className = 'row-head';
   const subject = document.createElement('span');
   subject.className = 'matrix-subject';
-  subject.appendChild(document.createTextNode(row.subject.ref));
+  subject.appendChild(refChip(row.subject.ref));
   head.appendChild(subject);
   const status = document.createElement('span');
   status.className = 'matrix-status';
@@ -236,7 +246,7 @@ export function renderTimelineEvent(event: any): HTMLElement {
   el.appendChild(head);
   const subject = document.createElement('div');
   subject.className = 'claim-text';
-  subject.appendChild(document.createTextNode(event.subject.ref));
+  subject.appendChild(refChip(event.subject.ref));
   el.appendChild(subject);
   const cite = citationLine(event.citation);
   el.appendChild(cite);
@@ -342,7 +352,7 @@ export function renderChangedFiles(changedFiles: string[] | null): HTMLElement |
   changedFiles.forEach((path: string) => {
     const item = document.createElement('div');
     item.className = 'changed-file';
-    item.appendChild(document.createTextNode(path));
+    item.appendChild(refChip(path));
     el.appendChild(item);
   });
   return el;
@@ -400,12 +410,7 @@ export function renderStory(story: any): void {
     const label = document.createElement('div');
     label.appendChild(document.createTextNode('requirements:'));
     reqs.appendChild(label);
-    story.requirements.forEach((ref: string) => {
-      const item = document.createElement('div');
-      item.className = 'requirement';
-      item.appendChild(document.createTextNode(ref));
-      reqs.appendChild(item);
-    });
+    reqs.appendChild(boundedList(story.requirements));
   } else {
     reqs.appendChild(document.createTextNode('no requirements recorded'));
   }
@@ -417,10 +422,10 @@ export function renderReversePath(path: any): HTMLElement {
   el.className = 'path';
   const chain = document.createElement('div');
   chain.className = 'path-chain';
-  function hop(text: string): HTMLElement {
+  function hop(content: string | HTMLElement): HTMLElement {
     const span = document.createElement('span');
     span.className = 'hop';
-    span.appendChild(document.createTextNode(text));
+    span.appendChild(typeof content === 'string' ? document.createTextNode(content) : content);
     return span;
   }
   function arrow(): HTMLElement {
@@ -429,13 +434,15 @@ export function renderReversePath(path: any): HTMLElement {
     span.appendChild(document.createTextNode('→'));
     return span;
   }
-  chain.appendChild(hop(path.file));
+  chain.appendChild(hop(refChip(path.file)));
   chain.appendChild(arrow());
+  // path.run.run_id is a run id, not a ref (trace/model.py:102 creates no run
+  // nodes) -- stays a plain identifier.
   chain.appendChild(hop(path.run.run_id));
   chain.appendChild(arrow());
-  chain.appendChild(hop(path.task ? path.task.id : 'unresolved'));
+  chain.appendChild(hop(path.task ? refChip(path.task.id) : 'unresolved'));
   chain.appendChild(arrow());
-  chain.appendChild(hop(path.requirements.length ? path.requirements.join(', ') : 'unresolved'));
+  chain.appendChild(hop(path.requirements.length ? boundedList(path.requirements) : 'unresolved'));
   el.appendChild(chain);
   const stops = document.createElement('div');
   stops.className = 'stops-at';
@@ -553,9 +560,8 @@ export function renderTrace(trace: any[]): void {
     if (entry.br) {
       const upstream = document.createElement('div');
       upstream.className = 'trace-upstream';
-      upstream.appendChild(document.createTextNode(
-        'upstream: ' + entry.br.id + (entry.br.title ? ' — ' + entry.br.title : '')
-      ));
+      upstream.appendChild(document.createTextNode('upstream:'));
+      upstream.appendChild(refChip(entry.br.id));
       srBox.appendChild(upstream);
     }
     if (!entry.tasks.length) {
@@ -569,10 +575,10 @@ export function renderTrace(trace: any[]): void {
       taskBox.className = 'trace-task';
       const chain = document.createElement('div');
       chain.className = 'trace-chain';
-      function hop(text: string): HTMLElement {
+      function hop(content: string | HTMLElement): HTMLElement {
         const span = document.createElement('span');
         span.className = 'trace-hop';
-        span.appendChild(document.createTextNode(text));
+        span.appendChild(typeof content === 'string' ? document.createTextNode(content) : content);
         return span;
       }
       function arrow(): HTMLElement {
@@ -581,17 +587,11 @@ export function renderTrace(trace: any[]): void {
         span.appendChild(document.createTextNode('→'));
         return span;
       }
-      const planLabel = t.plan
-        ? 'plan: ' + t.plan + (t.planTitle ? ' (' + t.planTitle + ')' : '')
-        : 'plan: (plan: unresolved)';
-      const specLabel = t.spec
-        ? 'spec: ' + t.spec + (t.specTitle ? ' (' + t.specTitle + ')' : '')
-        : 'spec: (spec: unresolved)';
-      chain.appendChild(hop(t.task));
+      chain.appendChild(hop(refChip(t.task)));
       chain.appendChild(arrow());
-      chain.appendChild(hop(planLabel));
+      chain.appendChild(t.plan ? hop(refChip(t.plan)) : hop('unresolved'));
       chain.appendChild(arrow());
-      chain.appendChild(hop(specLabel));
+      chain.appendChild(t.spec ? hop(refChip(t.spec)) : hop('unresolved'));
       taskBox.appendChild(chain);
       srBox.appendChild(taskBox);
     });

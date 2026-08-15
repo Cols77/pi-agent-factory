@@ -53,6 +53,8 @@ export function refChip(raw: string): HTMLElement {
   el.appendChild(title);
   el.tabIndex = 0;
   el.dataset.ref = entry.ref;
+  el.setAttribute('role', 'button');
+  el.setAttribute('aria-expanded', 'false');
   ensureCardController();
   return el;
 }

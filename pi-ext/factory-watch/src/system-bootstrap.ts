@@ -30,6 +30,8 @@ declare const renderReverse: (reverse: any) => void;
 declare const renderStory: (story: any) => void;
 declare const renderTimeline: (timeline: any) => void;
 declare const renderTrace: (trace: any[]) => void;
+declare const refChip: (raw: string) => HTMLElement;
+declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 
 export async function systemBootstrap(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
@@ -267,7 +269,7 @@ export async function systemBootstrap(): Promise<void> {
         const a = document.createElement('a');
         a.className = 'scope-item';
         a.href = scopeHref(ref);
-        a.appendChild(document.createTextNode(ref));
+        a.appendChild(refChip(ref));
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
           void loadScope(ref);
@@ -763,12 +765,16 @@ export async function systemBootstrap(): Promise<void> {
       stepLabel.appendChild(document.createTextNode(label));
       const stepValue = document.createElement('div');
       stepValue.className = 'trace-spine-value';
-      stepValue.appendChild(document.createTextNode(values.join(', ') || 'Not recorded'));
+      if (values && values.length) {
+        stepValue.appendChild(boundedList(values));
+      } else {
+        stepValue.appendChild(document.createTextNode('Not recorded'));
+      }
       step.appendChild(stepLabel);
       step.appendChild(stepValue);
       node.appendChild(step);
     }
-    addStep('Requirement', [trav.requirement]);
+    addStep('Requirement', trav.requirement);
     addStep('Tasks', trav.tasks);
     addStep('Design', trav.design);
     addStep('Files', trav.files);
