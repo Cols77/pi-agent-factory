@@ -21,6 +21,11 @@ import {
 } from "./factory-init.js";
 import { subagentTool } from "./subagent-tool.js";
 import {
+  hasCodeIndex,
+  renderIndexSlice,
+  shouldInject,
+} from "./code-context-inject.js";
+import {
   ALL_FEEDS,
   hasContext,
   readContext,
@@ -181,6 +186,33 @@ export function registerFactoryInit(pi: PiApi): void {
       const check = runFactoryCheck(root);
       for (const line of renderDoctor(check)) ctx.ui.notify(line, "info");
     },
+  });
+
+  // Code-context injection for NORMAL pi sessions: on the first prompt of each
+  // session, inject a bounded slice of the project's durable code index (built
+  // by /factory-init) so the agent sees real code knowledge without running
+  // /factory. Gated once per (root, session id); stale/missing indexes are
+  // skipped by the Python side (is_fresh); non-fatal on any failure.
+  const injectedSessions = new Set<string>();
+  pi.on("before_agent_start", (_event, ctx) => {
+    try {
+      const root = resolveProjectRoot(ctx.cwd);
+      if (!hasCodeIndex(root)) return {}; // project has no factory code index
+      if (!shouldInject(injectedSessions, root, ctx.sessionManager?.getSessionId())) {
+        return {};
+      }
+      const slice = renderIndexSlice(root);
+      if (!slice) return {};
+      return {
+        message: {
+          customType: "factory-code-context",
+          content: slice,
+          display: false, // don't clatter the TUI; the slice is agent-only
+        },
+      };
+    } catch {
+      return {}; // never take the session down over an injection
+    }
   });
 
   // "A new session opened": keep the durable code index current — recompute

@@ -18,6 +18,24 @@ _CODE_EXTS = {
     ".go", ".rs", ".java", ".c", ".h", ".cpp", ".cc", ".hpp", ".rb", ".php", ".sh",
 }
 
+# Directory names that are never project code, even when a source_dir (like
+# `pi-ext` or `scripts`) contains them — vendored/built deps, not the agent's
+# deliverable. Skipping these keeps discovery (and /factory-init) fast and
+# keeps the injected slice free of third-party noise.
+_SKIP_DIRS = {
+    "node_modules",
+    ".venv",
+    "venv",
+    ".git",
+    "dist",
+    "build",
+    ".next",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".factory",
+}
 _MAX_FILE_CHARS = int(os.environ.get("FACTORY_INDEX_MAX_FILE_CHARS", "200000"))
 
 
@@ -26,18 +44,49 @@ def index_dir(repo_root: Path) -> Path:
 
 
 def discover_source_files(repo_root: Path, source_dirs: list[str] | None = None) -> list[str]:
-    """Code files under the given (or default) source dirs, relative to the root."""
-    dirs = source_dirs or ["src"]
+    """Code files under the given (or default) source dirs, relative to the root.
+
+    `source_dirs` wins when passed; otherwise the factory's own
+    `.pi/factory/project-profile.json` (written by /factory-init) supplies the
+    discovery set, so a factory-init'd project is indexed over its real source
+    tree (src + pi-ext + scripts + ...) instead of a hard-coded `["src"]`.
+    Falls back to `["src"]` when no profile exists."""
+    dirs = source_dirs or _profile_source_dirs(repo_root) or ["src"]
     out: list[str] = []
     for d in dirs:
         base = repo_root / d
         if not base.exists():
             continue
         for p in sorted(base.rglob("*")):
+            if p.is_dir():
+                continue
+            if any(part in _SKIP_DIRS for part in p.parts):
+                continue
             if p.is_file() and p.suffix.lower() in _CODE_EXTS:
                 rel = p.relative_to(repo_root).as_posix()
                 out.append(rel)
     return out
+
+
+def profile_source_dirs(repo_root: Path) -> list[str] | None:
+    """Read the factory project-profile's source_dirs (if any). None when absent."""
+    profile = repo_root / ".pi" / "factory" / "project-profile.json"
+    try:
+        import json
+
+        data = json.loads(profile.read_text(encoding="utf-8"))
+        dirs = data.get("source_dirs")
+        if isinstance(dirs, list):
+            return [str(d) for d in dirs]
+    except OSError:
+        pass
+    except Exception:
+        pass
+    return None
+
+
+def _profile_source_dirs(repo_root: Path) -> list[str] | None:
+    return profile_source_dirs(repo_root)
 
 
 def fingerprint_for(files: list[str], repo_root: Path) -> str:

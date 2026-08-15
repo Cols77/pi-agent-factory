@@ -3,7 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from factory.codeindex.build import build_index, discover_source_files
+from factory.codeindex.build import (
+    build_index,
+    discover_source_files,
+    render_index_slice,
+)
 from factory.codeindex.store import ensure_fresh, save_index
 
 
@@ -15,12 +19,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="rebuild only if the code changed (cheap checksum compare); reuse a fresh index",
     )
+    parser.add_argument(
+        "--slice",
+        type=int,
+        default=0,
+        metavar="CHARS",
+        help="print a bounded, token-budgeted markdown slice of the project's code "
+        "index to stdout (without hash/count banner lines). Ensures freshness "
+        "first, exactly like --ensure; 0 (default) prints nothing.",
+    )
     args = parser.parse_args(argv)
 
     repo_root: Path = args.root.resolve()
     files = discover_source_files(repo_root)
     if not files:
         print("codeindex: no code files found; wrote no index")
+        return 0
+    if args.slice:
+        index = ensure_fresh(repo_root, files)
+        print(render_index_slice(index, sorted(index.files.keys()), cap=args.slice))
         return 0
     if args.ensure:
         index = ensure_fresh(repo_root, files)

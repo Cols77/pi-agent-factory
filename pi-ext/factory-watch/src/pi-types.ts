@@ -57,6 +57,8 @@ export interface CommandDef {
 // only the field these hooks actually read.
 export interface EventCtx {
   cwd: string;
+  /** Real SDK: ReadonlySessionManager — used for the once-per-session gate. */
+  sessionManager?: { getSessionId(): string };
 }
 
 export interface ToolCallEvent {
@@ -94,6 +96,7 @@ export interface BeforeAgentStartEvent {
 }
 
 export interface BeforeAgentStartEventResult {
+  message?: { customType: string; content: string; display?: boolean; details?: string };
   systemPrompt?: string;
 }
 

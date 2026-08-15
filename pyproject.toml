@@ -16,7 +16,7 @@ dependencies = [
 # (stdlib ast) works without these; install for multi-language tree-sitter
 # parsing. NOTE: tree_sitter_languages wheels can be ABI-mismatched with the
 # top-level tree_sitter binding -- the engine degrades to stdlib on any failure.
-code-index = ["tree-sitter>=0.20", "tree-sitter-languages>=1.9"]
+code-index = ["tree-sitter>=0.20", "tree-sitter-languages>=1.9", "tree-sitter-python", "tree-sitter-typescript", "tree-sitter-c", "tree-sitter-cpp", "tree-sitter-javascript", "tree-sitter-go", "tree-sitter-rust", "tree-sitter-java"]
 
 [dependency-groups]
 dev = ["ruff>=0.6", "pyright>=1.1.380", "pytest>=8.0"]

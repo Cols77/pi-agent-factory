@@ -100,3 +100,70 @@ area, the only remaining *optional* upgrades from the web research are: (a) a
 PageRank-ranked retrieval layer over the index (aider-style), and (b) an MCP/query
 server instead of the bundled static artifact. Both would replace/upgrade
 `render_index_slice`'s consumption path; the index format is stable for that.
+
+## Re-verification status (2026-08-15, session sm-0007)
+The reviewer-subagent follow-up was attempted again. The subagent tool **still
+fails on this machine** (`(no stderr)` on a minimal probe) — the re-verification
+was therefore run **in-session** against each plan's reviewer checklist, and all
+three pass (evidence in `docs/superpowers/2026-08-14-handoff.md` §1 + the
+session-memory note sm-0007):
+
+- **Pipeline node registry** (plan Task 4 a–e): vitest 58+43 green; `diffBlocked`
+  drives `maybeOfferGrill` on transition (pre-loop one-shot removed); nag-free via
+  double self-guard; no `STAGE_ORDER`/`NODE_LABELS` literals remain (only comments);
+  commit `c32cdc0` touches 0 Python files.
+- **Context packet** (plan Task 4 a–f): pytest 18 + vitest 58 green; packet threaded
+  to Dev (`runner.py:242`) and Review (`runner.py:310`), grill seed consumes a
+  bounded `renderPacketSlice` slice and degrades to task-text-only; stdlib-only
+  (tree-sitter appears only in a comment + the item-2 codeindex seam); caps are
+  `FACTORY_PACKET_*` env-tunable; no parallel freshness engine.
+- **Code bundle** (plan Task 5 a–g): pytest 25 + vitest 19 green; `--ensure` reports
+  `stdlib-ast` over 148 files (expected on this machine — ABI mismatch); stale index
+  bypassed via `is_fresh` in `context_packet._resolve_index`; `fingerprint_for`
+  reused from `factory.freshness`; `.factory/code-index/` gitignored; tree-sitter is
+  an optional pyproject extra.
+
+## Tree-sitter now engages (2026-08-15, session sm-0007)
+Item-2 follow-up **done**: tree-sitter no longer degrades to `stdlib-ast` on this
+machine. Root cause was NOT ABI — `tree_sitter_languages` 1.10.2 calls the old
+`Parser(language)` API while the installed top-level `tree-sitter` 0.26 moved that
+arg out of `__init__` (`TypeError: __init__() takes exactly 1 argument (2 given)`).
+Fix in `src/factory/codeindex/sigs.py`:
+- New `_get_parser(language)` prefers the **per-language grammars** the tree-sitter
+  org ships ABI-matched to the binding (`tree-sitter-python`, `tree-sitter-typescript`,
+  plus go/rust/java/c/cpp/ruby/php/bash/javascript), falling back to the bundle.
+- New `_make_parser` bridges the 0.25/0.26+ `Parser(language)` vs `Parser()+.language`
+  API split.
+- The tree-sitter walker was generalized to non-Python node types
+  (`function_declaration`/`class_declaration`/`method_definition` in TS/JS, go, rust,
+  etc.) with class-depth tracking so class methods still classify as `method`—not
+  `function`—matching the stdlib extractor's output shape.
+- `pyproject.toml` `code-index` extra now also installs `tree-sitter-python` +
+  `tree-sitter-typescript` (the languages this repo actually contains: 148 .py, 67 .ts).
+
+Verified: `factory.codeindex --root .` now **reports engine `tree-sitter`** over 148
+files; unit tests pass (11 in codeindex, incl. 2 new optional tests locking in
+python-method + Typescript classification); ruff clean. Note: the CLI indexes only
+`source_dirs` (default `["src"]`), so `pi-ext/...` is not in the `--root .` index
+unless source_dirs includes it — a pre-existing discovery-scope matter, separate from
+this fix.
+
+## Normal-session code-context injection (2026-08-15)
+Next follow-up done: a `before_agent_start` extension hook now injects a **bounded slice**
+of the project's durable code index into an ordinary pi session (not just the factory
+pipeline). New `pi-ext/factory-watch/src/code-context-inject.ts`:
+- `renderIndexSlice(root)` shells out to `factory.codeindex --root <root> --slice <chars>`
+  (default 24k) so freshness/ordering/caps stay in Python — the TS side never re-derives
+  them.
+- Gated **once per (root, sessionId)** via `shouldInject` (uses the SDK's
+  `ctx.sessionManager.getSessionId()`), so it fires on the first prompt of a session, not
+  every turn.
+- Non-fatal everywhere: missing index/python → skip; stale index → skipped by `is_fresh`
+  (the `--slice` verb runs `ensure_fresh` first).
+- Registered in `factory-init-command.ts` on `before_agent_start`; new `--slice` verb added
+  to `factory.codeindex` CLI (prints bounded markdown, no banner line).
+
+To cover a project's real code, discovery now honors `.pi/factory/project-profile.json`
+`source_dirs` (written by /factory-init) instead of hard-coded `["src"]`, and skips vendor
+dirs (`node_modules`, `.venv`, `dist`, ...). Verified against `cool_physical_ai_project`
+(engine `tree-sitter`, 168 files) and this repo (474 files, py+ts, 13.7s).

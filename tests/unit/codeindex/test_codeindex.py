@@ -14,6 +14,8 @@ from factory.codeindex import (
     save_index,
 )
 from factory.codeindex.cli import main
+from factory.codeindex.build import profile_source_dirs
+from factory.codeindex.sigs import extract_signatures
 
 pytestmark = pytest.mark.unit
 
@@ -109,3 +111,122 @@ def test_cli_writes_latest(tmp_path):
     code = main(["--root", str(root)])
     assert code == 0
     assert (root / ".factory" / "code-index" / "latest.json").exists()
+
+
+def _tree_sitter_available() -> bool:
+    from pathlib import Path
+
+    try:
+        _, sigs = extract_signatures(
+            Path("probe.py"), "def probe():\n    pass\n"
+        )
+    except Exception:
+        return False
+    return True
+
+
+@pytest.mark.skipif(
+    not _tree_sitter_available(), reason="tree-sitter optional accelerator not installed"
+)
+def test_tree_sitter_engages_and_classifies_python_methods(tmp_path):
+    """When the per-language tree-sitter grammars are present, extraction is
+    tree-sitter-driven and still classifies class methods as 'method' (not
+    'function'), matching the stdlib extractor's shape (plan Task 1)."""
+    from pathlib import Path
+
+    src = (
+        "class Beta:\n"
+        "    def method(self, x):\n"
+        "        return x\n"
+        "def alpha(a):\n"
+        "    return a\n"
+    )
+    engine, sigs = extract_signatures(Path("m.py"), src)
+    assert engine == "tree-sitter"
+    kinds = {s["name"]: s["kind"] for s in sigs}
+    assert kinds == {"Beta": "class", "method": "method", "alpha": "function"}
+
+
+@pytest.mark.skipif(
+    not _tree_sitter_available(), reason="tree-sitter optional accelerator not installed"
+)
+def test_tree_sitter_classifies_typescript_declarations(tmp_path):
+    """TS/JS declarations (function_declaration, class_declaration,
+    method_definition) yield signatures under tree-sitter, not empty output."""
+    from pathlib import Path
+
+    src = (
+        "export function hi(x: number): number { return x; }\n"
+        "class Foo {\n"
+        "  bar() { return 1; }\n"
+        "}\n"
+    )
+    engine, sigs = extract_signatures(Path("m.ts"), src)
+    assert engine == "tree-sitter"
+    assert [(s["kind"], s["name"]) for s in sigs] == [
+        ("function", "hi"),
+        ("class", "Foo"),
+        ("method", "bar"),
+    ]
+
+
+def test_discover_source_files_reads_profile_source_dirs(tmp_path):
+    """/factory-init writes .pi/factory/project-profile.json; discovery must
+    honor its source_dirs instead of hard-coding ["src"]."""
+    (tmp_path / ".pi" / "factory").mkdir(parents=True)
+    (tmp_path / ".pi" / "factory" / "project-profile.json").write_text(
+        '{"source_dirs": ["src", "scripts"]}', encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "src" / "a.py").write_text("def a():\n    pass\n", encoding="utf-8")
+    (tmp_path / "scripts" / "b.py").write_text("def b():\n    pass\n", encoding="utf-8")
+    (tmp_path / "other.py").write_text("x = 1\n", encoding="utf-8")
+    files = discover_source_files(tmp_path)
+    assert "src/a.py" in files
+    assert "scripts/b.py" in files
+    assert "other.py" not in files
+    assert profile_source_dirs(tmp_path) == ["src", "scripts"]
+
+
+def test_discover_source_files_falls_back_to_src_without_profile(tmp_path):
+    files = discover_source_files(_tree(tmp_path))
+    assert "src/mod.py" in files
+    assert "src/keep.ts" in files
+
+
+def test_discover_source_files_skips_vendor_dirs(tmp_path):
+    (tmp_path / ".pi" / "factory").mkdir(parents=True)
+    (tmp_path / ".pi" / "factory" / "project-profile.json").write_text(
+        '{"source_dirs": ["src", "scripts"]}', encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts" / "node_modules" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "a.py").write_text("def a():\n    pass\n", encoding="utf-8")
+    (tmp_path / "scripts" / "mine.ts").write_text("export const x = 1;\n", encoding="utf-8")
+    (tmp_path / "scripts" / "node_modules" / "pkg" / "vendored.ts").write_text(
+        "export const junk = 1;\n", encoding="utf-8"
+    )
+    files = discover_source_files(tmp_path)
+    assert "src/a.py" in files
+    assert "scripts/mine.ts" in files
+    assert not any("node_modules" in f for f in files)
+
+
+def test_cli_slice_prints_bounded_markdown_without_banner(tmp_path):
+    root = _tree(tmp_path)
+    out = main(["--root", str(root), "--slice", "500"])
+    # captured by capsys below; here we just assert exit code 0 is returned
+    assert out == 0
+
+
+def test_cli_slice_produces_reference_block(capsys, tmp_path):
+    root = _tree(tmp_path)
+    main(["--root", str(root), "--slice", "5000"])
+    captured = capsys.readouterr().out
+    assert "### REFERENCE (indexed) — src/mod.py" in captured
+    # signatures from the tree-sitter index carry lines
+    assert "- L" in captured
+    # the hash/banner count line must NOT leak into the slice
+    assert "codeindex: built" not in captured
+    assert "codeindex: ensured" not in captured
