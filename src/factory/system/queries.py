@@ -369,6 +369,20 @@ def query_metric_history(repo_root: Path, metric_id: str) -> list[dict]:
     return sim_evidence.metric_history(_evidence_dir(repo_root), metric_id)
 
 
+def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
+    """Runs whose manifest lists ``goal_id`` (ascending by run id).
+
+    Wraps ``factory.simulation.evidence.evidence_for_goal`` so the navigator
+    and the sim registry share one loader; a goal with no runs resolves to an
+    empty ``runs`` list, never a fuzzy guess.
+    """
+    runs = sim_evidence.evidence_for_goal(_evidence_dir(repo_root), goal_id)
+    return {
+        "goal": goal_id,
+        "runs": [_sim_run_payload(run) for run in runs],
+    }
+
+
 @dataclass(frozen=True)
 class _MemberResolution:
     """The outcome of resolving one declared bundle member against real loaders.

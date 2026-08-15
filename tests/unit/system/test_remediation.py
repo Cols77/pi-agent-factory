@@ -4,7 +4,7 @@ from typing import get_args
 
 import pytest
 
-from factory.system.remediation import ABSENCE_STATES, REMEDIATION, build_remediation
+from factory.system.remediation import ABSENCE_STATES, REMEDIATION
 from factory.trace.gaps import GapKind
 
 pytestmark = pytest.mark.unit

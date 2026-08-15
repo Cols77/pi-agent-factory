@@ -27,6 +27,8 @@ import {
 } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
+import { registerEngContextTools } from "./eng-context-tools.js";
+import { buildCliTaskReads, buildTaskPreamble } from "./task-preamble.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { registerFactoryInit } from "./factory-init-command.js";
 import { registerSessionMemory } from "./session-memory-command.js";
@@ -521,6 +523,7 @@ export default function factoryWatch(pi: PiApi): void {
   // enumerating, validating and writing.
   registerTraceTools(pi);
   registerSystemContextTools(pi);
+  registerEngContextTools(pi);
   registerSessionReviewSuggestTools(pi);
   // The deterministic project bootstrap: /factory-init, /factory-doctor, and the
   // subagent tool with its prompt metadata.
@@ -1029,6 +1032,24 @@ export default function factoryWatch(pi: PiApi): void {
     },
   };
   pi.registerCommand("system", systemCommand);
+
+  // /task <feat:...>: thin workflow-start preamble (Inc 4, Task 4). Replays spec
+  // §26 steps 1-4 by calling the read tools in order (feature context ->
+  // requirements -> active goals -> affected design/code) and prints a compact
+  // context block. Deliberately "thin": it assembles context only and leaves the
+  // implementing/hand-off to the agent/Inc 5+ workflow.
+  pi.registerCommand("task", {
+    description: "Thin workflow-start preamble for a feature (spec §26 steps 1-4)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const featureId = args.trim().replace(/^feat:/, "").split(/\s+/)[0];
+      if (!featureId) {
+        ctx.ui.notify("usage: /task <feat:FEAT-...>", "error");
+        return;
+      }
+      const block = buildTaskPreamble(featureId, buildCliTaskReads(ctx.cwd));
+      ctx.ui.notify(block, "info");
+    },
+  });
 
   // /goal: thin agent-UX shim over the deterministic `factory.goals` core.
   // Arg passthrough to the Python CLI; the core owns all state/parsing. Rich

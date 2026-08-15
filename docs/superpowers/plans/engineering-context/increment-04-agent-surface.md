@@ -63,10 +63,10 @@ and evidence, and present artifacts — without a separate MCP server.
 
 ## Task 1: Register the read-only tool set
 
-- [ ] **Step 1: Failing tests** — copy the v1 tool-registration pattern; assert each tool id is
+- [x] **Step 1: Failing tests** — copy the v1 tool-registration pattern; assert each tool id is
   registered with a non-empty description and a JSON-schema args block; read-only tools declare
   no side-effect.
-- [ ] **Step 2: Implement** `eng-context-tools.ts`: map each tool to a `system-cli` invocation,
+- [x] **Step 2: Implement** `eng-context-tools.ts`: map each tool to a `system-cli` invocation,
   e.g.:
 ```ts
 const TOOLS = {
@@ -77,43 +77,66 @@ const TOOLS = {
   // ... each maps to a python subcommand (extend cli.py where a subcommand is missing)
 };
 ```
-- [ ] **Step 3:** TS unit + `uv run python -m pytest -q` green + lint + commit.
+- [x] **Step 3:** TS unit + `uv run python -m pytest -q` green + lint + commit.
 
 ## Task 2: Python subcommand backstop
 
-- [ ] **Step 1:** add any missing `factory.goals show`/`factory.simulation` CLI subcommands the
+- [x] **Step 1:** add any missing `factory.goals show`/`factory.simulation` CLI subcommands the
   tools reference (additive only; `--json` output shape stable and documented).
-- [ ] **Step 2:** integration tests drive a tool end-to-end against a seeded repo (a
+  Added `factory.system` subcommands `diagram`, `sim run/latest/failure/metric/goal-evidence`,
+  `goal show/list` (+ `query_goal_evidence`) — additive, existing verbs untouched.
+- [x] **Step 2:** integration tests drive a tool end-to-end against a seeded repo (a
   `feat:`/`sr:`/`goal:`/run fixture) and assert the returned JSON is well-formed and cites sources.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Action tools (`eng_evaluate_goal`, `eng_present`) behind policy
 
-- [ ] **Step 0 (read): `eng_get_diagram(diagram_id)`** — resolve a `diag:` stub → return the
+- [x] **Step 0 (read): `eng_get_diagram(diagram_id)`** — resolve a `diag:` stub → return the
   canonical HTML path + `focus` + `illustrates` refs (D7). Read-only; `present(diag:..)` routes the
   artifact to the browser via Inc 5. Add the row above to `eng-context-tools.ts` and a `diag:`
   subcommand backstop in Task 2 if missing. Comprehension verification (D8) is **not** an `eng_*`
   tool — it is the installed `grill-understanding`/`visual-explainer` skills invoked from the
   cockpit surfaces (Inc 6/7), keeping the engineering-context surface deterministic and read-only.
 
-- [ ] **Step 1:** `eng_evaluate_goal` calls the Inc 3 auto-eval and returns the resulting
-  transition; it is the ONLY tool that writes goal state.
-- [ ] **Step 2:** `eng_present` validates args (artifact, optional focus) and forwards to the
-  Inc 5 router; in Inc 4 it records the intent and returns the resolution plan (router lands Inc 5).
-- [ ] **Step 3:** tests assert action tools are distinct from read tools (a reviewer can forbid
-  the former without touching the latter). Full suite + lint + commit.
+- [x] **Step 1:** `eng_evaluate_goal` calls the Inc 3 auto-eval and returns the resulting
+  transition; it is the ONLY tool that writes goal state. The write is gated on spec §13
+  `can_transition`: an illegal lifecycle edge or a goal with no measurable run is reported
+  without writing. (Python `evidence.evaluate_goal_from_runs` + `factory.system goal evaluate`
+  backstop; TS `eng_evaluate_goal` action tool, distinct from the read-only set.)
+- [x] **Step 2:** `eng_present` validates args (artifact, optional focus), records the intent,
+  and returns the resolution plan; the Inc 5 router is not landed, so Inc 4 is forward/declare
+  only — no fabricated dispatch, no UI, no repo write. (`factory.system present` backstop + TS
+  `eng_present` action tool.)
+- [x] **Step 3:** tests assert action tools (`eng_evaluate_goal`, `eng_present`, via
+  `ENG_ACTION_TOOL_IDS`) are disjoint from the read-only set, and that a reviewer can forbid them
+  without touching read-only registration. Full suite + lint green.
 
 ## Task 4: `/task FEAT-...` workflow start (thin)
 
-- [ ] **Step 1:** implement a minimal `/task <feat:...>` preamble that replays spec §26 steps 1–4
+- [x] **Step 1:** implement a minimal `/task <feat:...>` preamble that replays spec §26 steps 1–4
   (reconstruct context → inspect requirements → inspect active goals → determine affected
-  design/code) by calling the read tools in order, printing a compact context block.
-- [ ] **Step 2:** unit test the ordering; full suite + lint + commit.
+  design/code), calling the read tools in order and printing a compact context block.
+  (`task-preamble.ts` `buildCliTaskReads` over `factory.system` + `pi.registerCommand("task")`.)
+- [x] **Step 2:** unit test the ordering; full suite + lint + commit.
 
 ## Task 5: Review handoff
 
-- [ ] **Step 1:** reviewer sub-agent — compliance vs spec §25 tool list + D1 (no MCP server, no
+- [x] **Step 1:** reviewer sub-agent — compliance vs spec §25 tool list + D1 (no MCP server, no
   TS re-derivation) + D3 (additive registration). Fix findings as fixes; update checkboxes.
+
+  Reviewed commits 1eb2098..74124f5: **COMPLIANT** (no T-### fix-tickets). Additive-only;
+  reuse (all eng tools + /task shell `factory.system` and render its JSON, no TS re-derivation /
+  forked parser); deterministic (run-id ordering, numeric metric compare, no LLM/mtime); policy
+  (`eng_evaluate_goal` the only goal-state writer, gated on spec §13 `can_transition`;
+  `eng_present` forward/declare only); actions disjoint from read tools; unit+integration tests,
+  full py 1364 / TS 908 green.
+
+  Non-blocking notes tracked (not defects): (1) §25 read surface is intentionally partial
+  (get_requirement_implementation / get_verification_status / get_recent_feature_changes /
+  get_change_impact / get_goal_history / standalone get_feature_context are not distinct tools;
+  `brief --scope feat:` covers the dossier) — the whole-increment acceptance line is partly unmet
+  and should be closed/deferred explicitly. (2) `eng_present` "records intent" is capture+declare;
+  durable intent persistence is deferred to the Inc 5 router (documented dependency).
 
 ## Acceptance for Increment 4
 
