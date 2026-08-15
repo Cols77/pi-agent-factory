@@ -113,10 +113,11 @@ const TOOLS = {
 
 ## Task 4: `/task FEAT-...` workflow start (thin)
 
-- [ ] **Step 1:** implement a minimal `/task <feat:...>` preamble that replays spec §26 steps 1–4
+- [x] **Step 1:** implement a minimal `/task <feat:...>` preamble that replays spec §26 steps 1–4
   (reconstruct context → inspect requirements → inspect active goals → determine affected
-  design/code) by calling the read tools in order, printing a compact context block.
-- [ ] **Step 2:** unit test the ordering; full suite + lint + commit.
+  design/code), calling the read tools in order and printing a compact context block.
+  (`task-preamble.ts` `buildCliTaskReads` over `factory.system` + `pi.registerCommand("task")`.)
+- [x] **Step 2:** unit test the ordering; full suite + lint + commit.
 
 ## Task 5: Review handoff
 
