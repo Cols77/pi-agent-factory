@@ -26,8 +26,12 @@ Every value below already exists in `system-shell.ts:78`. No new hue is introduc
 | Ids, paths, commands | `--font-mono` | Cascadia Code |
 | Reading text | `--font-body` | Aptos |
 
-Two derived tokens are added for intent, both aliases of the above so the palette
-does not grow: `--absence: var(--stale)` and `--gloss: var(--text-muted)`.
+Revision 1 proposed two derived tokens for intent — `--absence: var(--stale)` and
+`--gloss: var(--text-muted)`. **They are not added.** An alias whose only job is to
+rename an existing token buys nothing here: there are two use sites, the output is
+identical, and a second name for one colour is one more thing to keep in sync. The CSS
+uses `var(--stale)` and `var(--text-muted)` directly. Recorded so the addendum matches
+what shipped.
 
 **Contrast, measured not assumed.** Revision 1 set `--gloss` to `--text-dim`
 (`#698089`). At 12 px that is 4.26:1 on `--surface` and 3.83:1 on `--surface-raised` —
