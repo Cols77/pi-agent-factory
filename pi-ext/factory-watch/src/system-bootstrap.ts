@@ -34,6 +34,12 @@ declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 declare const VOCABULARY: { terms: Record<string, any> };
 declare const renderVocabularyPanel: () => void;
+// Task 12: the label index (resolveLabel/setLabels) and the Next step block,
+// both defined in system-comprehension.ts and embedded into the same
+// page-scope IIFE, for the same declare-only reason as the bindings above.
+declare const resolveLabel: (raw: string) => any | null;
+declare const setLabels: (payload: any) => void;
+declare const nextStepBlock: (state: string, subject?: string) => HTMLElement;
 
 export async function systemBootstrap(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
@@ -176,15 +182,48 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
+  // Task 12: the heading inversion. The page used to render the raw ref
+  // (`task:T-001`) as the 40px headline with the real title buried in 14px
+  // body text; this makes the label-index title the headline and moves the
+  // ref down to monospace metadata, falling back to the raw ref only when
+  // the index has nothing recorded for it. A bundle: scope keeps its
+  // existing health-payload label as a fallback source (the label index may
+  // not carry a bundle's `label` field in every deployment), so a bundle
+  // scope never regresses to its raw ref while the index has the answer.
   function setScopeHeading(scopeRef: string): void {
     const kind = scopeKind(scopeRef);
     const bundle = kind === 'bundle'
       ? healthBundles.find((candidate) => candidate.id === scopeRef.slice('bundle:'.length))
       : null;
+    const entry = resolveLabel(scopeRef);
+    const title = (entry && entry.title) || bundle?.label || scopeRef;
     (document.getElementById('scopeKind') as HTMLElement).textContent = kind + ' scope';
-    (document.getElementById('scopeHeader') as HTMLElement).textContent = bundle?.label || scopeRef;
+    (document.getElementById('scopeHeader') as HTMLElement).textContent = title;
     (document.getElementById('scopeRef') as HTMLElement).textContent = scopeRef;
+    renderScopeDescription(entry && entry.description ? entry.description : null);
     markActiveScope(scopeRef);
+  }
+
+  // The recorded description renders as a lead paragraph under the ref
+  // metadata when present, and is removed (not left as an empty node) when
+  // absent -- created on demand rather than reserved as static markup, the
+  // same pattern traversalNode() below uses for its own optional element.
+  function renderScopeDescription(description: string | null): void {
+    let node = document.getElementById('scopeDescription') as HTMLElement | null;
+    if (!description) {
+      if (node) node.remove();
+      return;
+    }
+    if (!node) {
+      node = document.createElement('p');
+      node.id = 'scopeDescription';
+      node.className = 'scope-description';
+      const ref = document.getElementById('scopeRef');
+      if (ref) ref.after(node);
+      else document.querySelector('.scope-heading')?.appendChild(node);
+    }
+    node.textContent = '';
+    node.appendChild(document.createTextNode(description));
   }
 
   // SP-B Task 7: the feature-first sidebar. Python's `health` projection owns
@@ -241,9 +280,12 @@ export async function systemBootstrap(): Promise<void> {
         a.className = 'scope-item';
         a.dataset.kind = 'bundle';
         a.href = scopeHref('bundle:' + b.id);
-        a.appendChild(document.createTextNode(b.label || b.id));
-        // The readiness counts sit on the same line as the label -- the label
-        // never renders alone.
+        // Two blocks, never one wrapping paragraph: the label on its own
+        // line, the counts beneath it in mono (Task 12).
+        const label = document.createElement('span');
+        label.className = 'scope-label';
+        label.appendChild(document.createTextNode(b.label || b.id));
+        a.appendChild(label);
         const counts = document.createElement('span');
         counts.className = 'readiness-counts';
         counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
@@ -824,10 +866,33 @@ export async function systemBootstrap(): Promise<void> {
     addStep('Files', trav.files);
   }
 
+  // Task 12: a brand-new project has zero bundles, and an empty directory
+  // gives it nothing to read. The first-run card names what a bundle is and
+  // why the directory is empty, followed by its one Next step (visual
+  // addendum, "Empty states and first run").
   function renderBundleList(payload: any): void {
     const list = document.getElementById('bundleList') as HTMLElement;
     clear(list);
-    (payload.bundles || []).forEach((b: any) => {
+    const bundles = payload.bundles || [];
+    if (!bundles.length) {
+      const card = document.createElement('div');
+      card.className = 'first-run-card presence-rail is-absent';
+      const heading = document.createElement('p');
+      heading.className = 'first-run-heading';
+      heading.appendChild(document.createTextNode('No features defined yet.'));
+      card.appendChild(heading);
+      const body = document.createElement('p');
+      body.appendChild(document.createTextNode(
+        'A feature bundle groups the requirements, tasks, and decisions you read '
+        + 'together to understand one part of the system. Bundles are how this '
+        + 'project is browsed, so until one exists the directory stays empty.'
+      ));
+      card.appendChild(body);
+      card.appendChild(nextStepBlock('no_bundles'));
+      list.appendChild(card);
+      return;
+    }
+    bundles.forEach((b: any) => {
       const row = document.createElement('a');
       row.className = 'feature-row readiness-' + b.readiness;
       row.href = scopeHref('bundle:' + b.id);
@@ -919,11 +984,48 @@ export async function systemBootstrap(): Promise<void> {
 
   window.addEventListener('popstate', restoreLocation);
 
+  // Task 12: the dismissible landing orientation strip, one localStorage key.
+  // Read is best-effort -- a browser with storage disabled just keeps showing
+  // the strip rather than throwing.
+  const ORIENTATION_DISMISSED_KEY = 'system-nav-orientation-dismissed';
+  const orientationStrip = document.getElementById('orientationStrip') as HTMLElement | null;
+  const orientationDismiss = document.getElementById('orientationDismiss') as HTMLElement | null;
+  if (orientationStrip) {
+    let dismissed = false;
+    try {
+      dismissed = window.localStorage.getItem(ORIENTATION_DISMISSED_KEY) === '1';
+    } catch {
+      /* storage unavailable -- default to showing it */
+    }
+    orientationStrip.hidden = dismissed;
+  }
+  if (orientationDismiss) {
+    orientationDismiss.addEventListener('click', () => {
+      if (orientationStrip) orientationStrip.hidden = true;
+      try {
+        window.localStorage.setItem(ORIENTATION_DISMISSED_KEY, '1');
+      } catch {
+        /* best-effort persistence only */
+      }
+    });
+  }
+
   // Boot sequence: the landing page opens on the health projection (summary,
   // bundle list, feature-first sidebar); scope choice navigates into focus
   // mode. The sidebar renders from the health payload -- `list_scopes` is no
   // longer fetched by the client.
+  //
+  // Task 12: the label index is fetched and awaited BEFORE health, so
+  // renderFeatureSidebar (which resolves refs via LABELS/ALIASES) never
+  // renders bare and then reflows once labels arrive. A failed/absent fetch
+  // resolves to null; setLabels(null) leaves LABELS/ALIASES empty and marks
+  // the index unavailable -- the surface degrades (every chip's absent-ref
+  // treatment), it never blanks.
   setPickerClass(false);
+  const labelsPromise = fetch('/api/system/labels')
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  setLabels(await labelsPromise);
   const healthOwnsLanding = await loadHealth();
   if (!healthOwnsLanding) return;
   const requestedScope = new URLSearchParams(window.location.search).get('scope');

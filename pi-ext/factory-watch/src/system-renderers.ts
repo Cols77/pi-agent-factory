@@ -31,6 +31,13 @@ declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 // the same reason refChip/boundedList are above.
 declare const glossFor: (term: string) => HTMLElement | null;
 declare const definitionTrigger: (term: string) => HTMLElement | null;
+// REMEDIATION/nextStepBlock are Task 12 additions from system-comprehension.ts,
+// embedded into the same page-scope IIFE for the same reason as the others
+// above. Severity styling (`presence-rail is-absent`) applies only to the
+// browser-decided empty states below -- the explicit `if (!x.length)`
+// branches -- never to the free-text `degraded:` banner, which the browser
+// cannot classify without interpreting its reasons.
+declare const nextStepBlock: (state: string, subject?: string) => HTMLElement;
 
 export function clear(el: HTMLElement): void {
   el.innerHTML = '';
@@ -217,9 +224,10 @@ export function renderBrief(brief: any): void {
   }
   if (!brief.claims.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No claims recorded for this scope.'));
     panel.appendChild(empty);
+    panel.appendChild(nextStepBlock('no_claims', brief.scope?.ref));
     return;
   }
   // Rendered in the payload's own order -- no client-side sort.
@@ -264,9 +272,10 @@ export function renderMatrix(matrix: any): void {
   clear(panel);
   if (!matrix.rows.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No validation rows recorded for this scope.'));
     panel.appendChild(empty);
+    panel.appendChild(nextStepBlock('no_matrix_rows', matrix.scope?.ref));
     return;
   }
   matrix.rows.forEach((row: any) => panel.appendChild(renderMatrixRow(row)));
@@ -313,9 +322,10 @@ export function renderTimeline(timeline: any): void {
   }
   if (!timeline.events.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No recorded decisions for this scope.'));
     panel.appendChild(empty);
+    panel.appendChild(nextStepBlock('no_timeline_events', timeline.scope?.ref));
     return;
   }
   // events already arrives chronologically ordered by Python -- rendered as-is.
@@ -330,9 +340,10 @@ export function renderGuide(guide: any): void {
   clear(panel);
   if (!guide.sections.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No guide sections recorded for this scope.'));
     panel.appendChild(empty);
+    panel.appendChild(nextStepBlock('no_guide_sections', guide.scope?.ref));
     return;
   }
   guide.sections.forEach((section: any) => panel.appendChild(renderClaim(section)));
@@ -383,8 +394,11 @@ export function renderChangedFiles(changedFiles: string[] | null): HTMLElement |
   const el = document.createElement('div');
   el.className = 'changed-files';
   if (!changedFiles.length) {
+    // Child-level (one run's own list can be empty while sibling runs in the
+    // same panel are not) -- styled, but no Next step block here: "one Next
+    // step per panel, never one per empty child."
     const empty = document.createElement('div');
-    empty.className = 'changed-file empty';
+    empty.className = 'changed-file empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('no changed files recorded'));
     el.appendChild(empty);
     return el;
@@ -438,9 +452,10 @@ export function renderStory(story: any): void {
   if (story.degraded) panel.appendChild(renderDegradedBanner(story.degraded_reasons));
   if (!story.runs.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No recorded runs for this task.'));
     panel.appendChild(empty);
+    panel.appendChild(nextStepBlock('no_runs', story.scope?.ref));
   } else {
     story.runs.forEach((run: any) => panel.appendChild(renderStoryRun(run)));
   }
@@ -500,7 +515,7 @@ export function renderReverse(reverse: any): void {
   if (reverse.degraded) panel.appendChild(renderDegradedBanner(reverse.degraded_reasons));
   if (!reverse.paths.length) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
+    empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No recorded run touches this file.'));
     panel.appendChild(empty);
     return;
@@ -605,8 +620,10 @@ export function renderTrace(trace: any[]): void {
       srBox.appendChild(upstream);
     }
     if (!entry.tasks.length) {
+      // Per-SR (child-level, one of possibly several per panel) -- styled,
+      // no Next step block for the same reason renderChangedFiles has none.
       const none = document.createElement('div');
-      none.className = 'empty';
+      none.className = 'empty presence-rail is-absent';
       none.appendChild(document.createTextNode('no satisfying tasks recorded'));
       srBox.appendChild(none);
     }

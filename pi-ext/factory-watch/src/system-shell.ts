@@ -8,7 +8,9 @@ import {
   definitionTrigger,
   ensureCardController,
   glossFor,
+  humaniseGroup,
   infoCard,
+  nextStepBlock,
   refCardFields,
   refChip,
   renderVocabularyPanel,
@@ -51,17 +53,20 @@ function clientSource(): string {
   }
   var LABELS = {};
   var ALIASES = {};
+  var LABELS_LOADED = true;
   var VOCABULARY = ${JSON.stringify(VOCABULARY_DATA)};
   var REMEDIATION = ${JSON.stringify(REMEDIATION_DATA)};
   function setLabels(payload) {
     LABELS = (payload && payload.labels) || {};
     ALIASES = (payload && payload.aliases) || {};
+    LABELS_LOADED = !!payload;
   }`;
   const renderers = [
     badgeSpan,
     resolveLabel,
     refChip,
     boundedList,
+    nextStepBlock,
     infoCard,
     refCardFields,
     ensureCardController,
@@ -71,6 +76,7 @@ function clientSource(): string {
     withGloss,
     vocabularyBadgeFor,
     definitionCardFields,
+    humaniseGroup,
     renderVocabularyPanel,
     badge,
     freshnessBadge,
@@ -419,8 +425,19 @@ export function renderSystemPageHtml(): string {
   .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
   .presence-rail.is-failure { border-left-style: solid; border-left-color: var(--degraded); }
   .next-step { margin: 12px 0; }
+  .next-step p { max-width: 64ch; margin: 6px 0 0; color: var(--text); font: 14px/1.55 var(--font-body); }
   .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }
   .next-step .prompt { color: var(--signal); }
+  .next-step .command-text { flex: 1; overflow-wrap: anywhere; }
+  .next-step .command button { flex: 0 0 auto; }
+  .scope-description { margin: 8px 0 0; max-width: 64ch; color: var(--text-muted); font: 14px/1.55 var(--font-body); }
+  .scope-item .scope-label { display: block; }
+  .scope-item .readiness-counts { display: block; margin-left: 0; margin-top: 2px; }
+  .orientation-strip { display: flex; align-items: center; gap: 14px; margin: 0 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--text-muted); }
+  .orientation-strip p { margin: 0; max-width: 64ch; }
+  .orientation-strip .secondary-action { flex: 0 0 auto; }
+  .first-run-card { margin: 10px 0; padding: 16px 18px; border-radius: var(--radius-md); background: rgba(13, 26, 32, .6); }
+  .first-run-heading { margin: 0 0 6px; color: var(--text); font: 650 18px/1.3 var(--font-display); }
   .bounded-list { display: grid; gap: 4px; }
   .ref-chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 3px; }
   .info-card { opacity: 0; animation: info-card-in .12s ease forwards; }
@@ -494,6 +511,10 @@ export function renderSystemPageHtml(): string {
           <div class="eyebrow">PROJECT EVIDENCE</div>
           <h2 id="landingTitle">See the system clearly.</h2>
           <p>Start with weak or unbundled features, then follow their evidence spine.</p>
+        </div>
+        <div id="orientationStrip" class="orientation-strip" hidden>
+          <p>This page is the evidence behind what the system claims. Start with a weak or unbundled feature, open it, and follow its spine: requirement, tasks, decisions, files. Every term here is defined — select the ⓘ beside any badge.</p>
+          <button id="orientationDismiss" class="secondary-action" type="button">Hide this</button>
         </div>
         <div id="healthStatus" class="loading-state" role="status">Reading project evidence…</div>
         <button id="retryHealth" class="secondary-action" type="button" hidden>Retry health scan</button>

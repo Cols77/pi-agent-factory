@@ -141,6 +141,16 @@ describe("system landing page", () => {
     expect(summary!.textContent).toContain("1/1");
   });
 
+  // Task 12: a brand-new project has zero bundles -- HEALTH's default
+  // fixture is exactly that (empty `bundles`) -- and the directory should
+  // give it something to read instead of an empty screen.
+  test("zero bundles renders the first-run card, not an empty directory", async () => {
+    const doc = await renderWithHealth(HEALTH);
+    const list = doc.getElementById("bundleList")!;
+    expect(list.textContent).toContain("No features defined yet");
+    expect(list.querySelector(".next-step")).not.toBeNull();
+  });
+
   test("landing shows the bundle list container and the navigation tabs", async () => {
     const doc = await renderWithHealth(BUNDLED_HEALTH);
     const list = doc.querySelector("#bundleList");

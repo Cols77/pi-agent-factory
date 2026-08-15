@@ -135,6 +135,11 @@ describe("system navigator landing and focus modes", () => {
     });
     const dom = loadDom(fetchMock);
     const doc = dom.window.document;
+    // Task 12: the boot sequence now awaits the labels fetch before issuing
+    // the health fetch that captures `healthSignal` -- wait for that fetch to
+    // have actually started before navigating away, or the navigation could
+    // race ahead of it and there would be nothing yet to abort.
+    await vi.waitFor(() => expect(healthSignal).toBeDefined());
     const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
     input.value = "SR-LIVE";
     doc.querySelector<HTMLElement>("#searchGo")!.click();
@@ -171,6 +176,13 @@ describe("system navigator landing and focus modes", () => {
     });
     const dom = loadDom(fetchMock);
     const doc = dom.window.document;
+    // Task 12: wait for the (now labels-then-health) boot sequence to have
+    // actually issued the health fetch before navigating away, so the
+    // in-flight health call this test rejects is the stale one navigation
+    // should protect against, not one that starts after navigation.
+    await vi.waitFor(() => expect(
+      fetchMock.mock.calls.some(([input2]) => String(input2).includes("/api/system/health")),
+    ).toBe(true));
     const input = doc.querySelector("#scopeFilter") as HTMLInputElement;
     input.value = "SR-LIVE";
     doc.querySelector<HTMLElement>("#searchGo")!.click();

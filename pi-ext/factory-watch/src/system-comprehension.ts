@@ -15,7 +15,14 @@
 
 declare const LABELS: Record<string, any>;
 declare const ALIASES: Record<string, string>;
+// LABELS_LOADED distinguishes "the index loaded and this ref just isn't in
+// it" from "the index itself never loaded" (Task 12: the labels fetch can
+// fail independently of everything else). `typeof` guards the reference so
+// direct-import unit tests that never define the preamble global keep
+// resolving the ordinary per-ref case, rather than throwing.
+declare const LABELS_LOADED: boolean;
 declare const VOCABULARY: { terms: Record<string, VocabularyTerm> };
+declare const REMEDIATION: { version: number; states: Record<string, RemediationState> };
 declare const badgeSpan: (text: string, extraClass: string) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
 
@@ -36,6 +43,16 @@ export interface InfoCardField {
   node?: HTMLElement;
 }
 
+export interface RemediationState {
+  state: string;
+  headline: string;
+  what_it_means: string;
+  why_it_matters: string;
+  command: string;
+  command_kind: string;
+  severity: string;
+}
+
 export function resolveLabel(raw: string): any | null {
   const canonical = ALIASES[raw];
   return canonical ? LABELS[canonical] || null : null;
@@ -53,7 +70,12 @@ export function refChip(raw: string): HTMLElement {
     el.className = 'ref-chip presence-rail is-absent';
     const note = document.createElement('span');
     note.className = 'chip-title';
-    note.appendChild(document.createTextNode('not in the label index'));
+    // The whole index failing to load reads differently from one ref not
+    // being in it -- LABELS_LOADED (set by setLabels) tells them apart.
+    const indexUnavailable = typeof LABELS_LOADED !== 'undefined' && !LABELS_LOADED;
+    note.appendChild(document.createTextNode(
+      indexUnavailable ? 'label index unavailable' : 'not in the label index'
+    ));
     el.appendChild(note);
     return el;
   }
@@ -202,6 +224,115 @@ export function definitionCardFields(entry: VocabularyTerm): InfoCardField[] {
   return fields;
 }
 
+// Human-readable headings for the vocabulary panel's group sections (Task 11
+// review carry-over): a legend that greets a newcomer with raw slugs like
+// `claim-kind` undercuts itself. Explicit entries cover every group VOCABULARY
+// actually uses today; an unlisted group still gets its first word
+// capitalised rather than showing the raw slug verbatim, but no new
+// vocabulary term is invented for it.
+//
+// The map lives INSIDE the function, not at module scope: only function
+// bodies are embedded into the page (system-shell.ts's clientSource() calls
+// `.toString()` on each listed function) -- a sibling module-scope const
+// would silently vanish from the assembled script.
+export function humaniseGroup(group: string): string {
+  const headings: Record<string, string> = {
+    'claim-kind': 'Claim kinds',
+    freshness: 'Freshness',
+    'matrix-status': 'Matrix statuses',
+    'validation-state': 'Validation states',
+    readiness: 'Readiness',
+    'readiness-count': 'Readiness counts',
+    'health-class': 'Health classes',
+    'health-counter': 'Health counters',
+    'timeline-actor': 'Timeline actors',
+    'timeline-action': 'Timeline actions',
+    'citation-kind': 'Citation kinds',
+    'scope-kind': 'Scope kinds',
+    disposition: 'Disposition',
+    'stops-at': 'Stops at',
+    noun: 'Terms',
+  };
+  if (headings[group]) return headings[group];
+  return group
+    .split('-')
+    .map((word, i) => (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
+
+// The terminal-styled Next step block (visual addendum, "Signature moment --
+// the command line"): a NEXT STEP eyebrow, the recorded reason (or the
+// generic table sentence when there is none), why it matters, then a command
+// row styled like the shell it's destined for, with a Copy button. `state`
+// keys REMEDIATION.states -- the 11 GapKind values plus the browser-decided
+// absence states this task adds. An unknown state renders an empty shell
+// rather than throwing, since REMEDIATION is frozen page-scope data and a
+// typo here is a caller bug, not something to blank the page over.
+//
+// A recorded `deferral_reason` on the subject's label entry outranks the
+// generic what_it_means sentence -- it is curated, specific context, and the
+// generic table text must never displace it (visual addendum: "a recorded
+// reason outranks the table").
+export function nextStepBlock(state: string, subject?: string): HTMLElement {
+  const entry = REMEDIATION && REMEDIATION.states ? REMEDIATION.states[state] : null;
+  const el = document.createElement('div');
+  el.className = 'next-step';
+  if (!entry) return el;
+
+  const eyebrow = document.createElement('div');
+  eyebrow.className = 'eyebrow';
+  eyebrow.appendChild(document.createTextNode('NEXT STEP'));
+  el.appendChild(eyebrow);
+
+  const labelEntry = subject ? resolveLabel(subject) : null;
+  const reasonText = (labelEntry && labelEntry.deferral_reason) || entry.what_it_means;
+  const reason = document.createElement('p');
+  reason.className = 'next-step-reason';
+  reason.appendChild(document.createTextNode(reasonText));
+  el.appendChild(reason);
+
+  const why = document.createElement('p');
+  why.className = 'next-step-why';
+  why.appendChild(document.createTextNode(entry.why_it_matters));
+  el.appendChild(why);
+
+  const commandRow = document.createElement('div');
+  commandRow.className = 'command';
+  const prompt = document.createElement('span');
+  prompt.className = 'prompt';
+  prompt.appendChild(document.createTextNode('▌'));
+  commandRow.appendChild(prompt);
+
+  // Only the literal tokens {id} and {ref} are substituted, and only when a
+  // subject is known -- never a guess at what belongs there.
+  const substituted = subject
+    ? String(entry.command).split('{id}').join(subject).split('{ref}').join(subject)
+    : entry.command;
+  const commandText = document.createElement('span');
+  commandText.className = 'command-text';
+  commandText.appendChild(document.createTextNode(substituted));
+  commandRow.appendChild(commandText);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'secondary-action';
+  copyBtn.appendChild(document.createTextNode('Copy'));
+  copyBtn.addEventListener('click', () => {
+    const nav = (typeof navigator !== 'undefined' ? navigator : undefined) as any;
+    if (nav && nav.clipboard && nav.clipboard.writeText) {
+      nav.clipboard.writeText(substituted).catch(() => {});
+    }
+    copyBtn.textContent = 'Copied';
+    window.setTimeout(() => {
+      copyBtn.textContent = 'Copy';
+    }, 2000);
+  });
+  commandRow.appendChild(copyBtn);
+
+  el.appendChild(commandRow);
+  return el;
+}
+
 // The vocabulary panel (visual addendum, "Vocabulary panel"): a full
 // workspace view, not a modal, grouped by `group`. Each entry renders the
 // real badge beside its gloss, definition, siblings, and computed_by paths
@@ -230,7 +361,7 @@ export function renderVocabularyPanel(): void {
     section.className = 'vocab-group';
     const title = document.createElement('h3');
     title.className = 'vocab-group-title';
-    title.appendChild(document.createTextNode(group));
+    title.appendChild(document.createTextNode(humaniseGroup(group)));
     section.appendChild(title);
     const entries = document.createElement('div');
     entries.className = 'vocab-entries';

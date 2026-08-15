@@ -147,6 +147,7 @@ function mockFetch(
   health: unknown = HEALTH,
   traversal: unknown = DEFAULT_TRAVERSAL,
   labels: unknown = DEFAULT_LABELS,
+  labelsUnavailable = false,
 ) {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
@@ -160,7 +161,13 @@ function mockFetch(
         ? jsonResponse({ error: "synthesis failed", kind: "RuntimeError" }, 503)
         : jsonResponse(GUIDE);
     }
-    if (url.pathname === "/api/system/labels") return jsonResponse(labels);
+    if (url.pathname === "/api/system/labels") {
+      // Task 12: a failed labels fetch (not merely an empty index) -- setLabels
+      // resolves this to null and the "label index unavailable" chip treatment.
+      return labelsUnavailable
+        ? jsonResponse({ error: "unavailable" }, 503)
+        : jsonResponse(labels);
+    }
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }
@@ -170,7 +177,14 @@ function mockFetch(
  * (`loadScopes()` then, when `?scope=` is present, `loadScope()`) to finish
  * populating the DOM before handing control back to the test. */
 async function loadPage(
-  opts: { scope?: string; guideFails?: boolean; health?: unknown; traversal?: unknown; labels?: unknown } = {},
+  opts: {
+    scope?: string;
+    guideFails?: boolean;
+    health?: unknown;
+    traversal?: unknown;
+    labels?: unknown;
+    labelsUnavailable?: boolean;
+  } = {},
 ): Promise<JSDOM> {
   const html = renderSystemPageHtml();
   const url = opts.scope
@@ -181,6 +195,7 @@ async function loadPage(
     opts.health ?? HEALTH,
     opts.traversal ?? DEFAULT_TRAVERSAL,
     opts.labels ?? DEFAULT_LABELS,
+    opts.labelsUnavailable ?? false,
   );
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
@@ -454,5 +469,70 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(doc.getElementById("vocabularyPanel")?.hidden).toBe(true);
     expect(doc.getElementById("landingPanel")?.hidden).toBe(false);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  // Task 12: systemBootstrap now fetches /api/system/labels (via setLabels)
+  // before health, so setScopeHeading's title inversion has real data to
+  // read. setScopeHeading is a closure inside systemBootstrap -- exercised
+  // only through the real page via loadPage(), same shape as Task 11's
+  // renderHealthSummary/renderTraversal tests above.
+  test("the scope heading is the title, with the ref as metadata", async () => {
+    const dom = await loadPage({
+      scope: "task:T-001",
+      labels: {
+        labels: {
+          "task:T-001": {
+            ref: "task:T-001", id: "T-001", kind: "task", title: "Load skills",
+            description: null, description_source: null, deferral_reason: null,
+            status: "done", relations: {}, path: "tasks/T-001.md", scope_href: null,
+          },
+        },
+        aliases: { "task:T-001": "task:T-001" },
+        degraded: [],
+      },
+    });
+    const doc = dom.window.document;
+    expect(doc.getElementById("scopeHeader")?.textContent).toBe("Load skills");
+    expect(doc.getElementById("scopeRef")?.textContent).toBe("task:T-001");
+  });
+
+  // Task 12: a recorded description renders as the lead paragraph under the
+  // ref metadata when the label index has one.
+  test("a recorded description renders as the scope's lead paragraph", async () => {
+    const dom = await loadPage({
+      scope: "sr:SR-121",
+      labels: {
+        labels: {
+          "sr:SR-121": {
+            ref: "sr:SR-121", id: "SR-121", kind: "sr", title: "Battery-aware return",
+            description: "The rover must return to base before battery falls below 15%.",
+            description_source: "statement", deferral_reason: null,
+            status: null, relations: {}, path: "requirements/SR-121.md", scope_href: null,
+          },
+        },
+        aliases: { "sr:SR-121": "sr:SR-121" },
+        degraded: [],
+      },
+    });
+    const doc = dom.window.document;
+    expect(doc.getElementById("scopeHeader")?.textContent).toBe("Battery-aware return");
+    expect(doc.getElementById("scopeDescription")?.textContent).toBe(
+      "The rover must return to base before battery falls below 15%.",
+    );
+  });
+
+  // Task 12: "issue the labels fetch before health and await it in both
+  // paths" -- the failure path. A non-ok /api/system/labels response resolves
+  // to null; setLabels(null) leaves LABELS/ALIASES empty and marks the index
+  // unavailable, so every chip degrades to "label index unavailable" rather
+  // than the page blanking.
+  test("an unavailable labels endpoint degrades chips instead of blanking the page", async () => {
+    const dom = await loadPage({ scope: "bundle:evidence-lifecycle", labelsUnavailable: true });
+    const doc = dom.window.document;
+    // The rest of the page still renders -- it degrades, it never blanks.
+    expect(doc.querySelectorAll("#panelBrief .claim").length).toBe(BRIEF.claims.length);
+    const chip = doc.querySelector("#panelMatrix .matrix-subject .ref-chip")!;
+    expect(chip.className).toContain("is-absent");
+    expect(chip.querySelector(".chip-title")?.textContent).toBe("label index unavailable");
   });
 });

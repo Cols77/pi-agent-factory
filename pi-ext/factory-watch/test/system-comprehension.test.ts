@@ -8,11 +8,22 @@ import {
   ensureCardController,
   glossFor,
   infoCard,
+  nextStepBlock,
   refCardFields,
   refChip,
   renderVocabularyPanel,
 } from "../src/system-comprehension.js";
-import { badge, badgeSpan, freshnessBadge } from "../src/system-renderers.js";
+import {
+  badge,
+  badgeSpan,
+  freshnessBadge,
+  renderBrief,
+  renderChangedFiles,
+  renderMatrix,
+  renderReverse,
+  renderStory,
+} from "../src/system-renderers.js";
+import { REMEDIATION_DATA } from "../src/system-vocabulary-data.js";
 
 const T060 = {
   ref: "task:T-060", id: "T-060", kind: "task",
@@ -46,9 +57,16 @@ const FRESH_TERM = {
 };
 
 beforeEach(() => {
-  const dom = new JSDOM("<!doctype html><body><div id=\"vocabularyGroups\"></div></body>", {
-    pretendToBeVisual: true,
-  });
+  const dom = new JSDOM(
+    "<!doctype html><body>"
+      + "<div id=\"vocabularyGroups\"></div>"
+      + "<div id=\"panelBrief\"></div><div id=\"panelMatrix\"></div>"
+      + "<div id=\"panelTimeline\"></div><div id=\"panelGuide\"></div>"
+      + "<div id=\"panelStory\"></div><div id=\"panelReverse\"></div>"
+      + "<div id=\"panelTrace\"></div>"
+      + "</body>",
+    { pretendToBeVisual: true },
+  );
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
   (globalThis as any).LABELS = { "task:T-060": T060, "sr:SR-121": SR121 };
@@ -57,6 +75,7 @@ beforeEach(() => {
     "SR-121": "sr:SR-121", "sr:SR-121": "sr:SR-121",
   };
   (globalThis as any).VOCABULARY = { terms: {} };
+  (globalThis as any).REMEDIATION = REMEDIATION_DATA;
   // badge()/freshnessBadge() (system-renderers.ts) and renderVocabularyPanel()
   // reference these as free variables, exactly as they do in the assembled
   // page (system-shell.ts's clientSource()) -- wiring them onto globalThis
@@ -65,6 +84,9 @@ beforeEach(() => {
   (globalThis as any).glossFor = glossFor;
   (globalThis as any).definitionTrigger = definitionTrigger;
   (globalThis as any).clear = (el: HTMLElement) => { el.innerHTML = ""; };
+  (globalThis as any).refChip = refChip;
+  (globalThis as any).boundedList = boundedList;
+  (globalThis as any).nextStepBlock = nextStepBlock;
 });
 
 test("a known ref renders id and title inline", () => {
@@ -355,7 +377,9 @@ test("renderVocabularyPanel groups entries by group and shows the real badge bes
   renderVocabularyPanel();
   const root = document.getElementById("vocabularyGroups") as HTMLElement;
   const groupTitles = Array.from(root.querySelectorAll(".vocab-group-title")).map((el) => el.textContent);
-  expect(groupTitles).toEqual(["claim-kind", "freshness"]);
+  // Task 12 (carried from Task 11 review): humanised headings, not raw slugs
+  // -- a legend that greets a newcomer with `claim-kind` undercuts itself.
+  expect(groupTitles).toEqual(["Claim kinds", "Freshness"]);
   const entries = root.querySelectorAll(".vocab-entry");
   expect(entries.length).toBe(2);
   const recordedEntry = entries[0] as HTMLElement;
@@ -371,4 +395,131 @@ test("renderVocabularyPanel does nothing when the panel root is not on the page"
   document.getElementById("vocabularyGroups")?.remove();
   (globalThis as any).VOCABULARY = { terms: { recorded: RECORDED_TERM } };
   expect(() => renderVocabularyPanel()).not.toThrow();
+});
+
+// --- Task 12: Next steps, absence severity, headings and first run ---
+
+test("a next step names the command and copies it", () => {
+  const el = nextStepBlock("sr_unsatisfied", "SR-121");
+  expect(el.querySelector(".command")?.textContent).toContain("/trace-fix SR-121");
+  expect(el.querySelector("button")?.textContent).toBe("Copy");
+});
+
+test("a next step's eyebrow, reason and why sit above the command row", () => {
+  const el = nextStepBlock("sr_unsatisfied", "SR-121");
+  expect(el.querySelector(".eyebrow")?.textContent).toBe("NEXT STEP");
+  expect(el.querySelector(".next-step-reason")?.textContent).toBe(
+    REMEDIATION_DATA.states.sr_unsatisfied.what_it_means,
+  );
+  expect(el.querySelector(".next-step-why")?.textContent).toBe(
+    REMEDIATION_DATA.states.sr_unsatisfied.why_it_matters,
+  );
+});
+
+test("an unknown state renders an empty shell rather than throwing", () => {
+  expect(() => nextStepBlock("not-a-real-state", "X-1")).not.toThrow();
+  const el = nextStepBlock("not-a-real-state", "X-1");
+  expect(el.className).toBe("next-step");
+  expect(el.children.length).toBe(0);
+});
+
+test("clicking Copy becomes Copied for two seconds, then reverts", () => {
+  vi.useFakeTimers();
+  try {
+    const el = nextStepBlock("sr_unsatisfied", "SR-121");
+    document.body.appendChild(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+    button.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+    expect(button.textContent).toBe("Copied");
+    vi.advanceTimersByTime(1999);
+    expect(button.textContent).toBe("Copied");
+    vi.advanceTimersByTime(1);
+    expect(button.textContent).toBe("Copy");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// A recorded deferral_reason outranks the generic what_it_means sentence
+// (visual addendum: "a recorded reason outranks the table").
+test("a recorded deferral_reason outranks the generic what_it_means sentence", () => {
+  (globalThis as any).LABELS = {
+    ...((globalThis as any).LABELS),
+    "sr:SR-121": { ...SR121, deferral_reason: "Deferred pending hardware review." },
+  };
+  const el = nextStepBlock("sr_unsatisfied", "SR-121");
+  expect(el.querySelector(".next-step-reason")?.textContent).toBe("Deferred pending hardware review.");
+  expect(el.textContent).not.toContain(REMEDIATION_DATA.states.sr_unsatisfied.what_it_means);
+});
+
+test("an empty panel renders exactly one next step, after the degraded banner", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-001" },
+    task: { id: "T-001", title: "Load skills", status: "done" },
+    runs: [], requirements: [], degraded: true,
+    degraded_reasons: ["task has no recorded runs"],
+  });
+  const panel = document.getElementById("panelStory") as HTMLElement;
+  expect(panel.querySelectorAll(".next-step").length).toBe(1);
+  const children = Array.from(panel.children);
+  const bannerIndex = children.findIndex((el) => el.className === "degraded-banner");
+  const nextStepIndex = children.findIndex((el) => el.className === "next-step");
+  expect(bannerIndex).toBeGreaterThanOrEqual(0);
+  // The next step comes after the banner in document order.
+  expect(nextStepIndex).toBeGreaterThan(bannerIndex);
+});
+
+test("an absence uses the dashed rail, not the failure rail", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-001" },
+    task: { id: "T-001", title: "Load skills", status: "done" },
+    runs: [], requirements: [], degraded: false, degraded_reasons: [],
+  });
+  const empty = document.querySelector("#panelStory .presence-rail")!;
+  expect(empty.className).toContain("is-absent");
+  expect(empty.className).not.toContain("is-failure");
+});
+
+test("renderBrief's empty state gets the dashed rail and a matching next step", () => {
+  renderBrief({
+    scope: { kind: "bundle", ref: "bundle:empty" },
+    member_of: [], claims: [], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelBrief") as HTMLElement;
+  const empty = panel.querySelector(".empty")!;
+  expect(empty.className).toContain("presence-rail is-absent");
+  expect(panel.querySelectorAll(".next-step").length).toBe(1);
+  expect(panel.querySelector(".command-text")?.textContent).toContain("bundle:empty");
+});
+
+test("renderMatrix's empty state gets the dashed rail and a matching next step", () => {
+  renderMatrix({ scope: { kind: "bundle", ref: "bundle:empty" }, rows: [] });
+  const panel = document.getElementById("panelMatrix") as HTMLElement;
+  expect(panel.querySelector(".empty")?.className).toContain("is-absent");
+  expect(panel.querySelectorAll(".next-step").length).toBe(1);
+});
+
+// Child-level empty states (one run's changed-files list, one reverse path
+// list) get the dashed rail but never their own Next step block -- "one Next
+// step per panel, never one per empty child."
+test("renderChangedFiles' empty state is styled but carries no next step of its own", () => {
+  const el = renderChangedFiles([])!;
+  expect(el.querySelector(".empty")?.className).toContain("presence-rail is-absent");
+  expect(el.querySelector(".next-step")).toBeNull();
+});
+
+test("renderReverse's empty state is styled with no matching remediation next step", () => {
+  renderReverse({ scope: { kind: "file", ref: "file:src/a.py" }, paths: [], degraded: false, degraded_reasons: [] });
+  const panel = document.getElementById("panelReverse") as HTMLElement;
+  expect(panel.querySelector(".empty")?.className).toContain("presence-rail is-absent");
+  expect(panel.querySelector(".next-step")).toBeNull();
+});
+
+test("humaniseGroup falls back to a capitalised slug for an unlisted group, without inventing new terms", () => {
+  (globalThis as any).VOCABULARY = {
+    terms: { widget: { term: "widget", group: "widget-kind", label: "widget", gloss: "", definition: "d", siblings: [], computed_by: [] } },
+  };
+  renderVocabularyPanel();
+  const title = document.querySelector("#vocabularyGroups .vocab-group-title");
+  expect(title?.textContent).toBe("Widget kind");
 });
