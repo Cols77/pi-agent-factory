@@ -28,6 +28,7 @@ import {
   loadSystemTraversalAsync,
   loadSystemVcycle,
   loadSystemGoal,
+  loadSystemValidation,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
@@ -340,6 +341,18 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // the Inc 4 eng_get_goal projection).
   if (req.method === "GET" && url.pathname === "/api/system/goal") {
     const result = loadSystemGoal(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 4: a requirement's validation evidence (query_validation).
+  // sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/validation") {
+    const result = loadSystemValidation(cwd, url.searchParams.get("scope") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

@@ -50,6 +50,20 @@ const BRIEF = {
 const MATRIX = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, rows: [] };
 const TIMELINE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, events: [], degraded: false, degraded_reasons: [] };
 const GUIDE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, sections: [] };
+const VALIDATION_DATA = {
+  scope: { kind: "sr", ref: "sr:SR-010" },
+  validation: {
+    id: "SR-010",
+    raw_state: "passed",
+    stale: false,
+    error: null,
+    goal_state: "VALIDATED",
+    goals: [{ id: "GOAL-NAV-003", state: "REACHED" }],
+    runs: ["RUN-20260811-1702"],
+    metrics: ["MET-NAV-004"],
+  },
+};
+
 const GOAL_DATA = {
   id: "GOAL-NAV-003",
   title: "Reacquire within 2 seconds",
@@ -141,6 +155,9 @@ function mockFetch() {
     }
     if (url.pathname === "/api/system/vcycle") {
       return jsonResponse(VCYCLE);
+    }
+    if (url.pathname === "/api/system/validation") {
+      return jsonResponse(VALIDATION_DATA);
     }
     if (url.pathname === "/api/system/goal") {
       return jsonResponse(GOAL_DATA);
@@ -250,6 +267,23 @@ describe("Inc 6 tabs registered in the /system page", () => {
     expect(doc.getElementById("tabBrief")?.hidden).toBe(true);
     expect(doc.getElementById("tabFeature")?.hidden).toBe(true);
     expect(doc.getElementById("tabVcycle")?.hidden).toBe(true);
+  });
+
+  test("an sr: scope shows the Validation tab with goal-aware status and evidence", async () => {
+    const dom = await loadPage({ scope: "sr:SR-010" });
+    const doc = dom.window.document;
+    expect(doc.getElementById("tabValidation")?.hidden).toBe(false);
+    const panel = doc.getElementById("panelValidation");
+    expect(panel?.textContent).toContain("SR-010");
+    expect(panel?.textContent).toContain("VALIDATED");
+    expect(panel?.textContent).toContain("goal:GOAL-NAV-003");
+    expect(panel?.textContent).toContain("RUN-20260811-1702");
+    expect(panel?.textContent).toContain("metric:MET-NAV-004");
+    const raw = panel?.querySelector(".validation-raw");
+    expect(raw?.classList.contains("is-passed")).toBe(true);
+    // A bundle: scope never shows the tab.
+    const bundleDom = await loadPage({ scope: "bundle:evidence-lifecycle" });
+    expect(bundleDom.window.document.getElementById("tabValidation")?.hidden).toBe(true);
   });
 
   test("the page inlines the feature widget as a plain function (no module imports)", () => {

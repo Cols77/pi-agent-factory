@@ -12,6 +12,7 @@ import {
 } from './system-feature-view.js';
 import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel } from './system-vcycle-view.js';
 import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
+import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -133,6 +134,11 @@ function clientSource(): string {
     operatorSymbol,
     shortCommit,
     renderGoal,
+    validationSection,
+    rawStateClass,
+    validationGoalStateClass,
+    validationRefLine,
+    renderValidation,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -572,6 +578,24 @@ export function renderSystemPageHtml(): string {
   .goal-history-when { color: var(--text-muted); }
   .goal-history-run { color: var(--text-dim); }
   .goal-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .validation-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .validation-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .validation-raw, .validation-goal-state { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .validation-raw.is-passed { color: var(--fresh); border-color: var(--fresh); }
+  .validation-raw.is-failed, .validation-raw.is-error { color: var(--degraded); border-color: var(--degraded); }
+  .validation-raw.is-never-validated { color: var(--text-muted); }
+  .validation-stale { margin-left: 6px; color: var(--stale); }
+  .validation-goal-state.is-validated { color: var(--fresh); border-color: var(--fresh); }
+  .validation-goal-state.is-regressed { color: var(--degraded); border-color: var(--degraded); }
+  .validation-goal-state.is-pending { color: var(--stale); border-color: var(--stale); }
+  .validation-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .validation-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .validation-section-body { min-width: 0; }
+  .validation-ref-line, .validation-goals { display: flex; flex-wrap: wrap; gap: 8px; }
+  .validation-goal-chip { display: inline-flex; align-items: baseline; gap: 8px; }
+  .validation-goal-state-text { color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
+  .validation-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .validation-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -634,6 +658,7 @@ export function renderSystemPageHtml(): string {
           <button id="tabFeature" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelFeature" aria-label="Feature">Feature</button>
           <button id="tabVcycle" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelVcycle" aria-label="V-cycle">V-cycle</button>
           <button id="tabGoal" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGoal" aria-label="Goal">Goal</button>
+          <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
         </div></nav>
         <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
         <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -645,6 +670,7 @@ export function renderSystemPageHtml(): string {
         <div id="panelFeature" class="panel" role="tabpanel" aria-labelledby="tabFeature" hidden></div>
         <div id="panelVcycle" class="panel" role="tabpanel" aria-labelledby="tabVcycle" hidden></div>
         <div id="panelGoal" class="panel" role="tabpanel" aria-labelledby="tabGoal" hidden></div>
+        <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">

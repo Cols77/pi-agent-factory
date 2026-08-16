@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from factory.evidence import manifests as evidence_manifests
 from factory.system.feature import _recent_changes, feature_context
 from factory.system.models import SystemScopeRef
 from factory.system.queries import (
@@ -14,6 +15,7 @@ from factory.system.queries import (
     ScopeNotFoundError,
     query_feature_context,
     query_vcycle,
+    query_validation,
 )
 
 from ._fixtures import write_run_manifest, write_validation_report
@@ -234,6 +236,87 @@ def test_vcycle_query_carries_an_additive_node_statuses_map(tmp_path):
     # A requirement outside the slice never appears, and node ids missing
     # from every status source are simply absent (TS renders them neutral).
     assert set(statuses) == {"SR-001", "SR-002", "GOAL-001", "T-001"}
+
+
+def test_query_validation_assembles_goal_aware_status_and_evidence(tmp_path):
+    """Inc 6 Task 4: query_validation -- a requirement's recorded validation
+    state, its goal-aware D5 status (VALIDATED/REGRESSED/VERIFICATION_PENDING),
+    the goals that produced it and the validating simulation runs."""
+    _feature_repo(tmp_path)
+    write_validation_report(tmp_path, [{"id": "SR-001", "passed": True, "stale": False}])
+    _write(
+        tmp_path / "goals" / "GOAL-001.md",
+        "---\n"
+        "id: GOAL-001\n"
+        "title: Reach the dossier\n"
+        "demonstrates: [SR-001]\n"
+        "state: REACHED\n"
+        "---\n",
+    )
+    evidence_manifests.write_run_manifest(
+        tmp_path / "evidence",
+        {
+            "run": "RUN-20260811-1702",
+            "experiment": "SIM-047",
+            "feature": "FEAT-CONTEXT-001",
+            "requirements": ["SR-001"],
+            "goals": ["GOAL-001"],
+            "commit": "f92b004",
+            "result": "passed",
+        },
+    )
+
+    result = query_validation(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+    assert result["scope"] == {"kind": "sr", "ref": "sr:SR-001"}
+    validation = result["validation"]
+    assert validation["id"] == "SR-001"
+    assert validation["raw_state"] == "passed"
+    assert validation["stale"] is False
+    assert validation["goal_state"] == "VALIDATED"
+    assert validation["goals"] == [{"id": "GOAL-001", "state": "REACHED"}]
+    assert validation["runs"] == ["RUN-20260811-1702"]
+
+
+def test_query_validation_reports_regressed_and_never_validated(tmp_path):
+    """A REGRESSED goal flips the goal-aware status; an SR with no report
+    entry is never_validated -- never a guessed pass. Non-sr scopes are
+    rejected."""
+    _feature_repo(tmp_path)
+    _write(
+        tmp_path / "goals" / "GOAL-002.md",
+        "---\n"
+        "id: GOAL-002\n"
+        "title: Regressed goal\n"
+        "demonstrates: [SR-002]\n"
+        "state: REGRESSED\n"
+        "---\n",
+    )
+    _write(
+        tmp_path / "requirements" / "SR-003.md",
+        "---\n"
+        "id: SR-003\n"
+        "title: Never validated\n"
+        "statement: The system shall stay unvalidated in this fixture.\n"
+        "domain: behavioral\n"
+        "---\n",
+    )
+
+    # SR-002 is recorded as failed in _feature_repo's report; the goal-aware
+    # status still follows the REGRESSED goal (D5 priority: REGRESSED wins).
+    regressed = query_validation(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-002"))
+    assert regressed["validation"]["raw_state"] == "failed"
+    assert regressed["validation"]["goal_state"] == "REGRESSED"
+    assert regressed["validation"]["runs"] == []
+    assert regressed["validation"]["metrics"] == []
+
+    # SR-003 has no report entry at all: never_validated, never a pass.
+    never = query_validation(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-003"))
+    assert never["validation"]["raw_state"] == "never_validated"
+    assert never["validation"]["goal_state"] is None
+
+    with pytest.raises(ScopeKindError):
+        query_validation(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-CONTEXT-001"))
 
 
 def test_feature_context_recent_changes_is_empty_without_git_history(tmp_path):

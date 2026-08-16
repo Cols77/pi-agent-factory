@@ -1695,6 +1695,61 @@ def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
     }
 
 
+def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return one requirement's validation evidence (Inc 6 Task 4).
+
+    Only ``sr:`` scopes carry validation. The projection combines recorded
+    state only, never a guess:
+
+    * raw state + staleness from the validation report;
+    * the D5 goal-aware status (VALIDATED/REGRESSED/VERIFICATION_PENDING)
+      derived by ``validation_status.requirement_validation`` from the
+      goals bound to the requirement via declared ``demonstrates`` edges or
+      the goal's own ``requirements`` frontmatter;
+    * the goals that produced the state;
+    * the simulation runs whose manifests declare the requirement;
+    * the metric ids the bound goals evaluate.
+    """
+    if scope.kind != "sr":
+        raise ScopeKindError(f"query_validation only supports sr scopes, got: {scope.kind!r}")
+    req_id = _scope_identifier(scope)
+    status = validation_status.load_validation(repo_root).get(req_id)
+    raw_state = status.state if status is not None else "never_validated"
+    stale = status.stale if status is not None else False
+    error = status.error if status is not None else None
+
+    goals = goal_registry.load_goals(repo_root)
+    edges = trace_model.extract_edges(repo_root, trace_model.load_nodes(repo_root))
+    demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == req_id}
+    bound_goals = sorted(
+        (g for g in goals.values() if req_id in g.requirements or g.id in demonstrated),
+        key=lambda g: g.id,
+    )
+    goal_state = validation_status.requirement_validation(bound_goals)
+    runs = sim_registry.runs_for(_evidence_dir(repo_root), requirement=req_id)
+    metric_ids: set[str] = set()
+    for goal in bound_goals:
+        metric = goal.metric
+        if isinstance(metric, dict) and metric.get("id"):
+            metric_ids.add(str(metric["id"]))
+        elif isinstance(metric, str):
+            metric_ids.add(metric)
+
+    return {
+        "scope": {"kind": "sr", "ref": scope.ref},
+        "validation": {
+            "id": req_id,
+            "raw_state": raw_state,
+            "stale": stale,
+            "error": error,
+            "goal_state": goal_state,
+            "goals": [{"id": g.id, "state": g.state} for g in bound_goals],
+            "runs": [r.run_id for r in runs],
+            "metrics": sorted(metric_ids),
+        },
+    }
+
+
 def _vcycle_statuses(repo_root: Path, slice_: VCycleSlice) -> dict[str, dict[str, object]]:
     """Attach recorded state to each V-cycle slice node id (Inc 6 Task 2).
 

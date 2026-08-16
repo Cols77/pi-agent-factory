@@ -449,6 +449,25 @@ export function loadSystemVcycle(cwd: string, scope: string): CliResult<SystemVc
   return runJsonCli<SystemVcycle>(cwd, cmd.bin, cmd.args);
 }
 
+export interface SystemValidation {
+  scope: { kind: string; ref: string };
+  validation: {
+    id: string;
+    raw_state: string;
+    stale: boolean;
+    error: string | null;
+    goal_state: string | null;
+    goals: { id: string; state: string }[];
+    runs: string[];
+    metrics: string[];
+  };
+}
+
+export function loadSystemValidation(cwd: string, scope: string): CliResult<SystemValidation> {
+  const cmd = buildSystemCommand(["validation", "--scope", scope, "--json"]);
+  return runJsonCli<SystemValidation>(cwd, cmd.bin, cmd.args);
+}
+
 export interface SystemDiagram {
   id: string;
   title: string;

@@ -25,6 +25,7 @@ declare const renderBrief: (brief: any) => void;
 declare const renderFeature: (el: HTMLElement, payload: any) => void;
 declare const renderVcycle: (el: HTMLElement, payload: any) => void;
 declare const renderGoal: (el: HTMLElement, payload: any) => void;
+declare const renderValidation: (el: HTMLElement, payload: any) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
 declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
@@ -434,10 +435,10 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
-    sr: ['Brief', 'Vcycle', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    sr: ['Brief', 'Vcycle', 'Validation', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     feat: ['Feature', 'Vcycle', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     task: ['Story'],
     file: ['Reverse'],
@@ -489,7 +490,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -501,6 +502,7 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabFeature') as HTMLElement).onclick = () => showTab('Feature');
   (document.getElementById('tabVcycle') as HTMLElement).onclick = () => showTab('Vcycle');
   (document.getElementById('tabGoal') as HTMLElement).onclick = () => showTab('Goal');
+  (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -691,6 +693,24 @@ export async function systemBootstrap(): Promise<void> {
       }
     } else {
       renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
+    // like the vcycle fetch -- a failure degrades only its own tab.
+    if (scopeKind(scopeRef) === 'sr') {
+      try {
+        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
+        if (!validationRes.ok) throw new Error(String(validationRes.status));
+        const validation = await validationRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
     }
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
     // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
