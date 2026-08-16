@@ -265,3 +265,14 @@ def test_cli_slice_produces_reference_block(capsys, tmp_path):
     # the hash/banner count line must NOT leak into the slice
     assert "codeindex: built" not in captured
     assert "codeindex: ensured" not in captured
+
+
+def test_cli_slice_carries_engine_note(capsys, tmp_path):
+    root = _tree(tmp_path)
+    main(["--root", str(root), "--slice", "5000"])
+    captured = capsys.readouterr().out
+    # the slice starts with a one-line engine note so consumers can tell
+    # tree-sitter output from the stdlib fallback
+    first_line = captured.splitlines()[0]
+    assert first_line in ("engine: tree-sitter", "engine: stdlib-ast")
+    assert "### REFERENCE" in captured
