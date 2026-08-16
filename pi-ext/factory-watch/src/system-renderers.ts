@@ -227,7 +227,12 @@ export function renderBrief(brief: any): void {
     empty.className = 'empty presence-rail is-absent';
     empty.appendChild(document.createTextNode('No claims recorded for this scope.'));
     panel.appendChild(empty);
-    panel.appendChild(nextStepBlock('no_claims', brief.scope?.ref));
+    // M10: no Next step block here -- the context rail's own
+    // `renderContextRailNextStep` (system-bootstrap.ts) already renders the
+    // identical `no_claims` block, and the rail is a persistent surface at
+    // every viewport width (it reflows above the panel below 1200px, it is
+    // never removed), not just >=1200px. Rendering it here too would show
+    // the same command twice, simultaneously visible.
     return;
   }
   // Rendered in the payload's own order -- no client-side sort.
@@ -263,6 +268,14 @@ export function renderMatrixRow(row: any): HTMLElement {
       evidence.appendChild(item);
     });
     el.appendChild(evidence);
+  }
+  // I5: "every never-run matrix row contributes a Next step block" (spec's
+  // Rendering section). A per-row concern, not a panel-level empty state --
+  // the "one Next step per panel" cap (Component 3, "Severity, narrowed")
+  // scopes only to the browser-decided `if (!x.length)` empty states, which
+  // this is not.
+  if (row.status === 'never-run') {
+    el.appendChild(nextStepBlock('matrix_never_run', row.subject.ref));
   }
   return el;
 }

@@ -14,10 +14,12 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
+from factory.evidence import manifests as evidence_manifests_module
 from factory.orchestrator import ledger as ledger_module
 from factory.requirements import register as register_module
 from factory.system import adr as adr_module
 from factory.system import bundles as bundles_module
+from factory.system._claims import evidence_dir as _evidence_dir
 from factory.trace import model as trace_model
 
 # Kinds whose identity is the file, not a symbol: their canonical ref uses
@@ -144,6 +146,34 @@ def _named_description(body: str, kind: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _changed_file_paths(root: Path) -> list[str]:
+    """The bounded, recorded set of paths a `file:` entry can cover.
+
+    There are no file nodes in the trace graph (`trace_model.load_nodes`
+    emits none), so files cannot be discovered by walking the graph the way
+    every other kind is. The one recorded, bounded source of file paths is
+    every evidence manifest's `implementation.changed_files` -- exactly what
+    `query_traversal`'s `files` step (`queries.py:1624-1631`) and
+    `renderChangedFiles`/`renderReversePath`'s changed-file chips both read.
+    Scanning every manifest once (not per-task) is still bounded -- by the
+    number of recorded runs, not an unbounded repository walk -- and is a
+    strict superset of what any single traversal could ever surface, since a
+    traversal's files are themselves drawn from a subset of these same
+    manifests.
+    """
+    paths: list[str] = []
+    seen: set[str] = set()
+    for manifest in evidence_manifests_module.list_run_manifests(_evidence_dir(root)):
+        changed = manifest.get("implementation", {}).get("changed_files")
+        if not changed:
+            continue
+        for path in changed:
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+    return paths
+
+
 def build_labels(root: Path) -> dict:
     """The label index: every known ref with its title and recorded description.
 
@@ -193,6 +223,16 @@ def build_labels(root: Path) -> dict:
             satisfies = [aliases.get(s, s) for s in task.satisfies]
             if satisfies:
                 relations["satisfies"] = satisfies
+            if task.source_plan:
+                # `Task.source_plan` (ledger.py:23) is recorded as the bare
+                # repo-relative path, with no `plan:` prefix -- unlike
+                # `satisfies`'s bare SR ids, which are already aliased keys.
+                # Prefixing it is not parsing a ref (there is nothing to
+                # split or infer); it is building the one candidate key the
+                # alias map might resolve, the same normalization
+                # `queries.py`'s `_file_ref` performs for file paths.
+                plan_ref = f"plan:{task.source_plan}"
+                relations["source_plan"] = [aliases.get(plan_ref, plan_ref)]
         elif node.kind in _PATH_KINDS:
             # node.path is always absolute (trace_model.load_nodes globs from
             # `root`); see labels.py's canonical_ref for the same rule.
@@ -256,6 +296,28 @@ def build_labels(root: Path) -> dict:
         }
         aliases[ref] = ref
         aliases[bundle.id] = ref
+
+    # `file:` entries: there are no file nodes in the trace graph, so files
+    # are added from the one bounded, recorded source available -- every
+    # evidence manifest's changed_files (see `_changed_file_paths`). A file
+    # has no recorded title or description of its own; the path IS its
+    # identity, so `title` is the path and `description` stays None (never
+    # invented) -- `file_entry`'s own contract.
+    #
+    # Two alias spellings are recorded per file, because the two render
+    # sites that resolve a file ref disagree on which spelling they pass:
+    # `queries.py`'s `_file_ref` prefixes traversal files as `file:<path>`,
+    # while `renderChangedFiles`/`renderReversePath` pass the RAW path (that
+    # field is `system_claim.changed_files` / the reverse-walk `file` field,
+    # both frozen response schemas this feature does not touch). Aliasing
+    # both spellings to the same canonical ref is what makes `refChip`
+    # resolve either one without the browser ever parsing or prefixing.
+    for path in _changed_file_paths(root):
+        entry = file_entry(root, path)
+        ref = entry["ref"]
+        labels[ref] = entry
+        aliases[ref] = ref
+        aliases[path] = ref
 
     return {"labels": labels, "aliases": aliases, "degraded": degraded}
 

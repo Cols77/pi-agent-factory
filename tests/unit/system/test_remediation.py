@@ -29,9 +29,15 @@ def test_severity_is_absence_or_failure():
 
 
 def test_only_id_and_ref_substitutions_are_used():
+    # M8: nextStepBlock (system-comprehension.ts) substitutes {id}/{ref} in
+    # every templated prose field, not just `command` -- checked here too so
+    # a stray, unlisted token in `what_it_means`/`why_it_matters` (which
+    # would leak into the rendered card as literal `{id}` text) fails the
+    # same way an unknown token in `command` already does.
     for entry in REMEDIATION.values():
-        for token in re.findall(r"\{(\w+)\}", entry["command"]):
-            assert token in {"id", "ref"}, entry
+        for field in ("command", "what_it_means", "why_it_matters"):
+            for token in re.findall(r"\{(\w+)\}", entry[field]):
+                assert token in {"id", "ref"}, (entry["state"], field)
 
 
 def test_every_slash_command_is_registered():

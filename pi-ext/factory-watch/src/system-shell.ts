@@ -496,9 +496,10 @@ export function renderSystemPageHtml(): string {
   .info-card-title { margin-top: 4px; color: var(--text); font: 650 14px/1.35 var(--font-display); }
   .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .info-card-empty { font-style: italic; }
-  .info-card-from, .info-card-path { margin-top: 6px; font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+  .info-card-from, .info-card-path, .info-card-relations { margin-top: 6px; font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
   .info-card-from { color: var(--text-dim); }
   .info-card-path { color: var(--text-muted); }
+  .info-card-relations { color: var(--text-muted); }
   .info-card-open { margin-top: 8px; }
   .info-card-open a { color: var(--signal); font: 650 12px/1.3 var(--font-mono); text-decoration: none; }
   .info-card-badge { margin-top: 0; }

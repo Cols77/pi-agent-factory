@@ -89,6 +89,12 @@ export async function systemBootstrap(): Promise<void> {
   let scopeController: AbortController | null = null;
   let navigationGeneration = 0;
   const HEALTH_TIMEOUT_MS = 15_000;
+  // I4: the labels fetch reads every spec/plan body for its Purpose
+  // paragraph (design's "Cost" section) and is awaited before health, so a
+  // slow response -- not just a failed one -- must not stall boot silently.
+  // Same duration and the same "treat a timeout exactly like a failure"
+  // shape as health's own AbortController below.
+  const LABELS_TIMEOUT_MS = 15_000;
   const TRAVERSAL_TIMEOUT_MS = 8_000;
 
   // Task 2 (system nav): the currently loaded scope ref (null until one loads).
@@ -1308,9 +1314,12 @@ export async function systemBootstrap(): Promise<void> {
   // the index unavailable -- the surface degrades (every chip's absent-ref
   // treatment), it never blanks.
   setPickerClass(false);
-  const labelsPromise = fetch('/api/system/labels')
+  const labelsController = new AbortController();
+  const labelsTimeout = window.setTimeout(() => labelsController.abort(), LABELS_TIMEOUT_MS);
+  const labelsPromise = fetch('/api/system/labels', { signal: labelsController.signal })
     .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null);
+    .catch(() => null)
+    .finally(() => window.clearTimeout(labelsTimeout));
   setLabels(await labelsPromise);
   const healthOwnsLanding = await loadHealth();
   if (!healthOwnsLanding) return;

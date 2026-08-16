@@ -390,17 +390,15 @@ describe("system-page.ts client script, executed against a real DOM", () => {
   // traversal-spine call site (system-bootstrap.ts:757-781), which had no
   // direct test.
   //
-  // Title resolution is intentionally NOT asserted here: `setLabels` (defined
-  // system-shell.ts:56) is never invoked by systemBootstrap -- nothing in
-  // src/system-bootstrap.ts fetches /api/system/labels -- so LABELS stays
-  // `{}` inside the running page regardless of what opts.labels seeds into
-  // mockFetch. That wiring is out of this fix round's scope (forbidden files:
-  // system-bootstrap.ts/system-renderers.ts/system-comprehension.ts) and is
-  // reportedly Task 12's job. Every requirement ref below therefore resolves
-  // through the real, currently-shipped "not in the label index" path
-  // (system-comprehension.ts's refChip absent branch) -- which is itself real
-  // behaviour worth asserting precisely, just not title text that cannot
-  // reach the page yet.
+  // Title resolution is intentionally NOT asserted here: these traversal
+  // fixtures below never seed a matching LABELS entry for the refs they use,
+  // so every chip resolves through the real "not in the label index" path
+  // (system-comprehension.ts's refChip absent branch) regardless. Title
+  // resolution against a real labels payload IS covered elsewhere in this
+  // file (Task 12 wired `setLabels` at system-bootstrap.ts:1314, awaited
+  // before health) -- see "the scope heading is the title, with the ref as
+  // metadata" and "a recorded description renders as the scope's lead
+  // paragraph" below.
   test("the traversal spine caps a long requirement list at five chips with a real +N more disclosure", async () => {
     const refs = Array.from({ length: 7 }, (_, i) => `sr:SR-${101 + i}`);
     const dom = await loadPage({

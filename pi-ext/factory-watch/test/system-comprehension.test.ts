@@ -151,6 +151,17 @@ test("refCardFields never blanks a missing description or a missing Open link", 
   expect(fields.find((f) => f.className === "info-card-meta")?.text).toBe("T-060 · task · done");
 });
 
+test("refCardFields renders a task's recorded relations (I2)", () => {
+  const fields = refCardFields(T060);
+  const relations = fields.find((f) => f.className === "info-card-relations");
+  expect(relations?.text).toBe("satisfies: sr:SR-121");
+});
+
+test("refCardFields adds no relations line when relations is empty", () => {
+  const fields = refCardFields(SR121);
+  expect(fields.some((f) => f.className === "info-card-relations")).toBe(false);
+});
+
 test("infoCard renders each field as a line, with href fields as links", () => {
   const card = infoCard(refCardFields(SR121));
   expect(card.className).toBe("info-card");
@@ -187,6 +198,17 @@ test("focusing a chip via keyboard opens its card immediately", () => {
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   expect(document.querySelector(".info-card")).not.toBeNull();
+});
+
+test("an opened card sets aria-controls on its trigger, cleared on close (M6)", () => {
+  const chip = refChip("T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  const card = document.querySelector(".info-card") as HTMLElement | null;
+  expect(card?.id).toBeTruthy();
+  expect(chip.getAttribute("aria-controls")).toBe(card?.id);
+  chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  expect(chip.getAttribute("aria-controls")).toBeNull();
 });
 
 test("clicking a chip toggles the card open then closed", () => {
@@ -408,12 +430,26 @@ test("a next step names the command and copies it", () => {
 test("a next step's eyebrow, reason and why sit above the command row", () => {
   const el = nextStepBlock("sr_unsatisfied", "SR-121");
   expect(el.querySelector(".eyebrow")?.textContent).toBe("NEXT STEP");
+  // sr_unsatisfied.what_it_means carries a literal {id} token -- substituted
+  // with the bare identifier, same as the command (M8).
   expect(el.querySelector(".next-step-reason")?.textContent).toBe(
-    REMEDIATION_DATA.states.sr_unsatisfied.what_it_means,
+    REMEDIATION_DATA.states.sr_unsatisfied.what_it_means.replace("{id}", "SR-121"),
   );
   expect(el.querySelector(".next-step-why")?.textContent).toBe(
     REMEDIATION_DATA.states.sr_unsatisfied.why_it_matters,
   );
+});
+
+test("{id} is substituted in prose fields too, not just the command (M8)", () => {
+  expect(REMEDIATION_DATA.states.sr_unsatisfied.what_it_means).toContain("{id}");
+  const reason = nextStepBlock("sr_unsatisfied", "SR-121").querySelector(".next-step-reason")?.textContent;
+  expect(reason).not.toContain("{id}");
+  expect(reason).toContain("SR-121");
+
+  expect(REMEDIATION_DATA.states.unresolved_ref.why_it_matters).toContain("{id}");
+  const why = nextStepBlock("unresolved_ref", "SR-121").querySelector(".next-step-why")?.textContent;
+  expect(why).not.toContain("{id}");
+  expect(why).toContain("SR-121");
 });
 
 test("an unknown state renders an empty shell rather than throwing", () => {
@@ -480,7 +516,7 @@ test("an absence uses the dashed rail, not the failure rail", () => {
   expect(empty.className).not.toContain("is-failure");
 });
 
-test("renderBrief's empty state gets the dashed rail and a matching next step naming the bare id, not the prefixed ref", () => {
+test("renderBrief's empty state gets the dashed rail and no panel-level next step (M10: the rail owns it)", () => {
   (globalThis as any).LABELS = {
     ...((globalThis as any).LABELS),
     "bundle:empty": {
@@ -497,11 +533,12 @@ test("renderBrief's empty state gets the dashed rail and a matching next step na
   const panel = document.getElementById("panelBrief") as HTMLElement;
   const empty = panel.querySelector(".empty")!;
   expect(empty.className).toContain("presence-rail is-absent");
-  expect(panel.querySelectorAll(".next-step").length).toBe(1);
-  // no_claims's command is "/trace-fix {id}" -- the bare identifier the
-  // command actually accepts, not the "bundle:" prefixed ref call sites pass
-  // as `subject`.
-  expect(panel.querySelector(".command-text")?.textContent).toBe("/trace-fix empty");
+  // M10: renderBrief no longer renders its own no_claims Next step --
+  // system-bootstrap.ts's renderContextRailNextStep renders the identical
+  // block in the persistent context rail instead, so the two never show the
+  // same command twice at once. Command substitution itself (the bare id,
+  // not the prefixed ref) is covered by nextStepBlock's own tests above.
+  expect(panel.querySelectorAll(".next-step").length).toBe(0);
 });
 
 test("nextStepBlock substitutes {id} with the bare identifier and {ref} with the canonical ref, independently", () => {

@@ -77,6 +77,15 @@ export function refChip(raw: string): HTMLElement {
       indexUnavailable ? 'label index unavailable' : 'not in the label index'
     ));
     el.appendChild(note);
+    // I5: "every ... not recorded value ... contributes a Next step block."
+    // Scoped to a genuine per-ref miss (the index loaded and this ref just
+    // isn't in it) -- when the WHOLE index failed to load, every chip on the
+    // page would carry the identical, uninformative block, and that failure
+    // already has its own dedicated treatment (design's Error handling:
+    // "chips render bare refs ... a retry control appears").
+    if (!indexUnavailable) {
+      el.appendChild(nextStepBlock('unresolved_ref', raw));
+    }
     return el;
   }
   const sep = document.createElement('span');
@@ -117,6 +126,12 @@ export function boundedList(refs: string[], limit?: number): HTMLElement {
 export function infoCard(fields: InfoCardField[]): HTMLElement {
   const el = document.createElement('div');
   el.className = 'info-card';
+  // A stable id so `openCardFor`'s `if (card.id) trigger.setAttribute
+  // ('aria-controls', card.id)` guard actually fires (M6) -- only one card
+  // is open at a time (ensureCardController), so one fixed id is safe: a
+  // second `infoCard()` call always follows `closeCard()` removing the
+  // first from the DOM first.
+  el.id = 'system-info-card';
   fields.forEach((field) => {
     if (!field || (!field.text && !field.node)) return;
     const line = document.createElement('div');
@@ -142,6 +157,14 @@ export function infoCard(fields: InfoCardField[]): HTMLElement {
 // ref is an openable scope. Every field is rendered plainly, including a
 // missing description -- never blank, never guessed.
 export function refCardFields(entry: any): InfoCardField[] {
+  // Kinds whose Sources table (design:138-146) names a real description
+  // field that can legitimately come back null. Declared INSIDE the
+  // function, not at module scope -- only function bodies are embedded into
+  // the assembled page (system-shell.ts's clientSource() calls `.toString()`
+  // on each listed function); a sibling module-scope const would silently
+  // vanish from the assembled script (the same reason `humaniseGroup` keeps
+  // its heading map inside itself).
+  const DESCRIBABLE_KINDS = ['bundle', 'spec', 'plan', 'adr'];
   const meta = [entry.id, entry.kind];
   if (entry.status) meta.push(entry.status);
   const fields: InfoCardField[] = [
@@ -154,6 +177,32 @@ export function refCardFields(entry: any): InfoCardField[] {
   ];
   if (entry.description_source) {
     fields.push({ text: 'from: ' + entry.description_source, className: 'info-card-from' });
+  } else if (!entry.description && DESCRIBABLE_KINDS.indexOf(entry.kind) !== -1) {
+    // "When description is null the card shows the Component 3 remediation
+    // block for that kind" (design, "Chip and card"). Scoped to the kinds
+    // whose Sources table (design:138-146) names a real description field
+    // that can legitimately come back null -- bundle/spec/plan/adr. A task
+    // (or br/feat/metric/goal/diag/file) has NO description field to begin
+    // with -- that is the deliberate, recorded design (a task's card
+    // carries its relations instead, above), not a gap, so REMEDIATION's
+    // `no_description` entry (which names `bundle check --draft` and talks
+    // about specs/plans) would be actively misleading there and must not
+    // fire (I5: wire only the honest cases).
+    fields.push({ node: nextStepBlock('no_description', entry.ref), className: 'info-card-next-step' });
+  }
+  // Recorded relations (design:158-159): a task has no description, so its
+  // card carries `satisfies`/`source_plan` instead -- real, single-sourced
+  // relations, not a synthesized summary. Rendered as plain ref text (not
+  // chips) to match `from:`/`path`'s existing mono lines; each key skipped
+  // when it carries no values, so a kind with no recorded relations (an SR,
+  // whose `relations` is always `{}`) adds no empty line.
+  if (entry.relations) {
+    Object.keys(entry.relations).forEach((key: string) => {
+      const values = entry.relations[key];
+      if (values && values.length) {
+        fields.push({ text: key + ': ' + values.join(', '), className: 'info-card-relations' });
+      }
+    });
   }
   fields.push({ text: entry.path, className: 'info-card-path' });
   if (entry.scope_href) {
@@ -274,7 +323,13 @@ export function humaniseGroup(group: string): string {
 // generic table text must never displace it (visual addendum: "a recorded
 // reason outranks the table").
 export function nextStepBlock(state: string, subject?: string): HTMLElement {
-  const entry = REMEDIATION && REMEDIATION.states ? REMEDIATION.states[state] : null;
+  // `typeof` guards the reference (same reason LABELS_LOADED is guarded
+  // above): I5 made refChip's absent branch call this unconditionally, so
+  // any direct-import unit test that mounts a widget without ever defining
+  // the preamble's REMEDIATION global must still resolve the ordinary
+  // "no entry" case rather than throwing a ReferenceError.
+  const remediation = typeof REMEDIATION !== 'undefined' ? REMEDIATION : null;
+  const entry = remediation && remediation.states ? remediation.states[state] : null;
   const el = document.createElement('div');
   el.className = 'next-step';
   if (!entry) return el;
@@ -285,7 +340,28 @@ export function nextStepBlock(state: string, subject?: string): HTMLElement {
   el.appendChild(eyebrow);
 
   const labelEntry = subject ? resolveLabel(subject) : null;
-  const reasonText = (labelEntry && labelEntry.deferral_reason) || entry.what_it_means;
+
+  // Only the literal tokens {id} and {ref} are substituted, and only when a
+  // subject is known. {id} is the bare identifier (SR-121, T-055); {ref} is
+  // the canonical prefixed ref (sr:SR-121) -- remediation.py's contract, and
+  // every call site here passes a prefixed ref as `subject`, so {id} must be
+  // resolved through the label entry's own `.id`, never guessed by string-
+  // splitting the ref. An unresolved subject falls back to the raw string for
+  // both tokens (never invented) -- a degraded command, not a broken one.
+  //
+  // M8: this substitution applies to every templated prose field, not just
+  // `command` -- `sr_unsatisfied.what_it_means` and `unresolved_ref.
+  // why_it_matters` also carry a literal `{id}` that must not leak into the
+  // rendered text unsubstituted.
+  const idValue = (labelEntry && labelEntry.id) || subject;
+  const refValue = (labelEntry && labelEntry.ref) || subject;
+  function substitute(text: string): string {
+    return subject
+      ? String(text).split('{id}').join(idValue).split('{ref}').join(refValue)
+      : text;
+  }
+
+  const reasonText = (labelEntry && labelEntry.deferral_reason) || substitute(entry.what_it_means);
   const reason = document.createElement('p');
   reason.className = 'next-step-reason';
   reason.appendChild(document.createTextNode(reasonText));
@@ -293,7 +369,7 @@ export function nextStepBlock(state: string, subject?: string): HTMLElement {
 
   const why = document.createElement('p');
   why.className = 'next-step-why';
-  why.appendChild(document.createTextNode(entry.why_it_matters));
+  why.appendChild(document.createTextNode(substitute(entry.why_it_matters)));
   el.appendChild(why);
 
   const commandRow = document.createElement('div');
@@ -303,18 +379,7 @@ export function nextStepBlock(state: string, subject?: string): HTMLElement {
   prompt.appendChild(document.createTextNode('▌'));
   commandRow.appendChild(prompt);
 
-  // Only the literal tokens {id} and {ref} are substituted, and only when a
-  // subject is known. {id} is the bare identifier (SR-121, T-055); {ref} is
-  // the canonical prefixed ref (sr:SR-121) -- remediation.py's contract, and
-  // every call site here passes a prefixed ref as `subject`, so {id} must be
-  // resolved through the label entry's own `.id`, never guessed by string-
-  // splitting the ref. An unresolved subject falls back to the raw string for
-  // both tokens (never invented) -- a degraded command, not a broken one.
-  const idValue = (labelEntry && labelEntry.id) || subject;
-  const refValue = (labelEntry && labelEntry.ref) || subject;
-  const substituted = subject
-    ? String(entry.command).split('{id}').join(idValue).split('{ref}').join(refValue)
-    : entry.command;
+  const substituted = substitute(entry.command);
   const commandText = document.createElement('span');
   commandText.className = 'command-text';
   commandText.appendChild(document.createTextNode(substituted));

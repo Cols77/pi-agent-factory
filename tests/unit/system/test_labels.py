@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from factory.system.labels import build_alias_map, build_labels, normalize_ref
+from factory.system.labels import build_alias_map, build_labels, file_entry, normalize_ref
 
 from . import _fixtures
 
@@ -63,6 +63,28 @@ def test_task_has_no_description_but_carries_relations(tmp_path):
     assert entry["description"] is None
     assert entry["description_source"] is None
     assert entry["relations"]["satisfies"] == ["sr:SR-121"]
+
+
+def test_task_relations_carry_the_canonical_source_plan_ref(tmp_path):
+    # I3: Task.source_plan (ledger.py:23) is recorded as the bare
+    # repo-relative path, with no `plan:` prefix -- must resolve to the
+    # canonical `plan:<path>` ref the same way `satisfies` resolves bare SR
+    # ids, and be carried in `relations` (design:112's contract example).
+    _fixtures.write_plan(tmp_path, "2026-07-20-factory-plan-and-run.md", title="Factory plan")
+    _fixtures.write_task(
+        tmp_path / "tasks", "T-060", title="Wire the governor",
+        source_plan="docs/superpowers/plans/2026-07-20-factory-plan-and-run.md",
+    )
+    entry = build_labels(tmp_path)["labels"]["task:T-060"]
+    assert entry["relations"]["source_plan"] == [
+        "plan:docs/superpowers/plans/2026-07-20-factory-plan-and-run.md"
+    ]
+
+
+def test_task_with_no_source_plan_carries_no_source_plan_relation(tmp_path):
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
+    entry = build_labels(tmp_path)["labels"]["task:T-060"]
+    assert "source_plan" not in entry["relations"]
 
 
 def test_adr_entries_exist_even_though_the_graph_has_no_adr_nodes(tmp_path):
@@ -174,3 +196,51 @@ def test_unreadable_spec_degrades_only_that_entry(tmp_path):
     assert any("2026-08-14-bad-design.md" in reason for reason in payload["degraded"])
     # The rest of the index is unaffected by the one bad file.
     assert payload["labels"]["task:T-060"]["title"] == "Wire the governor"
+
+
+# --- C1: file: entries (final review fix wave) ------------------------------
+
+
+def test_build_labels_emits_file_entries_from_evidence_manifests(tmp_path):
+    _fixtures.write_run_manifest(
+        tmp_path, run_id="run-001", task_id="T-001",
+        changed_files=["src/drone/planning/reactive.py", "tests/test_reactive.py"],
+    )
+    payload = build_labels(tmp_path)
+    file_refs = [ref for ref in payload["labels"] if ref.startswith("file:")]
+    assert set(file_refs) == {
+        "file:src/drone/planning/reactive.py",
+        "file:tests/test_reactive.py",
+    }
+
+
+def test_a_known_changed_file_path_resolves_and_renders_with_its_path_as_title(tmp_path):
+    _fixtures.write_run_manifest(
+        tmp_path, run_id="run-001", task_id="T-001",
+        changed_files=["src/drone/planning/reactive.py"],
+    )
+    payload = build_labels(tmp_path)
+    ref = "file:src/drone/planning/reactive.py"
+    entry = payload["labels"][ref]
+    assert entry == file_entry(tmp_path, "src/drone/planning/reactive.py")
+    assert entry["title"] == "src/drone/planning/reactive.py"
+    assert entry["description"] is None
+    assert entry["description_source"] is None
+
+    # Resolvable both as the canonical ref (queries.py's _file_ref spelling,
+    # used by the traversal payload) AND as the bare, unprefixed path
+    # (system_claim.changed_files / the reverse-walk file field's spelling,
+    # both frozen response schemas this feature does not touch) -- refChip
+    # passes each site's own raw string straight through with no prefixing.
+    assert payload["aliases"][ref] == ref
+    assert payload["aliases"]["src/drone/planning/reactive.py"] == ref
+
+
+def test_file_entry_never_invents_a_title_or_description(tmp_path):
+    entry = file_entry(tmp_path, "src/a.py")
+    assert entry == {
+        "ref": "file:src/a.py", "id": "a.py", "kind": "file",
+        "title": "src/a.py", "description": None, "description_source": None,
+        "deferral_reason": None, "status": None, "relations": {},
+        "path": "src/a.py", "scope_href": "/system?scope=file%3Asrc%2Fa.py",
+    }

@@ -410,6 +410,35 @@ describe("system navigator landing and focus modes", () => {
     vi.useRealTimers();
   });
 
+  // I4: the labels fetch is issued and awaited before health, but must not
+  // stall boot indefinitely when it hangs -- same 15s timeout and "treat a
+  // timeout like any other failure" shape as the health scan above.
+  it("aborts a stalled labels fetch instead of stalling the whole page (I4)", async () => {
+    vi.useFakeTimers();
+    let labelsSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/labels") {
+        labelsSignal = init?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          labelsSignal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      return scopeResponse(url.pathname);
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(labelsSignal?.aborted).toBe(true);
+    // A timed-out labels fetch resolves exactly like any other labels
+    // failure (setLabels(null)) -- health still loads and the landing
+    // renders, it never stalls behind the labels fetch.
+    await vi.waitFor(() => expect(doc.querySelectorAll(".health-metric")).toHaveLength(5));
+    vi.useRealTimers();
+  });
+
   it("renders honest zero metrics and an actionable feature directory", async () => {
     const fetchMock = vi.fn((input: string | URL) => {
       const url = new URL(String(input), "http://localhost/");
@@ -456,6 +485,30 @@ describe("system navigator landing and focus modes", () => {
     expect(doc.activeElement).toBe(doc.querySelector("#tabTrace"));
     (doc.activeElement as HTMLElement).dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     expect(doc.activeElement).toBe(brief);
+  });
+
+  // M10: renderBrief and the context rail's renderContextRailNextStep both
+  // used to render an identical `no_claims` Next step block, simultaneously
+  // visible at >=1200px. The rail is the persistent context surface and now
+  // owns it exclusively.
+  it("renders exactly one no_claims Next step, in the context rail, not the panel", async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      return scopeResponse(url.pathname); // brief.claims defaults to []
+    });
+    const dom = loadDom(fetchMock);
+    const doc = dom.window.document;
+    await vi.waitFor(() => expect(doc.querySelector(".feature-row")).not.toBeNull());
+
+    (doc.querySelector(".feature-row") as HTMLElement).click();
+    await vi.waitFor(() => expect((doc.querySelector("#scopeWorkspace") as HTMLElement).hidden).toBe(false));
+    await vi.waitFor(() => expect(doc.querySelector("#panelBrief")?.textContent).toContain("No claims recorded"));
+
+    expect(doc.querySelectorAll("#panelBrief .next-step").length).toBe(0);
+    const railNextStep = doc.querySelector("#contextRailNextStep .next-step");
+    expect(railNextStep).not.toBeNull();
+    expect(railNextStep?.textContent).toContain("NEXT STEP");
   });
 
   it("shows contextual bundle content while bounding the optional traversal", async () => {
