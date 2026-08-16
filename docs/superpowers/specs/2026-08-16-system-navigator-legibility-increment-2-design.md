@@ -170,6 +170,11 @@ force the heavy steps to truncate while the empty one holds nothing.
 - Sequence is carried by the numbered markers and the left rail. **The decorative
   `::after` chevron is removed** — Increment 1's review already noted it no longer
   bridges columns and reads as an orphan; in a vertical ladder it is redundant.
+- Removing `::after` also orphans the narrow-viewport block at `system-shell.ts:452`,
+  which collapses `.traversal-path` to one column and re-rotates the chevron for that
+  layout. That block IS the vertical-ladder precedent -- the codebase already does this
+  on mobile. Making the ladder the default means folding that block in and deleting
+  what is left, not leaving it as dead CSS.
 - The five-row cap and `+ N more` disclosure stay. Bounding the list is right; the
   count on the rule makes the bound honest.
 - An empty step renders `Not recorded` **and its Next step inline**, in the step where
@@ -177,19 +182,43 @@ force the heavy steps to truncate while the empty one holds nothing.
 
 ## Component 3 — Chips navigate
 
-`refChip` returns an `<a href>` when the ref has a `scope_href`, and a `<span>`
-otherwise. Clicking navigates to that artifact's page; hover and keyboard focus still
-open the info card.
+`refChip` returns an `<a>` when the ref has a `scope_href`, and a `<span>` otherwise.
 
-This gives back what a link gives: middle-click, open-in-new-tab, copy-link, the
-browser's own focus and visited semantics — none of which a `<span role="button">`
-provides.
+**Reuse the existing SPA precedent — do not invent navigation.** `system-bootstrap.ts:623`
+already carries a delegated handler for `a.scope-open` anchors that reads `data-scope`,
+calls `preventDefault()`, and routes to `loadScope(ref, true, true, tab)`. The anchor
+form of a chip therefore emits exactly that contract:
+
+```html
+<a class="ref-chip scope-open" href="/system?scope=task%3AT-060" data-scope="task:T-060">
+```
+
+`href` gives the browser semantics a link should have — middle-click, open-in-new-tab,
+copy-link, visited state, status-bar preview. `data-scope` + the existing handler give
+the in-page transition. Without `preventDefault` the page would hard-reload and discard
+all in-memory state, which is why the precedent must be reused rather than re-derived.
+
+**Two things this breaks that the first draft missed:**
+
+1. **Nested anchors.** `system-bootstrap.ts:451` currently does
+   `a.href = …; a.appendChild(refChip(ref))` in the Unbundled picker list — wrapping a
+   chip inside its own anchor. Once `refChip` returns an anchor that becomes
+   `<a><a>…</a></a>`: invalid interactive nesting, inconsistent AT and click semantics,
+   and two competing handlers. That call site must stop wrapping and append the chip
+   directly, letting the chip be the link.
+2. **The card controller must not swallow the click.** `ensureCardController`'s
+   document-level `click` handler (`system-comprehension.ts:585`) neither
+   `preventDefault`s nor `stopPropagation`s today. With an anchor chip, a plain click
+   would toggle the card *and* navigate. Decide and specify one behaviour: a click on
+   an anchor chip navigates and does not toggle the card; hover and keyboard focus
+   still open it. The controller must exclude anchor chips from its click-toggle path
+   while keeping it for span chips.
 
 Accessibility: an anchor is already actionable, so the anchor form drops
-`role="button"` and uses `aria-describedby` pointing at the card. The non-openable
-span form keeps `role="button"` and `aria-expanded` as today. `scope_href` is non-null
-only for `bundle`, `sr`, `task`, `file` — unchanged from Increment 1; `spec`, `plan`,
-`adr` remain non-openable and render as spans.
+`role="button"` and uses `aria-describedby` pointing at the card. The span form keeps
+`role="button"` and `aria-expanded` as today. `scope_href` is non-null only for
+`bundle`, `sr`, `task`, `file` (`labels.py:84`), so `spec`, `plan` and `adr` chips stay
+spans.
 
 ## Component 4 — Every panel says what it is
 
@@ -201,25 +230,57 @@ Wording lives in Python, in a new `PANELS` table in `vocabulary.py`, so the brow
 keeps rendering rather than authoring. Each entry has `label`, `what_it_shows` (one
 sentence), and `how_to_read` (one sentence).
 
-Draft wording, to be checked against what each panel actually renders:
+**`TABS_BY_KIND` (`system-bootstrap.ts:548`) holds THIRTEEN tab ids, not seven** --
+`Brief, Matrix, Timeline, Guide, Trace, Vcycle, Validation, Feature, Story, Reverse,
+Goal, Sim, Diagram`. All thirteen need wording; the first draft covered seven and would
+have failed its own completeness test.
+
+The seven below were fact-checked against their renderers. The six added here must be
+fact-checked the same way during implementation, against their real renderers, before
+shipping -- a wrong orientation sentence is worse than none.
 
 | Panel | What it shows | How to read it |
 |---|---|---|
-| Brief | Every claim this scope makes, with the evidence behind it. | Each card's badge says whether the claim was copied from a file, computed, or written by an agent. |
-| Matrix | Whether each requirement's validation has run, and what it concluded. | `never-run` means no result was ever recorded — not that it failed. |
+| Brief | Every claim this scope makes, with the evidence behind it. | The badge says where the claim came from: copied from a file, computed, written by an agent, or **missing** -- a claim can be recorded as absent. |
+| Matrix | Whether each requirement's validation has run, and what it concluded. | `never-run` means no result was ever recorded -- not that it failed. |
 | Timeline | Decisions recorded against this scope, in the order they happened. | An actor of `not-recorded` means the record does not say who decided. |
-| Guide | A prose walkthrough assembled from the same recorded claims. | Quoted spans are verbatim; anything else is assembled from them. |
-| Trace | The V-cycle chain: requirement → satisfying tasks → their plans and specs. | A hop reading `unresolved` means the link exists but its target does not. |
-| Story | Every recorded run of this task, and what each one changed. | A run sourced from a session has no commit range; only manifests record one. |
+| Guide | A prose walkthrough: fixed scaffolding with verbatim quotes inserted into it. | The quoted spans are verbatim from their sources; the prose around them is template text, NOT derived from the quotes. |
+| Trace | The V-cycle chain: requirement, the tasks satisfying it, and their plans and specs. | A hop reading `unresolved` covers two cases: no link was ever recorded, or a link exists whose target cannot be found. |
+| Story | Every recorded run of this task, and what each one changed. | A run sourced from a session has no commit range; only evidence manifests record one. |
 | Reverse | Which requirement this file traces back to, and through which run. | `stops_at` names the first hop that did not resolve. |
+| Vcycle | *(fact-check against its renderer during implementation)* | |
+| Validation | *(fact-check against its renderer during implementation)* | |
+| Feature | *(fact-check against its renderer during implementation)* | |
+| Goal | *(fact-check against its renderer during implementation)* | |
+| Sim | *(fact-check against its renderer during implementation)* | |
+| Diagram | *(fact-check against its renderer during implementation)* | |
 
-A completeness test asserts every tab id in `TABS_BY_KIND` has a `PANELS` entry.
+**The completeness test is a TypeScript/jsdom test, not a Python one.** `TABS_BY_KIND`
+lives only in TypeScript; duplicating the tab list in Python to assert against would
+reintroduce exactly the drift the test exists to prevent. The test renders the page and
+asserts every tab present in the DOM has a matching orientation line. Python owns only
+the wording.
+
+
 
 ## Component 5 — Increment 1's residuals
 
-1. **Unreachable remediation states.** 17 of 27 never render. Wire the ones whose
-   trigger the browser can already see: `no_requirements`, `no_changed_files`,
-   `no_trace`, `no_commit_range`, `traversal_not_applicable`, `unbundled_artifact`.
+1. **Unreachable remediation states.** 17 of 27 never render. The six unwired absence
+   states are NOT uniform in shape, and two collide with a standing Increment 1 rule.
+   Handle each explicitly:
+   - `no_requirements`, `traversal_not_applicable` -- plain panel-level empties. Wire as
+     the existing ones are wired.
+   - `unbundled_artifact` -- a per-artifact state, structurally like the working
+     `matrix_never_run` per-row pattern, not a panel empty. Wire it that way.
+   - `no_changed_files`, `no_commit_range` -- per-RUN states, rendered once per run box
+     by `renderRunDetail`. `renderChangedFiles` carries an explicit Increment 1 comment:
+     *"no Next step block here: one Next step per panel, never one per empty child."*
+     Wiring these naively reintroduces exactly what that rule prevents. Resolve it:
+     render ONE panel-level next step only when EVERY run in the panel lacks the data,
+     and word the entry to match.
+   - `no_trace` -- `renderTrace`'s empty branch calls `renderNotApplicable`, a plainer
+     render path with no `presence-rail` and no `nextStepBlock` capability. This is a
+     render-path switch, not a one-line addition.
    The 11 `GapKind` states need gap data the browser does not receive; **remove the
    spec's promise that they render**, and record them as CLI-only until a gaps
    projection exists. Increment 1's spec over-promised and its text must be corrected
@@ -230,7 +291,7 @@ A completeness test asserts every tab id in `TABS_BY_KIND` has a `PANELS` entry.
    collision.
 3. **`.presence-rail.is-failure` is dead CSS.** Either wire a state that uses it or
    delete it. Decide from the code; do not leave an unreachable style.
-4. **`adr` members crash the Brief tab.** `queries.py:1011` raises
+4. **`adr` members crash the Brief tab.** `queries.py:1037` raises
    `AssertionError: unexpected member kind: 'adr'`, breaking Brief for 2 of 14 bundles
    in the product repo (`event-log-replay-metrics`,
    `governance-traceability-contract-spine`) and taking the new context rail's
