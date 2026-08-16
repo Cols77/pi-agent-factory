@@ -10,7 +10,7 @@
 // redeclaring minimal subsets of them would be pure risk with no benefit.
 
 import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BeforeAgentStartEventResult as SdkBeforeAgentStartEventResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export interface ModelInfo {
   provider: string;
@@ -95,10 +95,10 @@ export interface BeforeAgentStartEvent {
   systemPrompt: string;
 }
 
-export interface BeforeAgentStartEventResult {
-  message?: { customType: string; content: string; display?: boolean; details?: string };
-  systemPrompt?: string;
-}
+// Pinned to the real SDK type. The earlier hand-declared `message` subset
+// (content: string) drifted from the SDK's CustomMessage (content may be a
+// text/block array) and broke type-compat-check.ts; an alias cannot drift.
+export type BeforeAgentStartEventResult = SdkBeforeAgentStartEventResult;
 
 export interface SessionStartEvent {
   type: "session_start";

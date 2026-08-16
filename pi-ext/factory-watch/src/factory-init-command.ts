@@ -196,7 +196,7 @@ export function registerFactoryInit(pi: PiApi): void {
   const injectedSessions = new Set<string>();
   pi.on("before_agent_start", (_event, ctx) => {
     try {
-      const root = resolveProjectRoot(ctx.cwd);
+      const { root } = resolveProjectRoot(ctx.cwd);
       if (!hasCodeIndex(root)) return {}; // project has no factory code index
       if (!shouldInject(injectedSessions, root, ctx.sessionManager?.getSessionId())) {
         return {};

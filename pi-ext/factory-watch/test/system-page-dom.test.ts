@@ -421,7 +421,7 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     // Every direct chip is the real absent-ref rendering (no title index
     // wired up yet), not a guessed or blank label.
     expect(Array.from(directChips).every((chip) => chip.className.includes("is-absent"))).toBe(true);
-    expect(directChips[0].querySelector(".chip-title")?.textContent).toBe("not in the label index");
+    expect(directChips[0]!.querySelector(".chip-title")?.textContent).toBe("not in the label index");
     const details = list.querySelector(":scope > details")!;
     expect(details).toBeTruthy();
     expect(details.querySelector("summary")?.textContent).toBe("+ 2 more");
