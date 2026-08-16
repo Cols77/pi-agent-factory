@@ -29,6 +29,7 @@ import {
   loadSystemVcycle,
   loadSystemGoal,
   loadSystemValidation,
+  loadSystemCatchup,
   loadSystemSimRun,
   loadSystemDiagram,
 } from "./system-cli.js";
@@ -377,6 +378,18 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // Inc 6 Task 5b: one diagram stub + its committed HTML (query_diagram).
   if (req.method === "GET" && url.pathname === "/api/system/diagram") {
     const result = loadSystemDiagram(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 7 Task 3: the deterministic 'since your last review' delta
+  // (query_catchup, the read-only projection the Catch-me-up view renders).
+  if (req.method === "GET" && url.pathname === "/api/system/catchup") {
+    const result = loadSystemCatchup(cwd, url.searchParams.get("feature") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

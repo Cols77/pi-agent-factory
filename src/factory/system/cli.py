@@ -36,6 +36,7 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_catchup,
     query_diagram,
     query_feature_context,
     query_goal,
@@ -71,6 +72,10 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
 def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_vcycle(repo_root, scope)
+
+
+def cmd_catchup(repo_root: Path, feature: str) -> dict:
+    return query_catchup(repo_root, feature)
 
 
 def cmd_validation(repo_root: Path, scope_raw: str) -> dict:
@@ -449,6 +454,54 @@ def _render_present(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_catchup(result: dict) -> str:
+    """The spec §31 'since your last review' block, deterministic field order."""
+    lines = [f"catchup: {result['feature']}"]
+    if not result["reviewed"]:
+        lines.append("  no review recorded yet for this feature")
+        return "\n".join(lines)
+    delta = result["delta"]
+    since = (result.get("since_commit") or "")[:8]
+    lines.append(f"  since: {since} (reviewed {result.get('reviewed_at')})")
+    if not any(
+        delta[k]
+        for k in (
+            "prs_merged",
+            "requirements_changed",
+            "adrs_added",
+            "scenarios_added",
+            "goals_reached",
+            "goals_regressed",
+            "metric_changes",
+            "new_open_items",
+        )
+    ):
+        lines.append("  no changes since your last review")
+        return "\n".join(lines)
+    lines.append("Since your last review:")
+    for req in delta["requirements_changed"]:
+        lines.append(f"  requirements changed:  {req}")
+    for adr in delta["adrs_added"]:
+        lines.append(f"  design decisions:      {adr} added")
+    for pr in delta["prs_merged"]:
+        lines.append(f"  implementation:        {pr}")
+    for scenario in delta["scenarios_added"]:
+        lines.append(f"  new experiments:       {scenario}")
+    for goal in delta["goals_reached"]:
+        lines.append(f"  goals reached:         {goal}")
+    for goal in delta["goals_regressed"]:
+        lines.append(f"  goals regressed:       {goal}")
+    for metric in delta["metric_changes"]:
+        from_v = metric["from"]
+        to_v = metric["to"]
+        arrow = f"{from_v} -> {to_v}" if from_v is not None else f"{to_v} (no prior value)"
+        regression = " (REGRESSED)" if metric["regression"] else ""
+        lines.append(f"  metrics:               {metric['metric']} {arrow}{regression}")
+    for item in delta["new_open_items"]:
+        lines.append(f"  new open items:        {item}")
+    return "\n".join(lines)
+
+
 def _render_matrix(result: dict) -> str:
     lines = [f"scope: {result['scope']['ref']}"]
     for row in result["rows"]:
@@ -663,6 +716,9 @@ def main(argv: list[str] | None = None) -> int:
     p_validation = sub.add_parser("validation", parents=[common])
     p_validation.add_argument("--scope", required=True)
 
+    p_catchup = sub.add_parser("catchup", parents=[common])
+    p_catchup.add_argument("--feature", required=True)
+
     p_diagram = sub.add_parser("diagram", parents=[common])
     p_diagram.add_argument("diagram_id")
 
@@ -754,6 +810,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "validation":
             result = cmd_validation(args.repo_root, args.scope)
             rendered = _render_validation(result)
+        elif args.cmd == "catchup":
+            result = cmd_catchup(args.repo_root, args.feature)
+            rendered = _render_catchup(result)
         elif args.cmd == "bundle":
             result = cmd_bundle_check(args.repo_root, args.draft)
             rendered = _render_bundle_check(result)

@@ -1834,3 +1834,41 @@ def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
         "vcycle": to_dict(slice_),
         "statuses": _vcycle_statuses(repo_root, slice_),
     }
+
+
+def query_catchup(repo_root: Path, feature: str) -> dict:
+    """Return the recorded 'since your last review' delta for one feature.
+
+    Read-only projection for the agent (Inc 4) and the SCC Catch-me-up view
+    (Inc 7 Task 3): the recorded checkpoint commit is loaded (never inferred),
+    the ``ContextDelta`` is computed deterministically from recorded sources,
+    and nothing is written -- checkpoint upgrades are the `/catchup` command's
+    job, not a query's.
+
+    ``reviewed: false`` means no checkpoint is recorded yet -- legitimate,
+    not an error (spec §31). Raises ``ScopeNotFoundError`` when the feature
+    cannot be resolved, and ``ValueError`` when the recorded checkpoint
+    commit no longer resolves.
+    """
+    from dataclasses import asdict
+
+    from factory.delta.checkpoint import load_checkpoint
+    from factory.delta.compute import compute_delta
+
+    pi_dir = repo_root / ".pi"
+    checkpoint = load_checkpoint(pi_dir, feature)
+    if checkpoint is None:
+        return {"feature": feature, "reviewed": False, "since_commit": None, "delta": None}
+    try:
+        delta = compute_delta(repo_root, feature, checkpoint.commit)
+    except ValueError as exc:
+        if str(exc).startswith("feature not found"):
+            raise ScopeNotFoundError(str(exc)) from exc
+        raise
+    return {
+        "feature": feature,
+        "reviewed": True,
+        "since_commit": checkpoint.commit,
+        "reviewed_at": checkpoint.reviewed_at,
+        "delta": asdict(delta),
+    }

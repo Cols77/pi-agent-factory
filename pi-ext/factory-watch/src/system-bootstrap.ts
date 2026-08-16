@@ -28,6 +28,7 @@ declare const renderGoal: (el: HTMLElement, payload: any) => void;
 declare const renderValidation: (el: HTMLElement, payload: any) => void;
 declare const renderSim: (el: HTMLElement, payload: any) => void;
 declare const renderDiagram: (el: HTMLElement, payload: any, focus?: string | null) => void;
+declare const renderCatchup: (el: HTMLElement, payload: any) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
 declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
@@ -544,7 +545,7 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram', 'Catchup'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     sr: ['Brief', 'Vcycle', 'Validation', 'Matrix', 'Timeline', 'Guide', 'Trace'],
@@ -554,6 +555,7 @@ export async function systemBootstrap(): Promise<void> {
     goal: ['Goal'],
     sim: ['Sim'],
     diag: ['Diagram'],
+    catchup: ['Catchup'],
   };
 
   function configureTabs(kind: string): void {
@@ -601,7 +603,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', diagram: 'Diagram', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', diagram: 'Diagram', catchup: 'Catchup', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -616,6 +618,7 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
   (document.getElementById('tabSim') as HTMLElement).onclick = () => showTab('Sim');
   (document.getElementById('tabDiagram') as HTMLElement).onclick = () => showTab('Diagram');
+  (document.getElementById('tabCatchup') as HTMLElement).onclick = () => showTab('Catchup');
 
   // Inc 6 Task 6 (AC-02/AC-09): delegated SPA navigation for the widgets'
   // `a.scope-open` anchors. The anchor carries the exact scope ref and an
@@ -701,6 +704,7 @@ export async function systemBootstrap(): Promise<void> {
     if (kind === 'goal') return 'Goal';
     if (kind === 'sim') return 'Sim';
     if (kind === 'diag') return 'Diagram';
+    if (kind === 'catchup') return 'Catchup';
     if (kind === 'feat') return 'Feature';
     return 'Brief';
   }
@@ -959,6 +963,31 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
+  async function loadCatchupScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 7 Task 3: catchup:FEAT-... scopes present the deterministic
+    // 'since your last review' delta on the Catch-me-up tab. The payload is
+    // query_catchup (read-only); the /catchup command owns checkpoint writes.
+    const feature = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/catchup?feature=' + encodeURIComponent(feature), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const catchup = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderCatchup(document.getElementById('panelCatchup') as HTMLElement, catchup);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a catchup: scope. See the Catch me up tab.'
+      )
+    );
+    configureTabs('catchup');
+    selectInitialTab('Catchup', updateUrl);
+    setLoading(false, true);
+  }
+
   async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true, intendedTab?: string): Promise<void> {
     invalidateHealth();
     const generation = ++navigationGeneration;
@@ -995,6 +1024,10 @@ export async function systemBootstrap(): Promise<void> {
       }
       if (kind === 'diag') {
         await loadDiagramScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'catchup') {
+        await loadCatchupScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
       await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);

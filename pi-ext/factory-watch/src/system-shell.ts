@@ -16,6 +16,7 @@ import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, short
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
 import { renderDiagram } from './system-diagram-view.js';
+import { catchupRow, catchupRefLine, catchupSection, catchupTextList, metricRows, renderCatchup } from './system-catchup-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -151,6 +152,12 @@ function clientSource(): string {
     simRefLine,
     renderSim,
     renderDiagram,
+    renderCatchup,
+    catchupRow,
+    metricRows,
+    catchupRefLine,
+    catchupTextList,
+    catchupSection,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -714,6 +721,7 @@ export function renderSystemPageHtml(): string {
             <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
             <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
             <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
+            <button id="tabCatchup" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelCatchup" aria-label="Catch me up">Catch me up</button>
           </div></nav>
           <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
           <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -728,6 +736,7 @@ export function renderSystemPageHtml(): string {
           <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
           <div id="panelSim" class="panel" role="tabpanel" aria-labelledby="tabSim" hidden></div>
           <div id="panelDiagram" class="panel" role="tabpanel" aria-labelledby="tabDiagram" hidden></div>
+          <div id="panelCatchup" class="panel" role="tabpanel" aria-labelledby="tabCatchup" hidden></div>
         </div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
