@@ -489,6 +489,68 @@ def _resolve_trace_member(
     return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
 
 
+def _resolve_adr_member(
+    member: SystemScopeRef,
+    identifier: str,
+    adrs: dict[str, adr_module.AdrDocument] | None,
+    adrs_error: str | None,
+    bundle_citation: SystemCitation,
+) -> _MemberResolution:
+    """Resolve an `adr:` bundle member against the ADR loader directly.
+
+    `trace_model.load_nodes` emits no `adr` nodes (trace/model.py), so
+    `_resolve_trace_member`'s node lookup can never find one -- this mirrors
+    how `labels.py` builds its label index, loading ADRs from
+    `factory.system.adr` rather than the trace loader.
+
+    `adrs`/`adrs_error` are supplied by the caller, which loads (and caches)
+    `adr_module.load_adrs()` once per `query_brief` call -- the same
+    discipline `trace_nodes` already gets at the call site -- not once per
+    member.
+    """
+    if adrs_error is not None:
+        # adr_module.load_adrs() raised DuplicateAdrIdError (adr.py) when the
+        # caller loaded it. Brief must never raise, so this degrades to a
+        # missing claim naming the duplicate rather than propagating.
+        claim = SystemClaim(
+            kind=ClaimClass.MISSING,
+            text=f"{member.ref}: {adrs_error}",
+            freshness=Freshness(state=FreshnessState.NA, reason="duplicate ADR id", dependencies=[]),
+            citations=[bundle_citation],
+        )
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+
+    doc = (adrs or {}).get(identifier)
+    if doc is None:
+        claim = SystemClaim(
+            kind=ClaimClass.MISSING,
+            text=member.ref,
+            freshness=Freshness(state=FreshnessState.NA, reason="bundle member does not exist in repo", dependencies=[]),
+            # The bundle's own citation -- the shape bundles.py:116-130 already
+            # uses for an unresolvable member ref -- since there is no ADR
+            # file to cite instead.
+            citations=[bundle_citation],
+        )
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+
+    # CitationKind has no `adr` member (models.py: manifest, task,
+    # requirement, validation, review, decision, trace, bundle, session).
+    # An ADR is a decision record, so DECISION is the right kind -- matching
+    # what `_adr_brief` already uses for the same document.
+    citation = SystemCitation(
+        kind=CitationKind.DECISION,
+        path=str(doc.path),
+        sha256=_sha256_file(doc.path),
+    )
+    claim = SystemClaim(
+        kind=ClaimClass.RECORDED,
+        text=member.ref,
+        freshness=_fresh(),
+        citations=[citation],
+    )
+    return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
+
+
 def _document_titles(repo_root: Path) -> dict[Path, str]:
     """Recorded titles for every spec/plan/task/SR document, keyed by real path.
 
@@ -1010,6 +1072,8 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         statuses = _load_validation_statuses(repo_root, report_corrupt)
         report_citation = _validation_report_citation(repo_root)
         trace_nodes: list[trace_model.Node] | None = None
+        adrs: dict[str, adr_module.AdrDocument] | None = None
+        adrs_error: str | None = None
 
         unresolved_member_count = 0
         unreadable_summary_count = 0
@@ -1033,6 +1097,16 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 if trace_nodes is None:
                     trace_nodes = trace_model.load_nodes(repo_root)
                 resolution = _resolve_trace_member(member, identifier, trace_nodes)
+            elif member.kind == "adr":
+                # load_nodes emits no adr nodes (trace/model.py), so the trace
+                # path can never resolve one -- resolve from the ADR loader, as
+                # the label index already does (labels.py).
+                if adrs is None and adrs_error is None:
+                    try:
+                        adrs = adr_module.load_adrs(repo_root)
+                    except adr_module.DuplicateAdrIdError as exc:
+                        adrs_error = str(exc)
+                resolution = _resolve_adr_member(member, identifier, adrs, adrs_error, bundle.citation)
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)

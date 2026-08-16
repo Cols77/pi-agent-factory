@@ -169,6 +169,65 @@ def test_bundle_brief_resolves_feature_metric_and_goal_members_in_declared_order
     assert result["degraded"] is False
 
 
+# ---------------------------------------------------------------------------
+# adr: bundle members -- trace/model.py emits no adr nodes, so these must
+# resolve through factory.system.adr directly (mirrors labels.py) rather
+# than falling into the generic trace-member path or, worse, an assertion.
+# ---------------------------------------------------------------------------
+
+
+def test_brief_resolves_an_adr_member_instead_of_raising(tmp_path):
+    adr_dir = tmp_path / "docs" / "adr"
+    adr_dir.mkdir(parents=True)
+    (adr_dir / "0001-use-bundles.md").write_text(
+        "---\nid: ADR-0001\ntitle: Use bundles\nstatus: accepted\n---\n\n"
+        "## Decision\n\nWe group by feature bundle.\n",
+        encoding="utf-8",
+    )
+    write_bundle(tmp_path / "bundles", "b1", "Bundle one", ["adr:ADR-0001"])
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:b1"))
+
+    assert any("ADR-0001" in c["text"] for c in result["claims"])
+    member_claim = result["claims"][1]
+    assert member_claim["kind"] == "recorded"
+    assert member_claim["citations"][0]["kind"] == "decision"
+    assert member_claim["citations"][0]["path"].endswith("0001-use-bundles.md")
+    assert result["degraded"] is False
+
+
+def test_brief_reports_an_unresolvable_adr_member_as_missing_with_bundle_citation(tmp_path):
+    bundle_path = write_bundle(tmp_path / "bundles", "b1", "Bundle one", ["adr:ADR-9999"])
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:b1"))
+
+    member_claim = result["claims"][1]
+    assert member_claim["kind"] == "missing"
+    # The bundle's own citation -- the shape bundles.py already uses for an
+    # unresolvable member ref (there is no ADR file to cite instead).
+    assert member_claim["citations"][0]["kind"] == "bundle"
+    assert member_claim["citations"][0]["path"] == str(bundle_path)
+    assert result["degraded"] is True
+
+
+def test_brief_degrades_a_duplicate_adr_id_to_a_missing_claim_instead_of_raising(tmp_path):
+    adr_dir = tmp_path / "docs" / "adr"
+    adr_dir.mkdir(parents=True)
+    for filename in ("0001-a.md", "0001-b.md"):
+        (adr_dir / filename).write_text(
+            "---\nid: ADR-0001\ntitle: T\nstatus: accepted\n---\nbody\n",
+            encoding="utf-8",
+        )
+    write_bundle(tmp_path / "bundles", "b1", "Bundle one", ["adr:ADR-0001"])
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:b1"))
+
+    member_claim = result["claims"][1]
+    assert member_claim["kind"] == "missing"
+    assert "ADR-0001" in member_claim["text"]
+    assert result["degraded"] is True
+
+
 def test_query_brief_does_not_fuzzy_match_sr_id(tmp_path):
     # "SR-1" must not resolve to "SR-001" -- exact refs only.
     write_sr(tmp_path / "requirements", "SR-001")
