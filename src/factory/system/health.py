@@ -227,6 +227,7 @@ def query_health(root: Path, recency_source=None) -> dict:
         "sr_listed": False,
         "degraded": degraded,
         "vcycle_findings": [asdict(f) for f in vcycle_health(root, nodes=nodes, edges=edges, validation=validation)],
+        "freshness_findings": [asdict(f) for f in freshness_health(root, nodes=nodes, edges=edges)],
     }
 
 
@@ -341,3 +342,131 @@ def vcycle_health(
 
     findings.sort(key=lambda f: (f.code, f.subject))
     return findings
+
+
+def freshness_health(
+    root: Path,
+    *,
+    nodes: list[trace_model.Node] | None = None,
+    edges: list[trace_model.Edge] | None = None,
+) -> list[Finding]:
+    """Change-impact findings from the freshness engine (Inc 7 Task 5l).
+
+    A pure query -- never executes refresh actions. Composes
+    ``factory.freshness.deps.check_artifact`` (per-artifact freshness),
+    ``factory.freshness.policy.refresh_decision``/``generators_for``
+    (availability boundary) and ``freshness_closure`` (feature coherence):
+
+    * ``IMPL_STALE``        -- implementation affected by a changed upstream
+      requirement (semantic invalidation; refresh policy is ROUTE_TO_DEV).
+    * ``EVIDENCE_STALE``    -- a run's recorded dependency fingerprints no
+      longer match its sources.
+    * ``EXPLAINER_STALE``   -- a visual explainer's recorded fingerprints no
+      longer match the SRs/code it explains.
+    * ``DIAGRAM_STALE``     -- a diagram's recorded fingerprints no longer
+      match the content it illustrates.
+    * ``MISSING_PROVENANCE``-- freshness cannot be verified (missing recorded
+      fingerprint or vanished source); never assumed fresh.
+    * ``REFRESH_BLOCKED``   -- the required action (REGENERATE/RERUN) has no
+      registered generator/harness: explicitly blocked, never silently fresh.
+    * ``REGENERATION_FAILED``-- a generated artifact is stale even though its
+      generator is registered (it should have been auto-refreshed).
+    * ``CLOSURE_UNRESOLVED``-- a feature's freshness closure is not reached.
+
+    Refresh-loop detection is a runtime reconcile property (bounded attempts,
+    policy.reconcile) and is deliberately NOT derived here: a pure query has
+    no execution state to observe.
+    """
+    from factory.freshness import deps as freshness_deps
+    from factory.freshness import policy as freshness_policy
+
+    if nodes is None:
+        nodes = trace_model.load_nodes(root)
+    if edges is None:
+        edges = trace_model.extract_edges(root, nodes)
+    dep_edges = freshness_deps.collect_dependency_edges(root, nodes=nodes, edges=edges)
+
+    findings: list[Finding] = []
+
+    # IMPL_STALE: code affected by a changed upstream requirement.
+    for ref in sorted(freshness_policy.semantically_invalidated_code(root, dep_edges=dep_edges)):
+        findings.append(
+            Finding(
+                "IMPL_STALE",
+                "error",
+                ref,
+                "upstream requirement changed: repair through the DEV workflow (ROUTE_TO_DEV)",
+            )
+        )
+
+    # Per-artifact freshness over the declared dependency graph.
+    refs: set[str] = set()
+    for run in sim_registry.load_runs(_evidence_dir(root)):
+        refs.add(f"run:{run.run_id}")
+    for explainer in _load_explainers(root):
+        refs.add(f"explainer:{explainer.id}")
+    for node in nodes:
+        if node.kind == "diag":
+            refs.add(f"diag:{node.id}")
+
+    for ref in sorted(refs):
+        state = freshness_deps.check_artifact(root, ref, dep_edges=dep_edges)
+        kind = ref.partition(":")[0]
+        if state.state.value == "stale":
+            if kind == "run":
+                findings.append(Finding("EVIDENCE_STALE", "error", ref, "; ".join(state.reasons)))
+            elif kind == "explainer":
+                findings.append(Finding("EXPLAINER_STALE", "error", ref, "; ".join(state.reasons)))
+            elif kind == "diag":
+                findings.append(Finding("DIAGRAM_STALE", "error", ref, "; ".join(state.reasons)))
+            if kind in ("explainer", "diag") and freshness_policy.generators_for(kind):
+                findings.append(
+                    Finding(
+                        "REGENERATION_FAILED",
+                        "warning",
+                        ref,
+                        "stale despite a registered generator: automatic refresh did not converge",
+                    )
+                )
+        elif state.state.value == "unknown":
+            findings.append(
+                Finding("MISSING_PROVENANCE", "warning", ref, "; ".join(state.reasons))
+            )
+        decision = freshness_policy.refresh_decision(root, ref)
+        if (
+            state.state.value != "fresh"
+            and decision.action.value in ("regenerate", "rerun-validation")
+            and not freshness_policy.generators_for(kind)
+        ):
+            findings.append(
+                Finding(
+                    "REFRESH_BLOCKED",
+                    "warning",
+                    ref,
+                    f"required action {decision.action.value} has no registered generator/harness",
+                )
+            )
+
+    # CLOSURE_UNRESOLVED per feature.
+    for node in nodes:
+        if node.kind == "feat":
+            closure = freshness_policy.freshness_closure(root, node.id, dep_edges=dep_edges)
+            if not closure.closure_reached:
+                remaining = ", ".join(f"{r}:{s}" for r, s in sorted(closure.remaining.items()))
+                findings.append(
+                    Finding(
+                        "CLOSURE_UNRESOLVED",
+                        "warning",
+                        f"feat:{node.id}",
+                        f"freshness closure not reached ({remaining})",
+                    )
+                )
+
+    findings.sort(key=lambda f: (f.code, f.subject))
+    return findings
+
+
+def _load_explainers(root: Path):
+    from factory.trace.explainers import load_explainers
+
+    return load_explainers(root)

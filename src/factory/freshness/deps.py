@@ -118,6 +118,25 @@ def _run_dependencies(root: Path, run: Run) -> list[ArtifactDependency]:
                     "implementation->evidence",
                 )
             )
+    # The SR's implementation: the code files its validating runs recorded as
+    # dependencies (deterministically authoritative -- the run manifest
+    # declares both sides). Gives the plan's SR -> code -> evidence chain.
+    code_sources = [
+        str(dep["source"])
+        for dep in manifest.get("dependencies", [])
+        if isinstance(dep, dict) and dep.get("kind") == "file" and isinstance(dep.get("source"), str)
+    ]
+    for req in run.requirements:
+        if req.startswith(("SR-", "BR-")):
+            for source in code_sources:
+                out.append(
+                    ArtifactDependency(
+                        f"sr:{req}",
+                        f"code:{source}",
+                        None,
+                        "requirement->implementation",
+                    )
+                )
     return out
 
 
@@ -142,16 +161,20 @@ def _explainer_edges(root: Path, explainer: explainers_module.Explainer) -> list
     return out
 
 
-def _diagram_edges(root: Path) -> list[ArtifactDependency]:
+def _diagram_edges(root: Path, nodes=None, edges=None) -> list[ArtifactDependency]:
     """A diagram depends on the feature/requirement/goal it illustrates.
 
     The topology edge (``illustrates``) carries no recorded fingerprint;
     when the diagram doc records ``dep_fingerprint`` (ref -> content digest)
     those become verifiable dependencies for ``check_artifact``.
+    ``nodes``/``edges`` may be passed in from a caller that already loaded the
+    trace graph (avoiding a second glob); otherwise they are loaded here.
     """
     out: list[ArtifactDependency] = []
-    nodes = trace_model.load_nodes(root)
-    edges = trace_model.extract_edges(root, nodes)
+    if nodes is None:
+        nodes = trace_model.load_nodes(root)
+    if edges is None:
+        edges = trace_model.extract_edges(root, nodes)
     node_kinds = {node.id: node.kind for node in nodes}
     recorded: dict[str, dict[str, str]] = {}
     for node in nodes:
@@ -188,25 +211,32 @@ def _diagram_edges(root: Path) -> list[ArtifactDependency]:
     return out
 
 
-def collect_dependency_edges(root: Path) -> list[ArtifactDependency]:
-    """Every declared/authoritative artifact dependency, deterministically ordered."""
-    edges: list[ArtifactDependency] = []
+def collect_dependency_edges(root: Path, *, nodes=None, edges=None) -> list[ArtifactDependency]:
+    """Every declared/authoritative artifact dependency, deterministically ordered.
+
+    ``nodes``/``edges`` may be passed in from a caller that already loaded the
+    trace graph; the runs/explainers reads are separate manifests and are
+    always re-read (they are the recorded-fingerprint stores).
+    """
+    dep_edges: list[ArtifactDependency] = []
     for run in load_runs(_evidence_dir(root)):
-        edges.extend(_run_dependencies(root, run))
+        dep_edges.extend(_run_dependencies(root, run))
     for explainer in explainers_module.load_explainers(root):
-        edges.extend(_explainer_edges(root, explainer))
-    edges.extend(_diagram_edges(root))
+        dep_edges.extend(_explainer_edges(root, explainer))
+    dep_edges.extend(_diagram_edges(root, nodes, edges))
     dedup: dict[tuple[str, str], ArtifactDependency] = {}
-    for edge in sorted(edges, key=lambda e: (e.dependent_ref, e.source_ref, e.dependency_kind)):
+    for edge in sorted(dep_edges, key=lambda e: (e.dependent_ref, e.source_ref, e.dependency_kind)):
         key = (edge.dependent_ref, edge.source_ref)
         # First recorded fingerprint wins (dedupe keeps a recorded digest when present).
         dedup.setdefault(key, edge)
     return [dedup[k] for k in sorted(dedup)]
 
 
-def dependencies_of(root: Path, ref: str) -> list[ArtifactDependency]:
+def dependencies_of(root: Path, ref: str, *, dep_edges=None) -> list[ArtifactDependency]:
     """All declared dependencies of one artifact ref."""
-    return [e for e in collect_dependency_edges(root) if e.dependent_ref == ref]
+    if dep_edges is None:
+        dep_edges = collect_dependency_edges(root)
+    return [e for e in dep_edges if e.dependent_ref == ref]
 
 
 # ---------------------------------------------------------------------------
@@ -242,10 +272,17 @@ def normalize_ref(raw: str) -> str:
     return raw
 
 
-def compute_impact(root: Path, changed_refs: Sequence[str]) -> Impact:
+def compute_impact(
+    root: Path,
+    changed_refs: Sequence[str],
+    *,
+    dep_edges: list[ArtifactDependency] | None = None,
+) -> Impact:
     """The transitive affected-closure of `changed_refs` over declared edges."""
     changed = tuple(dict.fromkeys(normalize_ref(r) for r in changed_refs))
-    edges = collect_dependency_edges(root)
+    if dep_edges is None:
+        dep_edges = collect_dependency_edges(root)
+    edges = dep_edges
     dependents = _dependent_index(edges)
     closed: set[str] = set(changed)
     frontier: list[str] = list(changed)
@@ -313,7 +350,12 @@ def _current_source_digest(root: Path, source_ref: str) -> str | None:
     return None
 
 
-def check_artifact(root: Path, ref: str) -> ArtifactFreshness:
+def check_artifact(
+    root: Path,
+    ref: str,
+    *,
+    dep_edges: list[ArtifactDependency] | None = None,
+) -> ArtifactFreshness:
     """One artifact's current freshness from its recorded fingerprints.
 
     Authoritative and recomputed artifacts are FRESH by construction (their
@@ -326,11 +368,13 @@ def check_artifact(root: Path, ref: str) -> ArtifactFreshness:
     kind, _, _ = ref.partition(":")
 
     # Authoritative sources of truth and recomputed projections never go stale
-    # against themselves -- their dependents carry the staleness.
-    if kind in ("sr", "br", "goal", "metric", "adr", "feat") or ref.startswith("health"):
+    # against themselves -- their dependents carry the staleness. Code is
+    # authoritative-current: semantic invalidation is a separate ROUTE_TO_DEV
+    # signal (IMPACT + refresh_decision), not a stale code check.
+    if kind in ("sr", "br", "goal", "metric", "adr", "feat", "code") or ref.startswith("health"):
         return ArtifactFreshness(ref, FreshnessState.FRESH, ())
 
-    deps = dependencies_of(root, ref)
+    deps = dependencies_of(root, ref, dep_edges=dep_edges)
     if not deps:
         # No declared dependencies: nothing recorded to verify. Report UNKNOWN
         # rather than assuming fresh, unless the artifact is self-authoritative

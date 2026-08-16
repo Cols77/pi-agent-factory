@@ -275,7 +275,11 @@ def test_propagation_uses_no_llm(repo):
 
 def test_direct_dependency(repo):
     impact = compute_impact(repo, ["sr:SR-017"])
-    assert impact.directly_affected == ("explainer:NAV-PREEMPTION.md", "run:RUN-20260816-0100")
+    assert set(impact.directly_affected) == {
+        "explainer:NAV-PREEMPTION.md",
+        "run:RUN-20260816-0100",
+        "code:src/navigation/preemption.py",
+    }
 
 
 def test_two_hop_dependency(repo):

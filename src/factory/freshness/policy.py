@@ -25,10 +25,13 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+import json
+
 from factory.freshness.deps import (
     FreshnessState,
     check_artifact,
     collect_dependency_edges,
+    compute_impact,
     normalize_ref,
 )
 
@@ -235,11 +238,13 @@ def reconcile(root: Path, refs: list[str], max_attempts: int = 1) -> FreshnessRe
 # ---------------------------------------------------------------------------
 
 
-def feature_artifacts(root: Path, feature: str) -> list[str]:
+def feature_artifacts(root: Path, feature: str, *, dep_edges=None) -> list[str]:
     """Every artifact ref in a feature's slice (declared edges only)."""
     refs: set[str] = {f"feat:{feature}"}
     feat_ref = f"feat:{feature}"
-    for edge in collect_dependency_edges(root):
+    if dep_edges is None:
+        dep_edges = collect_dependency_edges(root)
+    for edge in dep_edges:
         if edge.source_ref == feat_ref:
             refs.add(edge.dependent_ref)
     # Runs whose manifest declares the feature.
@@ -252,6 +257,14 @@ def feature_artifacts(root: Path, feature: str) -> list[str]:
             refs.add(f"run:{run.run_id}")
             refs.update(f"sr:{r}" for r in run.requirements if r.startswith(("SR-", "BR-")))
             refs.update(f"goal:{g}" for g in run.goals)
+            # Code files the run fingerprinted as implementation dependencies.
+            try:
+                manifest = json.loads((run.path.parent / "manifest.json").read_text(encoding="utf-8"))
+                for dep in manifest.get("dependencies", []):
+                    if isinstance(dep, dict) and isinstance(dep.get("source"), str):
+                        refs.add(f"code:{dep['source']}")
+            except (OSError, ValueError):
+                pass
     # Explainers depicting the feature's SRs.
     from factory.trace import explainers as explainers_module
 
@@ -270,14 +283,43 @@ class FreshnessClosure:
     remaining: dict[str, str]  # artifact_ref -> state
 
 
-def freshness_closure(root: Path, feature: str) -> FreshnessClosure:
+def semantically_invalidated_code(root: Path, *, dep_edges=None) -> set[str]:
+    """Code artifacts affected by a semantically-changed upstream requirement.
+
+    An SR whose register checksum is no longer current (statement/binding
+    changed since its last validation) semantically invalidates the
+    implementation that its evidence fingerprinted. These code refs are
+    ROUTE_TO_DEV: never auto-rewritten, and they keep feature closure open
+    (5j example: ``remaining: code:... ROUTE_TO_DEV``).
+    """
+    from factory.requirements import register as req_register
+
+    affected: set[str] = set()
+    for req in req_register.load_register(root / "requirements"):
+        if req.binding is None or req_register.is_checksum_current(req):
+            continue
+        impact = compute_impact(root, [f"sr:{req.id}"], dep_edges=dep_edges)
+        for ref in impact.directly_affected + impact.transitively_affected:
+            if ref.startswith("code:"):
+                affected.add(ref)
+    return affected
+
+
+def freshness_closure(root: Path, feature: str, *, dep_edges=None) -> FreshnessClosure:
     """Feature freshness closure: every slice artifact fresh / superseded /
-    intentionally unresolved with a visible state (never hidden staleness)."""
+    intentionally unresolved with a visible state (never hidden staleness).
+
+    Code kept authoritative-current is additionally marked ``route-to-dev``
+    when semantically invalidated by a changed upstream requirement (5j) --
+    such an implementation keeps the closure open until repaired.
+    """
     remaining: dict[str, str] = {}
-    for ref in feature_artifacts(root, feature):
-        state = check_artifact(root, ref).state.value
+    for ref in feature_artifacts(root, feature, dep_edges=dep_edges):
+        state = check_artifact(root, ref, dep_edges=dep_edges).state.value
         if state != FreshnessState.FRESH.value:
             remaining[ref] = state
+        elif ref in semantically_invalidated_code(root, dep_edges=dep_edges):
+            remaining[ref] = "route-to-dev"
     return FreshnessClosure(
         feature=feature,
         closure_reached=not remaining,

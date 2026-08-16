@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from factory.goals.registry import load_goals
@@ -238,6 +239,21 @@ def cmd_bundle_check(repo_root: Path, draft_raw: str) -> dict:
 def cmd_health(repo_root: Path, recency_source=None) -> dict:
     """The composed health projection: the single landing document."""
     return health_module.query_health(repo_root, recency_source=recency_source)
+
+
+def cmd_freshness(repo_root: Path) -> dict:
+    """Change-impact findings from the freshness engine (Inc 7 Task 5l)."""
+    return {"findings": [asdict(f) for f in health_module.freshness_health(repo_root)]}
+
+
+def _render_freshness(result: dict) -> str:
+    findings = result["findings"]
+    if not findings:
+        return "freshness: no findings"
+    lines = [f"freshness: {len(findings)} findings"]
+    for finding in findings:
+        lines.append(f"  [{finding['code']}] {finding['severity']} {finding['subject']}: {finding['detail']}")
+    return "\n".join(lines)
 
 
 def cmd_labels(repo_root: Path) -> dict:
@@ -757,6 +773,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("health", parents=[common])
 
+    sub.add_parser("freshness", parents=[common])
+
     sub.add_parser("labels", parents=[common])
 
     sub.add_parser("vocabulary", parents=[common])
@@ -822,6 +840,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "health":
             result = cmd_health(args.repo_root)
             rendered = _render_health(result)
+        elif args.cmd == "freshness":
+            result = cmd_freshness(args.repo_root)
+            rendered = _render_freshness(result)
         elif args.cmd == "labels":
             result = cmd_labels(args.repo_root)
             rendered = _render_labels(result)
