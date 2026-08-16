@@ -474,13 +474,12 @@ def test_bundle_description_defaults_to_none(tmp_path):
     assert list_bundles(bundles_dir)[0].description is None
 
 
-def test_bundle_description_over_280_chars_is_a_load_error(tmp_path):
+def test_bundle_description_over_280_chars_is_accepted(tmp_path):
     bundles_dir = tmp_path / "bundles"
     bundles_dir.mkdir()
     _fixtures.write_bundle(
         bundles_dir, "planner", "Reactive planner core", ["sr:SR-001"],
-        description="x" * 281,
+        description="x" * 400,
     )
-    errors = list_bundle_errors(bundles_dir)
-    assert len(errors) == 1
-    assert "description" in errors[0].error
+    assert list_bundle_errors(bundles_dir) == []
+    assert len(list_bundles(bundles_dir)[0].description) == 400

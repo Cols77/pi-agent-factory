@@ -464,7 +464,11 @@ export function renderSystemPageHtml(): string {
   .ref-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; }
   .ref-chip .chip-id { padding: 0 3px; border-radius: 3px; background: var(--signal-soft); font: 12px/1.5 var(--font-mono); }
   .ref-chip .chip-sep { color: var(--text-dim); }
-  .ref-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  /* min-width: 0 MUST stay -- .ref-chip is inline-flex, and a flex child without
+     it will not shrink below its content width, reintroducing the per-element
+     overflow Increment 1 fixed and failing Task 9's containment gate. */
+  .ref-chip .chip-title { min-width: 0; overflow-wrap: anywhere; }
+  .matrix-subject .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
@@ -494,7 +498,7 @@ export function renderSystemPageHtml(): string {
   @keyframes info-card-in { from { opacity: 0; } to { opacity: 1; } }
   .info-card-meta { color: var(--text-dim); font: 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
   .info-card-title { margin-top: 4px; color: var(--text); font: 650 14px/1.35 var(--font-display); }
-  .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
   .info-card-empty { font-style: italic; }
   .info-card-from, .info-card-path, .info-card-relations { margin-top: 6px; font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
   .info-card-from { color: var(--text-dim); }

@@ -49,6 +49,13 @@ describe("system navigator visual identity", () => {
     expect(html).toContain('id="tabBrief" class="tab" role="tab" tabindex="0"');
     expect(html).toContain('id="tabMatrix" class="tab" role="tab" tabindex="-1"');
   });
+
+  it("a description is never clipped to a fixed line count", () => {
+    const rule = html.match(/\.info-card-description\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(rule).not.toContain("-webkit-line-clamp");
+    expect(rule).toContain("overflow-y: auto");
+    expect(rule).toMatch(/max-height/);
+  });
 });
 
 const HEALTH = {

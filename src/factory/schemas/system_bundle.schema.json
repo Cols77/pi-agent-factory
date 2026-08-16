@@ -15,8 +15,7 @@
     "description": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 280,
-      "description": "One short sentence stating WHAT the feature is -- an expansion of `label`, nothing more. Rationale for why artifacts were grouped this way belongs in an ADR, not here (see 2026-08-10-system-control-center-program-decomposition.md). The 280-character cap is a convention that keeps this field honest; it cannot enforce the distinction mechanically."
+      "description": "One or two sentences stating WHAT the feature is -- an expansion of `label`. Rationale for why artifacts were grouped this way belongs in an ADR, not here. There is no length cap: a truncated description is worse than a long one, because the reader cannot tell what was cut."
     },
     "members": {
       "type": "array",
