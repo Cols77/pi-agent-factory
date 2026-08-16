@@ -646,6 +646,11 @@ export function renderSystemPageHtml(): string {
   .dossier-nav-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .scope-open { color: var(--signal); font: 12px/1.4 var(--font-mono); text-decoration: underline dotted; }
   .scope-open:hover, .scope-open:focus-visible { text-decoration: underline; }
+  /* A ref chip that's also an SPA-navigating anchor (Task 2, legibility inc
+     2) must keep the ordinary chip look, not the plain-link .scope-open
+     style above -- higher specificity (two classes) wins regardless of
+     declaration order. */
+  .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }

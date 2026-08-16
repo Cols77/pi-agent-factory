@@ -42,6 +42,17 @@ const SR121 = {
   path: "requirements/SR-121.md", scope_href: null,
 };
 
+// A spec ref: never openable (_OPENABLE_KINDS = {bundle, sr, task, file} in
+// labels.py), so its scope_href is always null. Distinct from SR121 so the
+// "non-openable ref stays a span" test isn't riding on an incidental fixture
+// choice -- this one names the actual non-openable kind.
+const SPEC_FOO = {
+  ref: "spec:docs/superpowers/specs/foo.md", id: "foo.md", kind: "spec",
+  title: "Foo spec", description: null, description_source: null, deferral_reason: null,
+  status: null, relations: {},
+  path: "docs/superpowers/specs/foo.md", scope_href: null,
+};
+
 const RECORDED_TERM = {
   term: "recorded", group: "claim-kind", label: "recorded",
   gloss: "straight from a file, not inferred",
@@ -69,10 +80,14 @@ beforeEach(() => {
   );
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
-  (globalThis as any).LABELS = { "task:T-060": T060, "sr:SR-121": SR121 };
+  (globalThis as any).LABELS = {
+    "task:T-060": T060, "sr:SR-121": SR121,
+    "spec:docs/superpowers/specs/foo.md": SPEC_FOO,
+  };
   (globalThis as any).ALIASES = {
     "T-060": "task:T-060", "task:T-060": "task:T-060",
     "SR-121": "sr:SR-121", "sr:SR-121": "sr:SR-121",
+    "spec:docs/superpowers/specs/foo.md": "spec:docs/superpowers/specs/foo.md",
   };
   (globalThis as any).VOCABULARY = { terms: {} };
   (globalThis as any).REMEDIATION = REMEDIATION_DATA;
@@ -126,6 +141,53 @@ test("bounded list shows five rows and hides the rest behind a disclosure", () =
 
 test("bounded list under the limit renders no disclosure", () => {
   expect(boundedList(["T-060"]).querySelector("details")).toBeNull();
+});
+
+// --- Task 2 (legibility inc 2): artifact chips are real links ---
+
+test("an openable ref renders as a link carrying the SPA contract", () => {
+  const el = refChip("task:T-060");
+  expect(el.tagName).toBe("A");
+  expect(el.getAttribute("href")).toBe("/system?scope=task%3AT-060");
+  expect(el.getAttribute("data-scope")).toBe("task:T-060");
+  expect(el.className).toContain("scope-open");
+  expect(el.hasAttribute("role")).toBe(false); // an anchor is already actionable
+});
+
+test("a non-openable ref stays a span with button semantics", () => {
+  const el = refChip("spec:docs/superpowers/specs/foo.md");
+  expect(el.tagName).toBe("SPAN");
+  expect(el.getAttribute("role")).toBe("button");
+  expect(el.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("clicking an anchor chip navigates and does not toggle the card", () => {
+  const chip = refChip("task:T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  expect(document.querySelector(".info-card")).toBeNull();
+});
+
+test("hover and keyboard focus still open the card for an ANCHOR chip", () => {
+  // The controller matches `.ref-chip[data-ref]`; an anchor missing data-ref
+  // would silently never open (the exact regression this task must avoid).
+  vi.useFakeTimers();
+  try {
+    const hoverChip = refChip("task:T-060");
+    document.body.appendChild(hoverChip);
+    hoverChip.dispatchEvent(new (window as any).MouseEvent("mouseover", { bubbles: true }));
+    expect(document.querySelector(".info-card")).toBeNull();
+    vi.advanceTimersByTime(120);
+    expect(document.querySelector(".info-card")).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+  closeOpenCard();
+
+  const focusChip = refChip("task:T-060");
+  document.body.appendChild(focusChip);
+  focusChip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  expect(document.querySelector(".info-card")).not.toBeNull();
 });
 
 test("refCardFields orders id/kind/status, title, description, from, path, open", () => {
@@ -201,7 +263,10 @@ test("focusing a chip via keyboard opens its card immediately", () => {
 });
 
 test("an opened card sets aria-controls on its trigger, cleared on close (M6)", () => {
-  const chip = refChip("T-060");
+  // SR-121 (non-openable, span form): click both opens and closes it, so it
+  // still exercises the aria-controls set/clear round trip via a click. The
+  // anchor form's click-does-not-toggle behaviour has its own dedicated test.
+  const chip = refChip("SR-121");
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   const card = document.querySelector(".info-card") as HTMLElement | null;
@@ -211,8 +276,11 @@ test("an opened card sets aria-controls on its trigger, cleared on close (M6)", 
   expect(chip.getAttribute("aria-controls")).toBeNull();
 });
 
-test("clicking a chip toggles the card open then closed", () => {
-  const chip = refChip("T-060");
+test("clicking a span chip toggles the card open then closed", () => {
+  // T-060 is now openable and renders as an anchor whose click navigates
+  // instead of toggling (see "clicking an anchor chip navigates..." above);
+  // SR-121 stays a span, so it still exercises the click-to-toggle contract.
+  const chip = refChip("SR-121");
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
   expect(document.querySelector(".info-card")).not.toBeNull();
@@ -221,13 +289,15 @@ test("clicking a chip toggles the card open then closed", () => {
 });
 
 test("only one card is open at a time", () => {
+  // Opened via focus rather than click so this exercises the shared
+  // exclusivity behaviour regardless of chip form (anchor vs span).
   const a = refChip("T-060");
   const b = refChip("SR-121");
   document.body.appendChild(a);
   document.body.appendChild(b);
-  a.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  a.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   expect(document.querySelectorAll(".info-card").length).toBe(1);
-  b.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  b.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   expect(document.querySelectorAll(".info-card").length).toBe(1);
   expect(document.querySelector(".info-card")?.textContent).toContain("Battery-aware return");
 });
@@ -284,8 +354,11 @@ test("a keydown that closes the card outside it does not steal focus", () => {
 });
 
 test("aria-expanded flips to true when the card opens and back to false when it closes", () => {
+  // SR-121 (span form): only span chips carry an initial aria-expanded
+  // attribute (an anchor is already actionable and skips role/aria-expanded
+  // entirely -- see "an openable ref renders as a link..." above).
   ensureCardController();
-  const chip = refChip("T-060");
+  const chip = refChip("SR-121");
   document.body.appendChild(chip);
   expect(chip.getAttribute("aria-expanded")).toBe("false");
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));

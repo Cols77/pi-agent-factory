@@ -60,6 +60,39 @@ export function resolveLabel(raw: string): any | null {
 
 export function refChip(raw: string): HTMLElement {
   const entry = resolveLabel(raw);
+  // Openable kinds (bundle/sr/task/file -- labels.py's _OPENABLE_KINDS) render
+  // as a real anchor carrying the SPA navigation contract, so reaching the
+  // artifact is one click instead of open-card-then-click-Open. spec/plan/adr
+  // chips (scope_href null) fall through to the plain span below, unchanged.
+  if (entry && entry.scope_href) {
+    const anchor = document.createElement('a') as HTMLAnchorElement;
+    anchor.className = 'ref-chip scope-open';
+    anchor.setAttribute('href', entry.scope_href);
+    // The existing delegated handler (system-bootstrap.ts's `a.scope-open`
+    // click listener) reads data-scope, preventDefaults, and calls
+    // loadScope -- reuse it rather than adding a second navigation path.
+    // Without it the href would hard-reload and discard page state.
+    anchor.setAttribute('data-scope', entry.ref);
+    anchor.setAttribute('aria-describedby', 'system-info-card');
+    // REQUIRED: the card controller below matches `.ref-chip[data-ref]`.
+    // Without data-ref, hover and keyboard focus would silently stop
+    // opening the card for anchor chips.
+    anchor.dataset.ref = entry.ref;
+    const anchorId = document.createElement('span');
+    anchorId.className = 'chip-id';
+    anchorId.appendChild(document.createTextNode(entry.id));
+    anchor.appendChild(anchorId);
+    const anchorSep = document.createElement('span');
+    anchorSep.className = 'chip-sep';
+    anchorSep.appendChild(document.createTextNode('·'));
+    anchor.appendChild(anchorSep);
+    const anchorTitle = document.createElement('span');
+    anchorTitle.className = 'chip-title';
+    anchorTitle.appendChild(document.createTextNode(entry.title));
+    anchor.appendChild(anchorTitle);
+    ensureCardController();
+    return anchor;
+  }
   const el = document.createElement('span');
   el.className = 'ref-chip';
   const id = document.createElement('span');
@@ -585,6 +618,8 @@ export function ensureCardController(): void {
   document.addEventListener('click', (e: any) => {
     const trigger = closestTrigger(e.target);
     pointerDownOnTrigger = false;
+    // An anchor chip navigates on click; only span chips toggle the card.
+    if (trigger && trigger.tagName === 'A') return;
     if (trigger) {
       if (openTrigger === trigger) closeCard();
       else openCardFor(trigger);

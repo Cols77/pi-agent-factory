@@ -445,15 +445,17 @@ export async function systemBootstrap(): Promise<void> {
       unbundledRefs.forEach((ref: string) => {
         const row = document.createElement('div');
         row.className = 'scope-row';
-        const a = document.createElement('a');
-        a.className = 'scope-item';
-        a.href = scopeHref(ref);
-        a.appendChild(refChip(ref));
-        a.addEventListener('click', (clickEvent: Event) => {
-          clickEvent.preventDefault();
-          void loadScope(ref);
-        });
-        row.appendChild(a);
+        // refChip is itself the link now (Task 2, legibility inc 2);
+        // wrapping it in another <a> would nest interactive elements and
+        // race two click handlers. The delegated `a.scope-open` handler
+        // (system-bootstrap.ts's document click listener) already covers
+        // navigation, so no per-row click listener is needed here either.
+        const chip = refChip(ref);
+        // KEEP the scope-item class: markActiveScope and the arrow-key
+        // sidebar navigation both select on it. Dropping it would silently
+        // break current-scope highlighting and keyboard nav for this list.
+        chip.classList.add('scope-item');
+        row.appendChild(chip);
         group.appendChild(row);
         rowEls.push(row);
       });
