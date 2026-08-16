@@ -78,6 +78,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
     if (url.pathname === "/api/system/guide") return jsonResponse(GUIDE);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }
@@ -106,7 +107,7 @@ async function loadPage(opts: { scope?: string } = {}): Promise<JSDOM> {
   if (opts.scope) {
     await vi.waitFor(
       () => {
-        expect(dom.window.document.getElementById("content")?.hidden).toBe(false);
+        expect(dom.window.document.getElementById("content")?.getAttribute("aria-busy")).toBe("false");
       },
       { timeout: 2000, interval: 10 },
     );

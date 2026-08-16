@@ -14,6 +14,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from factory.system.models import (
     BundleDeclaration,
@@ -27,13 +28,16 @@ from factory.system.models import (
 )
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
+if TYPE_CHECKING:
+    from factory.system.coverage import ArtifactLookup
+
 _SCHEMA = SCHEMA_DIR / "system_bundle.schema.json"
 
 # The only member kinds a bundle may declare (design §3.3, extended by SP-A).
-# `adr` refs are id-based (`adr:ADR-0001`), matching `sr:`/`task:` and unlike
-# `spec:`/`plan:`, which are repo-relative paths. Resolution to a file happens
-# in the caller, never here -- this only parses the ref.
-_MEMBER_KINDS = ("spec", "plan", "task", "sr", "adr")
+# `adr`/`feat`/`metric`/`goal` refs are id-based, matching `sr:`/`task:` and
+# unlike `spec:`/`plan:`, which are repo-relative paths. Resolution to a file
+# happens in the caller, never here -- this only parses the ref.
+_MEMBER_KINDS = ("spec", "plan", "task", "sr", "adr", "feat", "metric", "goal")
 
 
 class BundleIdMismatchError(ValueError):
@@ -53,9 +57,10 @@ def _parse_member_ref(raw_ref: str) -> SystemScopeRef | None:
     """Parse a raw member ref string, or return None if it does not resolve.
 
     A member is well-formed only if it has a recognized `spec:`/`plan:`/
-    `task:`/`sr:`/`adr:` prefix and a non-empty identifier after it. Anything
-    else does not resolve (design §3.3) and is reported `missing` by the
-    caller rather than raised, so one bad member never drops the whole bundle.
+    `task:`/`sr:`/`adr:`/`feat:`/`metric:`/`goal:` prefix and a non-empty
+    identifier after it. Anything else does not resolve (design §3.3) and is
+    reported `missing` by the caller rather than raised, so one bad member
+    never drops the whole bundle.
     """
     kind, sep, identifier = raw_ref.partition(":")
     if not sep or kind not in _MEMBER_KINDS or not identifier:
@@ -132,6 +137,7 @@ def load_bundle(bundles_dir: Path, bundle_id: str) -> BundleDeclaration:
         members=members,
         unresolved=unresolved,
         citation=citation,
+        description=(str(raw["description"]) if raw.get("description") else None),
     )
 
 
@@ -190,3 +196,31 @@ def list_bundle_errors(bundles_dir: Path) -> list[BundleLoadError]:
     """
     _, failures = _load_all(bundles_dir)
     return failures
+
+
+def bundles_containing(
+    repo_root: Path, ref: str, *, lookup: ArtifactLookup | None = None
+) -> list[str]:
+    """Bundle ids that declare `ref` as a member, deterministic (load) order.
+
+    Membership is many-to-many, so a ref may appear in several bundles. The
+    match is exact on the ref string, or -- for `spec:`/`plan:` members whose
+    ref is a repo-relative path -- on the resolved artifact path, so two
+    spellings of the same file still count as one bundle. An absent bundle
+    directory or a ref in no bundle returns [].
+
+    `member_target` is imported locally: `factory.system.coverage` imports
+    this module at module level, so a top-level import here would be a cycle.
+    """
+    from factory.system.coverage import member_target
+
+    target = member_target(repo_root, ref, lookup=lookup)
+    containing: list[str] = []
+    for bundle in list_bundles(repo_root / "bundles"):
+        for m in bundle.members:
+            if m.ref == ref or (
+                target is not None and member_target(repo_root, m.ref, lookup=lookup) == target
+            ):
+                containing.append(bundle.id)
+                break
+    return containing

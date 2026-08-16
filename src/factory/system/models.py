@@ -223,6 +223,7 @@ class BundleDeclaration:
     members: list[SystemScopeRef]
     unresolved: list[SystemClaim]
     citation: SystemCitation
+    description: str | None = None
 
     @property
     def degraded(self) -> bool:

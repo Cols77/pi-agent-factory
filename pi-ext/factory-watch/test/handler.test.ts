@@ -88,6 +88,8 @@ function fakeCtx(overrides: Partial<ExtCommandCtx> = {}): ExtCommandCtx {
   return {
     cwd: overrides.cwd ?? process.cwd(),
     ui: overrides.ui ?? ui,
+    hasUI: overrides.hasUI ?? true,
+    reload: overrides.reload ?? vi.fn(async () => undefined),
     model:
       "model" in overrides ? overrides.model : { provider: "openrouter", id: "anthropic/claude-opus-4" },
     newSession: overrides.newSession ?? vi.fn(async () => ({ cancelled: false })),
@@ -949,6 +951,23 @@ describe("factory-watch commands", () => {
     writeGrillBlockedStatus(cwd, "grill-now-sess");
     writeTask(cwd, "T-001", "- Create: src/foo.ts\n- Touch: src/bar.ts");
     writeVendoredGrillSkill(cwd);
+    // Persist a context packet for the run so the seed carries gathered context.
+    const pktDir = join(cwd, "sessions", ".factory-transcripts", "grill-now-sess");
+    mkdirSync(pktDir, { recursive: true });
+    writeFileSync(
+      join(pktDir, "context-packet.json"),
+      JSON.stringify({
+        task_id: "T-001",
+        primary_files: ["src/foo.ts"],
+        reference_files: [],
+        files: {
+          "src/foo.ts": { primary: true, kind: "content", content: "PACKET_PRIMARY_MARKER\n", signatures: [] },
+        },
+        missing: [],
+        truncated: false,
+      }),
+      "utf-8",
+    );
     const ui: UiApi = {
       notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn(),
       select: vi.fn().mockResolvedValue("Grill now"),
@@ -964,9 +983,10 @@ describe("factory-watch commands", () => {
     const sessionFiles = readdirSync(transcriptDir).filter((f) => f.startsWith("grill-") && f.endsWith(".jsonl"));
     expect(sessionFiles.length).toBe(1);
     const sessionText = readFileSync(join(transcriptDir, sessionFiles[0]!), "utf-8");
-    // seed carries the task scope (body / touched code paths) and the skill block
+    // seed carries the task scope (body / touched code paths), the skill block, and the gathered packet
     expect(sessionText).toContain("src/foo.ts");
     expect(sessionText).toContain("GRILL_SKILL_BODY_MARKER");
+    expect(sessionText).toContain("PACKET_PRIMARY_MARKER");
     expect(spawnTerminalWindow).toHaveBeenCalledWith(
       "pi",
       ["--session", join(transcriptDir, sessionFiles[0]!)],

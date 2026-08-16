@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 // Shared subprocess + JSON shim for every `uv run python -m factory.<x> ...`
 // CLI this extension calls. Holds process/JSON mechanics only -- no
@@ -18,6 +18,29 @@ function commandLabel(args: string[]): string {
   return module !== undefined ? module.replace(/\./g, " ") : args.join(" ");
 }
 
+function launchFailure(error: unknown): CliResult<never> {
+  const message =
+    typeof error === "object" && error !== null && "message" in error
+      ? (error as { message?: unknown }).message
+      : undefined;
+  return { ok: false, error: String(message ?? error) };
+}
+
+function parseCliResult<T>(args: string[], status: number | null, stdout: string, stderr: string): CliResult<T> {
+  const exitStatus = status ?? -1;
+  if (exitStatus !== 0) {
+    return {
+      ok: false,
+      error: `${commandLabel(args)} exited ${exitStatus}: ${stderr.trim()}`,
+    };
+  }
+  try {
+    return { ok: true, value: JSON.parse(stdout) as T };
+  } catch (err) {
+    return { ok: false, error: `could not parse ${commandLabel(args)} output: ${String(err)}` };
+  }
+}
+
 export function runJsonCli<T>(cwd: string, bin: string, args: string[]): CliResult<T> {
   const result = spawnSync(bin, args, {
     cwd,
@@ -25,18 +48,56 @@ export function runJsonCli<T>(cwd: string, bin: string, args: string[]): CliResu
     maxBuffer: 64 * 1024 * 1024,
   });
   if (result.error) {
-    return { ok: false, error: String(result.error.message ?? result.error) };
+    return launchFailure(result.error);
   }
-  const status = result.status ?? -1;
-  if (status !== 0) {
-    return {
-      ok: false,
-      error: `${commandLabel(args)} exited ${status}: ${(result.stderr ?? "").trim()}`,
+  return parseCliResult(args, result.status, result.stdout ?? "", result.stderr ?? "");
+}
+
+const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+export function runJsonCliAsync<T>(cwd: string, bin: string, args: string[]): Promise<CliResult<T>> {
+  return new Promise((resolveResult) => {
+    let settled = false;
+    let stdoutSize = 0;
+    let stderrSize = 0;
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+
+    const settle = (result: CliResult<T>): void => {
+      if (settled) return;
+      settled = true;
+      resolveResult(result);
     };
-  }
-  try {
-    return { ok: true, value: JSON.parse(result.stdout) as T };
-  } catch (err) {
-    return { ok: false, error: `could not parse ${commandLabel(args)} output: ${String(err)}` };
-  }
+    const capture = (stream: "stdout" | "stderr", chunk: Buffer | string): void => {
+      if (settled) return;
+      const data = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk;
+      const size = stream === "stdout" ? stdoutSize : stderrSize;
+      if (size + data.length > MAX_OUTPUT_BYTES) {
+        settle({
+          ok: false,
+          error: `${commandLabel(args)} ${stream} exceeded ${MAX_OUTPUT_BYTES} byte output limit`,
+        });
+        return;
+      }
+      if (stream === "stdout") {
+        stdoutSize += data.length;
+        stdout.push(data);
+      } else {
+        stderrSize += data.length;
+        stderr.push(data);
+      }
+    };
+
+    try {
+      const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout?.on("data", (chunk: Buffer | string) => capture("stdout", chunk));
+      child.stderr?.on("data", (chunk: Buffer | string) => capture("stderr", chunk));
+      child.once("error", (error) => settle(launchFailure(error)));
+      child.once("close", (status) => {
+        settle(parseCliResult(args, status, Buffer.concat(stdout).toString("utf-8"), Buffer.concat(stderr).toString("utf-8")));
+      });
+    } catch (error) {
+      settle(launchFailure(error));
+    }
+  });
 }

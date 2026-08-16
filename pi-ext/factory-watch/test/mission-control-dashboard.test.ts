@@ -25,7 +25,7 @@ function down(d: MissionControlDashboard, n: number) {
 test("Enter on an agent row resolves inspect with its sessionId", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(RECORD, onAction);
-  down(d, 1); // dev row
+  down(d, 2); // dev row (order: context-gather, grill, dev, ...)
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "inspect", sessionId: "dev-abc" });
 });
@@ -33,7 +33,7 @@ test("Enter on an agent row resolves inspect with its sessionId", () => {
 test("Enter on validation resolves gate-log", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(RECORD, onAction);
-  down(d, 2); // validation row
+  down(d, 3); // validation row
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "gate-log" });
 });
@@ -41,7 +41,7 @@ test("Enter on validation resolves gate-log", () => {
 test("Enter on human-review resolves review", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(withEntry({ node: "human-review", node_state: "blocked", start_commit: "abc" }), onAction);
-  down(d, 4); // human-review row
+  down(d, 5); // human-review row
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "review" });
 });
@@ -49,7 +49,7 @@ test("Enter on human-review resolves review", () => {
 test("Enter on the session-review row resolves inspect with its sessionId", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(withEntry({ node: "session-review", node_state: "pass", session_id: "sr-xyz" }), onAction);
-  down(d, 5); // session-review is the last stage row (after human-review)
+  down(d, 6); // session-review is the last stage row (after human-review)
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "inspect", sessionId: "sr-xyz" });
 });
@@ -68,8 +68,16 @@ test("renders one row per stage with the task header", () => {
   const lines = d.render(80).join("\n");
   expect(lines).toContain("T-029");
   expect(lines).toContain("context-gatherer");
+  expect(lines).toContain("grill");
   expect(lines).toContain("human-review");
   expect(lines).toContain("session-reviewer");
+});
+
+test("a blocked grill renders as a selectable row (not dropped from the pane)", () => {
+  const d = new MissionControlDashboard(withEntry({ node: "grill", node_state: "blocked" }), () => {});
+  const lines = d.render(80).join("\n");
+  expect(lines).toContain("grill");
+  expect(lines).toContain("blocked");
 });
 
 test("shows a HUMAN REVIEW NEEDED alert when human-review is blocked", () => {
@@ -85,9 +93,11 @@ test("no alert when human-review is not blocked", () => {
 test("Down/Up move the selected row", () => {
   const d = new MissionControlDashboard(RECORD, () => {});
   d.handleInput("\x1b[B");
+  d.handleInput("\x1b[B");
   expect(d.render(80).find((l) => l.startsWith("> "))).toContain("developer");
   d.handleInput("\x1b[A");
-  expect(d.render(80).find((l) => l.startsWith("> "))).toContain("context-gather");
+  d.handleInput("\x1b[A");
+  expect(d.render(80).find((l) => l.startsWith("> "))).toContain("context-gatherer");
 });
 
 test("updateRecord replaces the displayed data without losing selection", () => {
@@ -154,7 +164,7 @@ function escalatedDevRecord(): StatusRecord {
 test("Enter on an escalated dev row resolves pair-dev with its sessionId", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(escalatedDevRecord(), onAction);
-  down(d, 1); // dev row
+  down(d, 2); // dev row
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "pair-dev", sessionId: "dev-abc" });
 });
@@ -162,7 +172,7 @@ test("Enter on an escalated dev row resolves pair-dev with its sessionId", () =>
 test("Enter on a running dev row still resolves inspect (not pair-dev)", () => {
   const onAction = vi.fn();
   const d = new MissionControlDashboard(RECORD, onAction);
-  down(d, 1); // dev row (RECORD has dev running)
+  down(d, 2); // dev row (RECORD has dev running)
   d.handleInput("\r");
   expect(onAction).toHaveBeenCalledWith({ type: "inspect", sessionId: "dev-abc" });
 });

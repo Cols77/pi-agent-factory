@@ -109,6 +109,77 @@ def test_build_command_provider_only():
     assert "--model" not in cmd
 
 
+def test_build_command_never_disables_context_files():
+    # The subagent propagation contract: children must receive the root
+    # AGENTS.md. If any code path ever tried to pass --no-context-files / -nc,
+    # _build_command refuses rather than silently strip context.
+    for bad in ("--no-context-files", "-nc"):
+        with pytest.raises(ValueError, match="context files"):
+            _build_command(bad, Path("ext.ts"), None, None)
+    cmd = _build_command("hello", Path("ext.ts"), None, None)
+    assert "--no-context-files" not in cmd and "-nc" not in cmd
+
+
+def test_run_refuses_to_spawn_beyond_subagent_depth(monkeypatch, tmp_path):
+    # A child whose environment is already at the recursion bound refuses to
+    # spawn a deeper pi process instead of starting a runaway chain.
+    from factory.orchestrator.pi_backend import (
+        SUBAGENT_DEPTH_ENV,
+        _SUBAGENT_DEPTH_LIMIT,
+    )
+
+    backend = PiAgentBackend(tmp_path, Path("ext.ts"))
+    monkeypatch.setenv(SUBAGENT_DEPTH_ENV, str(_SUBAGENT_DEPTH_LIMIT))
+    result = backend.run(AgentRole.DEV, "do it")
+    assert result.ok is False
+    assert "recursion bound" in result.raw
+
+
+def test_run_propagates_incremented_depth_to_child(monkeypatch, tmp_path):
+    from factory.orchestrator.pi_backend import SUBAGENT_DEPTH_ENV
+
+    captured: dict = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout: list = []
+
+        def wait(self):
+            return 0
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = kwargs.get("cwd")
+        captured["env"] = kwargs.get("env")
+        captured["stdin"] = kwargs.get("stdin")
+        return FakeProc()
+
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+    monkeypatch.delenv(SUBAGENT_DEPTH_ENV, raising=False)
+    monkeypatch.setattr(
+        "factory.orchestrator.pi_backend._DEFAULT_IDLE_TIMEOUT_S", 1.0
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.pi_backend._DEFAULT_TOTAL_TIMEOUT_S", 1.0
+    )
+
+    backend = PiAgentBackend(tmp_path, Path("ext.ts"))
+    result = backend.run(AgentRole.DEV, "do it")
+    assert result.ok is True
+    # Child starts in the PROJECT ROOT (so the root AGENTS.md loads).
+    assert captured["cwd"] == tmp_path
+    # Child gets an incremented depth marker so its own extension can refuse
+    # deeper spawning, and never a context-file-disabling flag.
+    assert captured["env"][SUBAGENT_DEPTH_ENV] == "1"
+    assert "--no-context-files" not in captured["cmd"]
+    assert "-nc" not in captured["cmd"]
+    # stdin is DEVNULL so a long-lived inherited pipe cannot hang the child.
+    assert captured["stdin"] == subprocess.DEVNULL
+
+
 def test_extract_snippet_returns_delta_from_text_delta_event():
     line = json.dumps({
         "type": "message_update",

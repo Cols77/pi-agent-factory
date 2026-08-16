@@ -32,12 +32,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
+from factory.goals import registry as goal_registry
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
+from factory.simulation import evidence as sim_evidence
+from factory.simulation import registry as sim_registry
 from factory.system import adr as adr_module
 from factory.system import bundles
 from factory.system._claims import (
@@ -49,6 +52,7 @@ from factory.system._claims import (
     tasks_dir as _tasks_dir,
 )
 from factory.system.bundles import BundleIdMismatchError
+from factory.system.coverage import ArtifactLookup, build_artifact_lookup
 from factory.system.models import (
     BundleDeclaration,
     ClaimClass,
@@ -65,14 +69,16 @@ from factory.system.models import (
     ValidationMatrixRow,
     to_dict,
 )
+from factory.system.vcycle import VCycleSlice
 from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
 
-_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr")
+_SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric", "goal")
 
 # Member kinds a declared bundle may name (mirrors factory.system.bundles).
 _SPEC_PLAN_KINDS = ("spec", "plan")
+_TRACE_MEMBER_KINDS = ("feat", "metric", "goal")
 
 
 class ScopeError(Exception):
@@ -90,7 +96,8 @@ class ScopeNotFoundError(ScopeError):
 def parse_scope_ref(raw: str) -> SystemScopeRef:
     """Parse a `--scope` CLI argument into a `SystemScopeRef`.
 
-    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>` and `adr:<id>` are
+    `bundle:<id>`, `sr:<id>`, `task:<id>`, `file:<path>`, `adr:<id>`,
+    `diag:<id>`, `feat:<id>`, `metric:<id>`, and `goal:<id>` are
     legal top-level scopes. Anything else -- an unknown kind, a missing
     identifier, or a malformed string -- is rejected outright; there is no
     fuzzy fallback.
@@ -99,7 +106,8 @@ def parse_scope_ref(raw: str) -> SystemScopeRef:
     if not sep or kind not in _SCOPE_KINDS or not identifier:
         raise ScopeKindError(
             f"invalid scope ref: {raw!r} (expected bundle:<id>, sr:<id>, "
-            f"task:<id>, file:<path> or adr:<id>)"
+                f"task:<id>, file:<path>, adr:<id>, diag:<id>, feat:<id>, "
+                f"metric:<id> or goal:<id>)"
         )
     return SystemScopeRef(kind=kind, ref=raw)
 
@@ -154,6 +162,253 @@ def _load_requirement_or_raise(repo_root: Path, sr_id: str) -> Requirement:
     return req
 
 
+def _load_diagram_or_raise(repo_root: Path, diagram_id: str) -> trace_model.Node:
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind == "diag" and node.id == diagram_id:
+            return node
+    raise ScopeNotFoundError(f"diagram not found: {diagram_id!r}")
+
+
+def query_diagram(repo_root: Path, diagram_id: str) -> dict:
+    """Return one diagram stub and its declared diagram-file availability.
+
+    Diagram stubs are loaded through ``trace_model.load_nodes`` so the
+    navigator and trace graph share the sole Markdown-frontmatter parser.
+    A missing diagram file only degrades this payload: the stub remains
+    addressable and its recorded title is returned.
+    """
+    diagram = _load_diagram_or_raise(repo_root, diagram_id)
+    if diagram.diagram_file is None:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"diagram stub has no diagram_file: {diagram.path}"],
+        }
+
+    declared_path = Path(diagram.diagram_file)
+    windows_path = PureWindowsPath(diagram.diagram_file)
+    if (
+        declared_path.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.root)
+        or PurePosixPath(diagram.diagram_file).is_absolute()
+    ):
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"absolute diagram file is not allowed: {diagram.diagram_file}"],
+        }
+
+    if windows_path.drive:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    try:
+        directory = diagram.path.parent.resolve()
+        path = (directory / declared_path).resolve()
+    except RuntimeError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    try:
+        path.relative_to(directory)
+    except ValueError:
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": None,
+            "errors": [f"invalid diagram file path: {diagram.diagram_file}"],
+        }
+
+    if path.is_file():
+        return {
+            "id": diagram.id,
+            "title": diagram.title,
+            "diagram_path": str(path),
+            "errors": [],
+        }
+    return {
+        "id": diagram.id,
+        "title": diagram.title,
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {path}"],
+    }
+
+
+def query_goal(repo_root: Path, goal_id: str) -> dict:
+    """Return one goal: contract, current state, latest evidence, history.
+
+    Goals are loaded through the goals registry (never a re-glob), so the
+    goal file's sole parser is `factory.goals.schema.parse_goal`. A goal id
+    that no file declares is a resolution failure, not a guess.
+    """
+    goals = goal_registry.load_goals(repo_root)
+    if goal_id not in goals:
+        raise ScopeNotFoundError(f"no goal with id {goal_id!r}")
+    goal = goals[goal_id]
+    return {
+        "id": goal.id,
+        "title": goal.title,
+        "state": goal.state,
+        "version": goal.version,
+        "feature": goal.feature,
+        "requirements": goal.requirements,
+        "metric": goal.metric,
+        "target": goal.target,
+        "evidence": goal.evidence,
+        "history": goal.history,
+        "scope_errors": goal.scope_errors,
+    }
+
+
+def _goal_query_kinds() -> tuple[str, ...]:
+    # Inc 2's goal query scopes; `_SCOPE_KINDS` remains Inc 1-owned.
+    return ("feat", "sr", "goal")
+
+
+def query_goals(repo_root: Path, scope_ref: str) -> dict:
+    """Return the goals bound to a `feat:<id>`, `sr:<id>` or `goal:<id>` scope.
+
+    Binding is read from declared data, never inferred: a goal is bound to a
+    feature or requirement when its frontmatter names it (`feature`/
+    `requirements`) or when the trace graph carries a declared `demonstrates`
+    edge from the goal to that id. Unknown kinds are rejected; a goal scope
+    that no file declares resolves to nothing rather than a fuzzy match.
+    """
+    kind, sep, identifier = scope_ref.partition(":")
+    if not sep or kind not in _goal_query_kinds() or not identifier:
+        raise ScopeKindError(
+            f"invalid goal scope ref: {scope_ref!r} (expected feat:<id>, sr:<id> or goal:<id>)"
+        )
+
+    goals = goal_registry.load_goals(repo_root)
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == identifier}
+
+    if kind == "goal":
+        selected = [g for g in goals.values() if g.id == identifier]
+    elif kind == "feat":
+        selected = [g for g in goals.values() if identifier in g.feature or g.id in demonstrated]
+    else:  # sr
+        selected = [g for g in goals.values() if identifier in g.requirements or g.id in demonstrated]
+
+    return {
+        "scope": scope_ref,
+        "goals": [
+            {
+                "id": g.id,
+                "title": g.title,
+                "state": g.state,
+                "feature": g.feature,
+                "requirements": g.requirements,
+                "metric": g.metric,
+                "target": g.target,
+                "evidence": g.evidence,
+                "history": g.history,
+            }
+            for g in selected
+        ],
+    }
+
+
+def _run_metric_values(run: sim_registry.Run) -> dict[str, float]:
+    """The run's recorded metrics from its bundle metrics.json, tolerant of a
+    missing or unreadable file (empty map -- never a crash)."""
+    try:
+        raw = json.loads((run.path.parent / "metrics.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return sim_evidence.metric_values(run, raw) if isinstance(raw, dict) else {}
+
+
+def _run_recording(repo_root: Path, run: sim_registry.Run) -> str | None:
+    """Repo-relative path to the run's manifest (the recording), or None when
+    the manifest file is missing -- honest incompleteness, never a guessed
+    path outside the repo."""
+    try:
+        if not run.path.exists():
+            return None
+        return run.path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _sim_run_payload(repo_root: Path, run: sim_registry.Run) -> dict:
+    return {
+        "run": run.run_id,
+        "experiment": run.experiment,
+        "feature": run.feature,
+        "requirements": run.requirements,
+        "goals": run.goals,
+        "commit": run.commit,
+        "result": run.result,
+        "scope_errors": run.scope_errors,
+        "metrics": _run_metric_values(run),
+        "recording": _run_recording(repo_root, run),
+        "recorded_ts": run.recorded_ts,
+    }
+
+
+def query_simulation_run(repo_root: Path, run_id: str) -> dict:
+    """Return one simulation run by its run id (spec §20 bundle).
+
+    Runs are loaded through the simulation registry — the same tolerant loader
+    the rest of Inc 3 uses — so a run that no bundle declares is a resolution
+    failure, never a fuzzy guess.
+    """
+    for run in sim_registry.load_runs(_evidence_dir(repo_root)):
+        if run.run_id == run_id:
+            return _sim_run_payload(repo_root, run)
+    raise ScopeNotFoundError(f"no simulation run with id {run_id!r}")
+
+
+def query_latest_simulation(repo_root: Path, feature: str) -> dict | None:
+    """Latest simulation run for a feature (deterministic by run id).
+
+    AC-01's "latest simulation evidence" slot: derived from the registry, so
+    the answer matches what `query_simulation_run` reports for the same run.
+    None is a legitimate state (no run yet), not an error.
+    """
+    latest = sim_registry.latest_run(_evidence_dir(repo_root), feature)
+    return _sim_run_payload(repo_root, latest) if latest is not None else None
+
+
+def query_latest_failure(repo_root: Path, feature: str) -> dict | None:
+    """Most recent non-passed simulation run for a feature, or None."""
+    failure = sim_evidence.latest_failure(_evidence_dir(repo_root), feature)
+    return _sim_run_payload(repo_root, failure) if failure is not None else None
+
+
+def query_metric_history(repo_root: Path, metric_id: str) -> list[dict]:
+    """Ascending metric history across runs (spec §9.3 style), deterministic."""
+    return sim_evidence.metric_history(_evidence_dir(repo_root), metric_id)
+
+
+def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
+    """Runs whose manifest lists ``goal_id`` (ascending by run id).
+
+    Wraps ``factory.simulation.evidence.evidence_for_goal`` so the navigator
+    and the sim registry share one loader; a goal with no runs resolves to an
+    empty ``runs`` list, never a fuzzy guess.
+    """
+    runs = sim_evidence.evidence_for_goal(_evidence_dir(repo_root), goal_id)
+    return {
+        "goal": goal_id,
+        "runs": [_sim_run_payload(repo_root, run) for run in runs],
+    }
+
+
 @dataclass(frozen=True)
 class _MemberResolution:
     """The outcome of resolving one declared bundle member against real loaders.
@@ -203,6 +458,31 @@ def _resolve_spec_or_plan_member(repo_root: Path, member: SystemScopeRef, identi
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
         text=_member_label(repo_root, path, member.ref),
+        freshness=_fresh(),
+        citations=[citation],
+    )
+    return _MemberResolution(member_claim=claim, extra_claims=[], resolved=True)
+
+
+def _resolve_trace_member(
+    member: SystemScopeRef, identifier: str, nodes: list[trace_model.Node]
+) -> _MemberResolution:
+    """Resolve an id-based trace member through the existing trace-node loader."""
+    node = next(
+        (node for node in nodes if node.kind == member.kind and node.id == identifier),
+        None,
+    )
+    if node is None:
+        claim = _missing(member.ref, "bundle member does not exist in repo")
+        return _MemberResolution(member_claim=claim, extra_claims=[], resolved=False)
+    citation = SystemCitation(
+        kind=CitationKind.TRACE,
+        path=str(node.path),
+        sha256=_sha256_file(node.path),
+    )
+    claim = SystemClaim(
+        kind=ClaimClass.RECORDED,
+        text=member.ref,
         freshness=_fresh(),
         citations=[citation],
     )
@@ -703,6 +983,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
     `"degraded_reasons": list[str]` -- true, with each reason named, when any
     declared member (syntactically bad, per Task 1, or simply nonexistent,
     resolved here) failed to resolve.
+
+    `sr:` scopes additionally carry `"member_of": list[str]` -- the ids of
+    every bundle that declares the requirement as a member (multi-membership
+    is otherwise invisible; Task 8). Other scope kinds omit the key.
     """
     if scope.kind == "adr":
         return _adr_brief(repo_root, scope)
@@ -725,6 +1009,7 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         report_corrupt = _validation_report_is_corrupt(repo_root)
         statuses = _load_validation_statuses(repo_root, report_corrupt)
         report_citation = _validation_report_citation(repo_root)
+        trace_nodes: list[trace_model.Node] | None = None
 
         unresolved_member_count = 0
         unreadable_summary_count = 0
@@ -744,6 +1029,10 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
                 resolution = _resolve_sr_member(
                     repo_root, member, identifier, reqs, statuses, report_citation, report_corrupt
                 )
+            elif member.kind in _TRACE_MEMBER_KINDS:
+                if trace_nodes is None:
+                    trace_nodes = trace_model.load_nodes(repo_root)
+                resolution = _resolve_trace_member(member, identifier, trace_nodes)
             else:  # pragma: no cover -- bundles.py restricts member kinds
                 raise AssertionError(f"unexpected member kind: {member.kind!r}")
             claims.append(resolution.member_claim)
@@ -776,9 +1065,13 @@ def query_brief(repo_root: Path, scope: SystemScopeRef) -> dict:
         sr_id = _scope_identifier(scope)
         req = _load_requirement_or_raise(repo_root, sr_id)
         claims = _sr_brief_claims(repo_root, req)
+        # Member-of affordance (Task 8): every bundle that declares this
+        # requirement as a member, so a shared requirement reads as shared on
+        # its own page. Multi-membership stays visible, in load order.
         return {
             "scope": {"kind": scope.kind, "ref": scope.ref},
             "claims": [to_dict(c) for c in claims],
+            "member_of": bundles.bundles_containing(repo_root, scope.ref),
         }
 
     raise ScopeKindError(f"unsupported scope kind: {scope.kind!r}")
@@ -1240,8 +1533,11 @@ def query_timeline(repo_root: Path, scope: SystemScopeRef) -> dict:
 def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
     """List every declared scope the browser can open (design SS5.2).
 
-    Declared bundles, then declared ADRs, then SRs from the requirements
-    register. A malformed bundle file degrades only itself
+    Declared bundles, then declared ADRs, then trace-model
+    feature/metric/goal/diagram nodes. `sr:` scopes are deliberately not
+    listed (SP-B Task 3): requirements are reachable by search, not by
+    listing -- `parse_scope_ref` still resolves `sr:` as a legal top-level
+    scope. A malformed bundle file degrades only itself
     (`bundles.list_bundles` already skips it); it never aborts the rest of
     the listing. An ADR with no declared id has no ref to be opened under and
     is likewise skipped by `load_adrs`.
@@ -1251,8 +1547,9 @@ def list_scopes(repo_root: Path) -> list[SystemScopeRef]:
         scopes.append(SystemScopeRef(kind="bundle", ref=f"bundle:{bundle.id}"))
     for adr_id in adr_module.load_adrs(repo_root):
         scopes.append(SystemScopeRef(kind="adr", ref=f"adr:{adr_id}"))
-    for req in register.load_register(_requirements_dir(repo_root)):
-        scopes.append(SystemScopeRef(kind="sr", ref=f"sr:{req.id}"))
+    for node in trace_model.load_nodes(repo_root):
+        if node.kind in ("diag", "feat", "metric", "goal"):
+            scopes.append(SystemScopeRef(kind=node.kind, ref=f"{node.kind}:{node.id}"))
     return scopes
 
 
@@ -1270,3 +1567,270 @@ def query_guide(repo_root: Path, scope: SystemScopeRef) -> dict:
     from factory.system import guide as _guide
 
     return _guide.query_guide(repo_root, scope)
+
+
+def _traversal_for_sr(
+    repo_root: Path, sr_id: str, edges: list, evidence_dir: Path, *, lookup: ArtifactLookup
+) -> tuple[list[str], list[str], list[str]]:
+    """One `sr:` chain from the real trace graph (Task 9, working traversal).
+
+    Walks the same `factory.trace.model.extract_edges` edges `build_graph`
+    already loads -- never a second parser:
+
+    - `tasks`: `satisfies`-in edges whose `dst` is this SR (edges carry the
+      bare `SR-001` id, matching `extract_edges`'s own `satisfies` dst);
+    - the task's own `source_plan` -> plan ids, each plan's `spec_ref` ->
+      spec ids (traversed so the design surface is reachable), and any
+      `adr:`/design node the chain references -- here, the design decisions
+      the requirement's feature actually records, i.e. the `adr:` members of
+      every bundle that declares this SR (ADRs connect to the rest of the
+      graph only through bundle membership; SP-A's bundle map is their sole
+      link, so this reads that link rather than guessing one);
+    - `files`: changed files recorded in the evidence manifests of the
+      satisfying tasks -- the reverse of the same `changed_files` link
+      `factory.system.reverse`/`story` read (task -> run -> files).
+
+    All values come from recorded loaders; nothing is invented.
+    """
+    tasks = sorted(
+        edge.src for edge in edges if edge.kind == "satisfies" and edge.dst == sr_id
+    )
+
+    plans: list[str] = []
+    specs: list[str] = []
+    for task_id in tasks:
+        for edge in edges:
+            if edge.kind == "source_plan" and edge.src == task_id:
+                plans.append(edge.dst)
+    for plan_id in plans:
+        for edge in edges:
+            if edge.kind == "spec_ref" and edge.src == plan_id:
+                specs.append(edge.dst)
+
+    # Design decisions = the `adr:` members of the bundles that declare this
+    # SR (the only recorded link from a requirement to its design decisions).
+    design: list[str] = []
+    for bundle_id in bundles.bundles_containing(repo_root, f"sr:{sr_id}", lookup=lookup):
+        try:
+            bundle = bundles.load_bundle(_bundles_dir(repo_root), bundle_id)
+        except (FileNotFoundError, ValueError):
+            # A bundle that lists itself but fails to load degrades only its
+            # own contribution -- never the whole traversal (standing rule).
+            continue
+        for member in bundle.members:
+            if member.kind == "adr" and member.ref not in design:
+                design.append(member.ref)
+
+    # Changed files from the reverse walk on the satisfying tasks: the union
+    # of the recorded `changed_files` across those tasks' evidence manifests.
+    files: list[str] = []
+    for task_id in tasks:
+        for manifest in evidence_manifests.list_run_manifests(evidence_dir, task_id=task_id):
+            for changed in manifest["implementation"]["changed_files"]:
+                if changed not in files:
+                    files.append(changed)
+    return tasks, design, files
+
+
+def query_traversal(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Working traversal: requirement -> satisfying tasks -> design -> files.
+
+    Anchored on an `sr:` scope, walks the real trace graph (no parser, no
+    synthesis). A `bundle:` scope aggregates the traversal over its `sr:`
+    members (the bundle's requirements), unioning tasks/design/files and
+    naming every requirement. Returns a plain dict
+    `{"requirement", "tasks", "design", "files"}`. Raises
+    `ScopeKindError` for any other scope kind.
+    """
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    evidence_dir = _evidence_dir(repo_root)
+    lookup = build_artifact_lookup(repo_root, nodes=nodes)
+
+    # A function-local import keeps the module import graph acyclic
+    # (labels.py imports system.bundles and system.adr; neither reaches here).
+    from factory.system.labels import build_alias_map
+
+    aliases = build_alias_map(repo_root, nodes=nodes)
+
+    def _ref(raw: str) -> str:
+        # Unresolvable values are emitted unchanged so nothing is invented;
+        # the browser renders them as "not in the label index".
+        return aliases.get(raw, raw)
+
+    def _file_ref(raw: str) -> str:
+        # There are no file nodes in the graph (trace/model.py:102), so a path
+        # can only be prefixed directly. The path is the file's identity.
+        return raw if raw.startswith("file:") else f"file:{raw}"
+
+    if scope.kind == "sr":
+        sr_id = _scope_identifier(scope)
+        tasks, design, files = _traversal_for_sr(
+            repo_root, sr_id, edges, evidence_dir, lookup=lookup
+        )
+        return {
+            "requirement": [_ref(sr_id)],
+            "tasks": [_ref(t) for t in tasks],
+            "design": [_ref(d) for d in design],
+            "files": [_file_ref(f) for f in files],
+        }
+
+    if scope.kind == "bundle":
+        bundle_id = _scope_identifier(scope)
+        bundle = _load_bundle_or_raise(repo_root, bundle_id)
+        sr_ids = sorted(m.ref.split(":", 1)[1] for m in bundle.members if m.kind == "sr")
+        all_tasks: list[str] = []
+        all_design: list[str] = []
+        all_files: list[str] = []
+        for sr_id in sr_ids:
+            tasks, design, files = _traversal_for_sr(
+                repo_root, sr_id, edges, evidence_dir, lookup=lookup
+            )
+            for t in tasks:
+                if t not in all_tasks:
+                    all_tasks.append(t)
+            for d in design:
+                if d not in all_design:
+                    all_design.append(d)
+            for f in files:
+                if f not in all_files:
+                    all_files.append(f)
+        return {
+            "requirement": [_ref(s) for s in sr_ids],
+            "tasks": [_ref(t) for t in all_tasks],
+            "design": [_ref(d) for d in all_design],
+            "files": [_file_ref(f) for f in all_files],
+        }
+
+    raise ScopeKindError(
+        f"query_traversal supports an sr: or bundle: anchor, got: {scope.kind!r}"
+    )
+
+
+def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the trace-backed dossier for one exact ``feat:`` scope."""
+    if scope.kind != "feat":
+        raise ScopeKindError(f"query_feature_context only supports a feat scope, got: {scope.kind!r}")
+    feature_id = _scope_identifier(scope)
+    from factory.system.feature import feature_context
+
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "dossier": feature_context(repo_root, feature_id),
+    }
+
+
+def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return one requirement's validation evidence (Inc 6 Task 4).
+
+    Only ``sr:`` scopes carry validation. The projection combines recorded
+    state only, never a guess:
+
+    * raw state + staleness from the validation report;
+    * the D5 goal-aware status (VALIDATED/REGRESSED/VERIFICATION_PENDING)
+      derived by ``validation_status.requirement_validation`` from the
+      goals bound to the requirement via declared ``demonstrates`` edges or
+      the goal's own ``requirements`` frontmatter;
+    * the goals that produced the state;
+    * the simulation runs whose manifests declare the requirement;
+    * the metric ids the bound goals evaluate.
+    """
+    if scope.kind != "sr":
+        raise ScopeKindError(f"query_validation only supports sr scopes, got: {scope.kind!r}")
+    req_id = _scope_identifier(scope)
+    status = validation_status.load_validation(repo_root).get(req_id)
+    raw_state = status.state if status is not None else "never_validated"
+    stale = status.stale if status is not None else False
+    error = status.error if status is not None else None
+
+    goals = goal_registry.load_goals(repo_root)
+    edges = trace_model.extract_edges(repo_root, trace_model.load_nodes(repo_root))
+    demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == req_id}
+    bound_goals = sorted(
+        (g for g in goals.values() if req_id in g.requirements or g.id in demonstrated),
+        key=lambda g: g.id,
+    )
+    goal_state = validation_status.requirement_validation(bound_goals)
+    runs = sim_registry.runs_for(_evidence_dir(repo_root), requirement=req_id)
+    metric_ids: set[str] = set()
+    for goal in bound_goals:
+        metric = goal.metric
+        if isinstance(metric, dict) and metric.get("id"):
+            metric_ids.add(str(metric["id"]))
+        elif isinstance(metric, str):
+            metric_ids.add(metric)
+
+    return {
+        "scope": {"kind": "sr", "ref": scope.ref},
+        "validation": {
+            "id": req_id,
+            "raw_state": raw_state,
+            "stale": stale,
+            "error": error,
+            "goal_state": goal_state,
+            "goals": [{"id": g.id, "state": g.state} for g in bound_goals],
+            "runs": [r.run_id for r in runs],
+            "metrics": sorted(metric_ids),
+        },
+    }
+
+
+def _vcycle_statuses(repo_root: Path, slice_: VCycleSlice) -> dict[str, dict[str, object]]:
+    """Attach recorded state to each V-cycle slice node id (Inc 6 Task 2).
+
+    Additive: the V-cycle payload is untouched. Every status is recorded
+    state read from its own source, and nodes with no source are simply
+    absent so the TS renders them neutral -- never guessed.
+
+    * sr/br nodes  <- validation report (state + stale)
+    * goal nodes   <- goal registry frontmatter state
+    * task nodes   <- task ledger frontmatter status
+    """
+    ids: set[str] = set()
+    for side in list(slice_.definition) + list(slice_.verification):
+        ids.update(node.id for node in side.nodes)
+    for group in (slice_.goals, slice_.metrics, slice_.runs):
+        ids.update(node.id for node in group)
+
+    validation = validation_status.load_validation(repo_root)
+    goals = goal_registry.load_goals(repo_root)
+    task_status = {task.id: task.status for task in ledger.load_tasks(repo_root / "tasks")}
+
+    statuses: dict[str, dict[str, object]] = {}
+    for node_id in sorted(ids):
+        status = validation.get(node_id)
+        if status is not None:
+            statuses[node_id] = {
+                "kind": "validation",
+                "state": status.state,
+                "stale": status.stale,
+            }
+            continue
+        goal = goals.get(node_id)
+        if goal is not None:
+            statuses[node_id] = {"kind": "goal", "state": goal.state}
+            continue
+        task_state = task_status.get(node_id)
+        if task_state is not None:
+            statuses[node_id] = {"kind": "task", "state": task_state}
+    return statuses
+
+
+def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return the typed V-cycle slice for one exact ``feat:`` or ``sr:`` scope."""
+    if scope.kind not in {"feat", "sr"}:
+        raise ScopeKindError(f"query_vcycle only supports feat or sr scopes, got: {scope.kind!r}")
+    _scope_identifier(scope)
+    from factory.system.vcycle import vcycle_slice
+
+    try:
+        slice_ = vcycle_slice(repo_root, scope.ref)
+    except ValueError as exc:
+        if str(exc) == f"vcycle anchor does not resolve: {scope.ref!r}":
+            raise ScopeNotFoundError(f"{scope.kind} not found: {_scope_identifier(scope)!r}") from exc
+        raise
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "vcycle": to_dict(slice_),
+        "statuses": _vcycle_statuses(repo_root, slice_),
+    }

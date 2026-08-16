@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import frontmatter
 import pytest
+
 from factory.trace.model import Edge, extract_edges, load_nodes
+from factory.validation.schema_validator import SCHEMA_DIR, validate
 
 pytestmark = pytest.mark.unit
 
@@ -101,3 +104,49 @@ def test_feature_vcycle_frontmatter_fields_produce_typed_edges(tmp_path):
         Edge("FEAT-NAV-017", "MET-001", "evaluates"),
         Edge("FEAT-NAV-017", "ADR-0001", "illustrates"),
     } <= set(edges)
+
+
+def test_schema_valid_feature_and_goal_canonical_fields_produce_typed_edges(tmp_path):
+    feature_path = _write(
+        tmp_path / "docs" / "features" / "FEAT-NAV-017.md",
+        "---\n"
+        "id: FEAT-NAV-017\n"
+        "title: Target reacquisition\n"
+        "requirements: [SR-001, SR-002]\n"
+        "---\n",
+    )
+    goal_path = _write(
+        tmp_path / "goals" / "GOAL-NAV-003.md",
+        "---\n"
+        "id: GOAL-NAV-003\n"
+        "title: Reacquire target\n"
+        "feature: FEAT-NAV-017\n"
+        "requirements: [SR-001, SR-002]\n"
+        "metric: MET-NAV-004\n"
+        "target: '>= 0.9'\n"
+        "---\n",
+    )
+
+    assert validate(dict(frontmatter.load(str(feature_path)).metadata), SCHEMA_DIR / "feat.schema.json") == []
+    assert validate(dict(frontmatter.load(str(goal_path)).metadata), SCHEMA_DIR / "goal.schema.json") == []
+
+    edges = _edges(tmp_path)
+
+    assert {
+        Edge("FEAT-NAV-017", "SR-001", "contains"),
+        Edge("FEAT-NAV-017", "SR-002", "contains"),
+        Edge("GOAL-NAV-003", "SR-001", "demonstrates"),
+        Edge("GOAL-NAV-003", "SR-002", "demonstrates"),
+        Edge("GOAL-NAV-003", "MET-NAV-004", "evaluates"),
+    } <= set(edges)
+    assert not any(edge.src == "GOAL-NAV-003" and edge.dst == "FEAT-NAV-017" for edge in edges)
+
+
+def test_diagram_stub_illustrates_target_with_a_typed_edge(tmp_path):
+    _write(
+        tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: [NAV-REQ-021]\nillustrates: [FEAT-NAV-017]\ndiagram_file: overview.html\n---\n",
+    )
+
+    assert Edge("DIAG-NAV-001", "FEAT-NAV-017", "illustrates") in _edges(tmp_path)

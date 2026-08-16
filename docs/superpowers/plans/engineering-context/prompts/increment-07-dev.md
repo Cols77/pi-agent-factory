@@ -4,7 +4,8 @@ You are the developer subagent for Engineering-Context Increment 07 in
 C:/coding/pi-agent-factory (read-only RFC: work in cool_physical_ai_project only where the plan says so).
 
 Read completely:
-- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D8 locked decisions)
+- docs/superpowers/plans/engineering-context/00-program-architecture.md (Program §6 reuse rules, D1–D9 locked decisions)
+- docs/superpowers/plans/engineering-context/00-high-level-requirements.md (HLR-09 freshness contract)
 - docs/superpowers/plans/engineering-context/increment-07-*.md (this increment's plan)
 - Inc 1–7 plans you depend on, and the v1 modules they reuse.
 
@@ -16,8 +17,12 @@ Implement the plan task-by-task, in strict order:
 - Reuse factory.trace/model, factory.system, factory.evidence, factory.goals, factory.simulation,
   factory.validation as the plan directs. Do not fork a parser or re-derive in TS.
 - Deterministic: no random, no mtime ordering, no fuzzy scope refs.
+- HLR-09 / D9: freshness is a maintained property — authority-aware refresh policy, automatic safe
+  regeneration/rerun, reconciliation verified by fingerprints (never trusted), refresh-loop protection.
+- SP-B is an active upstream implementation: do not edit SP-B-owned browser files until SP-B lands;
+  the domain/freshness architecture is Python-only and independent of the browser.
 - Tick each plan checkbox as you complete it. Constrain each commit to its task.
-- If a step is impossible without violating D1–D8 or a Program §6 rule, STOP and escalate —
+- If a step is impossible without violating D1–D9 or a Program §6 rule, STOP and escalate —
   do not improvise a new design direction.
 
 When done: report commit hashes, paths touched, which task checkboxes are ticked, the

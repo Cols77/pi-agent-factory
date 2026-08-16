@@ -88,6 +88,19 @@ describe("buildGrillSeedPrompt", () => {
     expect(prompt).toContain("Visual explainers to consider");
     expect(prompt).toContain(freshExplainers);
   });
+
+  test("embeds a provided context-packet slice (gathered context), not blank", () => {
+    const packetSlice = "## Context packet (gathered)\n### PRIMARY — src/mod.py\n```\ndef alpha():\n```";
+    const prompt = buildGrillSeedPrompt(taskText, skillBlocks, freshExplainers, resultPath, packetSlice);
+    expect(prompt).toContain("## Context packet (gathered)");
+    expect(prompt).toContain("src/mod.py");
+    expect(prompt).toContain("def alpha()");
+  });
+
+  test("omits the packet section when the packet slice is null or empty", () => {
+    const prompt = buildGrillSeedPrompt(taskText, skillBlocks, freshExplainers, resultPath, null);
+    expect(prompt).not.toContain("## Context packet");
+  });
 });
 
 describe("buildTraceFixSeedPrompt field of view", () => {

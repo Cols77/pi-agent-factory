@@ -33,6 +33,19 @@ ARTIFACT_SCHEMA_CASES = [
             "target": ">= 0.90",
         },
     ),
+    (
+        "diag",
+        "^DIAG-[A-Z0-9-]+$",
+        ["id", "kind", "title", "illustrates", "diagram_file"],
+        {
+            "id": "DIAG-NAV-001",
+            "kind": "diag",
+            "title": "Navigator overview",
+            "focus": "Traceability",
+            "illustrates": "FEAT-NAV-017",
+            "diagram_file": "DIAG-NAV-003.html",
+        },
+    ),
 ]
 
 ARTIFACT_DOCUMENTS = {kind: document for kind, _, _, document in ARTIFACT_SCHEMA_CASES}
@@ -46,6 +59,15 @@ INVALID_ARTIFACT_DOCUMENT_CASES = [
     ("goal", "non-metric metric reference", {"metric": "FEAT-NAV-017"}),
     ("goal", "blank target", {"target": ""}),
     ("goal", "non-string target", {"target": 0.9}),
+    ("diag", "bad diagram id", {"id": "FEAT-NAV-001"}),
+    ("diag", "wrong kind", {"kind": "feat"}),
+    ("diag", "non-HTML diagram file", {"diagram_file": "diagram.mmd"}),
+    ("diag", "parent traversal diagram file", {"diagram_file": "../escape.html"}),
+    ("diag", "Windows drive diagram file", {"diagram_file": "C:escape.html"}),
+    ("diag", "dot segment diagram file", {"diagram_file": "sub/../ok.html"}),
+    ("diag", "trailing newline diagram file", {"diagram_file": "ok.html\n"}),
+    ("diag", "trailing carriage return diagram file", {"diagram_file": "ok.html\r"}),
+    ("diag", "unknown property", {"unknown": True}),
     ("feat", "unknown property", {"unknown": True}),
     ("metric", "unknown property", {"unknown": True}),
     ("goal", "unknown property", {"unknown": True}),
@@ -75,6 +97,38 @@ def test_artifact_schemas_reject_invalid_documents(kind, case, overrides):
     document = {**ARTIFACT_DOCUMENTS[kind], **overrides}
 
     assert validate(document, schema_path), case
+
+
+def test_diag_schema_requires_kind():
+    schema_path = SCHEMA_DIR / "diag.schema.json"
+    document = {key: value for key, value in ARTIFACT_DOCUMENTS["diag"].items() if key != "kind"}
+
+    assert validate(document, schema_path)
+
+
+def test_diag_schema_accepts_an_omitted_optional_focus():
+    document = {key: value for key, value in ARTIFACT_DOCUMENTS["diag"].items() if key != "focus"}
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
+
+
+def test_diag_schema_accepts_canonical_list_frontmatter_with_html_artifact():
+    document = {
+        "id": "DIAG-NAV-001",
+        "kind": "diag",
+        "title": "Navigator overview",
+        "focus": ["NAV-REQ-021"],
+        "illustrates": ["FEAT-NAV-017"],
+        "diagram_file": "DIAG-NAV-003.html",
+    }
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
+
+
+def test_diag_schema_accepts_a_canonical_nested_relative_html_artifact():
+    document = {**ARTIFACT_DOCUMENTS["diag"], "diagram_file": "assets/DIAG-NAV-003.html"}
+
+    assert validate(document, SCHEMA_DIR / "diag.schema.json") == []
 
 
 def test_valid_manifest_passes():

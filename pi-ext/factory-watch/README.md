@@ -148,6 +148,18 @@ pi --extension pi-ext/factory-watch/src/index.ts
 ```
 Then type `/factory` in the session.
 
+## Project bootstrap
+
+- `/factory-init` — deterministic project bootstrap: creates `AGENTS.md` (managed
+  block) and `.pi/factory/project-profile.json`; validates when already present.
+- `/factory-init --refresh` — rediscover and update only factory-managed content.
+- `/factory-init --check` / `/factory-doctor` — read-only validation + drift/tool/subagent
+  diagnostics.
+
+The bootstrap is evidence-driven, idempotent and atomic; content outside the managed
+markers is preserved byte-for-byte. Extended documentation: `docs/project-bootstrap.md`
+and `docs/superpowers/specs/2026-08-13-project-bootstrap-factory-init-design.md`.
+
 ## Test
 
 ```

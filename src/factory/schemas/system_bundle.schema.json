@@ -12,6 +12,12 @@
       "description": "Must exactly equal the bundle file's filename stem (bundle files are named <id>.json). A mismatch is loaded as BundleIdMismatchError, not silently accepted -- scope resolution for bundle:<id> is exact only."
     },
     "label": {"type": "string", "minLength": 1},
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280,
+      "description": "One short sentence stating WHAT the feature is -- an expansion of `label`, nothing more. Rationale for why artifacts were grouped this way belongs in an ADR, not here (see 2026-08-10-system-control-center-program-decomposition.md). The 280-character cap is a convention that keeps this field honest; it cannot enforce the distinction mechanically."
+    },
     "members": {
       "type": "array",
       "uniqueItems": true,

@@ -8,9 +8,11 @@ already owns -- existence and content come only from those loaders.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
+from factory.system import queries
 from factory.system.bundles import BundleIdMismatchError
 from factory.system.models import ClaimClass, FreshnessState, MatrixStatus, SystemScopeRef
 from factory.system.queries import (
@@ -21,8 +23,10 @@ from factory.system.queries import (
     parse_scope_ref,
     query_brief,
     query_guide,
+    query_diagram,
     query_matrix,
     query_timeline,
+    query_traversal,
 )
 from factory.validation.schema_validator import SCHEMA_DIR, validate
 
@@ -35,6 +39,7 @@ from ._fixtures import (
     write_decision_artifact,
     write_non_dict_validation_report,
     write_plan,
+    write_run_manifest,
     write_spec,
     write_sr,
     write_task,
@@ -63,6 +68,27 @@ def test_parse_scope_ref_accepts_bundle_and_sr():
     assert parse_scope_ref("sr:SR-001") == SystemScopeRef(kind="sr", ref="sr:SR-001")
 
 
+@pytest.mark.parametrize(
+    ("raw", "kind"),
+    [
+        ("feat:FEAT-NAV-017", "feat"),
+        ("metric:MET-NAV-004", "metric"),
+        ("goal:GOAL-NAV-003", "goal"),
+    ],
+)
+def test_parse_scope_ref_accepts_feature_metric_and_goal(raw, kind):
+    assert parse_scope_ref(raw) == SystemScopeRef(kind=kind, ref=raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["Feat:FEAT-NAV-017", "Metric:MET-NAV-004", "Goal:GOAL-NAV-003", "feature:FEAT-NAV-017"],
+)
+def test_parse_scope_ref_rejects_feature_metric_and_goal_aliases_and_capitalization(raw):
+    with pytest.raises(ScopeKindError):
+        parse_scope_ref(raw)
+
+
 @pytest.mark.parametrize("raw", ["spec:x.md", "nonsense", "bundle:", "sr:", ":x", ""])
 def test_parse_scope_ref_rejects_anything_else(raw):
     with pytest.raises(ScopeKindError):
@@ -72,6 +98,12 @@ def test_parse_scope_ref_rejects_anything_else(raw):
 def test_task_and_file_are_now_openable_scopes():
     assert parse_scope_ref("task:T-059").kind == "task"
     assert parse_scope_ref("file:src/drone/planning/reactive.py").kind == "file"
+
+
+def test_diag_is_an_openable_scope():
+    assert parse_scope_ref("diag:DIAG-NAV-001") == SystemScopeRef(
+        kind="diag", ref="diag:DIAG-NAV-001"
+    )
 
 
 def test_spec_and_plan_are_still_not_openable_scopes():
@@ -92,6 +124,49 @@ def test_query_brief_raises_for_nonexistent_bundle(tmp_path):
 def test_query_brief_raises_for_nonexistent_sr(tmp_path):
     with pytest.raises(ScopeNotFoundError):
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-999"))
+
+
+def test_bundle_brief_resolves_feature_metric_and_goal_members_in_declared_order(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    write_bundle(
+        tmp_path / "bundles",
+        "navigator",
+        "Navigator",
+        ["feat:FEAT-NAV-017", "metric:MET-NAV-004", "goal:GOAL-NAV-003"],
+    )
+
+    result = query_brief(tmp_path, parse_scope_ref("bundle:navigator"))
+
+    member_claims = result["claims"][1:]
+    assert [claim["text"] for claim in member_claims] == [
+        "feat:FEAT-NAV-017",
+        "metric:MET-NAV-004",
+        "goal:GOAL-NAV-003",
+    ]
+    assert [claim["citations"][0]["path"] for claim in member_claims] == [
+        str(feature),
+        str(metric),
+        str(goal),
+    ]
+    assert all(claim["citations"][0]["kind"] == "trace" for claim in member_claims)
+    assert result["degraded"] is False
 
 
 def test_query_brief_does_not_fuzzy_match_sr_id(tmp_path):
@@ -125,6 +200,42 @@ def test_sr_scope_absent_requirements_dir_is_not_found_not_error(tmp_path):
     # than raising, so this must surface as "not found", not a crash.
     with pytest.raises(ScopeNotFoundError):
         query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+
+
+# ---------------------------------------------------------------------------
+# Member-of affordance: a sr: brief lists every bundle that contains it
+# ---------------------------------------------------------------------------
+
+
+def test_brief_includes_member_bundles_for_sr_scope(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    assert brief["member_of"] == ["b1"]
+
+
+def test_brief_member_of_lists_all_containing_bundles_multimembership(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "alpha", "A", ["sr:SR-001"])
+    write_bundle(tmp_path / "bundles", "gamma", "G", ["sr:SR-001", "sr:SR-002"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Deterministic load order: alpha is written first.
+    assert brief["member_of"] == ["alpha", "gamma"]
+
+
+def test_brief_member_of_is_empty_when_sr_in_no_bundle(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-998"])
+    write_bundle(tmp_path / "bundles", "b2", "B2", ["sr:SR-999"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-001"))
+    # Present but empty: this sr is not a member of any bundle.
+    assert brief["member_of"] == []
+
+
+def test_brief_member_of_absent_for_bundle_scope(tmp_path):
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    brief = query_brief(tmp_path, SystemScopeRef(kind="bundle", ref="bundle:b1"))
+    assert "member_of" not in brief
 
 
 # ---------------------------------------------------------------------------
@@ -792,16 +903,59 @@ def test_list_scopes_skips_one_malformed_bundle_without_aborting(tmp_path):
     assert bundle_refs == {"bundle:alpha", "bundle:beta"}
 
 
-def test_list_scopes_includes_srs(tmp_path):
+def test_list_scopes_omits_srs(tmp_path):
     write_sr(tmp_path / "requirements", "SR-001")
     write_sr(tmp_path / "requirements", "SR-002")
     write_bundle(tmp_path / "bundles", "b1", "Bundle", [])
 
     scopes = list_scopes(tmp_path)
 
-    assert SystemScopeRef(kind="sr", ref="sr:SR-001") in scopes
-    assert SystemScopeRef(kind="sr", ref="sr:SR-002") in scopes
+    # sr: scopes leave the sidebar listing (SP-B Task 3) but bundle: remains.
+    assert SystemScopeRef(kind="sr", ref="sr:SR-001") not in scopes
+    assert SystemScopeRef(kind="sr", ref="sr:SR-002") not in scopes
     assert SystemScopeRef(kind="bundle", ref="bundle:b1") in scopes
+
+
+def test_list_scopes_omits_sr_but_parse_resolves(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-007")
+
+    scopes = list_scopes(tmp_path)
+    kinds = {s.kind for s in scopes}
+    assert "sr" not in kinds
+
+    # sr: is still a legal, resolvable top-level scope -- just not listed.
+    ref = parse_scope_ref("sr:SR-007")
+    assert ref.kind == "sr"
+    assert ref.ref == "sr:SR-007"
+def test_list_scopes_includes_feature_metric_and_goal_trace_nodes(tmp_path):
+    feature = tmp_path / "docs" / "features" / "FEAT-NAV-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Target Reacquisition\n---\n",
+        encoding="utf-8",
+    )
+    metric = tmp_path / "metrics" / "MET-NAV-004.md"
+    metric.parent.mkdir()
+    metric.write_text(
+        "---\nid: MET-NAV-004\ntitle: reacquisition_rate\n---\n",
+        encoding="utf-8",
+    )
+    goal = tmp_path / "goals" / "GOAL-NAV-003.md"
+    goal.parent.mkdir()
+    goal.write_text(
+        "---\nid: GOAL-NAV-003\ntitle: reacquire >= 90%\n---\n",
+        encoding="utf-8",
+    )
+    (feature.parent / "FEAT-broken.md").write_text("---\nnot: valid: yaml: at all\n", encoding="utf-8")
+
+    scopes = list_scopes(tmp_path)
+
+    assert {
+        SystemScopeRef(kind="feat", ref="feat:FEAT-NAV-017"),
+        SystemScopeRef(kind="metric", ref="metric:MET-NAV-004"),
+        SystemScopeRef(kind="goal", ref="goal:GOAL-NAV-003"),
+    }.issubset(scopes)
+
 
 
 def test_list_scopes_on_empty_repo_is_empty(tmp_path):
@@ -1135,3 +1289,338 @@ def test_list_scopes_includes_declared_adrs(tmp_path):
     refs = [s.ref for s in list_scopes(tmp_path)]
 
     assert "adr:ADR-0001" in refs
+
+
+# ---------------------------------------------------------------------------
+# Working traversal: requirement -> satisfying tasks -> design -> files
+# ---------------------------------------------------------------------------
+
+
+def _write_task_traversal(root, task_id, sr_id, source_plan):
+    """A task with a `satisfies` link and a `source_plan`, for the traversal."""
+    tasks_dir = root / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / f"{task_id}-traversal.md").write_text(
+        f"---\nid: {task_id}\ntitle: T\nstatus: done\ndod: []\n"
+        f"satisfies:\n- {sr_id}\nsource_plan: docs/superpowers/plans/{source_plan}\n"
+        f"---\nbody\n",
+        encoding="utf-8",
+    )
+    return task_id
+
+
+def _write_adr(root, filename, adr_id):
+    adr_dir = root / "docs" / "adr"
+    adr_dir.mkdir(parents=True, exist_ok=True)
+    (adr_dir / filename).write_text(
+        f"---\nid: {adr_id}\ntitle: T\nstatus: accepted\n---\nbody\n",
+        encoding="utf-8",
+    )
+    return adr_id
+
+
+def test_traversal_chain_requirement_and_tasks(tmp_path):
+    """The sr: anchor yields its satisfying tasks; design/files are lists."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    _write_task_traversal(tmp_path, "T-002", "SR-001", "2026-08-12-P.md")
+    trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert trav["requirement"] == ["sr:SR-001"]
+    assert "task:T-001" in trav["tasks"]
+    assert "task:T-002" in trav["tasks"]
+    assert isinstance(trav["design"], list)
+    assert isinstance(trav["files"], list)
+
+
+def test_traversal_full_chain_plan_spec_design_files(tmp_path):
+    """The full chain: task -> source_plan -> spec_ref -> bundle ADR + files."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    # a plan whose body names its spec (trace spec_ref edge source)
+    plans = tmp_path / "docs" / "superpowers" / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    (plans / "2026-08-12-P.md").write_text(
+        "# Plan P\n\nSpec: docs/superpowers/specs/2026-08-12-S.md\n",
+        encoding="utf-8",
+    )
+    write_spec(tmp_path, "2026-08-12-S.md")
+    # a bundle that declares the sr and the design ADR; the ADR loader reads
+    # it from docs/adr (masked so list_scopes does not also list it).
+    _write_adr(tmp_path, "0001-spine.md", "ADR-0001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "adr:ADR-0001"])
+    # a recorded evidence manifest naming the file T-001 changed
+    write_run_manifest(tmp_path, run_id="run-001", task_id="T-001", changed_files=["src/a.py"])
+    trav = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert "task:T-001" in trav["tasks"]
+    assert "adr:ADR-0001" in trav["design"]
+    assert "file:src/a.py" in trav["files"]
+
+
+def test_traversal_bundle_scope_aggregates_sr_members(tmp_path):
+    """A bundle: anchor unions the traversal over its sr members."""
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    _write_task_traversal(tmp_path, "T-001", "SR-001", "2026-08-12-P.md")
+    _write_task_traversal(tmp_path, "T-002", "SR-002", "2026-08-12-P.md")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+    trav = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+    assert "sr:SR-001" in trav["requirement"]
+    assert "sr:SR-002" in trav["requirement"]
+    assert "task:T-001" in trav["tasks"]
+    assert "task:T-002" in trav["tasks"]
+
+
+def test_traversal_bundle_scope_shares_one_lookup_across_sr_members(tmp_path, monkeypatch):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+    seen = []
+    real_bundles_containing = queries.bundles.bundles_containing
+
+    def capture_bundles_containing(repo_root, ref, *, lookup):
+        seen.append(lookup)
+        return real_bundles_containing(repo_root, ref, lookup=lookup)
+
+    monkeypatch.setattr(queries.bundles, "bundles_containing", capture_bundles_containing)
+
+    query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+
+    assert len(seen) == 2
+    assert seen[0] is seen[1]
+
+
+def test_traversal_loads_trace_nodes_once_for_a_multi_sr_bundle(tmp_path, monkeypatch):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_sr(tmp_path / "requirements", "SR-002")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001", "sr:SR-002"])
+    real_load_nodes = queries.trace_model.load_nodes
+    calls = 0
+
+    def counted_load_nodes(root):
+        nonlocal calls
+        calls += 1
+        return real_load_nodes(root)
+
+    monkeypatch.setattr(queries.trace_model, "load_nodes", counted_load_nodes)
+
+    query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+
+    assert calls == 1
+
+
+def test_traversal_emits_canonical_ref_lists_for_a_bundle(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_sr(tmp_path / "requirements", "SR-002", title="Two", statement="s")
+    bundles_dir = tmp_path / "bundles"
+    bundles_dir.mkdir()
+    write_bundle(bundles_dir, "b1", "Bundle one", ["sr:SR-001", "sr:SR-002"])
+    result = query_traversal(tmp_path, parse_scope_ref("bundle:b1"))
+    assert result["requirement"] == ["sr:SR-001", "sr:SR-002"]
+    assert isinstance(result["tasks"], list)
+
+
+def test_traversal_task_refs_are_prefixed(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    write_task(tmp_path / "tasks", "T-001", title="Do it", satisfies=["SR-001"])
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert result["requirement"] == ["sr:SR-001"]
+    assert result["tasks"] == ["task:T-001"]
+
+
+def test_traversal_files_are_file_refs(tmp_path):
+    write_sr(tmp_path / "requirements", "SR-001", title="One", statement="s")
+    result = query_traversal(tmp_path, parse_scope_ref("sr:SR-001"))
+    assert all(ref.startswith("file:") for ref in result["files"])
+
+
+def test_list_scopes_includes_diagram_stubs(tmp_path):
+    path = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "focus: Traceability\nillustrates: FEAT-NAV-017\ndiagram_file: overview.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert SystemScopeRef(kind="diag", ref="diag:DIAG-NAV-001") in list_scopes(tmp_path)
+
+
+def test_query_diagram_resolves_relative_html_path_without_optional_focus(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md"
+    diagram = stub.parent / "assets" / "overview.html"
+    diagram.parent.mkdir(parents=True)
+    diagram.write_text("<html></html>\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-001\nkind: diag\ntitle: Navigator overview\n"
+        "illustrates: FEAT-NAV-017\ndiagram_file: assets/overview.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-001") == {
+        "id": "DIAG-NAV-001",
+        "title": "Navigator overview",
+        "diagram_path": str(diagram),
+        "errors": [],
+    }
+
+
+def test_query_diagram_reports_a_missing_declared_path_without_discarding_the_stub(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-002.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-002\nkind: diag\ntitle: Missing asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: assets/missing.html\n---\n",
+        encoding="utf-8",
+    )
+    missing = stub.parent / "assets" / "missing.html"
+
+    result = query_diagram(tmp_path, "DIAG-NAV-002")
+
+    assert result == {
+        "id": "DIAG-NAV-002",
+        "title": "Missing asset",
+        "diagram_path": None,
+        "errors": [f"missing diagram file: {missing}"],
+    }
+    assert "scope_errors" not in result
+
+
+def test_query_diagram_rejects_an_absolute_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-003.md"
+    absolute_diagram = tmp_path / "outside.html"
+    absolute_diagram.write_text("<svg />\n", encoding="utf-8")
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    declared_path = absolute_diagram.as_posix()
+    stub.write_text(
+        "---\nid: DIAG-NAV-003\nkind: diag\ntitle: Absolute asset\n"
+        f"focus: Traceability\nillustrates: ADR-0001\ndiagram_file: {declared_path}\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-003") == {
+        "id": "DIAG-NAV-003",
+        "title": "Absolute asset",
+        "diagram_path": None,
+        "errors": [f"absolute diagram file is not allowed: {declared_path}"],
+    }
+
+
+def test_query_diagram_rejects_a_posix_rooted_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-004.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-004\nkind: diag\ntitle: POSIX-rooted asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: /outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-004") == {
+        "id": "DIAG-NAV-004",
+        "title": "POSIX-rooted asset",
+        "diagram_path": None,
+        "errors": ["absolute diagram file is not allowed: /outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_windows_rooted_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-005.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-005\nkind: diag\ntitle: Windows-rooted asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: \\outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-005") == {
+        "id": "DIAG-NAV-005",
+        "title": "Windows-rooted asset",
+        "diagram_path": None,
+        "errors": ["absolute diagram file is not allowed: \\outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_parent_traversal_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-006.md"
+    outside = stub.parent.parent / "outside.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    stub.write_text(
+        "---\nid: DIAG-NAV-006\nkind: diag\ntitle: Traversal asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: ../outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-006") == {
+        "id": "DIAG-NAV-006",
+        "title": "Traversal asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: ../outside.html"],
+    }
+
+
+def test_query_diagram_rejects_a_symlink_that_escapes_the_stub_directory(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-007.md"
+    outside = tmp_path / "outside.html"
+    link = stub.parent / "escape.html"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("<svg />\n", encoding="utf-8")
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    stub.write_text(
+        "---\nid: DIAG-NAV-007\nkind: diag\ntitle: Symlink asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: escape.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-007") == {
+        "id": "DIAG-NAV-007",
+        "title": "Symlink asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: escape.html"],
+    }
+
+
+def test_query_diagram_rejects_a_windows_drive_relative_declared_path(tmp_path):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-008.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-008\nkind: diag\ntitle: Drive-relative asset\n"
+        "focus: Traceability\nillustrates: ADR-0001\ndiagram_file: C:outside.html\n---\n",
+        encoding="utf-8",
+    )
+
+    assert query_diagram(tmp_path, "DIAG-NAV-008") == {
+        "id": "DIAG-NAV-008",
+        "title": "Drive-relative asset",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: C:outside.html"],
+    }
+
+
+@pytest.mark.parametrize("failing_name", ["diagrams", "loop.html"])
+def test_query_diagram_degrades_when_path_resolution_fails(tmp_path, monkeypatch, failing_name):
+    stub = tmp_path / "docs" / "diagrams" / "DIAG-NAV-009.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(
+        "---\nid: DIAG-NAV-009\nkind: diag\ntitle: Resolution failure\n"
+        "illustrates: ADR-0001\ndiagram_file: loop.html\n---\n",
+        encoding="utf-8",
+    )
+    original_resolve = Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        if path.name == failing_name:
+            raise RuntimeError("symlink loop")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+
+    assert query_diagram(tmp_path, "DIAG-NAV-009") == {
+        "id": "DIAG-NAV-009",
+        "title": "Resolution failure",
+        "diagram_path": None,
+        "errors": ["invalid diagram file path: loop.html"],
+    }
+

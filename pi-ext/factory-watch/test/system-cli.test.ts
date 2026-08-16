@@ -11,6 +11,7 @@ import {
   loadSystemScopes,
   loadSystemTimeline,
 } from "../src/system-cli.js";
+import type { SystemLabels } from "../src/system-cli.js";
 
 const SCOPE_LIST = {
   scopes: [{ kind: "bundle", ref: "bundle:evidence-lifecycle" }],
@@ -87,6 +88,22 @@ describe("buildSystemCommand", () => {
       bin: "uv",
       args: ["run", "python", "-m", "factory.system", "scope", "--json"],
     });
+  });
+
+  test("labels command is built as a factory.system subcommand", () => {
+    const cmd = buildSystemCommand(["labels", "--json"]);
+    expect(cmd.bin).toBe("uv");
+    expect(cmd.args).toEqual(["run", "python", "-m", "factory.system", "labels", "--json"]);
+  });
+
+  test("label entries expose title, description and scope_href", () => {
+    const entry: SystemLabels["labels"][string] = {
+      ref: "task:T-060", id: "T-060", kind: "task", title: "Wire the governor",
+      description: null, description_source: null, deferral_reason: null,
+      status: "done", relations: { satisfies: ["sr:SR-121"] },
+      path: "tasks/T-060.md", scope_href: "/system?scope=task%3AT-060",
+    };
+    expect(entry.title).toBe("Wire the governor");
   });
 });
 

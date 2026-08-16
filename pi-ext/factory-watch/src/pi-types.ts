@@ -10,7 +10,7 @@
 // redeclaring minimal subsets of them would be pure risk with no benefit.
 
 import type { Component, KeybindingsManager, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BeforeAgentStartEventResult as SdkBeforeAgentStartEventResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export interface ModelInfo {
   provider: string;
@@ -41,6 +41,8 @@ export interface ExtCommandCtx {
   cwd: string;
   ui: UiApi;
   model: ModelInfo | undefined;
+  hasUI: boolean;
+  reload(): Promise<void>;
   newSession(options?: {
     withSession?: (ctx: ReplacedSessionCtx) => Promise<void>;
   }): Promise<{ cancelled: boolean }>;
@@ -55,6 +57,8 @@ export interface CommandDef {
 // only the field these hooks actually read.
 export interface EventCtx {
   cwd: string;
+  /** Real SDK: ReadonlySessionManager — used for the once-per-session gate. */
+  sessionManager?: { getSessionId(): string };
 }
 
 export interface ToolCallEvent {
@@ -91,8 +95,22 @@ export interface BeforeAgentStartEvent {
   systemPrompt: string;
 }
 
-export interface BeforeAgentStartEventResult {
-  systemPrompt?: string;
+// Pinned to the real SDK type. The earlier hand-declared `message` subset
+// (content: string) drifted from the SDK's CustomMessage (content may be a
+// text/block array) and broke type-compat-check.ts; an alias cannot drift.
+export type BeforeAgentStartEventResult = SdkBeforeAgentStartEventResult;
+
+export interface SessionStartEvent {
+  type: "session_start";
+  // "startup" for a fresh session; other reasons (fork/reload/etc.) indicate a
+  // non-startup trigger we may want to skip cheap work for.
+  reason?: string;
+}
+
+export interface SessionShutdownEvent {
+  type: "session_shutdown";
+  reason: string;
+  targetSessionFile?: string;
 }
 
 export interface PiApi {
@@ -112,5 +130,13 @@ export interface PiApi {
   on(
     event: "before_agent_start",
     handler: (event: BeforeAgentStartEvent, ctx: EventCtx) => BeforeAgentStartEventResult | void,
+  ): void;
+  on(
+    event: "session_start",
+    handler: (event: SessionStartEvent, ctx: EventCtx) => void,
+  ): void;
+  on(
+    event: "session_shutdown",
+    handler: (event: SessionShutdownEvent, ctx: EventCtx) => void,
   ): void;
 }

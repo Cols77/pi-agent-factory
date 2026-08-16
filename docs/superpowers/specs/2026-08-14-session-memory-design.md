@@ -1,0 +1,123 @@
+# Session-Continuity Memory — Design
+
+**Status:** proposed → **landed (increments 1–2)** · **Prototype:** landed in `pi-ext/factory-watch/src/{session-memory,session-policy,session-feeds,session-memory-command}.ts` + `test/{session-memory,session-context}.test.ts`
+
+## 1. Problem
+
+The bootstrap (`/factory-init`) persists **stable** project facts (purpose, components, canonical docs, commands) into the `AGENTS.md` managed block, and long-lived **lessons learned** live in `kb/`. Neither layer carries the **short-lived, stateful** sense of *"where we were / what changed this session / what's next"*. Because pi loads `AGENTS.md` natively each session, a fresh session knows *what the repo is* but has no memory of *what a prior session just did*, unless a human re-states it.
+
+We want: after a session does something a later session should be aware of, that is **persisted**, and on the next session it is **injected** into the system prompt — then **retired** once it is old/superseded enough that a new session should no longer be told about it.
+
+## 2. Non-goals / boundaries
+
+- **Not** a replacement for `kb/`. `kb/*.md` entries are long-lived, cross-session lessons learned (root causes, recurring gotchas), written by the session-review role, surfaced by retrieval, no TTL. This design is the short-lived *continuity* layer and must not duplicate or absorb `kb/`.
+- **Not** raw-transcript persistence. Logging transcripts is bloat and a stale-continuity hazard (the crux of "a later session is told the wrong thing"). What happened is logged **explicitly** (a `/remember` command), never dumped automatically.
+- **Not** a change to the stable `AGENTS.md` managed block. Volatile state stays out of it (existing ruling: *"Do not put active task state into the managed block — it is volatile and would churn the prompt cache"*).
+
+## 3. Three-layer knowledge model (how this slots in)
+
+| layer | home | volatility | mechanism |
+|---|---|---|---|
+| Project bootstrap | `AGENTS.md` managed block | low | native pi load, every session |
+| **Session continuity** *(this design)* | `.pi/factory/session-memory.json` | **high; TTL** | injected by `before_agent_start`; written/pruned by `/remember` + `session_shutdown` |
+| Durable lessons | `kb/*.md`, evidence store, specs/plans | low | retrieved/queried on demand |
+
+## 4. The two hooks (pi API)
+
+- **Write + prune — `session_shutdown`** fires when a session ends with `reason` (`quit | reload | new | resume | fork`). This is the *after-session* point: tend the store (prune expired, supersede handled at write, enforce cap).
+- **Read + inject — `before_agent_start`** fires once per user prompt, hands the extension the fully assembled `systemPrompt` and lets it return a modified one. This is the *next-session* point: read the pruned store and inject a bounded rollup.
+
+Both hooks are already in the real `@earendil-works/pi-coding-agent` extension API. The factory extension currently registers **no** hooks; this design adds the first two, extending the minimal `PiApi` structural subset (`pi-types.ts`) with a `session_shutdown` overload (the `before_agent_start` overload already exists, currently unused).
+
+## 5. The store: `.pi/factory/session-memory.json`
+
+Schema-versioned, machine-readable, alongside `project-profile.json`:
+
+```json
+{ "schema": 1, "entries": [
+  { "id": "sm-0001", "kind": "log", "topic": "task:T-042",
+    "created": "2026-08-09T10:00:00.000Z", "expires": "2026-08-10T10:00:00.000Z",
+    "actor": "session:abc", "text": "unit green after audit-log fix; next: validation gate",
+    "supersedes": null }
+] }
+```
+
+- `topic` — grouping key for supersede (e.g. `task:T-042`, `decision:<slot>`).
+- `expires` — never null for `kind:"log"` (always short-lived).
+- `supersedes` — id of the live entry this one retired, kept for audit.
+- `actor` — who logged it (session id, `manual`).
+
+### The three retention controls ("stop telling new sessions about deprecated/unrelevant stuff")
+
+1. **TTL** — each entry carries `expires`; entries with `expires < now` are dropped and never injected. This is the age-based pruning the requirement asks for.
+2. **Supersede by topic** — writing a note with the same `topic` retires the older **live** entry first. Without this, age alone leaves two contradicting "latest" claims (`T-042 on dev` + `T-042 validation failed`) both injected. With it, a new session sees only the newest state for a subject. This is the correctness mechanism a pure TTL lacks.
+3. **Hard cap** — `maxEntries` and a `maxTokens` injection budget; oldest dropped first past the cap; per-note token cap so one long note can't blow the rollup.
+
+Composed **at write time** (and re-run on `session_shutdown`), deterministically, in the pure module. No model involved in pruning — it is a mechanical filter.
+
+## 6. Injection surface
+
+On `before_agent_start`, if the pruned store is non-empty, append a bounded, as-of-dated block of fresh notes (oldest first) to the system prompt:
+
+```markdown
+# Session continuity (from session-memory.json — volatile, as-of-dated)
+Fresh notes a prior session deliberately left for this one. Verify before acting on them; detailed state is on disk / on-demand.
+- [task:T-042] (session:def, until 2026-08-10 11:30) validation FAILED (flaky sim); retrying with -x
+- [decision:audit-log] (session:abc, until 2026-08-10 11:00) keep session_shutdown prune silent
+```
+
+Design rules for the injected content:
+- **Every line is as-of/expiry-dated and marked volatile**, so the reader treats it as a pointer to verify, not ground truth (hallucinated-continuity guard).
+- **Bounded** by `maxTokens` (default 400) and per-note cap (160), oldest first.
+- **Empty store ⇒ no injection**: an unbootstrapped repo or a repo with no notes is untouched.
+- Heavy detail (the whole ledger, git log, trace matrix) stays **on-demand** (`/system`, `/trace-fix`, `/factory`, trace tools) — never inlined.
+
+## 7. Command surface
+
+- `/remember [--ttl <hours>] <topic>: <text>` — explicit write path. Defaults TTL to policy (24 h).
+- `session_shutdown` — implicit; persists and prunes the store (never takes the host down on a prune failure).
+- `before_agent_start` — implicit; injects the rollup.
+
+## 8. Policy / configurability — LANDED (separate file, not project-profile)
+
+The spec originally proposed the policy live in `project-profile.json`. **Deviation:** it lives in its own file `.pi/factory/session-context.json`, because `/factory-init --refresh` *regenerates* `project-profile.json` from evidence and would wipe any hand-added key on the next refresh. The policy file is owned only by the session-context layer.
+
+```json
+// .pi/factory/session-context.json
+{ "schema": 1,
+  "enabledFeeds": ["memory", "head"],
+  "memory": { "ttlHours": 24, "maxEntries": 50, "maxTokens": 400, "maxNoteTokens": 160 },
+  "head": { "maxCommits": 5 },
+  "updated_at": "..." }
+```
+
+| feed | source | content | cost |
+|---|---|---|---|
+| `memory` | `session-memory.json` | `/remember` continuity rollup (TTL/supersede/cap) | none |
+| `head` | `git rev-parse` + `git log` | branch, short HEAD, last N one-line commits | one fast subprocess |
+| `ledger` | `tasks/T-*.md` frontmatter | task-status counts + first N active tasks | direct fs read |
+| `trace_health` *(opt-in)* | `factory.trace check` | open/deferred/exempt gap counts + gate pass/fail | spawns the Python CLI; guarded to skip non-factory repos |
+
+The hook **must stay deterministic, fast and non-interactive** — interactivity lives in `/factory-context` (show policy, toggle feeds via `select`), which writes the policy the hook reads. Omitted feeds mean "not injected — query on demand". `/remember` warns when the `memory` feed is off.
+
+**First-bootstrap seeding (added):** on the plain `/factory-init` (init) path, when no `session-context.json` exists yet, `/factory-init` offers the same feed multi-select once and writes the very first policy (`seedContext`). This is the "pick the streams I want deterministically injected on a new session" on-ramp. Non-interactive runs write the deterministic default feed set (`memory`/`head`/`ledger`); `/factory-context` remains the ongoing way to change feeds, and `/factory-init --refresh` never touches `session-context.json`.
+
+**Redefine the set (added):** `/factory-context` now supports defining the exact stream set in one pass, not just one-at-a-time toggling: `/factory-context set <f...>` (replace with exactly these), `all`, `none`, plus backwards-compatible `<feed>` toggle and the interactive multi-select (flip each, then `done`). `setFeeds` is the pure primitive that replaces the enabled set while preserving memory/head/audit settings.
+
+## 9. Audit trail (append-only, capped) — LANDED
+
+Pruning is correct for the inject path but loses replayability. A capped, **append-only** audit (`.pi/factory/session-memory-audit.json`) records every pruned entry with `pruned_at` and a reason — `expired` (TTL), `superseded` (same-topic rewrite), or `capped` (count/budget drop) — so "why did the store stop telling me about X?" is answerable. It is **never injected** (a human/analyst record, not session context) and is **capped** to `audit.maxEntries` (default 200), dropping the oldest prunes. View the last 10 with `/factory-context --audit`.
+
+## 10. Open design decision — RESOLVED
+
+The earlier "delete vs. capped audit" question is resolved in favor of **both**: prune the injectable view, keep a capped append-only audit for replayability.
+
+## 11. Risks
+
+- **Double-log on mid-session replacement** (`reload`/`new`/`fork` also fire `session_shutdown`). Mitigation: notes are written only explicitly (`/remember`), and the shutdown hook only *prunes*; a no-op prune produces no duplicate. An automatic per-session summary (future) must dedupe by `actor`+topic.
+- **Stale-injection harm** — mitigated by as-of-dating + "verify first" framing + TTL/supersede/cap.
+- **API drift** — new hooks guarded by the existing `type-compat-check.ts` pin (minimal `PiApi` ⊇ assigned to real `ExtensionFactory`).
+
+## 12. Prototype evidence
+
+Landed and green: `session-memory.ts` (pure store), `session-policy.ts` (policy), `session-feeds.ts` (memory + head feeds + composer), `session-memory-command.ts` (wiring: `/remember`, `/factory-context`, `session_shutdown` prune, `before_agent_start` inject), `pi-types.ts` extended with `session_shutdown`, wired from `index.ts`. Full extension suite: **62 files / 729 tests pass**, `tsc --noEmit` clean. Demonstrated: supersede retires the older `task:T-042` note; expired notes never reach a new session's rollup; rollup is bounded and as-of-dated; `head` feed renders branch/HEAD/commits and skips non-git roots; policy gates which feeds inject.

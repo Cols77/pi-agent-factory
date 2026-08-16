@@ -18,11 +18,19 @@ import { renderDocsHtml } from "./docs-html.js";
 import {
   loadSystemBriefing,
   loadSystemGuide,
+  loadSystemHealthAsync,
+  loadSystemLabelsAsync,
   loadSystemMatrix,
   loadSystemReverse,
   loadSystemScopes,
   loadSystemStory,
   loadSystemTimeline,
+  loadSystemTraversalAsync,
+  loadSystemVcycle,
+  loadSystemGoal,
+  loadSystemValidation,
+  loadSystemSimRun,
+  loadSystemDiagram,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
@@ -198,7 +206,7 @@ function readActionBody(
   });
 }
 
-function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
+async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
   if (req.method === "GET" && url.pathname === "/") {
@@ -253,10 +261,44 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these seven exact paths exist -- anything else falls through
+  // and only these exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // SP-B Task 6: the composed landing projection the browser renders on load.
+  if (req.method === "GET" && url.pathname === "/api/system/health") {
+    const result = await loadSystemHealthAsync(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // The label index: every ref's title and recorded description. Async only --
+  // this reads every spec and plan body, so it must not block the event loop.
+  if (req.method === "GET" && url.pathname === "/api/system/labels") {
+    const result = await loadSystemLabelsAsync(cwd);
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // SP-B Task 9: requirement -> tasks -> design -> files traversal.
+  if (req.method === "GET" && url.pathname === "/api/system/traversal") {
+    const result = await loadSystemTraversalAsync(cwd, url.searchParams.get("scope") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -277,6 +319,64 @@ function handle(cwd: string, req: IncomingMessage, res: ServerResponse): void {
 
   if (req.method === "GET" && url.pathname === "/api/system/matrix") {
     const result = loadSystemMatrix(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 2: the interactive V-cycle projection (query_vcycle +
+  // additive statuses map). feat:/sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/vcycle") {
+    const result = loadSystemVcycle(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 3: one goal's contract/state/evidence/history (query_goal,
+  // the Inc 4 eng_get_goal projection).
+  if (req.method === "GET" && url.pathname === "/api/system/goal") {
+    const result = loadSystemGoal(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 4: a requirement's validation evidence (query_validation).
+  // sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/validation") {
+    const result = loadSystemValidation(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 5: one simulation run's summary (query_simulation_run).
+  if (req.method === "GET" && url.pathname === "/api/system/sim/run") {
+    const result = loadSystemSimRun(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 5b: one diagram stub + its committed HTML (query_diagram).
+  if (req.method === "GET" && url.pathname === "/api/system/diagram") {
+    const result = loadSystemDiagram(cwd, url.searchParams.get("id") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -469,7 +569,15 @@ export function ensureDocsServer(cwd: string): Promise<RunningDocsServer> {
     return Promise.resolve(running.handle);
   }
   return new Promise((resolveStart) => {
-    const server = createServer((req, res) => handle(normalizedCwd, req, res));
+    const server = createServer((req, res) => {
+      void handle(normalizedCwd, req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          json(res, 500, { error: `internal server error: ${String(error)}` });
+        } else {
+          res.end();
+        }
+      });
+    });
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as AddressInfo).port;
       const handleObj: RunningDocsServer = {

@@ -29,6 +29,7 @@ function mockFetch() {
     if (url.pathname === "/api/system/timeline") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-086" }, events: [], degraded: false, degraded_reasons: [] });
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: { kind: "sr", ref: "sr:SR-086" }, sections: [] });
     if (url.pathname === "/api/graph") return jsonResponse(GRAPH);
+    if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
 }
@@ -58,7 +59,7 @@ describe("system-page Trace tab", () => {
     await vi.waitFor(() => {
       expect(dom.window.document.getElementById("panelTrace")!.textContent).toContain("T-059");
     }, { timeout: 2000 });
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/graph"));
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/graph"))).toBe(true);
     // The chain names the satisfying task, its plan, and its spec.
     expect(dom.window.document.getElementById("panelTrace")!.textContent).toContain("paad-increment-1");
     expect(dom.window.document.getElementById("panelTrace")!.textContent).toContain("paad-mvp-system-specification");

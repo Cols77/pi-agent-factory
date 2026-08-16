@@ -33,6 +33,7 @@ class Node:
     exempt: bool = False
     deferred: str | None = None
     proposed: bool = False
+    diagram_file: str | None = None
 
 
 def _load_post(path: Path) -> frontmatter.Post | None:
@@ -70,12 +71,25 @@ def _id_node(path: Path, kind: NodeKind) -> Node:
         # The absence of a binding IS the proposed state -- read here rather than
         # from the register so build_graph never loads config or imports target code.
         proposed=kind == "sr" and "binding" not in post.metadata,
+        diagram_file=str(post.metadata["diagram_file"])
+        if kind == "diag" and "diagram_file" in post.metadata
+        else None,
     )
 
 
 def _file_node(path: Path, kind: NodeKind) -> Node:
     post = _load_post(path)
-    body = post.content if post is not None else path.read_text(encoding="utf-8")
+    if post is not None:
+        body = post.content
+    else:
+        # `_load_post` already degraded a malformed/undecodable file to `None`
+        # rather than raising (see its own contract comment above) -- this
+        # fallback read must honour the same contract, not reopen the file
+        # unguarded and crash the whole graph on one bad spec/plan.
+        try:
+            body = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            body = ""
     meta = post.metadata if post is not None else {}
     exempt, deferred = _disposition(meta)
     return Node(
@@ -103,6 +117,8 @@ def load_nodes(root: Path) -> list[Node]:
         nodes.append(_id_node(path, "br"))
     for path in _glob(root, "docs", "features", pattern="FEAT-*.md"):
         nodes.append(_id_node(path, "feat"))
+    for path in _glob(root, "docs", "diagrams", pattern="DIAG-*.md"):
+        nodes.append(_id_node(path, "diag"))
     for path in _glob(root, "metrics", pattern="MET-*.md"):
         nodes.append(_id_node(path, "metric"))
     for path in _glob(root, "goals", pattern="GOAL-*.md"):
@@ -197,6 +213,15 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
             post = _load_post(node.path)
             if post is None:
                 continue
+            if node.kind == "feat":
+                for requirement_id in as_str_list(post.metadata.get("requirements")):
+                    add(Edge(node.id, requirement_id, "contains"))
+            elif node.kind == "goal":
+                for requirement_id in as_str_list(post.metadata.get("requirements")):
+                    add(Edge(node.id, requirement_id, "demonstrates"))
+                metric_id = post.metadata.get("metric")
+                if isinstance(metric_id, str):
+                    add(Edge(node.id, metric_id, "evaluates"))
             for edge in edges_from_frontmatter(node.id, post.metadata):
                 add(edge)
         elif node.kind == "plan":

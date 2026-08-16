@@ -2,9 +2,7 @@ import { wrapTextWithAnsi, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import { formatMissionControlRows, devEscalated, nodeActivity, isSubstantiveSnippet, iconForState } from "./status-format.ts";
 import type { StatusRecord } from "./status-format.ts";
-
-const STAGE_ORDER = ["context-gather", "dev", "validation", "review", "human-review", "session-review"];
-const AGENT_NODES = new Set(["context-gather", "dev", "review", "session-review"]);
+import { stageOrder, isAgentNode } from "./node-registry.js";
 
 // Minimal structural subset of pi's real Theme (fg/bold) this dashboard uses.
 // Pi passes the real Theme into the ctx.ui.custom() factory; it is structurally
@@ -71,11 +69,11 @@ export class MissionControlDashboard implements Component {
 
   private handleEnter(): void {
     if (this.record === null) return;
-    const row = formatMissionControlRows(this.record, STAGE_ORDER)[this.selectedIndex]!;
+    const row = formatMissionControlRows(this.record, stageOrder())[this.selectedIndex]!;
     const escalated = devEscalated(this.record);
     if (row.node === "dev" && escalated !== null) {
       this.onAction({ type: "pair-dev", sessionId: escalated.sessionId });
-    } else if (AGENT_NODES.has(row.node)) {
+    } else if (isAgentNode(row.node)) {
       this.onAction({ type: "inspect", sessionId: row.sessionId });
     } else if (row.node === "validation") {
       this.onAction({ type: "gate-log" });
@@ -85,7 +83,7 @@ export class MissionControlDashboard implements Component {
   }
 
   handleInput(data: string): void {
-    const rows = formatMissionControlRows(this.record, STAGE_ORDER);
+    const rows = formatMissionControlRows(this.record, stageOrder());
     if (data === "\x1b[B" || data === "j") {
       this.selectedIndex = Math.min(this.selectedIndex + 1, rows.length - 1);
     } else if (data === "\x1b[A" || data === "k") {
@@ -124,7 +122,7 @@ export class MissionControlDashboard implements Component {
 
     const INDENT = "    ";
     const bodyWidth = Math.max(1, width - INDENT.length);
-    formatMissionControlRows(this.record, STAGE_ORDER).forEach((row, i) => {
+    formatMissionControlRows(this.record, stageOrder()).forEach((row, i) => {
       const selected = i === this.selectedIndex;
       const marker = selected ? "> " : "  ";
       const stateColor = colorForState(row.state);

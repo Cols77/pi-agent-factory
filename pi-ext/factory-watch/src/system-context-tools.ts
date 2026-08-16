@@ -65,6 +65,11 @@ export function buildSystemContextTools(deps: Dependencies = defaultDependencies
     description:
       "Return the exact declared trace node, one-hop neighbours, freshness findings, and durable " +
       "task evidence references for an id. Missing data is unknown; never infer links or history.",
+    promptSnippet: "return the declared trace node, its neighbours, freshness findings and durable evidence refs",
+    promptGuidelines: [
+      "Use system_context when you need exactly the declared node, its one-hop neighbours and its evidence refs.",
+      "Treat missing/unattributed data as unknown; never infer links or provenance.",
+    ],
     parameters: Type.Object({
       id: Type.String({ description: "Declared task, requirement, plan, or spec id" }),
     }),

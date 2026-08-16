@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "order": [
+    "context-gather",
+    "grill",
+    "dev",
+    "validation",
+    "review",
+    "human-review",
+    "session-review"
+  ],
+  "nodes": [
+    { "id": "context-gather", "label": "context-gatherer", "kind": "agent", "interactive": false },
+    { "id": "grill",          "label": "grill",           "kind": "gate",  "interactive": true },
+    { "id": "dev",            "label": "developer",       "kind": "agent", "interactive": false },
+    { "id": "validation",     "label": "validation",      "kind": "gate",  "interactive": false },
+    { "id": "review",         "label": "reviewer",        "kind": "agent", "interactive": false },
+    { "id": "human-review",   "label": "human-review",    "kind": "gate",  "interactive": true },
+    { "id": "session-review", "label": "session-reviewer", "kind": "agent", "interactive": false }
+  ]
+}

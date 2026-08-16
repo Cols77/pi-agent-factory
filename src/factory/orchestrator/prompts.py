@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from factory.orchestrator.context_packet import render_packet
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.roles import ROLE_PROMPTS, ROLE_SKILLS
 from factory.orchestrator.skills import load_skill_block
@@ -18,6 +19,7 @@ def compose_prompt(
     events: list[NodeEvent] | None = None,
     final_outcome: str | None = None,
     existing_kb_titles: list[tuple[str, str]] | None = None,
+    packet: dict | None = None,
     skills_dir: Path,
 ) -> str:
     lines: list[str] = []
@@ -35,7 +37,7 @@ def compose_prompt(
     for crit in task.dod:
         lines.append(f"- {crit}")
 
-    if manifest is not None:
+    if manifest is not None and packet is None:
         lines.append("")
         lines.append("## Context (from manifest)")
         ctx = manifest.get("context")
@@ -43,6 +45,9 @@ def compose_prompt(
             ctx = {}
         for f in ctx.get("source_files", []):
             lines.append(f"- {f}")
+    if packet is not None:
+        lines.append("")
+        lines.append(render_packet(packet))
 
     if kb_entries:
         lines.append("")

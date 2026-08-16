@@ -27,7 +27,11 @@ import {
 } from "./skill-prompt.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
+import { registerEngContextTools } from "./eng-context-tools.js";
+import { buildCliTaskReads, buildTaskPreamble } from "./task-preamble.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
+import { registerFactoryInit } from "./factory-init-command.js";
+import { registerSessionMemory } from "./session-memory-command.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -69,12 +73,10 @@ import type { MissionControlAction } from "./mission-control-dashboard.js";
 import { parseSessionTranscript } from "./session-transcript.js";
 import { SessionTranscriptView } from "./session-transcript-view.js";
 import { resolveSessionPath } from "./session-path.js";
-import {
-  freshSessionJsonl,
-  grillResultPath,
-  grillSessionPath,
-  readFreshExplainerSummary,
-} from "./grill.js";
+import { freshSessionJsonl, grillResultPath, grillSessionPath, readFreshExplainerSummary, } from "./grill.js";
+import { loadNodeRegistry } from "./node-registry.js";
+import { diffBlocked, snapshotStates } from "./pipeline-diff.js";
+import { readContextPacket, renderPacketSlice } from "./context-packet.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -187,11 +189,17 @@ function openGrillWindow(ctx: ExtCommandCtx, rec: StatusRecord): void {
   const skillBlocks = buildGrillSkillBlocks(ctx);
   const freshSummary = readFreshExplainerSummary(ctx.cwd);
   const resultPath = grillResultPath(ctx.cwd, rec.session_id);
+  // Feed the gatherer's content-bearing packet to the grill when one exists, so
+  // the grill agent arrives already knowing the task + code instead of reading
+  // the codebase from zero. Degrades to task-text-only when unavailable.
+  const packet = readContextPacket(ctx.cwd, rec.session_id);
+  const packetSlice = packet ? renderPacketSlice(packet) : null;
   const seed = buildGrillSeedPrompt(
-    taskText ?? `(task file for ${rec.task_id} not found)`, 
+    taskText ?? `(task file for ${rec.task_id} not found)`,
     skillBlocks,
     freshSummary,
     resultPath,
+    packetSlice,
   );
   const sessionPath = grillSessionPath(ctx.cwd, rec.session_id);
   mkdirSync(dirname(sessionPath), { recursive: true });
@@ -243,13 +251,42 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
     return raw === null ? null : parseStatus(raw);
   };
 
-  // A grill:blocked run is offered its one-time ["Grill now", "Skip"] select
-  // as soon as mission control opens (the grill sits right after context-gather,
-  // before dev). maybeOfferGrill self-guards against re-nagging this run, so
-  // re-entering mission control later (e.g. after a job spawns the next node)
-  // is safe. The grill is strongly-advised but never a hard block: both choices
-  // resolve, and a missing/abandoned grill simply waits on the gate timeout.
-  await maybeOfferGrill(ctx, readRecord);
+  // Transition watcher: pushes blocking conditions to an ALREADY-OPEN mission
+  // control instead of waiting for a re-open of /factory-watch. The old design
+  // called maybeOfferGrill exactly once before the loop, so a grill that
+  // appeared after open (the normal case, since the run is detached/async) was
+  // silently missed. We run the check synchronously at open (so a run that is
+  // already blocked on the grill is offered immediately, prev=[]) AND on an
+  // interval (so a grill that blocks while mission control is open is pushed).
+  // diffBlocked self-guards (a node already blocked in prev is not re-reported)
+  // and maybeOfferGrill self-guards again via offeredGrillFor / the on-disk
+  // grill-result.json, so the watcher can never nag.
+  const lastSeen = new Map<string, ReturnType<typeof snapshotStates>>();
+  const checkTransitions = async (): Promise<void> => {
+    try {
+      const rec = readRecord();
+      if (!rec) return;
+      const prev = lastSeen.get(rec.session_id) ?? [];
+      lastSeen.set(rec.session_id, snapshotStates(rec));
+      const transitions = diffBlocked(prev, snapshotStates(rec), loadNodeRegistry());
+      for (const t of transitions) {
+        if (t.node === "grill") {
+          await maybeOfferGrill(ctx, readRecord);
+        }
+      }
+    } catch {
+      // a transient status-file read/protocol error must not crash the loop
+    }
+  };
+  await checkTransitions();
+  const grillWatcher = setInterval(() => {
+    void checkTransitions();
+  }, POLL_INTERVAL_MS);
+  // (The old one-shot pre-loop `await maybeOfferGrill(...)` is gone: the grill is
+  // now offered by the transition watcher above the moment grill:blocked appears,
+  // even if mission control is already open. The grill is strongly-advised but
+  // never a hard block: both choices resolve, and a missing/abandoned grill
+  // simply waits on the gate timeout.)
 
   loop: for (;;) {
     const action = await ctx.ui.custom<MissionControlAction>((tui, theme, _keybindings, done) => {
@@ -267,6 +304,7 @@ async function runMissionControl(ctx: ExtCommandCtx): Promise<void> {
 
     switch (action.type) {
       case "quit":
+        clearInterval(grillWatcher);
         break loop;
       case "inspect": {
         const path = action.sessionId === null ? null : resolveSessionPath(action.sessionId);
@@ -485,7 +523,14 @@ export default function factoryWatch(pi: PiApi): void {
   // enumerating, validating and writing.
   registerTraceTools(pi);
   registerSystemContextTools(pi);
+  registerEngContextTools(pi);
   registerSessionReviewSuggestTools(pi);
+  // The deterministic project bootstrap: /factory-init, /factory-doctor, and the
+  // subagent tool with its prompt metadata.
+  registerFactoryInit(pi);
+  // The volatile session-continuity layer: /remember, session_shutdown prune,
+  // and before_agent_start rollup injection.
+  registerSessionMemory(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -987,6 +1032,52 @@ export default function factoryWatch(pi: PiApi): void {
     },
   };
   pi.registerCommand("system", systemCommand);
+
+  // /task <feat:...>: thin workflow-start preamble (Inc 4, Task 4). Replays spec
+  // §26 steps 1-4 by calling the read tools in order (feature context ->
+  // requirements -> active goals -> affected design/code) and prints a compact
+  // context block. Deliberately "thin": it assembles context only and leaves the
+  // implementing/hand-off to the agent/Inc 5+ workflow.
+  pi.registerCommand("task", {
+    description: "Thin workflow-start preamble for a feature (spec §26 steps 1-4)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const featureId = args.trim().replace(/^feat:/, "").split(/\s+/)[0];
+      if (!featureId) {
+        ctx.ui.notify("usage: /task <feat:FEAT-...>", "error");
+        return;
+      }
+      const block = buildTaskPreamble(featureId, buildCliTaskReads(ctx.cwd));
+      ctx.ui.notify(block, "info");
+    },
+  });
+
+  // /goal: thin agent-UX shim over the deterministic `factory.goals` core.
+  // Arg passthrough to the Python CLI; the core owns all state/parsing. Rich
+  // wiring and eng_* agent tools land in Inc 4; this only surfaces the core.
+  pi.registerCommand("goal", {
+    description:
+      "Create and evaluate engineering goals via factory.goals (list|show|create|set-state|evaluate|history)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) {
+        ctx.ui.notify("usage: /goal <list|show|create|set-state|evaluate|history> ...", "error");
+        return;
+      }
+      const sub = parts[0];
+      const result = spawnSync(
+        "uv",
+        ["run", "python", "-m", "factory.goals", ...parts, "--repo", ctx.cwd, "--json"],
+        { cwd: ctx.cwd, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
+      );
+      const stderr = (result.stderr ?? "").trim();
+      if (result.status !== 0) {
+        ctx.ui.notify(`/goal ${sub}: ${stderr || "command failed"}`, "error");
+        return;
+      }
+      const stdout = (result.stdout ?? "").trim();
+      ctx.ui.notify(`/goal ${sub}: ${stdout.slice(0, 240)}`, "info");
+    },
+  });
 
   // /visual-explain: explain parts of the system with a diagram-design SVG +
   // markdown note. Same pattern as /trace-fix: resolve the vendored skill
