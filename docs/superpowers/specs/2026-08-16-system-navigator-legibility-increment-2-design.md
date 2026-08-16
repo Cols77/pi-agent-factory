@@ -5,6 +5,48 @@
 **Builds on:** `2026-08-14-system-navigator-comprehension-layer-design.md` (merged at `51c4da7`)
 **Surface:** `/system` only.
 
+## The design principle: the newcomer test
+
+**Every decision in this document answers to one person.** They have never used this
+tool. They have never used a coding agent. They know nothing about the system being
+built. They open `/system` and must be able to figure the rest out from the page.
+
+That person cannot be sent to documentation, cannot be assumed to know what a
+"bundle", a "requirement", a "claim" or a "trace" is, and will not go and read a
+glossary before starting. **Whatever they need to understand must arrive where they
+need it, in the order they need it.**
+
+They arrive with two separate ignorances, and the surface must serve both:
+
+1. **They don't know the tool's vocabulary** — `bundle`, `SR`, `recorded`, `fresh`,
+   `never-run`, `satisfied`. Increment 1 began this with badge glosses; it is not
+   finished until the *framing* is plain too, not only the badges.
+2. **They don't know the project being built** — what a "safety governor" is, why
+   there are 181 requirements, what any of them say. This is served by titles and
+   descriptions, which is why Component 1 (nothing truncated) is a correctness issue
+   and not a preference.
+
+**The test, stated so it can be applied:** a reader who knows nothing must be able to
+answer, in this order, without leaving the page —
+
+1. *What is this project made of?*
+2. *What is this page showing me?*
+3. *What does this word mean?*
+4. *What does this identifier refer to?*
+5. *What should I look at first?*
+6. *Something is missing here — what do I do about it?*
+
+Increment 1 answered 3, 4 and 6. This increment must answer 1, 2 and 5, and finish 3
+and 4 where they are still truncated or buried.
+
+**What this principle does NOT license.** It does not mean renaming contract words —
+the user chose "keep the word, add a plain gloss" in Increment 1 precisely so the
+browser and the CLI stay one language, and that ruling stands. It does not mean
+inventing explanatory prose about artifacts: descriptions remain verbatim from one
+recorded field or absent. Being welcoming must never cost being truthful; a surface
+that explains confidently and wrongly is worse for a newcomer than one that says
+nothing, because they have no way to detect the error.
+
 ## Purpose
 
 Increment 1 made the navigator *answerable*: every ref carries its title, every
@@ -34,6 +76,46 @@ This increment closes those, and the residuals Increment 1's final review left o
 | The spine is cramped | `.traversal-path` is `repeat(4, minmax(0, 1fr))` (`system-shell.ts:402`). Measured at 1440×900: four 170 px columns holding 1, 6, 0 and 19 items. The fat columns truncate while the thin ones sit empty. |
 | Chips do not navigate | `scope_href` is used ONLY inside the hover card, as an "Open" link (`system-comprehension.ts:208`). Reaching a requirement takes hover → read → click. |
 | Tabs are unexplained | `<button id="tabBrief" … aria-label="Brief">Brief</button>` (`system-shell.ts:704`). Seven tabs, no statement anywhere of what any of them shows. |
+
+## Component 0 — The landing teaches the ontology
+
+*Answers newcomer questions 1, 2 and 5.*
+
+Today the landing says "See the system clearly" and shows `Overall 179/300 satisfied ·
+60%` beside five ratios named `task->plan`, `SR satisfied`, `SR validated`. A newcomer
+cannot tell what a requirement, a feature or a task is, nor which of those numbers
+matters, nor where to click.
+
+### The shape sentence
+
+One sentence, composed in Python from the health projection's own counts, stating what
+the project is made of in plain words. For `cool_physical_ai_project` it reads:
+
+> This project is described by **181 requirements**, grouped into **14 features**.
+> **43 tasks** implement them, and **1 requirement** has a passing validation.
+
+That single line teaches the entire ontology — requirements exist, features group them,
+tasks implement them, validation proves them — while stating this project's actual
+shape. It is derived, not synthesised: every number comes from `query_health`, and the
+sentence is a template with counts substituted, never a model's prose. It renders with
+a `derived` badge and its gloss, so its provenance is visible like any other claim.
+
+Zero-denominator states must read honestly rather than cheerfully: with no bundles it
+says "grouped into **no features yet**" and carries the `no_bundles` next step.
+
+### The reading path
+
+Beneath it, a short "New here?" block naming the first move in the user's own terms —
+open a feature, read its Brief, follow its spine — with each named thing linking to the
+real control. It is dismissible via the existing orientation-strip mechanism and key,
+not a second one.
+
+### Numbers explain themselves
+
+Every ratio on the landing gains its denominator rule inline, not only on hover: the
+vocabulary entries for the five health classes already state these (Increment 1), and
+`SR validated 1/43` beside `SR satisfied 102/181` is the case that most needs it. The
+`ⓘ` remains for the full definition; the one-line reason sits on the tile.
 
 ## Component 1 — Nothing is truncated
 
@@ -156,7 +238,47 @@ A completeness test asserts every tab id in `TABS_BY_KIND` has a `PANELS` entry.
    scope. Resolve `adr:` members through `adr_module.load_adrs` as the label index
    already does, with a regression test per affected bundle shape.
 
+## Component 6 — Jargon audit of the framing text
+
+*Answers newcomer question 3, where Increment 1 left it half-done.*
+
+Increment 1 glossed the **badges**. The prose around them was never audited, and it is
+where a newcomer meets the vocabulary first. Current examples, all shipped:
+
+- `"Trace what the system claims, what validates it, and where the evidence leads."`
+  (the page subtitle) — "claims", "validates", "evidence" all unexplained.
+- `"Start with weak or unbundled features, then follow their evidence spine."` — three
+  undefined terms in twelve words, and it is the landing's only instruction.
+- `"Declared scopes"`, `"Browse by readiness"`, `"BUNDLE SCOPE"` — "scope" and
+  "readiness" are tool vocabulary presented as if self-evident.
+
+Deliverable: walk every literal string rendered by `system-shell.ts`,
+`system-renderers.ts` and `system-bootstrap.ts`, and for each one decide, recording the
+decision:
+
+- **Plain** — rewrite in words a newcomer knows (`"Declared scopes"` →
+  `"Features and artifacts"`).
+- **Contract word, keep + gloss** — it names a real artifact kind or state and must
+  match the CLI; ensure it carries a gloss or an `ⓘ` at that site.
+- **Leave** — already plain.
+
+The output is a table in the implementation report, so the choices are reviewable
+rather than a diffuse rewrite. Contract words are never renamed; only the sentences
+*around* them change.
+
 ## Verification
+
+### The newcomer test, as an acceptance gate
+
+Beyond the unit and browser gates below, the increment is accepted only if a reader
+with no prior knowledge can answer the six questions from the design principle using
+the page alone. Make this checkable rather than aspirational: an independent agent is
+given the rendered page against `cool_physical_ai_project`, told nothing about the
+tool, the coding agent, or the project, and asked to answer all six in its own words —
+plus one it cannot answer from a correct page, as a control against agreeable guessing.
+Its answers are recorded and judged against the real data. A confident wrong answer is
+a failure, not a pass.
+
 
 - Python: unit tests per change; a completeness test for `PANELS`; a collision test for
   the alias guard; a regression test that a bundle with an `adr:` member briefs without
