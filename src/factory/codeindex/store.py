@@ -9,20 +9,31 @@ from factory.codeindex.model import CodeIndex
 
 
 def ensure_fresh(repo_root: Path, files: list[str] | None = None) -> CodeIndex:
-    """Return a fresh index, rebuilding ONLY when the code changed.
+    """Return a fresh index, rebuilding ONLY when the code changed OR the
+    engine available to this interpreter differs from the stored engine.
 
     The fingerprint is the cheap checksum for change detection (hash-only, no
-    parsing). When it still matches the stored latest index, reuse it; otherwise
-    rebuild + persist. This is what any 'recompute at session open if the code
-    changed' hook calls."""
+    parsing). Engine-awareness matters because the code context bundle treats
+    tree-sitter as an optional accelerator: a consumer project that gains the
+    grammars (e.g. /factory-init installing the code-index extra) should have
+    its stdlib-built index upgraded without waiting for a code change, and a
+    build that can no longer use tree-sitter should degrade deterministically.
+    The engine is only compared when the fingerprint already matches, so the
+    code-change path is unchanged (rebuild + persist)."""
     from factory.codeindex.build import build_index, discover_source_files, fingerprint_for
+    from factory.codeindex.sigs import preferred_engine
 
     files = files or discover_source_files(repo_root)
     if not files:
         return CodeIndex(generated_at=_now_str(), fingerprint="no-files")
     fp = fingerprint_for(files, repo_root)
     latest = load_latest(repo_root)
-    if latest is not None and latest.fingerprint == fp and set(latest.files.keys()) == set(files):
+    if (
+        latest is not None
+        and latest.fingerprint == fp
+        and set(latest.files.keys()) == set(files)
+        and latest.engine == preferred_engine()
+    ):
         return latest
     index = build_index(repo_root, files)
     save_index(index, repo_root)

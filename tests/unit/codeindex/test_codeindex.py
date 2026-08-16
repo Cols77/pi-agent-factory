@@ -15,7 +15,7 @@ from factory.codeindex import (
 )
 from factory.codeindex.cli import main
 from factory.codeindex.build import profile_source_dirs
-from factory.codeindex.sigs import extract_signatures
+from factory.codeindex.sigs import extract_signatures, preferred_engine
 
 pytestmark = pytest.mark.unit
 
@@ -98,6 +98,41 @@ def test_ensure_fresh_rebuilds_only_when_code_changed(tmp_path):
     assert rebuilt.fingerprint != first.fingerprint
     names = {s["name"] for s in file_signatures(rebuilt, "src/mod.py") or []}
     assert "gamma" in names
+
+
+def test_preferred_engine_reports_available_extractor():
+    assert preferred_engine() in ("tree-sitter", "stdlib-ast")
+    if _tree_sitter_available():
+        assert preferred_engine() == "tree-sitter"
+    else:
+        assert preferred_engine() == "stdlib-ast"
+
+
+def test_ensure_fresh_upgrades_engine_when_available(tmp_path):
+    """A fresh fingerprint stored under a worse engine is rebuilt toward the
+    currently-available engine, so a stdlib-built index upgrades to
+    tree-sitter once the grammars exist (and degrades if they disappear)."""
+    root = _tree(tmp_path)
+    files = ["src/mod.py", "src/keep.ts"]
+    # Simulate an index built when tree-sitter was absent: same code, engine=stdlib-ast.
+    stored = build_index(root, files=files, engine_note="stdlib-ast")
+    save_index(stored, root)
+    fresh = ensure_fresh(root, files=files)
+    assert fresh.fingerprint == stored.fingerprint  # code did not change
+    assert fresh.engine == preferred_engine()
+    if _tree_sitter_available():
+        assert fresh.engine == "tree-sitter"  # stdlib -> tree-sitter upgrade
+
+
+def test_ensure_fresh_reuses_when_engine_matches(tmp_path):
+    """Same fingerprint AND same engine -> reuse, never rebuild."""
+    root = _tree(tmp_path)
+    files = ["src/mod.py", "src/keep.ts"]
+    first = ensure_fresh(root, files=files)
+    second = ensure_fresh(root, files=files)
+    assert second.fingerprint == first.fingerprint
+    assert second.engine == first.engine
+    assert second.generated_at == first.generated_at  # no rebuild happened
 
 
 def test_cli_ensure_writes_latest(tmp_path):
@@ -230,3 +265,14 @@ def test_cli_slice_produces_reference_block(capsys, tmp_path):
     # the hash/banner count line must NOT leak into the slice
     assert "codeindex: built" not in captured
     assert "codeindex: ensured" not in captured
+
+
+def test_cli_slice_carries_engine_note(capsys, tmp_path):
+    root = _tree(tmp_path)
+    main(["--root", str(root), "--slice", "5000"])
+    captured = capsys.readouterr().out
+    # the slice starts with a one-line engine note so consumers can tell
+    # tree-sitter output from the stdlib fallback
+    first_line = captured.splitlines()[0]
+    assert first_line in ("engine: tree-sitter", "engine: stdlib-ast")
+    assert "### REFERENCE" in captured

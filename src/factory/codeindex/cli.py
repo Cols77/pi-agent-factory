@@ -37,7 +37,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.slice:
         index = ensure_fresh(repo_root, files)
-        print(render_index_slice(index, sorted(index.files.keys()), cap=args.slice))
+        body = render_index_slice(index, sorted(index.files.keys()), cap=args.slice)
+        # One-line engine note so consumers (e.g. the code-context injection) can
+        # tell whether the slice came from tree-sitter or the stdlib fallback.
+        print(f"engine: {index.engine}")
+        print(body)
         return 0
     if args.ensure:
         index = ensure_fresh(repo_root, files)

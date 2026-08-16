@@ -74,7 +74,7 @@ test("initialises an empty repository (profile + managed AGENTS.md block)", () =
   const profile = JSON.parse(
     readFileSync(join(root, ".pi", "factory", "project-profile.json"), "utf-8"),
   ) as { schema: number; project_root: string };
-  expect(profile.schema).toBe(1);
+  expect(profile.schema).toBe(2);
   expect(profile.project_root).toBe(root);
 });
 

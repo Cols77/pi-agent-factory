@@ -34,7 +34,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-export const BOOTSTRAP_SCHEMA = 1;
+export const BOOTSTRAP_SCHEMA = 2;
 export const BLOCK_START = "<!-- pi-agent-factory:bootstrap:start schema=1 -->";
 export const BLOCK_END = "<!-- pi-agent-factory:bootstrap:end -->";
 export const PROFILE_STEM = "project-profile.json";
@@ -89,6 +89,13 @@ export interface ProjectProfile {
   /** hash of each evidence source file -> used for drift detection. */
   hashes: Record<string, string>;
   _source_files: string[];
+  /**
+   * Durable code-index intent recorded at init. The ACTUAL engine of the
+   * built index lives in .factory/code-index/latest.json (written by the
+   * builder, which probes what is really importable); this block records the
+   * deterministic preference only, so profile signatures stay stable.
+   */
+  codeindex?: { prefer: "tree-sitter" };
 }
 
 export interface InitResult {
@@ -112,6 +119,8 @@ export interface CheckResult {
   blockPresent: boolean;
   blockValid: boolean;
   drift: { file: string; changed: boolean }[];
+  /** engine recorded in .factory/code-index/latest.json, or null when absent. */
+  codeIndexEngine: string | null;
   findings: { level: "error" | "warning" | "info"; message: string; remediation?: string }[];
 }
 
@@ -454,6 +463,9 @@ export function buildProfile(root: string, evidence: Evidence, now: string): Pro
     invariants: evidence.invariants,
     hashes,
     _source_files: sourceFiles,
+    // The factory prefers tree-sitter for the durable code index; the actual
+    // engine is decided by the builder's probe at build time (latest.json).
+    codeindex: { prefer: "tree-sitter" },
   };
 }
 
@@ -677,8 +689,20 @@ export function runFactoryCheck(
     blockPresent,
     blockValid,
     drift,
+    codeIndexEngine: readCodeIndexEngine(root),
     findings: [],
   };
+}
+
+/** Read the engine recorded by the last code-index build, if any. */
+export function readCodeIndexEngine(root: string): string | null {
+  try {
+    const latestPath = join(root, ".factory", "code-index", "latest.json");
+    const latest = JSON.parse(readFileSync(latestPath, "utf-8")) as { engine?: string };
+    return typeof latest.engine === "string" ? latest.engine : null;
+  } catch {
+    return null;
+  }
 }
 
 function profileSignature(profile: ProjectProfile): string {
