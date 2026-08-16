@@ -511,7 +511,29 @@ git commit -m "feat(system): the landing states what the project is made of"
 
 ---
 
-## Task 6: The adr crash
+## Task 6: The adr crash — ESCALATED, run this early
+
+**Severity changed since the plan was written.** A parallel workstream landed
+`c0841ad` (persistent Python worker + combined `/api/system/dossier`), which is now the
+fast path for ALL scope navigation. Its own docstring states `brief` is "the strict
+core -- any failure fails the dossier".
+
+So this bug no longer breaks only the Brief tab: it **fails the entire scope page** for
+any bundle with an `adr:` member. Verified against the real repo:
+
+```
+$ uv run python -m factory.system dossier --scope bundle:event-log-replay-metrics --json
+AssertionError: unexpected member kind: 'adr'   queries.py:1037
+```
+
+Two of fourteen bundles in `cool_physical_ai_project` are affected
+(`event-log-replay-metrics`, `governance-traceability-contract-spine`). Fixing
+`query_brief` fixes both the legacy per-endpoint path and the dossier at once.
+
+This task is independent of every other (Python only), so it is executed EARLY rather
+than sixth. Its plan number is unchanged to keep the briefs stable.
+
+
 
 **Files:**
 - Modify: `src/factory/system/queries.py` around `:1024-1037`
