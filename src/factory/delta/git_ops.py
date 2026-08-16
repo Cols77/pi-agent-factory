@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Sequence
 
 PathSpec = str | Path
 
@@ -54,7 +55,7 @@ def commit_exists(root: Path, commit: str) -> bool:
     return _run(root, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}") is not None
 
 
-def changed_files_since(root: Path, since: str, paths: list[PathSpec]) -> list[str]:
+def changed_files_since(root: Path, since: str, paths: Sequence[PathSpec]) -> list[str]:
     """Files (repo-relative) changed in `since..HEAD`, restricted to `paths`."""
     if not paths:
         return []
@@ -66,7 +67,7 @@ def changed_files_since(root: Path, since: str, paths: list[PathSpec]) -> list[s
     return sorted({line for line in result.stdout.splitlines() if line})
 
 
-def added_files_since(root: Path, since: str, paths: list[PathSpec]) -> list[str]:
+def added_files_since(root: Path, since: str, paths: Sequence[PathSpec]) -> list[str]:
     """Files added in `since..HEAD`, restricted to `paths` (A-only diff)."""
     if not paths:
         return []
@@ -85,7 +86,7 @@ def added_files_since(root: Path, since: str, paths: list[PathSpec]) -> list[str
     return sorted({line for line in result.stdout.splitlines() if line})
 
 
-def merge_subjects_since(root: Path, since: str, paths: list[PathSpec]) -> list[str]:
+def merge_subjects_since(root: Path, since: str, paths: Sequence[PathSpec]) -> list[str]:
     """Merge-commit subjects in `since..HEAD` touching `paths`, newest last."""
     if not paths:
         return []
