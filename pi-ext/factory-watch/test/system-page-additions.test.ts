@@ -50,6 +50,32 @@ const BRIEF = {
 const MATRIX = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, rows: [] };
 const TIMELINE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, events: [], degraded: false, degraded_reasons: [] };
 const GUIDE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, sections: [] };
+const GOAL_DATA = {
+  id: "GOAL-NAV-003",
+  title: "Reacquire within 2 seconds",
+  state: "REACHED",
+  version: 3,
+  feature: ["FEAT-NAV-017"],
+  requirements: ["SR-010"],
+  metric: { id: "MET-NAV-004", operator: "lte", unit: "seconds", source_experiment: "reacquire-sim" },
+  target: { value: 2, unit: "seconds" },
+  evidence: {
+    state: "REACHED",
+    passed: true,
+    value: 1.7,
+    target: 2,
+    operator: "lte",
+    run: "RUN-20260811-1702",
+    commit: "c".repeat(40),
+    blocked_reason: null,
+  },
+  history: [
+    { state: "DECLARED", recorded_at: "2026-08-01T00:00:00Z", run: null, commit: null },
+    { state: "REACHED", recorded_at: "2026-08-11T17:02:00Z", run: "RUN-20260811-1702", commit: "c".repeat(40) },
+  ],
+  scope_errors: [],
+};
+
 const HEALTH = {
   health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
   coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
@@ -115,6 +141,9 @@ function mockFetch() {
     }
     if (url.pathname === "/api/system/vcycle") {
       return jsonResponse(VCYCLE);
+    }
+    if (url.pathname === "/api/system/goal") {
+      return jsonResponse(GOAL_DATA);
     }
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
@@ -204,6 +233,23 @@ describe("Inc 6 tabs registered in the /system page", () => {
 
     const srDom = await loadPage({ scope: "sr:SR-010" });
     expect(srDom.window.document.getElementById("tabVcycle")?.hidden).toBe(false);
+  });
+
+  test("a goal: scope shows the Goal tab with contract, evidence and history", async () => {
+    const dom = await loadPage({ scope: "goal:GOAL-NAV-003" });
+    const doc = dom.window.document;
+    expect(doc.getElementById("tabGoal")?.hidden).toBe(false);
+    expect(doc.getElementById("tabGoal")?.getAttribute("aria-selected")).toBe("true");
+    const panel = doc.getElementById("panelGoal");
+    expect(panel?.textContent).toContain("Reacquire within 2 seconds");
+    expect(panel?.textContent).toContain("REACHED");
+    expect(panel?.textContent).toContain("sr:SR-010");
+    expect(panel?.textContent).toContain("RUN-20260811-1702");
+    expect(panel?.textContent).toContain("2026-08-11");
+    // Other tabs do not appear for a goal: scope.
+    expect(doc.getElementById("tabBrief")?.hidden).toBe(true);
+    expect(doc.getElementById("tabFeature")?.hidden).toBe(true);
+    expect(doc.getElementById("tabVcycle")?.hidden).toBe(true);
   });
 
   test("the page inlines the feature widget as a plain function (no module imports)", () => {

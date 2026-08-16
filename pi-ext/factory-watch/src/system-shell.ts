@@ -11,6 +11,7 @@ import {
   verificationRows,
 } from './system-feature-view.js';
 import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel } from './system-vcycle-view.js';
+import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -126,6 +127,12 @@ function clientSource(): string {
     groupSection,
     bandLabel,
     renderVcycle,
+    goalSection,
+    refLine,
+    goalStateClass,
+    operatorSymbol,
+    shortCommit,
+    renderGoal,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -542,6 +549,29 @@ export function renderSystemPageHtml(): string {
   .vcycle-group { margin-top: 14px; }
   .vcycle-group-heading { margin: 0 0 8px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
   .vcycle-group-items { display: flex; flex-wrap: wrap; gap: 8px; }
+  .goal-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .goal-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .goal-title { margin: 0; font: 650 clamp(18px, 2.6vw, 26px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .goal-state { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .goal-state.is-reached { color: var(--fresh); border-color: var(--fresh); }
+  .goal-state.is-regressed, .goal-state.is-blocked { color: var(--degraded); border-color: var(--degraded); }
+  .goal-state.is-not-reached, .goal-state.is-active, .goal-state.is-evaluating { color: var(--stale); border-color: var(--stale); }
+  .goal-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .goal-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .goal-section-body { min-width: 0; }
+  .goal-ref-line { display: flex; flex-wrap: wrap; gap: 8px; }
+  .goal-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .goal-metric, .goal-evidence { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .goal-metric-spec, .goal-evidence-value { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .goal-evidence-commit { color: var(--text-dim); font: 12px/1.5 var(--font-mono); }
+  .goal-history { display: grid; gap: 5px; }
+  .goal-history-row { display: flex; align-items: baseline; gap: 10px; font: 12px/1.5 var(--font-mono); }
+  .goal-history-state { padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; }
+  .goal-history-state.is-reached { color: var(--fresh); }
+  .goal-history-state.is-regressed, .goal-history-state.is-blocked { color: var(--degraded); }
+  .goal-history-when { color: var(--text-muted); }
+  .goal-history-run { color: var(--text-dim); }
+  .goal-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -603,6 +633,7 @@ export function renderSystemPageHtml(): string {
           <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
           <button id="tabFeature" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelFeature" aria-label="Feature">Feature</button>
           <button id="tabVcycle" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelVcycle" aria-label="V-cycle">V-cycle</button>
+          <button id="tabGoal" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGoal" aria-label="Goal">Goal</button>
         </div></nav>
         <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
         <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -613,6 +644,7 @@ export function renderSystemPageHtml(): string {
         <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
         <div id="panelFeature" class="panel" role="tabpanel" aria-labelledby="tabFeature" hidden></div>
         <div id="panelVcycle" class="panel" role="tabpanel" aria-labelledby="tabVcycle" hidden></div>
+        <div id="panelGoal" class="panel" role="tabpanel" aria-labelledby="tabGoal" hidden></div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">

@@ -27,6 +27,7 @@ import {
   loadSystemTimeline,
   loadSystemTraversalAsync,
   loadSystemVcycle,
+  loadSystemGoal,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
@@ -327,6 +328,18 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // additive statuses map). feat:/sr: scopes only.
   if (req.method === "GET" && url.pathname === "/api/system/vcycle") {
     const result = loadSystemVcycle(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 3: one goal's contract/state/evidence/history (query_goal,
+  // the Inc 4 eng_get_goal projection).
+  if (req.method === "GET" && url.pathname === "/api/system/goal") {
+    const result = loadSystemGoal(cwd, url.searchParams.get("id") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
