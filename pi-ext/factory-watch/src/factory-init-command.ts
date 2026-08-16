@@ -22,7 +22,9 @@ import {
 import { subagentTool } from "./subagent-tool.js";
 import {
   composeCodeContextMessage,
+  factoryIndexCandidates,
 } from "./code-context-inject.js";
+import { factoryRoot } from "./factory-path.js";
 import {
   ALL_FEEDS,
   hasContext,
@@ -40,16 +42,14 @@ function parseArgs(args: string): { refresh: boolean; check: boolean } {
 
 // Best-effort durable code index build (item 2). Runs the Python builder;
 // /factory-init never fails on it — a missing/failed index just means
-// consumers fall back to the stdlib signature extractor. Tries `uv run python`
-// first (this repo), then plain `python`. `ensure` reuses a fresh index and
-// rebuilds ONLY when the cheap checksum shows the code changed.
+// consumers fall back to the stdlib signature extractor. Uses the shared
+// resolver (factory checkout env first, then consumer env, then plain
+// python) so the tree-sitter engine reaches consumer projects without them
+// installing the code-index extra. `ensure` reuses a fresh index and
+// rebuilds ONLY when the cheap checksum shows the code changed (or the
+// available engine differs from the stored one).
 function buildCodeIndex(root: string, ensure: boolean): void {
-  const args = ["-m", "factory.codeindex", "--root", root];
-  if (ensure) args.push("--ensure");
-  const candidates: Array<[string, string[]]> = [
-    ["uv", ["run", "python", ...args]],
-    ["python", args],
-  ];
+  const candidates = factoryIndexCandidates(root, factoryRoot(), ensure ? ["--ensure"] : []);
   for (const [bin, binArgs] of candidates) {
     try {
       const r = spawnSync(bin, binArgs, { encoding: "utf-8", timeout: 120000 });
@@ -240,6 +240,12 @@ function renderDoctor(check: CheckResult): string[] {
     `  AGENTS.md block:      ${check.blockPresent ? "valid" : "missing/invalid -- run /factory-init"}`,
   );
   lines.push(`  subagent metadata:    ${subagentMetadataPresent() ? "present" : "MISSING"}`);
+  lines.push(
+    `  code index engine:    ${check.codeIndexEngine ?? "none -- run /factory-init (builds .factory/code-index)"}`,
+  );
+  lines.push(
+    `  code index resolve:   factory env first (tree-sitter extra), then consumer env, then python`,
+  );
   lines.push(
     `  context file:         AGENTS.md ${check.blockPresent ? "present on disk" : "absent on disk"}; Pi loads it natively so no duplicate injection is performed`,
   );

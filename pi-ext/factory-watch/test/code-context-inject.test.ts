@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   composeCodeContextMessage,
+  factoryIndexCandidates,
   hasCodeIndex,
   indexMarkerPath,
   shouldInject,
@@ -80,5 +81,39 @@ describe("composeCodeContextMessage", () => {
       composeCodeContextMessage(objectRoot as unknown as string, "s1", new Set(), slice),
     ).not.toThrow();
     expect(composeCodeContextMessage(objectRoot as unknown as string, "s1", new Set(), slice)).toEqual({});
+  });
+});
+
+describe("factoryIndexCandidates", () => {
+  it("prefers the factory checkout's own environment, then the consumer env, then plain python", () => {
+    const candidates = factoryIndexCandidates("C:/proj", "C:/factory", []);
+    expect(candidates).toHaveLength(3);
+    // 1) factory repo venv: tree-sitter lives in the factory's code-index extra
+    expect(candidates[0]![0]).toBe("uv");
+    expect(candidates[0]![1].slice(0, 4)).toEqual(["run", "--project", "C:/factory", "python"]);
+    // 2) consumer project env
+    expect(candidates[1]![0]).toBe("uv");
+    expect(candidates[1]![1].slice(0, 3)).toEqual(["run", "python", "-m"]);
+    // 3) bare python
+    expect(candidates[2]![0]).toBe("python");
+  });
+
+  it("passes extra args as the last codeindex argv elements", () => {
+    const candidates = factoryIndexCandidates("C:/proj", "C:/factory", ["--slice", "24000"]);
+    // factory form: uv run --project <factory> python -m factory.codeindex --root <root> --slice 24000
+    expect(candidates[0]![1]).toEqual([
+      "run",
+      "--project",
+      "C:/factory",
+      "python",
+      "-m",
+      "factory.codeindex",
+      "--root",
+      "C:/proj",
+      "--slice",
+      "24000",
+    ]);
+    const ensure = factoryIndexCandidates("C:/proj", "C:/factory", ["--ensure"])[0]![1];
+    expect(ensure[ensure.length - 1]).toBe("--ensure");
   });
 });

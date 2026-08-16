@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { factoryRoot } from "./factory-path.js";
 import type { BeforeAgentStartEventResult } from "./pi-types.js";
 
 /** Path to the index marker (JSON) that factory.codeindex writes on build. */
@@ -33,16 +34,40 @@ export function hasCodeIndex(root: string): boolean {
 }
 
 /**
+ * Resolve which python environment runs the durable code index for a project.
+ *
+ * The tree-sitter grammars ship as the factory's optional `code-index` extra,
+ * and a consumer installs the factory as a dev dependency WITHOUT extras — so
+ * the consumer's own venv has no tree-sitter. The factory checkout's own
+ * environment (reached via `uv run --project <factoryRoot>`) DOES carry the
+ * extra, so it is tried first; then the consumer env; then bare `python` on
+ * PATH. The resolver returns candidate argv lists + binary, in preference
+ * order, so build/slice callers share one decision and every spawn failure
+ * simply falls through to the next candidate (never fatal).
+ */
+export function factoryIndexCandidates(
+  root: string,
+  factoryRootDir: string,
+  extraArgs: string[],
+): Array<[string, string[]]> {
+  const args = ["-m", "factory.codeindex", "--root", root, ...extraArgs];
+  return [
+    ["uv", ["run", "--project", factoryRootDir, "python", ...args]],
+    ["uv", ["run", "python", ...args]],
+    ["python", args],
+  ];
+}
+
+/**
  * Render a bounded slice of the project's code index through the Python CLI.
  * Returns "" when there is no index / no python / any failure. The CLI hard
  * caps the output (default 24k chars; render_index_slice enforces the cap).
  */
 export function renderIndexSlice(root: string, capChars = 24000): string {
-  const args = ["-m", "factory.codeindex", "--root", root, "--slice", String(capChars)];
-  const candidates: Array<[string, string[]]> = [
-    ["uv", ["run", "python", ...args]],
-    ["python", args],
-  ];
+  const candidates = factoryIndexCandidates(root, factoryRoot(), [
+    "--slice",
+    String(capChars),
+  ]);
   for (const [bin, binArgs] of candidates) {
     try {
       const r = spawnSync(bin, binArgs, { encoding: "utf-8", timeout: 60000 });
