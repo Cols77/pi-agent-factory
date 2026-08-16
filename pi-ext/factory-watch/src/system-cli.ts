@@ -489,6 +489,9 @@ export interface SimRun {
   commit: string | null;
   result: string | null;
   scope_errors: string[];
+  metrics?: Record<string, number>;
+  recording?: string | null;
+  recorded_ts?: string | null;
 }
 
 export interface SimLatest {

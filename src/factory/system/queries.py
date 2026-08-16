@@ -322,7 +322,29 @@ def query_goals(repo_root: Path, scope_ref: str) -> dict:
     }
 
 
-def _sim_run_payload(run: sim_registry.Run) -> dict:
+def _run_metric_values(run: sim_registry.Run) -> dict[str, float]:
+    """The run's recorded metrics from its bundle metrics.json, tolerant of a
+    missing or unreadable file (empty map -- never a crash)."""
+    try:
+        raw = json.loads((run.path.parent / "metrics.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return sim_evidence.metric_values(run, raw) if isinstance(raw, dict) else {}
+
+
+def _run_recording(repo_root: Path, run: sim_registry.Run) -> str | None:
+    """Repo-relative path to the run's manifest (the recording), or None when
+    the manifest file is missing -- honest incompleteness, never a guessed
+    path outside the repo."""
+    try:
+        if not run.path.exists():
+            return None
+        return run.path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _sim_run_payload(repo_root: Path, run: sim_registry.Run) -> dict:
     return {
         "run": run.run_id,
         "experiment": run.experiment,
@@ -332,6 +354,9 @@ def _sim_run_payload(run: sim_registry.Run) -> dict:
         "commit": run.commit,
         "result": run.result,
         "scope_errors": run.scope_errors,
+        "metrics": _run_metric_values(run),
+        "recording": _run_recording(repo_root, run),
+        "recorded_ts": run.recorded_ts,
     }
 
 
@@ -344,7 +369,7 @@ def query_simulation_run(repo_root: Path, run_id: str) -> dict:
     """
     for run in sim_registry.load_runs(_evidence_dir(repo_root)):
         if run.run_id == run_id:
-            return _sim_run_payload(run)
+            return _sim_run_payload(repo_root, run)
     raise ScopeNotFoundError(f"no simulation run with id {run_id!r}")
 
 
@@ -356,13 +381,13 @@ def query_latest_simulation(repo_root: Path, feature: str) -> dict | None:
     None is a legitimate state (no run yet), not an error.
     """
     latest = sim_registry.latest_run(_evidence_dir(repo_root), feature)
-    return _sim_run_payload(latest) if latest is not None else None
+    return _sim_run_payload(repo_root, latest) if latest is not None else None
 
 
 def query_latest_failure(repo_root: Path, feature: str) -> dict | None:
     """Most recent non-passed simulation run for a feature, or None."""
     failure = sim_evidence.latest_failure(_evidence_dir(repo_root), feature)
-    return _sim_run_payload(failure) if failure is not None else None
+    return _sim_run_payload(repo_root, failure) if failure is not None else None
 
 
 def query_metric_history(repo_root: Path, metric_id: str) -> list[dict]:
@@ -380,7 +405,7 @@ def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
     runs = sim_evidence.evidence_for_goal(_evidence_dir(repo_root), goal_id)
     return {
         "goal": goal_id,
-        "runs": [_sim_run_payload(run) for run in runs],
+        "runs": [_sim_run_payload(repo_root, run) for run in runs],
     }
 
 

@@ -26,6 +26,7 @@ declare const renderFeature: (el: HTMLElement, payload: any) => void;
 declare const renderVcycle: (el: HTMLElement, payload: any) => void;
 declare const renderGoal: (el: HTMLElement, payload: any) => void;
 declare const renderValidation: (el: HTMLElement, payload: any) => void;
+declare const renderSim: (el: HTMLElement, payload: any) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
 declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
@@ -435,7 +436,7 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     sr: ['Brief', 'Vcycle', 'Validation', 'Matrix', 'Timeline', 'Guide', 'Trace'],
@@ -443,6 +444,7 @@ export async function systemBootstrap(): Promise<void> {
     task: ['Story'],
     file: ['Reverse'],
     goal: ['Goal'],
+    sim: ['Sim'],
   };
 
   function configureTabs(kind: string): void {
@@ -490,7 +492,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -503,6 +505,7 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabVcycle') as HTMLElement).onclick = () => showTab('Vcycle');
   (document.getElementById('tabGoal') as HTMLElement).onclick = () => showTab('Goal');
   (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
+  (document.getElementById('tabSim') as HTMLElement).onclick = () => showTab('Sim');
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -572,6 +575,7 @@ export async function systemBootstrap(): Promise<void> {
     if (kind === 'task') return 'Story';
     if (kind === 'file') return 'Reverse';
     if (kind === 'goal') return 'Goal';
+    if (kind === 'sim') return 'Sim';
     if (kind === 'feat') return 'Feature';
     return 'Brief';
   }
@@ -779,6 +783,31 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
+  async function loadSimScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 6 Task 5: sim:RUN-... scopes present the run's summary on the
+    // Simulation tab. Runs are evidence, not listed scopes, so they are
+    // reached by URL or by navigation from the dossier/goal evidence.
+    const runId = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/sim/run?id=' + encodeURIComponent(runId), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const run = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderSim(document.getElementById('panelSim') as HTMLElement, run);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a sim: scope. See the Simulation tab.'
+      )
+    );
+    configureTabs('sim');
+    selectInitialTab('Sim', updateUrl);
+    setLoading(false, true);
+  }
+
   async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
     invalidateHealth();
     const generation = ++navigationGeneration;
@@ -806,6 +835,10 @@ export async function systemBootstrap(): Promise<void> {
       }
       if (kind === 'goal') {
         await loadGoalScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'sim') {
+        await loadSimScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
       await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);

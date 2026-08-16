@@ -50,6 +50,20 @@ const BRIEF = {
 const MATRIX = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, rows: [] };
 const TIMELINE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, events: [], degraded: false, degraded_reasons: [] };
 const GUIDE = { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, sections: [] };
+const SIM_RUN_DATA = {
+  run: "RUN-20260811-1702",
+  experiment: "SIM-047",
+  feature: "FEAT-NAV-017",
+  requirements: ["SR-010"],
+  goals: ["GOAL-NAV-003"],
+  commit: "f92b004a1b2c3d4e5f60718293a4b5c6d7e8f90a1",
+  result: "passed",
+  scope_errors: [],
+  metrics: { target_reacquisition_rate: 0.93 },
+  recording: "evidence/runs/RUN-20260811-1702/manifest.json",
+  recorded_ts: "2026-08-11T17:02:00Z",
+};
+
 const VALIDATION_DATA = {
   scope: { kind: "sr", ref: "sr:SR-010" },
   validation: {
@@ -158,6 +172,9 @@ function mockFetch() {
     }
     if (url.pathname === "/api/system/validation") {
       return jsonResponse(VALIDATION_DATA);
+    }
+    if (url.pathname === "/api/system/sim/run") {
+      return jsonResponse(SIM_RUN_DATA);
     }
     if (url.pathname === "/api/system/goal") {
       return jsonResponse(GOAL_DATA);
@@ -284,6 +301,25 @@ describe("Inc 6 tabs registered in the /system page", () => {
     // A bundle: scope never shows the tab.
     const bundleDom = await loadPage({ scope: "bundle:evidence-lifecycle" });
     expect(bundleDom.window.document.getElementById("tabValidation")?.hidden).toBe(true);
+  });
+
+  test("a sim: scope shows the Simulation tab with the run summary", async () => {
+    const dom = await loadPage({ scope: "sim:RUN-20260811-1702" });
+    const doc = dom.window.document;
+    expect(doc.getElementById("tabSim")?.hidden).toBe(false);
+    expect(doc.getElementById("tabSim")?.getAttribute("aria-selected")).toBe("true");
+    const panel = doc.getElementById("panelSim");
+    expect(panel?.textContent).toContain("RUN-20260811-1702");
+    expect(panel?.textContent).toContain("SIM-047");
+    expect(panel?.textContent).toContain("feat:FEAT-NAV-017");
+    expect(panel?.textContent).toContain("sr:SR-010");
+    expect(panel?.textContent).toContain("0.93");
+    expect(panel?.textContent).toContain("evidence/runs/RUN-20260811-1702/manifest.json");
+    const result = panel?.querySelector(".sim-result");
+    expect(result?.classList.contains("is-passed")).toBe(true);
+    // A feat: scope never shows the Simulation tab.
+    const featDom = await loadPage({ scope: "feat:FEAT-NAV-017" });
+    expect(featDom.window.document.getElementById("tabSim")?.hidden).toBe(true);
   });
 
   test("the page inlines the feature widget as a plain function (no module imports)", () => {

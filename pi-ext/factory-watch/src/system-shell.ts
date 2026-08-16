@@ -13,6 +13,7 @@ import {
 import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel } from './system-vcycle-view.js';
 import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
+import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -139,6 +140,10 @@ function clientSource(): string {
     validationGoalStateClass,
     validationRefLine,
     renderValidation,
+    simSection,
+    resultClass,
+    simRefLine,
+    renderSim,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -596,6 +601,23 @@ export function renderSystemPageHtml(): string {
   .validation-goal-state-text { color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
   .validation-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
   .validation-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .sim-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sim-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .sim-result { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .sim-result.is-passed { color: var(--fresh); border-color: var(--fresh); }
+  .sim-result.is-failed { color: var(--degraded); border-color: var(--degraded); }
+  .sim-recorded { color: var(--text-dim); font: 12px/1.5 var(--font-mono); }
+  .sim-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .sim-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .sim-section-body { min-width: 0; }
+  .sim-ref-line { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sim-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .sim-metrics { display: grid; gap: 4px; }
+  .sim-metric-row { display: flex; align-items: baseline; gap: 10px; font: 12px/1.55 var(--font-mono); }
+  .sim-metric-name { color: var(--text-muted); }
+  .sim-metric-value { color: var(--text); }
+  .sim-recording { color: var(--signal); font: 12px/1.55 var(--font-mono); text-decoration: underline; }
+  .sim-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -659,6 +681,7 @@ export function renderSystemPageHtml(): string {
           <button id="tabVcycle" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelVcycle" aria-label="V-cycle">V-cycle</button>
           <button id="tabGoal" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGoal" aria-label="Goal">Goal</button>
           <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
+          <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
         </div></nav>
         <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
         <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -671,6 +694,7 @@ export function renderSystemPageHtml(): string {
         <div id="panelVcycle" class="panel" role="tabpanel" aria-labelledby="tabVcycle" hidden></div>
         <div id="panelGoal" class="panel" role="tabpanel" aria-labelledby="tabGoal" hidden></div>
         <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
+        <div id="panelSim" class="panel" role="tabpanel" aria-labelledby="tabSim" hidden></div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">
