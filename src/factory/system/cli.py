@@ -81,7 +81,6 @@ def cmd_validation(repo_root: Path, scope_raw: str) -> dict:
 def cmd_diagram(repo_root: Path, diagram_id: str) -> dict:
     return query_diagram(repo_root, diagram_id)
 
-
 def cmd_sim_run(repo_root: Path, run_id: str) -> dict:
     return query_simulation_run(repo_root, run_id)
 
@@ -625,6 +624,32 @@ def _render_scope(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_dossier_bundle(result: dict) -> str:
+    """Human render for `factory.system dossier`: one header per section, each
+    section rendered by its own `_render_*` so the text mirrors what the
+    individual subcommands print."""
+    lines = [f"scope: {result['scope']['ref']}"]
+    lines.append("brief:")
+    lines.append(_render_brief(result["brief"]))
+    lines.append("matrix:")
+    lines.append(_render_matrix(result["matrix"]))
+    lines.append("timeline:")
+    lines.append(_render_timeline(result["timeline"]))
+    if result.get("guide"):
+        lines.append("guide:")
+        lines.append(_render_guide(result["guide"]))
+    else:
+        error = result.get("guide_error")
+        lines.append(f"guide: unavailable ({error or 'no guide'})")
+    if result.get("vcycle") is not None:
+        lines.append("vcycle:")
+        lines.append(_render_vcycle(result["vcycle"]))
+    if result.get("validation") is not None:
+        lines.append("validation:")
+        lines.append(_render_validation(result["validation"]))
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="factory-system")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -637,6 +662,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_brief = sub.add_parser("brief", parents=[common])
     p_brief.add_argument("--scope", required=True)
+
+    p_dossier = sub.add_parser("dossier", parents=[common])
+    p_dossier.add_argument("--scope", required=True)
+
+    p_worker = sub.add_parser("worker")
+    p_worker.add_argument("--repo-root", default=Path("."), type=Path)
 
     p_matrix = sub.add_parser("matrix", parents=[common])
     p_matrix.add_argument("--scope", required=True)
@@ -729,6 +760,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    # The worker is a long-lived server process, not a one-shot projection:
+    # it owns stdin/stdout for its whole life and returns its own exit code,
+    # so it is handled before the normal dispatch (which prints a rendered
+    # result and returns). `--json` is not offered here -- the worker's stdout
+    # is the JSON-lines protocol itself.
+    if args.cmd == "worker":
+        from factory.system.worker import run_worker
+
+        return run_worker(args.repo_root, sys.stdin, sys.stdout)
+
     try:
         if args.cmd == "brief":
             result = cmd_brief(args.repo_root, args.scope)
@@ -775,6 +816,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)
+        elif args.cmd == "dossier":
+            # Imported lazily: dossier.py imports this module's cmd_* functions,
+            # so a module-level import here would be a circular import.
+            from factory.system.dossier import cmd_dossier as _cmd_dossier
+
+            result = _cmd_dossier(args.repo_root, args.scope)
+            rendered = _render_dossier_bundle(result)
         elif args.cmd == "traversal":
             result = cmd_traversal(args.repo_root, args.scope)
             rendered = _render_traversal(result)

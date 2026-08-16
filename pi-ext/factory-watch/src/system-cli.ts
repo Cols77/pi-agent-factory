@@ -176,6 +176,35 @@ export function buildPresentationCommand(sub: string[]): { bin: string; args: st
   return { bin: "uv", args: ["run", "python", "-m", "factory.presentation", ...sub] };
 }
 
+// Mirrors `factory.system brief --json` ... this file renders, it never
+// interprets -- see the top of this file.
+
+// SP-B performance (2026-08-13, extended): one combined scope-navigation
+// payload. `factory.system dossier --scope <ref> --json` computes
+// brief/matrix/timeline strictly (a failure fails the dossier, exactly as a
+// failing individual endpoint fails a scope load today) and guide/vcycle/
+// validation best-effort (null + error text, degrading only their own tab).
+// `brief` is typed as `unknown`: for a `feat:` scope it is the trace-backed
+// dossier (query_feature_context), not a SystemBrief -- the browser picks the
+// renderer by scope kind, exactly as it does for `/api/system/brief` today.
+export interface SystemDossier {
+  scope: { kind: string; ref: string };
+  brief: unknown;
+  matrix: SystemMatrix;
+  timeline: SystemTimeline;
+  guide: SystemGuide | null;
+  guide_error: string | null;
+  vcycle: SystemVcycle | null;
+  vcycle_error: string | null;
+  validation: SystemValidation | null;
+  validation_error: string | null;
+}
+
+export function loadSystemDossier(cwd: string, scope: string): CliResult<SystemDossier> {
+  const cmd = buildSystemCommand(["dossier", "--scope", scope, "--json"]);
+  return runJsonCli<SystemDossier>(cwd, cmd.bin, cmd.args);
+}
+
 export function loadSystemScopes(cwd: string): CliResult<SystemScopeList> {
   const cmd = buildSystemCommand(["scope", "--json"]);
   return runJsonCli<SystemScopeList>(cwd, cmd.bin, cmd.args);

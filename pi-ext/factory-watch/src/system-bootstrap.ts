@@ -766,33 +766,13 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
-  async function loadBundleScope(
+  function renderBundleBase(
     scopeRef: string,
-    generation: number,
-    signal: AbortSignal,
-    updateUrl: boolean
-  ): Promise<void> {
-    const scopeParam = encodeURIComponent(scopeRef);
-    // The guide fetch is intentionally not in the failure gate below: a
-    // failed/unavailable guide degrades only its own tab.
-    const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
-      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
-      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
-      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
-      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
-    ]);
-    const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
-    if (failed) throw new Error(await responseFailure(failed));
-    const [brief, matrix, timeline, guide] = await Promise.all([
-      briefRes.json(), matrixRes.json(), timelineRes.json(),
-      guideRes.ok ? guideRes.json() : Promise.resolve(null),
-    ]);
-    if (!isCurrentNavigation(generation, scopeRef)) return;
-    // Inc 6 Task 1: a feat: scope's brief IS the trace-backed dossier
-    // (factory.system cmd_brief dispatches feat: to query_feature_context),
-    // so the same payload renders the Feature tab -- the dossier hub. The
-    // claim-based brief panel does not apply to a feat: scope (the payload
-    // carries no claims), so it is never rendered for one.
+    brief: any,
+    matrix: any,
+    timeline: any,
+    guide: any
+  ): void {
     if (scopeKind(scopeRef) === 'feat') {
       renderFeature(document.getElementById('panelFeature') as HTMLElement, brief);
     } else {
@@ -806,46 +786,23 @@ export async function systemBootstrap(): Promise<void> {
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     renderContextRailMembership(brief);
     renderContextRailNextStep(brief);
-    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
-    // like the guide -- a failure degrades only the V-cycle tab, never the
-    // scope load.
-    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
-      try {
-        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
-        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
-        const vcycle = await vcycleRes.json();
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
-        }
-      } catch {
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
-        }
-      }
-    } else {
-      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
-    }
-    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
-    // like the vcycle fetch -- a failure degrades only its own tab.
-    if (scopeKind(scopeRef) === 'sr') {
-      try {
-        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
-        if (!validationRes.ok) throw new Error(String(validationRes.status));
-        const validation = await validationRes.json();
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
-        }
-      } catch {
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
-        }
-      }
-    } else {
-      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
-    }
-    // Record the trace-able SR refs for this scope so the lazy Trace tab knows
-    // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
-    // come from the matrix rows, in payload order.
+  }
+
+  // Shared tail of a bundle/sr/feat scope load: trace ref recording, the
+  // best-effort traversal fetch, initial tab selection, and the loading
+  // flag. Identical for the dossier fast path and the legacy per-endpoint
+  // path, so the two cannot drift apart in what they leave on the page.
+  async function finishBundleScopeLoad(
+    scopeRef: string,
+    matrix: any,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const scopeParam = encodeURIComponent(scopeRef);
+    // Record the trace-able SR refs for this scope so the lazy Trace tab
+    // knows what to invert. An sr: scope is its own single SR; a bundle:
+    // scope's SRs come from the matrix rows, in payload order.
     if (scopeKind(scopeRef) === 'sr') {
       scopeSrRefs = [scopeRef];
     } else {
@@ -883,6 +840,152 @@ export async function systemBootstrap(): Promise<void> {
     if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
     if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);
+  }
+
+  // SP-B performance (extended): the combined dossier payload. Returns null
+  // when the fast path is unavailable -- endpoint missing, non-ok response,
+  // malformed shape, or a transport error -- so the caller falls back to the
+  // legacy per-endpoint fetches. An abort is not a fast-path failure: it
+  // propagates so navigation cancellation behaves exactly like a legacy
+  // fetch abort (the loadScope catch reports it the same way).
+  async function fetchDossier(scopeRef: string, signal: AbortSignal): Promise<any | null> {
+    try {
+      const res = await fetch('/api/system/dossier?scope=' + encodeURIComponent(scopeRef), { signal });
+      if (!res.ok) return null;
+      const payload = await res.json();
+      if (
+        !payload || typeof payload !== 'object' ||
+        !('brief' in payload) || !('matrix' in payload) || !('timeline' in payload)
+      ) {
+        return null;
+      }
+      return payload;
+    } catch (err) {
+      const name = (typeof err === 'object' && err !== null && 'name' in err)
+        ? String((err as { name?: unknown }).name)
+        : '';
+      if (name === 'AbortError') throw err;
+      return null;
+    }
+  }
+
+  // Fast path: one `/api/system/dossier` request carries brief/matrix/
+  // timeline/guide (+vcycle/validation for the kinds that carry them), pre- 
+  // computed by Python in a single process. Renders exactly what the legacy
+  // path renders, with the same degrade-only-its-tab semantics for the
+  // best-effort sections.
+  async function loadDossierScope(
+    scopeRef: string,
+    dossier: any,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderBundleBase(scopeRef, dossier.brief, dossier.matrix, dossier.timeline, dossier.guide);
+    // The V-cycle and validation tabs arrive precomputed in the dossier for
+    // the scope kinds that carry them; a section error degrades only its own
+    // tab, exactly as a failed per-endpoint fetch would today.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      if (dossier.vcycle) {
+        renderVcycle(document.getElementById('panelVcycle') as HTMLElement, dossier.vcycle);
+      } else if (dossier.vcycle_error) {
+        renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+      } else {
+        renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    if (scopeKind(scopeRef) === 'sr') {
+      if (dossier.validation) {
+        renderValidation(document.getElementById('panelValidation') as HTMLElement, dossier.validation);
+      } else if (dossier.validation_error) {
+        renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+      } else {
+        renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+    }
+    await finishBundleScopeLoad(scopeRef, dossier.matrix, generation, signal, updateUrl);
+  }
+
+  async function loadBundleScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const dossier = await fetchDossier(scopeRef, signal);
+    if (dossier !== null) {
+      await loadDossierScope(scopeRef, dossier, generation, signal, updateUrl);
+      return;
+    }
+    await loadBundleScopeLegacy(scopeRef, generation, signal, updateUrl);
+  }
+
+  async function loadBundleScopeLegacy(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const scopeParam = encodeURIComponent(scopeRef);
+    // The guide fetch is intentionally not in the failure gate below: a
+    // failed/unavailable guide degrades only its own tab.
+    const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
+      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
+      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
+      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
+      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
+    ]);
+    const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
+    if (failed) throw new Error(await responseFailure(failed));
+    const [brief, matrix, timeline, guide] = await Promise.all([
+      briefRes.json(), matrixRes.json(), timelineRes.json(),
+      guideRes.ok ? guideRes.json() : Promise.resolve(null),
+    ]);
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderBundleBase(scopeRef, brief, matrix, timeline, guide);
+    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
+    // like the guide -- a failure degrades only the V-cycle tab, never the
+    // scope load.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      try {
+        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
+        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
+        const vcycle = await vcycleRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
+    // like the vcycle fetch -- a failure degrades only its own tab.
+    if (scopeKind(scopeRef) === 'sr') {
+      try {
+        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
+        if (!validationRes.ok) throw new Error(String(validationRes.status));
+        const validation = await validationRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+    }
+    await finishBundleScopeLoad(scopeRef, matrix, generation, signal, updateUrl);
   }
 
   async function loadGoalScope(
