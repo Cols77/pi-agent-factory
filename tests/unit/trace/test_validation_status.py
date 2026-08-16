@@ -99,3 +99,29 @@ def test_goal_none_reached_yields_verification_pending():
 
 def test_goal_blocked_counts_as_pending_not_reached():
     assert requirement_validation([_goal("BLOCKED")]) == "VERIFICATION_PENDING"
+
+
+# ── Inc 7 Task 4: VERIFICATION_STALE (additive, spec §28–§30) ──────────────
+
+
+def test_stale_validation_of_reached_goals_yields_verification_stale():
+    # Code/statement changed since the evidence: green goals alone must not
+    # read as VALIDATED (spec §30 A→C example).
+    assert requirement_validation([_goal("REACHED")], stale=True) == "VERIFICATION_STALE"
+
+
+def test_stale_validation_without_reached_goals_stays_pending():
+    # Nothing validated yet; staleness does not upgrade PENDING.
+    assert requirement_validation([_goal("NOT_REACHED")], stale=True) == "VERIFICATION_PENDING"
+
+
+def test_regressed_beats_stale():
+    # A regressed goal is the stronger signal even when evidence is stale.
+    assert (
+        requirement_validation([_goal("REGRESSED")], stale=True) == "REGRESSED"
+    )
+
+
+def test_stale_defaults_false_keeps_v1_behavior():
+    assert requirement_validation([_goal("REACHED")]) == "VALIDATED"
+    assert requirement_validation([]) is None

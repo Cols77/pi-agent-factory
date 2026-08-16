@@ -1743,6 +1743,20 @@ def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
     stale = status.stale if status is not None else False
     error = status.error if status is not None else None
 
+    # Inc 7 Task 4: derive VERIFICATION_STALE *live* -- the register checksum
+    # is the fingerprint that records whether the requirement's content changed
+    # since its last validation (spec §30 A→C). Recomputed now, not trusted
+    # from the report alone; a requirement with no register entry falls back to
+    # the report's recorded flag.
+    from factory.requirements import register as req_register
+
+    req = next(
+        (r for r in req_register.load_register(repo_root / "requirements") if r.id == req_id),
+        None,
+    )
+    if req is not None:
+        stale = not req_register.is_checksum_current(req)
+
     goals = goal_registry.load_goals(repo_root)
     edges = trace_model.extract_edges(repo_root, trace_model.load_nodes(repo_root))
     demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == req_id}
@@ -1750,7 +1764,7 @@ def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
         (g for g in goals.values() if req_id in g.requirements or g.id in demonstrated),
         key=lambda g: g.id,
     )
-    goal_state = validation_status.requirement_validation(bound_goals)
+    goal_state = validation_status.requirement_validation(bound_goals, stale=stale)
     runs = sim_registry.runs_for(_evidence_dir(repo_root), requirement=req_id)
     metric_ids: set[str] = set()
     for goal in bound_goals:

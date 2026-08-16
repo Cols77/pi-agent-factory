@@ -64,18 +64,22 @@ def load_validation(root: Path) -> dict[str, SrStatus]:
     return statuses
 
 
-GoalValidation = Literal["VALIDATED", "REGRESSED", "VERIFICATION_PENDING"]
+GoalValidation = Literal["VALIDATED", "REGRESSED", "VERIFICATION_PENDING", "VERIFICATION_STALE"]
 
 
-def requirement_validation(goals: Iterable[Goal]) -> GoalValidation | None:
+def requirement_validation(goals: Iterable[Goal], *, stale: bool = False) -> GoalValidation | None:
     """Derive a requirement's D5 goal-aware status from its goal states.
 
     Pure and derived -- never stored (spec §28). Rules, in priority order:
 
     * any goal in REGRESSED                    -> "REGRESSED"
+    * every goal REACHED and ``stale``         -> "VERIFICATION_STALE" (spec §30)
     * every goal REACHED                       -> "VALIDATED"
     * goals exist, none reached, no regression -> "VERIFICATION_PENDING"
     * no goals                                 -> None (v1 behaviour unchanged)
+
+    ``stale`` is the caller's recorded/live staleness signal (the register
+    checksum / validation-report flag), passed in -- never re-derived here.
 
     The caller decides which goals belong to the requirement (via the goals'
     declared `requirements`/`demonstrates` bindings).
@@ -86,5 +90,5 @@ def requirement_validation(goals: Iterable[Goal]) -> GoalValidation | None:
     if "REGRESSED" in goal_states:
         return "REGRESSED"
     if all(state == "REACHED" for state in goal_states):
-        return "VALIDATED"
+        return "VERIFICATION_STALE" if stale else "VALIDATED"
     return "VERIFICATION_PENDING"
