@@ -33,24 +33,30 @@ const T060 = {
   path: "tasks/T-060.md", scope_href: "/system?scope=task%3AT-060",
 };
 
+// sr IS an openable kind (_OPENABLE_KINDS = {bundle, sr, task, file} in
+// labels.py), so build_labels always emits a non-null scope_href for a real
+// sr: ref -- this fixture must carry a truthful one, or tests that use it
+// exercise a shape production can never produce.
 const SR121 = {
   ref: "sr:SR-121", id: "SR-121", kind: "sr",
   title: "Battery-aware return",
   description: "The rover must return to base before battery falls below 15%.",
   description_source: "statement", deferral_reason: null,
   status: null, relations: {},
-  path: "requirements/SR-121.md", scope_href: null,
+  path: "requirements/SR-121.md", scope_href: "/system?scope=sr%3ASR-121",
 };
 
-// A spec ref: never openable (_OPENABLE_KINDS = {bundle, sr, task, file} in
-// labels.py), so its scope_href is always null. Distinct from SR121 so the
-// "non-openable ref stays a span" test isn't riding on an incidental fixture
-// choice -- this one names the actual non-openable kind.
+// A spec ref: never openable (spec is NOT in _OPENABLE_KINDS), so its
+// scope_href is always null -- the genuine non-openable/span fixture. Tests
+// that need to exercise the span path use this, not SR121.
 const SPEC_FOO = {
-  ref: "spec:docs/superpowers/specs/foo.md", id: "foo.md", kind: "spec",
-  title: "Foo spec", description: null, description_source: null, deferral_reason: null,
-  status: null, relations: {},
-  path: "docs/superpowers/specs/foo.md", scope_href: null,
+  ref: "spec:docs/superpowers/specs/2026-08-14-foo-design.md",
+  id: "2026-08-14-foo-design.md", kind: "spec",
+  title: "Foo Design",
+  description: "Why foo exists.", description_source: "purpose",
+  deferral_reason: null, status: null, relations: {},
+  path: "docs/superpowers/specs/2026-08-14-foo-design.md",
+  scope_href: null,
 };
 
 const RECORDED_TERM = {
@@ -82,12 +88,12 @@ beforeEach(() => {
   (globalThis as any).document = dom.window.document;
   (globalThis as any).LABELS = {
     "task:T-060": T060, "sr:SR-121": SR121,
-    "spec:docs/superpowers/specs/foo.md": SPEC_FOO,
+    [SPEC_FOO.ref]: SPEC_FOO,
   };
   (globalThis as any).ALIASES = {
     "T-060": "task:T-060", "task:T-060": "task:T-060",
     "SR-121": "sr:SR-121", "sr:SR-121": "sr:SR-121",
-    "spec:docs/superpowers/specs/foo.md": "spec:docs/superpowers/specs/foo.md",
+    [SPEC_FOO.ref]: SPEC_FOO.ref,
   };
   (globalThis as any).VOCABULARY = { terms: {} };
   (globalThis as any).REMEDIATION = REMEDIATION_DATA;
@@ -155,10 +161,16 @@ test("an openable ref renders as a link carrying the SPA contract", () => {
 });
 
 test("a non-openable ref stays a span with button semantics", () => {
-  const el = refChip("spec:docs/superpowers/specs/foo.md");
+  const el = refChip(SPEC_FOO.ref);
   expect(el.tagName).toBe("SPAN");
   expect(el.getAttribute("role")).toBe("button");
   expect(el.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("openable kinds render as anchors, non-openable kinds as spans", () => {
+  expect(refChip("sr:SR-121").tagName).toBe("A"); // sr IS openable
+  expect(refChip("task:T-060").tagName).toBe("A");
+  expect(refChip(SPEC_FOO.ref).tagName).toBe("SPAN"); // spec is NOT
 });
 
 test("clicking an anchor chip navigates and does not toggle the card", () => {
@@ -191,6 +203,8 @@ test("hover and keyboard focus still open the card for an ANCHOR chip", () => {
 });
 
 test("refCardFields orders id/kind/status, title, description, from, path, open", () => {
+  // SR121 truthfully carries a scope_href (sr IS openable), so the Open
+  // field this test's title has always named is now actually exercised.
   const fields = refCardFields(SR121);
   expect(fields.map((f) => f.className)).toEqual([
     "info-card-meta",
@@ -198,9 +212,11 @@ test("refCardFields orders id/kind/status, title, description, from, path, open"
     "info-card-description",
     "info-card-from",
     "info-card-path",
+    "info-card-open",
   ]);
   expect(fields[0]?.text).toBe("SR-121 · sr");
   expect(fields[3]?.text).toBe("from: statement");
+  expect(fields[5]?.href).toBe("/system?scope=sr%3ASR-121");
 });
 
 test("refCardFields never blanks a missing description or a missing Open link", () => {
@@ -225,9 +241,11 @@ test("refCardFields adds no relations line when relations is empty", () => {
 });
 
 test("infoCard renders each field as a line, with href fields as links", () => {
+  // SR121's fields include its truthful Open field (see refCardFields
+  // test above), so 6 lines, not 5.
   const card = infoCard(refCardFields(SR121));
   expect(card.className).toBe("info-card");
-  expect(card.querySelectorAll(".info-card-line").length).toBe(5);
+  expect(card.querySelectorAll(".info-card-line").length).toBe(6);
   const meta = card.querySelector(".info-card-meta");
   expect(meta?.textContent).toBe("SR-121 · sr");
 });
@@ -263,10 +281,12 @@ test("focusing a chip via keyboard opens its card immediately", () => {
 });
 
 test("an opened card sets aria-controls on its trigger, cleared on close (M6)", () => {
-  // SR-121 (non-openable, span form): click both opens and closes it, so it
-  // still exercises the aria-controls set/clear round trip via a click. The
-  // anchor form's click-does-not-toggle behaviour has its own dedicated test.
-  const chip = refChip("SR-121");
+  // SPEC_FOO (non-openable, span form): click both opens and closes it, so
+  // it still exercises the aria-controls set/clear round trip via a click.
+  // The anchor form's click-does-not-toggle behaviour has its own dedicated
+  // test. sr IS openable (SR-121 is now an anchor), so it can't stand in
+  // for the span case any more.
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   const card = document.querySelector(".info-card") as HTMLElement | null;
@@ -277,10 +297,11 @@ test("an opened card sets aria-controls on its trigger, cleared on close (M6)", 
 });
 
 test("clicking a span chip toggles the card open then closed", () => {
-  // T-060 is now openable and renders as an anchor whose click navigates
-  // instead of toggling (see "clicking an anchor chip navigates..." above);
-  // SR-121 stays a span, so it still exercises the click-to-toggle contract.
-  const chip = refChip("SR-121");
+  // T-060 and SR-121 are both openable and render as anchors whose click
+  // navigates instead of toggling (see "clicking an anchor chip
+  // navigates..." above); SPEC_FOO stays a span, so it still exercises the
+  // click-to-toggle contract.
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
   expect(document.querySelector(".info-card")).not.toBeNull();
@@ -354,11 +375,12 @@ test("a keydown that closes the card outside it does not steal focus", () => {
 });
 
 test("aria-expanded flips to true when the card opens and back to false when it closes", () => {
-  // SR-121 (span form): only span chips carry an initial aria-expanded
+  // SPEC_FOO (span form): only span chips carry an initial aria-expanded
   // attribute (an anchor is already actionable and skips role/aria-expanded
-  // entirely -- see "an openable ref renders as a link..." above).
+  // entirely -- see "an openable ref renders as a link..." above). SR-121
+  // is openable now (a real sr: ref always is), so it can't stand in here.
   ensureCardController();
-  const chip = refChip("SR-121");
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   expect(chip.getAttribute("aria-expanded")).toBe("false");
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
