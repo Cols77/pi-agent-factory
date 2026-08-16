@@ -9,8 +9,9 @@ import {
   renderFeature,
   taskCard,
   verificationRows,
+  navLine,
 } from './system-feature-view.js';
-import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel } from './system-vcycle-view.js';
+import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel, openRef } from './system-vcycle-view.js';
 import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
@@ -50,6 +51,7 @@ import {
   renderMatrixRow,
   renderNotApplicable,
   renderTabError,
+  openAnchor,
   renderReverse,
   renderReversePath,
   renderRunDetail,
@@ -115,6 +117,7 @@ function clientSource(): string {
     renderReverse,
     renderNotApplicable,
     renderTabError,
+    openAnchor,
     invertTraceForScope,
     renderTrace,
     dossierSection,
@@ -124,11 +127,13 @@ function clientSource(): string {
     verificationRows,
     changeList,
     renderFeature,
+    navLine,
     stateClass,
     nodeCard,
     sideSection,
     groupSection,
     bandLabel,
+    openRef,
     renderVcycle,
     goalSection,
     refLine,
@@ -633,6 +638,9 @@ export function renderSystemPageHtml(): string {
   .dossier-verify { margin-left: auto; }
   .dossier-verify button { padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--signal); font: 650 12px/1.3 var(--font-body); cursor: pointer; }
   .dossier-verify-note { margin-top: 8px; color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-nav-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .scope-open { color: var(--signal); font: 12px/1.4 var(--font-mono); text-decoration: underline dotted; }
+  .scope-open:hover, .scope-open:focus-visible { text-decoration: underline; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }

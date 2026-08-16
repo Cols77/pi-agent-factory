@@ -12,6 +12,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderFeature } from "../src/system-feature-view.js";
 import { boundedList, refChip } from "../src/system-comprehension.js";
+import { openAnchor } from "../src/system-renderers.js";
 
 // The dossier shape mirrors src/factory/system/feature.py's feature_context:
 // only facts recorded in the trace graph, with intent/requirements/design/
@@ -87,6 +88,7 @@ function mount(): { el: HTMLElement; dom: JSDOM } {
     target.innerHTML = "";
   });
   vi.stubGlobal("refChip", refChip);
+  vi.stubGlobal("openAnchor", openAnchor);
   vi.stubGlobal("boundedList", boundedList);
   const el = dom.window.document.getElementById("root") as HTMLElement;
   return { el, dom };

@@ -9,6 +9,7 @@
 
 declare const refChip: (raw: string) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
+declare const openAnchor: (ref: string, tab?: string) => HTMLElement;
 
 function resultClass(result: string | null | undefined): string {
   if (result === 'passed') return 'is-passed';
@@ -16,7 +17,7 @@ function resultClass(result: string | null | undefined): string {
   return 'is-neutral';
 }
 
-function refLine(refs: string[], chipKind: string): HTMLElement {
+function refLine(refs: string[], chipKind: string, openKind?: string, openTab?: string): HTMLElement {
   const line = document.createElement('div');
   line.className = 'sim-ref-line';
   if (!refs.length) {
@@ -25,7 +26,10 @@ function refLine(refs: string[], chipKind: string): HTMLElement {
     empty.appendChild(document.createTextNode('none recorded'));
     line.appendChild(empty);
   } else {
-    refs.forEach((ref) => line.appendChild(refChip(`${chipKind}:${ref}`)));
+    refs.forEach((ref) => {
+      line.appendChild(refChip(`${chipKind}:${ref}`));
+      if (openKind) line.appendChild(openAnchor(`${openKind}:${ref}`, openTab));
+    });
   }
   return line;
 }
@@ -69,15 +73,15 @@ export function renderSim(el: HTMLElement, payload: any): void {
   el.appendChild(experimentSection);
 
   const { section: featureSection, body: featureBody } = simSection('Feature');
-  featureBody.appendChild(refLine(payload.feature ? [payload.feature] : [], 'feat'));
+  featureBody.appendChild(refLine(payload.feature ? [payload.feature] : [], 'feat', 'feat'));
   el.appendChild(featureSection);
 
   const { section: requirementsSection, body: requirementsBody } = simSection('Requirements');
-  requirementsBody.appendChild(refLine(payload.requirements ?? [], 'sr'));
+  requirementsBody.appendChild(refLine(payload.requirements ?? [], 'sr', 'sr', 'vcycle'));
   el.appendChild(requirementsSection);
 
   const { section: goalsSection, body: goalsBody } = simSection('Goals');
-  goalsBody.appendChild(refLine(payload.goals ?? [], 'goal'));
+  goalsBody.appendChild(refLine(payload.goals ?? [], 'goal', 'goal'));
   el.appendChild(goalsSection);
 
   const { section: commitSection, body: commitBody } = simSection('Commit');

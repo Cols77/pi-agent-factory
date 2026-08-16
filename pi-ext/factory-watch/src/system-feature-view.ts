@@ -18,6 +18,7 @@
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
+declare const openAnchor: (ref: string, tab?: string) => HTMLElement;
 
 // A dossier section with a heading and either a body or an explicit missing
 // note. A section is never dropped and never blank: absent key / null value
@@ -52,6 +53,23 @@ export function refList(refs: unknown[], toRef: (item: any) => string, limit?: n
   const mapped = refs.map(toRef).filter((ref: string) => typeof ref === 'string' && ref.length > 0);
   if (!mapped.length) return undefined;
   return boundedList(mapped, limit);
+}
+
+// Inc 6 Task 6: the dossier-as-hub navigation affordance -- chips plus an
+// SPA open anchor per navigable ref (AC-02/AC-09). Bounded like refList but
+// only for the hub sections; v1 boundedList chips are untouched.
+export function navLine(refs: unknown[], toRef: (item: any) => string, kind?: string, tab?: string): HTMLElement | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const mapped = refs.map(toRef).filter((ref: string) => typeof ref === 'string' && ref.length > 0);
+  if (!mapped.length) return undefined;
+  const line = document.createElement('div');
+  line.className = 'dossier-nav-line';
+  mapped.slice(0, 5).forEach((ref) => {
+    line.appendChild(refChip(ref));
+    const openKind = kind || ref.split(':')[0] || 'sr';
+    line.appendChild(openAnchor(openKind + ':' + ref.replace(/^[a-z]+:/, ''), tab));
+  });
+  return line;
 }
 
 // The code section: the recorded implementation file paths, one per line in
@@ -220,14 +238,14 @@ export function renderFeature(el: HTMLElement, payload: any): void {
     el,
     'Requirements',
     'none recorded',
-    refList(dossier.requirements, (r: any) => (r && r.id ? (r.kind || 'sr') + ':' + r.id : ''))
+    navLine(dossier.requirements, (r: any) => (r && r.id ? (r.kind || 'sr') + ':' + r.id : ''), 'sr', 'vcycle')
   );
 
   dossierSection(
     el,
     'Design',
     'none recorded',
-    refList(dossier.design_records, (r: any) => (r && r.id ? (r.kind || 'adr') + ':' + r.id : ''))
+    navLine(dossier.design_records, (r: any) => (r && r.id ? (r.kind || 'adr') + ':' + r.id : ''))
   );
 
   dossierSection(el, 'Code', 'none recorded', codeList(dossier.implementation_files));
@@ -258,9 +276,8 @@ export function renderFeature(el: HTMLElement, payload: any): void {
     el,
     'Goals',
     'none recorded',
-    refList(dossier.goal_ids, (g: any) => (typeof g === 'string' ? (g.indexOf(':') !== -1 ? g : 'goal:' + g) : ''))
+    navLine(dossier.goal_ids, (g: any) => (typeof g === 'string' ? (g.indexOf(':') !== -1 ? g : 'goal:' + g) : ''), 'goal')
   );
-
   dossierSection(el, 'Recent changes', 'none recorded', changeList(dossier.recent_changes));
 
   // spec §9.2 "unresolved questions": no recorded source exists for them in

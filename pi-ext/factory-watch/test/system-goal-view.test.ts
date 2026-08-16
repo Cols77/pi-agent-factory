@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { boundedList, refChip } from "../src/system-comprehension.js";
-import { clear } from "../src/system-renderers.js";
+import { clear, openAnchor } from "../src/system-renderers.js";
 import { renderGoal } from "../src/system-goal-view.js";
 
 function mount(payload: unknown): { el: HTMLElement; dom: JSDOM } {
@@ -23,6 +23,7 @@ function mount(payload: unknown): { el: HTMLElement; dom: JSDOM } {
   vi.stubGlobal("refChip", refChip);
   vi.stubGlobal("boundedList", boundedList);
   vi.stubGlobal("clear", clear);
+  vi.stubGlobal("openAnchor", openAnchor);
   const el = dom.window.document.createElement("div");
   renderGoal(el, payload);
   return { el, dom };

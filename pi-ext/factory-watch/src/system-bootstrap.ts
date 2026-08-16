@@ -509,6 +509,20 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
   (document.getElementById('tabSim') as HTMLElement).onclick = () => showTab('Sim');
   (document.getElementById('tabDiagram') as HTMLElement).onclick = () => showTab('Diagram');
+
+  // Inc 6 Task 6 (AC-02/AC-09): delegated SPA navigation for the widgets'
+  // `a.scope-open` anchors. The anchor carries the exact scope ref and an
+  // optional tab intent (requirements land on the V-cycle view).
+  document.addEventListener('click', (event: Event) => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest?.('a.scope-open') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const ref = anchor.getAttribute('data-scope');
+    if (!ref) return;
+    event.preventDefault();
+    const tab = anchor.getAttribute('data-tab');
+    void loadScope(ref, true, true, tab || undefined);
+  });
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -836,7 +850,7 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
-  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
+  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true, intendedTab?: string): Promise<void> {
     invalidateHealth();
     const generation = ++navigationGeneration;
     scopeController?.abort();
@@ -874,6 +888,16 @@ export async function systemBootstrap(): Promise<void> {
         return;
       }
       await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);
+      // Inc 6 Task 6 (AC-09): a navigation intent (e.g. 'show me where this
+      // requirement fits' -> V-cycle) is applied after the scope finishes
+      // loading, when the tab is part of the scope's tab set. v1 URL/history
+      // behaviour is untouched.
+      if (intendedTab && isCurrentNavigation(generation, scopeRef)) {
+        // The intent name comes from data-tab (lowercase); normalize to the
+        // canonical TAB_ORDER name so showTab's id/tab matching works.
+        const tabName = TAB_ORDER.find((name) => name.toLowerCase() === intendedTab.toLowerCase());
+        if (tabName) showTab(tabName, updateUrl);
+      }
     } catch (err) {
       if (!isCurrentNavigation(generation, scopeRef)) return;
       showBanner('could not resolve scope ' + scopeRef + ': ' + String(err));

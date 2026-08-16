@@ -9,6 +9,7 @@
 
 declare const refChip: (raw: string) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
+declare const openAnchor: (ref: string, tab?: string) => HTMLElement;
 
 function rawStateClass(rawState: string): string {
   // Inside a function on purpose: only functions are inlined into the page.
@@ -25,7 +26,7 @@ function goalStateClass(goalState: string | null | undefined): string {
   return 'is-neutral';
 }
 
-function refLine(refs: string[], chipKind: string, emptyText: string): HTMLElement {
+function refLine(refs: string[], chipKind: string, emptyText: string, openKind?: string, openTab?: string): HTMLElement {
   const line = document.createElement('div');
   line.className = 'validation-ref-line';
   if (!refs.length) {
@@ -34,7 +35,10 @@ function refLine(refs: string[], chipKind: string, emptyText: string): HTMLEleme
     empty.appendChild(document.createTextNode(emptyText));
     line.appendChild(empty);
   } else {
-    refs.forEach((ref) => line.appendChild(refChip(`${chipKind}:${ref}`)));
+    refs.forEach((ref) => {
+      line.appendChild(refChip(`${chipKind}:${ref}`));
+      if (openKind) line.appendChild(openAnchor(`${openKind}:${ref}`, openTab));
+    });
   }
   return line;
 }
@@ -94,6 +98,7 @@ export function renderValidation(el: HTMLElement, payload: any): void {
       const chip = document.createElement('span');
       chip.className = 'validation-goal-chip';
       chip.appendChild(refChip(`goal:${goal.id}`));
+      chip.appendChild(openAnchor(`goal:${goal.id}`));
       const state = document.createElement('span');
       state.className = 'validation-goal-state-text';
       state.appendChild(document.createTextNode(goal.state));
@@ -105,7 +110,7 @@ export function renderValidation(el: HTMLElement, payload: any): void {
   el.appendChild(goalSection);
 
   const { section: runSection, body: runBody } = validationSection('Validating runs');
-  runBody.appendChild(refLine(validation.runs ?? [], 'sim', 'none recorded'));
+  runBody.appendChild(refLine(validation.runs ?? [], 'sim', 'none recorded', 'sim'));
   el.appendChild(runSection);
 
   const { section: metricSection, body: metricBody } = validationSection('Metrics');

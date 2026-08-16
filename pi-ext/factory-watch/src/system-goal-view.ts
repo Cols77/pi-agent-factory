@@ -8,6 +8,7 @@
 
 declare const refChip: (raw: string) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
+declare const openAnchor: (ref: string, tab?: string) => HTMLElement;
 
 function goalStateClass(state: string | null | undefined): string {
   // Inside a function on purpose: only functions are inlined into the page.
@@ -36,7 +37,7 @@ export function goalSection(title: string): { section: HTMLElement; body: HTMLEl
   return { section, body };
 }
 
-export function refLine(refs: string[]): HTMLElement {
+export function refLine(refs: string[], openKind?: string, openTab?: string): HTMLElement {
   const line = document.createElement('div');
   line.className = 'goal-ref-line';
   if (!refs.length) {
@@ -45,7 +46,10 @@ export function refLine(refs: string[]): HTMLElement {
     empty.appendChild(document.createTextNode('none recorded'));
     line.appendChild(empty);
   } else {
-    refs.forEach((ref) => line.appendChild(refChip(ref)));
+    refs.forEach((ref) => {
+      line.appendChild(refChip(ref));
+      if (openKind) line.appendChild(openAnchor(`${openKind}:${ref}`, openTab));
+    });
   }
   return line;
 }
@@ -74,11 +78,11 @@ export function renderGoal(el: HTMLElement, payload: any): void {
   el.appendChild(header);
 
   const { section: reqSection, body: reqBody } = goalSection('Requirements');
-  reqBody.appendChild(refLine((payload.requirements ?? []).map((r: string) => `sr:${r}`)));
+  reqBody.appendChild(refLine((payload.requirements ?? []).map((r: string) => `sr:${r}`), 'sr', 'vcycle'));
   el.appendChild(reqSection);
 
   const { section: featSection, body: featBody } = goalSection('Feature');
-  featBody.appendChild(refLine((payload.feature ?? []).map((f: string) => `feat:${f}`)));
+  featBody.appendChild(refLine((payload.feature ?? []).map((f: string) => `feat:${f}`), 'feat'));
   el.appendChild(featSection);
 
   const { section: metricSection, body: metricBody } = goalSection('Metric');

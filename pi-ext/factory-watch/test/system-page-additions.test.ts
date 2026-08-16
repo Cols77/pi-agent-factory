@@ -357,4 +357,44 @@ describe("Inc 6 tabs registered in the /system page", () => {
     const button = doc.querySelector("button[data-feature='FEAT-NAV-017']");
     expect(button?.textContent).toBe("Verify my understanding");
   });
+
+  test("scope-open anchors navigate within the SPA: requirement -> V-cycle (AC-02/AC-09)", async () => {
+    const dom = await loadPage({ scope: "feat:FEAT-NAV-017" });
+    const doc = dom.window.document;
+    const srAnchor = doc.querySelector("a.scope-open[data-scope='sr:SR-010']") as HTMLElement | null;
+    expect(srAnchor).not.toBeNull();
+    expect(srAnchor?.getAttribute("data-tab")).toBe("vcycle");
+    srAnchor?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.waitFor(
+      () => {
+        const busy = doc.getElementById("content")?.getAttribute("aria-busy");
+        const heading = doc.getElementById("scopeHeader")?.textContent ?? "";
+        expect(busy).toBe("false");
+        expect(heading + " " + doc.getElementById("scopeKind")?.textContent).toContain("SR-010");
+      },
+      { timeout: 2000, interval: 20 },
+    );
+    // AC-09: the tab intent lands on the V-cycle view for the requirement.
+    expect(doc.getElementById("tabVcycle")?.getAttribute("aria-selected")).toBe("true");
+    expect(doc.getElementById("panelVcycle")?.textContent).toContain("sr:SR-010");
+  });
+
+  test("dossier-as-hub: goal chip's open anchor navigates to the goal scope", async () => {
+    const dom = await loadPage({ scope: "feat:FEAT-NAV-017" });
+    const doc = dom.window.document;
+    const goalAnchor = doc.querySelector("a.scope-open[data-scope='goal:GOAL-NAV-003']") as HTMLElement | null;
+    expect(goalAnchor).not.toBeNull();
+    goalAnchor?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.waitFor(
+      () => {
+        const busy = doc.getElementById("content")?.getAttribute("aria-busy");
+        const heading = doc.getElementById("scopeHeader")?.textContent ?? "";
+        expect(busy).toBe("false");
+        expect(heading + " " + doc.getElementById("scopeKind")?.textContent).toContain("GOAL-NAV-003");
+      },
+      { timeout: 2000, interval: 20 },
+    );
+    expect(doc.getElementById("tabGoal")?.getAttribute("aria-selected")).toBe("true");
+    expect(doc.getElementById("panelGoal")?.textContent).toContain("Reacquire within 2 seconds");
+  });
 });

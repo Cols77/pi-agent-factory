@@ -27,6 +27,21 @@ interface VcycleNode {
 declare const refChip: (raw: string) => HTMLElement;
 declare const clear: (el: HTMLElement) => void;
 
+declare const openAnchor: (ref: string, tab?: string) => HTMLElement;
+
+// Kinds the SCC browser can open as a scope; requirements carry the AC-09
+// V-cycle tab intent so 'show me where this fits' lands on the V-cycle.
+function openRef(kind: string): { ref: string; tab: string | undefined } | null {
+  if (kind === 'sr') return { ref: 'sr:', tab: 'vcycle' };
+  if (kind === 'goal') return { ref: 'goal:', tab: undefined };
+  if (kind === 'task') return { ref: 'task:', tab: undefined };
+  if (kind === 'adr') return { ref: 'adr:', tab: undefined };
+  if (kind === 'diag') return { ref: 'diag:', tab: undefined };
+  if (kind === 'sim') return { ref: 'sim:', tab: undefined };
+  return null;
+}
+
+
 export function bandLabel(raw: string): string {
   // Kept inside a function on purpose: only functions are inlined into the
   // page script, so a module-level const would be a dangling reference there.
@@ -76,6 +91,10 @@ function nodeCard(node: VcycleNode, status: any): HTMLElement {
   card.className =
     'vcycle-node ' + cls + (status?.kind === 'validation' && status.stale ? ' is-stale' : '');
   card.appendChild(refChip(`${node.kind}:${node.id}`));
+  const open = openRef(node.kind);
+  if (open) {
+    card.appendChild(openAnchor(open.ref + node.id, open.tab));
+  }
   if (text) {
     const state = document.createElement('span');
     state.className = 'vcycle-node-state';
@@ -171,4 +190,4 @@ export function renderVcycle(el: HTMLElement, payload: any): void {
   el.appendChild(groupSection('Runs', slice.runs ?? [], statuses));
 }
 
-export { stateClass, nodeCard, sideSection, groupSection };
+export { stateClass, nodeCard, sideSection, groupSection, openRef };
