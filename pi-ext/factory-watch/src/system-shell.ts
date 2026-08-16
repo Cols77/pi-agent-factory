@@ -14,6 +14,7 @@ import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabe
 import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
+import { renderDiagram } from './system-diagram-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -144,6 +145,7 @@ function clientSource(): string {
     resultClass,
     simRefLine,
     renderSim,
+    renderDiagram,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -618,6 +620,19 @@ export function renderSystemPageHtml(): string {
   .sim-metric-value { color: var(--text); }
   .sim-recording { color: var(--signal); font: 12px/1.55 var(--font-mono); text-decoration: underline; }
   .sim-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .diagram-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .diagram-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .diagram-title { font: 650 clamp(18px, 2.6vw, 26px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .diagram-embed { width: 100%; min-height: 460px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-raised); }
+  .diagram-open { display: inline-block; margin-top: 10px; color: var(--signal); font: 12px/1.5 var(--font-mono); text-decoration: underline; }
+  .diagram-missing { padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .diagram-error { margin-top: 8px; color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .diagram-focus { margin-top: 12px; display: flex; align-items: baseline; gap: 8px; }
+  .diagram-focus-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); }
+  .diagram-focus-value { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-verify { margin-left: auto; }
+  .dossier-verify button { padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--signal); font: 650 12px/1.3 var(--font-body); cursor: pointer; }
+  .dossier-verify-note { margin-top: 8px; color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -682,6 +697,7 @@ export function renderSystemPageHtml(): string {
           <button id="tabGoal" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGoal" aria-label="Goal">Goal</button>
           <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
           <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
+          <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
         </div></nav>
         <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
         <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -695,6 +711,7 @@ export function renderSystemPageHtml(): string {
         <div id="panelGoal" class="panel" role="tabpanel" aria-labelledby="tabGoal" hidden></div>
         <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
         <div id="panelSim" class="panel" role="tabpanel" aria-labelledby="tabSim" hidden></div>
+        <div id="panelDiagram" class="panel" role="tabpanel" aria-labelledby="tabDiagram" hidden></div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">

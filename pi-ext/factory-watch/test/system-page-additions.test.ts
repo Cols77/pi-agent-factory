@@ -176,6 +176,14 @@ function mockFetch() {
     if (url.pathname === "/api/system/sim/run") {
       return jsonResponse(SIM_RUN_DATA);
     }
+    if (url.pathname === "/api/system/diagram") {
+      const id = url.searchParams.get("id") ?? "";
+      return jsonResponse(
+        id === "DIAG-NAV-002"
+          ? { id, title: "Missing", diagram_path: null, errors: ["diagram file missing"] }
+          : { id, title: "Reacquisition state machine", diagram_path: "docs/diagrams/DIAG-NAV-001.html", errors: [] },
+      );
+    }
     if (url.pathname === "/api/system/goal") {
       return jsonResponse(GOAL_DATA);
     }
@@ -326,5 +334,27 @@ describe("Inc 6 tabs registered in the /system page", () => {
     const html = renderSystemPageHtml();
     expect(html).toContain("function renderFeature(");
     expect(html.indexOf("function renderFeature(")).toBeGreaterThan(html.indexOf("var LABELS ="));
+  });
+
+  test("a diag: scope shows the Diagram tab embedding the committed HTML", async () => {
+    const dom = await loadPage({ scope: "diag:DIAG-NAV-001" });
+    const doc = dom.window.document;
+    expect(doc.getElementById("tabDiagram")?.hidden).toBe(false);
+    expect(doc.getElementById("tabDiagram")?.getAttribute("aria-selected")).toBe("true");
+    const panel = doc.getElementById("panelDiagram");
+    expect(panel?.textContent).toContain("DIAG-NAV-001");
+    const embed = panel?.querySelector("iframe.diagram-embed");
+    expect(embed?.getAttribute("src")).toBe("docs/diagrams/DIAG-NAV-001.html");
+    // A missing diagram degrades visibly.
+    const missingDom = await loadPage({ scope: "diag:DIAG-NAV-002" });
+    const missingPanel = missingDom.window.document.getElementById("panelDiagram");
+    expect(missingPanel?.textContent).toContain("missing diagram");
+  });
+
+  test("the dossier offers the explicit verify-understanding entry point (D8)", async () => {
+    const dom = await loadPage({ scope: "feat:FEAT-NAV-017" });
+    const doc = dom.window.document;
+    const button = doc.querySelector("button[data-feature='FEAT-NAV-017']");
+    expect(button?.textContent).toBe("Verify my understanding");
   });
 });

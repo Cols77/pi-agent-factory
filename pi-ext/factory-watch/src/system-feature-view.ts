@@ -184,6 +184,29 @@ export function renderFeature(el: HTMLElement, payload: any): void {
     title.appendChild(document.createTextNode(dossier.title));
     heading.appendChild(title);
   }
+  // Inc 6 Task 5b D8: an explicit, optional comprehension entry point.
+  // Pure entry -- no quiz engine, no score surfaced: clicking reveals the
+  // ready-made grill-understanding prompt for a pi session on this feature.
+  if (dossier.id) {
+    const verify = document.createElement('div');
+    verify.className = 'dossier-verify';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.feature = dossier.id;
+    button.appendChild(document.createTextNode('Verify my understanding'));
+    button.onclick = () => {
+      const note = verify.querySelector('.dossier-verify-note');
+      if (note) return;
+      const prompt = document.createElement('div');
+      prompt.className = 'dossier-verify-note';
+      prompt.appendChild(document.createTextNode(
+        'Prompt for a pi session: "Verify my understanding of ' + dossier.id + ' (grill-understanding)".'
+      ));
+      verify.appendChild(prompt);
+    };
+    verify.appendChild(button);
+    heading.appendChild(verify);
+  }
   if (heading.childNodes.length) el.appendChild(heading);
 
   dossierSection(el, 'Intent', 'not recorded', dossier.intent ? (() => {
