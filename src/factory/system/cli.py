@@ -50,6 +50,7 @@ from factory.system.queries import (
     query_timeline,
     query_traversal,
     query_vcycle,
+    query_validation,
 )
 from factory.system.reverse import query_reverse
 from factory.system.story import query_story
@@ -70,6 +71,11 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
 def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_vcycle(repo_root, scope)
+
+
+def cmd_validation(repo_root: Path, scope_raw: str) -> dict:
+    scope = parse_scope_ref(scope_raw)
+    return query_validation(repo_root, scope)
 
 
 def cmd_diagram(repo_root: Path, diagram_id: str) -> dict:
@@ -320,6 +326,22 @@ def _render_vcycle(result: dict) -> str:
         _render_vcycle_side(lines, side)
     lines.append("  goals: " + (", ".join(n["id"] for n in vcycle["goals"]) if vcycle["goals"] else "none"))
     lines.append("  metrics: " + (", ".join(n["id"] for n in vcycle["metrics"]) if vcycle["metrics"] else "none"))
+    return "\n".join(lines)
+
+
+def _render_validation(result: dict) -> str:
+    validation = result["validation"]
+    lines = [
+        f"requirement: {validation['id']}",
+        f"  recorded state: {validation['raw_state']}"
+        + (" (stale)" if validation["stale"] else ""),
+        f"  goal-aware status: {validation['goal_state'] or 'none'}",
+        "  goals: " + (", ".join(f"{g['id']} ({g['state']})" for g in validation["goals"]) or "none"),
+        "  runs: " + (", ".join(validation["runs"]) or "none"),
+        "  metrics: " + (", ".join(validation["metrics"]) or "none"),
+    ]
+    if validation.get("error"):
+        lines.append(f"  error: {validation['error']}")
     return "\n".join(lines)
 
 
@@ -638,6 +660,9 @@ def main(argv: list[str] | None = None) -> int:
     p_vcycle = sub.add_parser("vcycle", parents=[common])
     p_vcycle.add_argument("--scope", required=True)
 
+    p_validation = sub.add_parser("validation", parents=[common])
+    p_validation.add_argument("--scope", required=True)
+
     p_diagram = sub.add_parser("diagram", parents=[common])
     p_diagram.add_argument("diagram_id")
 
@@ -726,6 +751,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "vcycle":
             result = cmd_vcycle(args.repo_root, args.scope)
             rendered = _render_vcycle(result)
+        elif args.cmd == "validation":
+            result = cmd_validation(args.repo_root, args.scope)
+            rendered = _render_validation(result)
         elif args.cmd == "bundle":
             result = cmd_bundle_check(args.repo_root, args.draft)
             rendered = _render_bundle_check(result)

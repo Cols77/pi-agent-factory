@@ -534,6 +534,33 @@ export function renderNotApplicable(panelId: string, note: string): void {
   panel.appendChild(p);
 }
 
+// Inc 6 Task 2: a tab whose projection failed to load states the failure
+// explicitly (honest degradation, never a blank).
+export function renderTabError(panelId: string, note: string): void {
+  const panel = document.getElementById(panelId) as HTMLElement;
+  clear(panel);
+  const p = document.createElement('p');
+  p.className = 'empty tab-error';
+  p.appendChild(document.createTextNode(note));
+  panel.appendChild(p);
+}
+
+// Inc 6 Task 6: an SPA navigation affordance for the Inc 6 widgets. The
+// anchor carries the exact scope ref (data-scope) and, for requirements, the
+// V-cycle tab intent (data-tab) so 'show me where this requirement fits'
+// (AC-09) lands on the V-cycle view. The page's delegated click handler owns
+// navigation; this only renders the anchor.
+export function openAnchor(ref: string, tab?: string): HTMLElement {
+  const a = document.createElement('a');
+  a.className = 'scope-open';
+  a.href = '?scope=' + encodeURIComponent(ref) + (tab ? '#' + tab.toLowerCase() : '');
+  a.setAttribute('data-scope', ref);
+  if (tab) a.setAttribute('data-tab', tab);
+  a.setAttribute('aria-label', 'Open ' + ref);
+  a.appendChild(document.createTextNode('open'));
+  return a;
+}
+
 // Pure inversion of the /api/graph trace graph for the current scope's SR refs.
 // No .sort, no payload remap: walk graph.edges in the order factory.trace emits
 // them. An unresolved hop stays null (never guessed) -- the renderer names it

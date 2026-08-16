@@ -22,10 +22,17 @@
 declare const clear: (el: HTMLElement) => void;
 declare const invertTraceForScope: (graph: any, refs: string[]) => any[];
 declare const renderBrief: (brief: any) => void;
+declare const renderFeature: (el: HTMLElement, payload: any) => void;
+declare const renderVcycle: (el: HTMLElement, payload: any) => void;
+declare const renderGoal: (el: HTMLElement, payload: any) => void;
+declare const renderValidation: (el: HTMLElement, payload: any) => void;
+declare const renderSim: (el: HTMLElement, payload: any) => void;
+declare const renderDiagram: (el: HTMLElement, payload: any, focus?: string | null) => void;
+declare const renderNotApplicable: (panelId: string, note: string) => void;
+declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
 declare const renderGuideFallback: () => void;
 declare const renderMatrix: (matrix: any) => void;
-declare const renderNotApplicable: (panelId: string, note: string) => void;
 declare const renderReverse: (reverse: any) => void;
 declare const renderStory: (story: any) => void;
 declare const renderTimeline: (timeline: any) => void;
@@ -531,12 +538,16 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
-    sr: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    sr: ['Brief', 'Vcycle', 'Validation', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    feat: ['Feature', 'Vcycle', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     task: ['Story'],
     file: ['Reverse'],
+    goal: ['Goal'],
+    sim: ['Sim'],
+    diag: ['Diagram'],
   };
 
   function configureTabs(kind: string): void {
@@ -584,7 +595,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', diagram: 'Diagram', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -593,6 +604,26 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
+  (document.getElementById('tabFeature') as HTMLElement).onclick = () => showTab('Feature');
+  (document.getElementById('tabVcycle') as HTMLElement).onclick = () => showTab('Vcycle');
+  (document.getElementById('tabGoal') as HTMLElement).onclick = () => showTab('Goal');
+  (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
+  (document.getElementById('tabSim') as HTMLElement).onclick = () => showTab('Sim');
+  (document.getElementById('tabDiagram') as HTMLElement).onclick = () => showTab('Diagram');
+
+  // Inc 6 Task 6 (AC-02/AC-09): delegated SPA navigation for the widgets'
+  // `a.scope-open` anchors. The anchor carries the exact scope ref and an
+  // optional tab intent (requirements land on the V-cycle view).
+  document.addEventListener('click', (event: Event) => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest?.('a.scope-open') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    const ref = anchor.getAttribute('data-scope');
+    if (!ref) return;
+    event.preventDefault();
+    const tab = anchor.getAttribute('data-tab');
+    void loadScope(ref, true, true, tab || undefined);
+  });
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -610,7 +641,7 @@ export async function systemBootstrap(): Promise<void> {
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
   window.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[0-9]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]!);
       e.preventDefault();
       return;
@@ -661,6 +692,10 @@ export async function systemBootstrap(): Promise<void> {
   function defaultTab(kind: string): string {
     if (kind === 'task') return 'Story';
     if (kind === 'file') return 'Reverse';
+    if (kind === 'goal') return 'Goal';
+    if (kind === 'sim') return 'Sim';
+    if (kind === 'diag') return 'Diagram';
+    if (kind === 'feat') return 'Feature';
     return 'Brief';
   }
 
@@ -747,7 +782,16 @@ export async function systemBootstrap(): Promise<void> {
       guideRes.ok ? guideRes.json() : Promise.resolve(null),
     ]);
     if (!isCurrentNavigation(generation, scopeRef)) return;
-    renderBrief(brief);
+    // Inc 6 Task 1: a feat: scope's brief IS the trace-backed dossier
+    // (factory.system cmd_brief dispatches feat: to query_feature_context),
+    // so the same payload renders the Feature tab -- the dossier hub. The
+    // claim-based brief panel does not apply to a feat: scope (the payload
+    // carries no claims), so it is never rendered for one.
+    if (scopeKind(scopeRef) === 'feat') {
+      renderFeature(document.getElementById('panelFeature') as HTMLElement, brief);
+    } else {
+      renderBrief(brief);
+    }
     renderMatrix(matrix);
     renderTimeline(timeline);
     if (guide) renderGuide(guide);
@@ -756,6 +800,43 @@ export async function systemBootstrap(): Promise<void> {
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     renderContextRailMembership(brief);
     renderContextRailNextStep(brief);
+    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
+    // like the guide -- a failure degrades only the V-cycle tab, never the
+    // scope load.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      try {
+        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
+        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
+        const vcycle = await vcycleRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
+    // like the vcycle fetch -- a failure degrades only its own tab.
+    if (scopeKind(scopeRef) === 'sr') {
+      try {
+        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
+        if (!validationRes.ok) throw new Error(String(validationRes.status));
+        const validation = await validationRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+    }
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
     // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
     // come from the matrix rows, in payload order.
@@ -792,13 +873,87 @@ export async function systemBootstrap(): Promise<void> {
       signal.removeEventListener('abort', cancelTraversal);
     }
     if (!isCurrentNavigation(generation, scopeRef)) return;
-    const selectedTab = selectInitialTab('Brief', updateUrl);
+    const selectedTab = selectInitialTab(defaultTab(scopeKind(scopeRef)), updateUrl);
     if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
     if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);
   }
 
-  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true): Promise<void> {
+  async function loadGoalScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 6 Task 3: goal: scopes present the eng_get_goal projection on the
+    // Goal tab. A goal id that no file declares is a scope error, surfaced
+    // by the loadScope catch like any other unresolved scope.
+    const goalId = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/goal?id=' + encodeURIComponent(goalId), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const goal = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderGoal(document.getElementById('panelGoal') as HTMLElement, goal);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a goal: scope. See the Goal tab.'
+      )
+    );
+    configureTabs('goal');
+    selectInitialTab('Goal', updateUrl);
+    setLoading(false, true);
+  }
+
+  async function loadSimScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 6 Task 5: sim:RUN-... scopes present the run's summary on the
+    // Simulation tab. Runs are evidence, not listed scopes, so they are
+    // reached by URL or by navigation from the dossier/goal evidence.
+    const runId = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/sim/run?id=' + encodeURIComponent(runId), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const run = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderSim(document.getElementById('panelSim') as HTMLElement, run);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a sim: scope. See the Simulation tab.'
+      )
+    );
+    configureTabs('sim');
+    selectInitialTab('Sim', updateUrl);
+    setLoading(false, true);
+  }
+
+  async function loadDiagramScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 6 Task 5b: diag: scopes present the committed diagram HTML on the
+    // Diagram tab (D7 -- embed/link only, never a re-derived graph).
+    const diagramId = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/diagram?id=' + encodeURIComponent(diagramId), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const diagram = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderDiagram(document.getElementById('panelDiagram') as HTMLElement, diagram);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a diag: scope. See the Diagram tab.'
+      )
+    );
+    configureTabs('diag');
+    selectInitialTab('Diagram', updateUrl);
+    setLoading(false, true);
+  }
+
+  async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true, intendedTab?: string): Promise<void> {
     invalidateHealth();
     const generation = ++navigationGeneration;
     scopeController?.abort();
@@ -824,7 +979,29 @@ export async function systemBootstrap(): Promise<void> {
         await loadReverseScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
+      if (kind === 'goal') {
+        await loadGoalScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'sim') {
+        await loadSimScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'diag') {
+        await loadDiagramScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
       await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);
+      // Inc 6 Task 6 (AC-09): a navigation intent (e.g. 'show me where this
+      // requirement fits' -> V-cycle) is applied after the scope finishes
+      // loading, when the tab is part of the scope's tab set. v1 URL/history
+      // behaviour is untouched.
+      if (intendedTab && isCurrentNavigation(generation, scopeRef)) {
+        // The intent name comes from data-tab (lowercase); normalize to the
+        // canonical TAB_ORDER name so showTab's id/tab matching works.
+        const tabName = TAB_ORDER.find((name) => name.toLowerCase() === intendedTab.toLowerCase());
+        if (tabName) showTab(tabName, updateUrl);
+      }
     } catch (err) {
       if (!isCurrentNavigation(generation, scopeRef)) return;
       showBanner('could not resolve scope ' + scopeRef + ': ' + String(err));

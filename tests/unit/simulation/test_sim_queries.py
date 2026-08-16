@@ -60,6 +60,28 @@ def test_query_simulation_run_returns_one_run(tmp_path):
     assert payload["result"] == "passed"
 
 
+def test_query_simulation_run_carries_additive_metrics_and_recording(tmp_path):
+    """Inc 6 Task 5: the run payload gains recorded metrics (metrics.json)
+    and the recording link (the bundle manifest's repo-relative path). A run
+    with no metrics.json degrades to an empty map, never a crash."""
+    write_bundle(
+        tmp_path,
+        sim_manifest("RUN-20260811-1702", recorded_ts="2026-08-11T17:02:00Z"),
+        {"target_reacquisition_rate": 0.93, "false_reacquisition_rate": 0.01},
+    )
+    write_bundle(tmp_path, sim_manifest("RUN-20260811-1800", result="failed"))
+
+    payload = query_simulation_run(tmp_path, "RUN-20260811-1702")
+    assert payload["metrics"] == {"target_reacquisition_rate": 0.93, "false_reacquisition_rate": 0.01}
+    assert payload["recording"] == "evidence/runs/RUN-20260811-1702/manifest.json"
+    assert payload["recorded_ts"] == "2026-08-11T17:02:00Z"
+
+    bare = query_simulation_run(tmp_path, "RUN-20260811-1800")
+    assert bare["metrics"] == {}
+    assert bare["recording"] == "evidence/runs/RUN-20260811-1800/manifest.json"
+    assert bare["recorded_ts"] is None
+
+
 def test_query_simulation_run_unknown_raises(tmp_path):
     with pytest.raises(ScopeNotFoundError):
         query_simulation_run(tmp_path, "RUN-NOPE")

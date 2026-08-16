@@ -26,6 +26,11 @@ import {
   loadSystemStory,
   loadSystemTimeline,
   loadSystemTraversalAsync,
+  loadSystemVcycle,
+  loadSystemGoal,
+  loadSystemValidation,
+  loadSystemSimRun,
+  loadSystemDiagram,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
@@ -256,7 +261,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these ten exact paths exist -- anything else falls through
+  // and only these exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
@@ -314,6 +319,64 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   if (req.method === "GET" && url.pathname === "/api/system/matrix") {
     const result = loadSystemMatrix(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 2: the interactive V-cycle projection (query_vcycle +
+  // additive statuses map). feat:/sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/vcycle") {
+    const result = loadSystemVcycle(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 3: one goal's contract/state/evidence/history (query_goal,
+  // the Inc 4 eng_get_goal projection).
+  if (req.method === "GET" && url.pathname === "/api/system/goal") {
+    const result = loadSystemGoal(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 4: a requirement's validation evidence (query_validation).
+  // sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/validation") {
+    const result = loadSystemValidation(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 5: one simulation run's summary (query_simulation_run).
+  if (req.method === "GET" && url.pathname === "/api/system/sim/run") {
+    const result = loadSystemSimRun(cwd, url.searchParams.get("id") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 5b: one diagram stub + its committed HTML (query_diagram).
+  if (req.method === "GET" && url.pathname === "/api/system/diagram") {
+    const result = loadSystemDiagram(cwd, url.searchParams.get("id") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

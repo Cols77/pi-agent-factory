@@ -69,6 +69,7 @@ from factory.system.models import (
     ValidationMatrixRow,
     to_dict,
 )
+from factory.system.vcycle import VCycleSlice
 from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
@@ -321,7 +322,29 @@ def query_goals(repo_root: Path, scope_ref: str) -> dict:
     }
 
 
-def _sim_run_payload(run: sim_registry.Run) -> dict:
+def _run_metric_values(run: sim_registry.Run) -> dict[str, float]:
+    """The run's recorded metrics from its bundle metrics.json, tolerant of a
+    missing or unreadable file (empty map -- never a crash)."""
+    try:
+        raw = json.loads((run.path.parent / "metrics.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return sim_evidence.metric_values(run, raw) if isinstance(raw, dict) else {}
+
+
+def _run_recording(repo_root: Path, run: sim_registry.Run) -> str | None:
+    """Repo-relative path to the run's manifest (the recording), or None when
+    the manifest file is missing -- honest incompleteness, never a guessed
+    path outside the repo."""
+    try:
+        if not run.path.exists():
+            return None
+        return run.path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _sim_run_payload(repo_root: Path, run: sim_registry.Run) -> dict:
     return {
         "run": run.run_id,
         "experiment": run.experiment,
@@ -331,6 +354,9 @@ def _sim_run_payload(run: sim_registry.Run) -> dict:
         "commit": run.commit,
         "result": run.result,
         "scope_errors": run.scope_errors,
+        "metrics": _run_metric_values(run),
+        "recording": _run_recording(repo_root, run),
+        "recorded_ts": run.recorded_ts,
     }
 
 
@@ -343,7 +369,7 @@ def query_simulation_run(repo_root: Path, run_id: str) -> dict:
     """
     for run in sim_registry.load_runs(_evidence_dir(repo_root)):
         if run.run_id == run_id:
-            return _sim_run_payload(run)
+            return _sim_run_payload(repo_root, run)
     raise ScopeNotFoundError(f"no simulation run with id {run_id!r}")
 
 
@@ -355,13 +381,13 @@ def query_latest_simulation(repo_root: Path, feature: str) -> dict | None:
     None is a legitimate state (no run yet), not an error.
     """
     latest = sim_registry.latest_run(_evidence_dir(repo_root), feature)
-    return _sim_run_payload(latest) if latest is not None else None
+    return _sim_run_payload(repo_root, latest) if latest is not None else None
 
 
 def query_latest_failure(repo_root: Path, feature: str) -> dict | None:
     """Most recent non-passed simulation run for a feature, or None."""
     failure = sim_evidence.latest_failure(_evidence_dir(repo_root), feature)
-    return _sim_run_payload(failure) if failure is not None else None
+    return _sim_run_payload(repo_root, failure) if failure is not None else None
 
 
 def query_metric_history(repo_root: Path, metric_id: str) -> list[dict]:
@@ -379,7 +405,7 @@ def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
     runs = sim_evidence.evidence_for_goal(_evidence_dir(repo_root), goal_id)
     return {
         "goal": goal_id,
-        "runs": [_sim_run_payload(run) for run in runs],
+        "runs": [_sim_run_payload(repo_root, run) for run in runs],
     }
 
 
@@ -1694,6 +1720,102 @@ def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
     }
 
 
+def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
+    """Return one requirement's validation evidence (Inc 6 Task 4).
+
+    Only ``sr:`` scopes carry validation. The projection combines recorded
+    state only, never a guess:
+
+    * raw state + staleness from the validation report;
+    * the D5 goal-aware status (VALIDATED/REGRESSED/VERIFICATION_PENDING)
+      derived by ``validation_status.requirement_validation`` from the
+      goals bound to the requirement via declared ``demonstrates`` edges or
+      the goal's own ``requirements`` frontmatter;
+    * the goals that produced the state;
+    * the simulation runs whose manifests declare the requirement;
+    * the metric ids the bound goals evaluate.
+    """
+    if scope.kind != "sr":
+        raise ScopeKindError(f"query_validation only supports sr scopes, got: {scope.kind!r}")
+    req_id = _scope_identifier(scope)
+    status = validation_status.load_validation(repo_root).get(req_id)
+    raw_state = status.state if status is not None else "never_validated"
+    stale = status.stale if status is not None else False
+    error = status.error if status is not None else None
+
+    goals = goal_registry.load_goals(repo_root)
+    edges = trace_model.extract_edges(repo_root, trace_model.load_nodes(repo_root))
+    demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == req_id}
+    bound_goals = sorted(
+        (g for g in goals.values() if req_id in g.requirements or g.id in demonstrated),
+        key=lambda g: g.id,
+    )
+    goal_state = validation_status.requirement_validation(bound_goals)
+    runs = sim_registry.runs_for(_evidence_dir(repo_root), requirement=req_id)
+    metric_ids: set[str] = set()
+    for goal in bound_goals:
+        metric = goal.metric
+        if isinstance(metric, dict) and metric.get("id"):
+            metric_ids.add(str(metric["id"]))
+        elif isinstance(metric, str):
+            metric_ids.add(metric)
+
+    return {
+        "scope": {"kind": "sr", "ref": scope.ref},
+        "validation": {
+            "id": req_id,
+            "raw_state": raw_state,
+            "stale": stale,
+            "error": error,
+            "goal_state": goal_state,
+            "goals": [{"id": g.id, "state": g.state} for g in bound_goals],
+            "runs": [r.run_id for r in runs],
+            "metrics": sorted(metric_ids),
+        },
+    }
+
+
+def _vcycle_statuses(repo_root: Path, slice_: VCycleSlice) -> dict[str, dict[str, object]]:
+    """Attach recorded state to each V-cycle slice node id (Inc 6 Task 2).
+
+    Additive: the V-cycle payload is untouched. Every status is recorded
+    state read from its own source, and nodes with no source are simply
+    absent so the TS renders them neutral -- never guessed.
+
+    * sr/br nodes  <- validation report (state + stale)
+    * goal nodes   <- goal registry frontmatter state
+    * task nodes   <- task ledger frontmatter status
+    """
+    ids: set[str] = set()
+    for side in list(slice_.definition) + list(slice_.verification):
+        ids.update(node.id for node in side.nodes)
+    for group in (slice_.goals, slice_.metrics, slice_.runs):
+        ids.update(node.id for node in group)
+
+    validation = validation_status.load_validation(repo_root)
+    goals = goal_registry.load_goals(repo_root)
+    task_status = {task.id: task.status for task in ledger.load_tasks(repo_root / "tasks")}
+
+    statuses: dict[str, dict[str, object]] = {}
+    for node_id in sorted(ids):
+        status = validation.get(node_id)
+        if status is not None:
+            statuses[node_id] = {
+                "kind": "validation",
+                "state": status.state,
+                "stale": status.stale,
+            }
+            continue
+        goal = goals.get(node_id)
+        if goal is not None:
+            statuses[node_id] = {"kind": "goal", "state": goal.state}
+            continue
+        task_state = task_status.get(node_id)
+        if task_state is not None:
+            statuses[node_id] = {"kind": "task", "state": task_state}
+    return statuses
+
+
 def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Return the typed V-cycle slice for one exact ``feat:`` or ``sr:`` scope."""
     if scope.kind not in {"feat", "sr"}:
@@ -1707,4 +1829,8 @@ def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
         if str(exc) == f"vcycle anchor does not resolve: {scope.ref!r}":
             raise ScopeNotFoundError(f"{scope.kind} not found: {_scope_identifier(scope)!r}") from exc
         raise
-    return {"scope": {"kind": scope.kind, "ref": scope.ref}, "vcycle": to_dict(slice_)}
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "vcycle": to_dict(slice_),
+        "statuses": _vcycle_statuses(repo_root, slice_),
+    }

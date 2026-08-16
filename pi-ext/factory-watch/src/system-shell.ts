@@ -2,6 +2,21 @@
 
 import { systemBootstrap } from './system-bootstrap.js';
 import {
+  changeList,
+  codeList,
+  dossierSection,
+  refList,
+  renderFeature,
+  taskCard,
+  verificationRows,
+  navLine,
+} from './system-feature-view.js';
+import { groupSection, nodeCard, renderVcycle, sideSection, stateClass, bandLabel, openRef } from './system-vcycle-view.js';
+import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, shortCommit } from './system-goal-view.js';
+import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
+import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
+import { renderDiagram } from './system-diagram-view.js';
+import {
   boundedList,
   closeOpenCard,
   definitionCardFields,
@@ -35,6 +50,8 @@ import {
   renderMatrix,
   renderMatrixRow,
   renderNotApplicable,
+  renderTabError,
+  openAnchor,
   renderReverse,
   renderReversePath,
   renderRunDetail,
@@ -99,8 +116,41 @@ function clientSource(): string {
     renderReversePath,
     renderReverse,
     renderNotApplicable,
+    renderTabError,
+    openAnchor,
     invertTraceForScope,
     renderTrace,
+    dossierSection,
+    refList,
+    codeList,
+    taskCard,
+    verificationRows,
+    changeList,
+    renderFeature,
+    navLine,
+    stateClass,
+    nodeCard,
+    sideSection,
+    groupSection,
+    bandLabel,
+    openRef,
+    renderVcycle,
+    goalSection,
+    refLine,
+    goalStateClass,
+    operatorSymbol,
+    shortCommit,
+    renderGoal,
+    validationSection,
+    rawStateClass,
+    validationGoalStateClass,
+    validationRefLine,
+    renderValidation,
+    simSection,
+    resultClass,
+    simRefLine,
+    renderSim,
+    renderDiagram,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -477,6 +527,120 @@ export function renderSystemPageHtml(): string {
     .vocab-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   .info-card-open a:hover, .info-card-open a:focus-visible { text-decoration: underline; }
+  .dossier-heading { margin-bottom: 16px; }
+  .dossier-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-title { margin: 2px 0 0; font: 650 clamp(20px, 3vw, 30px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .dossier-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .dossier-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .dossier-section-body { min-width: 0; }
+  .dossier-intent { margin: 0; max-width: 72ch; font-size: 14px; line-height: 1.6; }
+  .dossier-code-list, .dossier-run-list, .dossier-changes-list, .dossier-verification-list { display: grid; gap: 4px; }
+  .dossier-code-file, .dossier-run, .dossier-change { overflow-wrap: anywhere; font: 12px/1.55 var(--font-mono); }
+  .dossier-verification-row { display: flex; align-items: center; gap: 7px; font: 12px/1.55 var(--font-mono); }
+  .dossier-verification-row.is-stale { border-left: 2px solid var(--stale); padding-left: 6px; }
+  .dossier-task { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .6); }
+  .dossier-task-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .dossier-task-id { color: var(--signal); font: 650 12px/1.3 var(--font-mono); }
+  .dossier-task-title { font: 650 14px/1.35 var(--font-display); }
+  .task-status-text { color: var(--text-muted); font: 12px/1.3 var(--font-mono); }
+  .dossier-run-list, .dossier-tasks-list { margin-top: 7px; }
+  .vcycle-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .vcycle-anchor { display: flex; gap: 8px; align-items: center; }
+  .vcycle-side-note { color: var(--text-muted); font-size: 12px; max-width: 46ch; }
+  .vcycle-side { display: grid; gap: 8px; }
+  @media (min-width: 1100px) {
+    .vcycle-side.definition, .vcycle-side.verification { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .vcycle-side.verification { margin-top: 10px; }
+  }
+  .vcycle-band { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .vcycle-band.is-missing { border-style: dashed; background: rgba(13, 26, 32, .4); }
+  .vcycle-band-label { margin: 0 0 8px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+  .vcycle-band-nodes { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .vcycle-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .vcycle-node { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-left: 7px; border-left: 3px solid transparent; }
+  .vcycle-node.is-passed, .vcycle-node.is-reached, .vcycle-node.is-done { border-left-color: var(--fresh); }
+  .vcycle-node.is-failed, .vcycle-node.is-regressed, .vcycle-node.is-blocked, .vcycle-node.is-error { border-left-color: var(--degraded); }
+  .vcycle-node.is-stale { border-left-color: var(--stale); }
+  .vcycle-node.is-todo { border-left-color: var(--signal); }
+  .vcycle-node-state { color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
+  .vcycle-node-state.is-stale-text { color: var(--stale); }
+  .vcycle-group { margin-top: 14px; }
+  .vcycle-group-heading { margin: 0 0 8px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .vcycle-group-items { display: flex; flex-wrap: wrap; gap: 8px; }
+  .goal-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .goal-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .goal-title { margin: 0; font: 650 clamp(18px, 2.6vw, 26px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .goal-state { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .goal-state.is-reached { color: var(--fresh); border-color: var(--fresh); }
+  .goal-state.is-regressed, .goal-state.is-blocked { color: var(--degraded); border-color: var(--degraded); }
+  .goal-state.is-not-reached, .goal-state.is-active, .goal-state.is-evaluating { color: var(--stale); border-color: var(--stale); }
+  .goal-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .goal-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .goal-section-body { min-width: 0; }
+  .goal-ref-line { display: flex; flex-wrap: wrap; gap: 8px; }
+  .goal-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .goal-metric, .goal-evidence { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .goal-metric-spec, .goal-evidence-value { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .goal-evidence-commit { color: var(--text-dim); font: 12px/1.5 var(--font-mono); }
+  .goal-history { display: grid; gap: 5px; }
+  .goal-history-row { display: flex; align-items: baseline; gap: 10px; font: 12px/1.5 var(--font-mono); }
+  .goal-history-state { padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; }
+  .goal-history-state.is-reached { color: var(--fresh); }
+  .goal-history-state.is-regressed, .goal-history-state.is-blocked { color: var(--degraded); }
+  .goal-history-when { color: var(--text-muted); }
+  .goal-history-run { color: var(--text-dim); }
+  .goal-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .validation-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .validation-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .validation-raw, .validation-goal-state { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .validation-raw.is-passed { color: var(--fresh); border-color: var(--fresh); }
+  .validation-raw.is-failed, .validation-raw.is-error { color: var(--degraded); border-color: var(--degraded); }
+  .validation-raw.is-never-validated { color: var(--text-muted); }
+  .validation-stale { margin-left: 6px; color: var(--stale); }
+  .validation-goal-state.is-validated { color: var(--fresh); border-color: var(--fresh); }
+  .validation-goal-state.is-regressed { color: var(--degraded); border-color: var(--degraded); }
+  .validation-goal-state.is-pending { color: var(--stale); border-color: var(--stale); }
+  .validation-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .validation-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .validation-section-body { min-width: 0; }
+  .validation-ref-line, .validation-goals { display: flex; flex-wrap: wrap; gap: 8px; }
+  .validation-goal-chip { display: inline-flex; align-items: baseline; gap: 8px; }
+  .validation-goal-state-text { color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
+  .validation-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .validation-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .sim-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .sim-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .sim-result { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 650 12px/1.3 var(--font-mono); }
+  .sim-result.is-passed { color: var(--fresh); border-color: var(--fresh); }
+  .sim-result.is-failed { color: var(--degraded); border-color: var(--degraded); }
+  .sim-recorded { color: var(--text-dim); font: 12px/1.5 var(--font-mono); }
+  .sim-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .sim-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .sim-section-body { min-width: 0; }
+  .sim-ref-line { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sim-empty { color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .sim-metrics { display: grid; gap: 4px; }
+  .sim-metric-row { display: flex; align-items: baseline; gap: 10px; font: 12px/1.55 var(--font-mono); }
+  .sim-metric-name { color: var(--text-muted); }
+  .sim-metric-value { color: var(--text); }
+  .sim-recording { color: var(--signal); font: 12px/1.55 var(--font-mono); text-decoration: underline; }
+  .sim-error { color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .diagram-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .diagram-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .diagram-title { font: 650 clamp(18px, 2.6vw, 26px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .diagram-embed { width: 100%; min-height: 460px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-raised); }
+  .diagram-open { display: inline-block; margin-top: 10px; color: var(--signal); font: 12px/1.5 var(--font-mono); text-decoration: underline; }
+  .diagram-missing { padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--text-muted); font: 12px/1.5 var(--font-mono); font-style: italic; }
+  .diagram-error { margin-top: 8px; color: var(--degraded); font: 12px/1.5 var(--font-mono); }
+  .diagram-focus { margin-top: 12px; display: flex; align-items: baseline; gap: 8px; }
+  .diagram-focus-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); }
+  .diagram-focus-value { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-verify { margin-left: auto; }
+  .dossier-verify button { padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--signal); font: 650 12px/1.3 var(--font-body); cursor: pointer; }
+  .dossier-verify-note { margin-top: 8px; color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-nav-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .scope-open { color: var(--signal); font: 12px/1.4 var(--font-mono); text-decoration: underline dotted; }
+  .scope-open:hover, .scope-open:focus-visible { text-decoration: underline; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -543,6 +707,12 @@ export function renderSystemPageHtml(): string {
             <button id="tabStory" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
             <button id="tabReverse" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
             <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
+            <button id="tabFeature" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelFeature" aria-label="Feature">Feature</button>
+            <button id="tabVcycle" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelVcycle" aria-label="V-cycle">V-cycle</button>
+            <button id="tabGoal" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGoal" aria-label="Goal">Goal</button>
+            <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
+            <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
+            <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
           </div></nav>
           <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
           <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -551,6 +721,12 @@ export function renderSystemPageHtml(): string {
           <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
           <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
           <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+          <div id="panelFeature" class="panel" role="tabpanel" aria-labelledby="tabFeature" hidden></div>
+          <div id="panelVcycle" class="panel" role="tabpanel" aria-labelledby="tabVcycle" hidden></div>
+          <div id="panelGoal" class="panel" role="tabpanel" aria-labelledby="tabGoal" hidden></div>
+          <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
+          <div id="panelSim" class="panel" role="tabpanel" aria-labelledby="tabSim" hidden></div>
+          <div id="panelDiagram" class="panel" role="tabpanel" aria-labelledby="tabDiagram" hidden></div>
         </div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
