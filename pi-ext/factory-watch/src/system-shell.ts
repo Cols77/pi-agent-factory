@@ -399,14 +399,15 @@ export function renderSystemPageHtml(): string {
   .requirements { margin-top: 8px; font-size: 13px; }
   .requirement { padding: 1px 0; }
   .trace-upstream { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
-  .traversal-path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 6px 0 20px; counter-reset: trace-step; }
-  .trace-spine-step { position: relative; min-width: 0; padding: 12px 14px 12px 37px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(13, 26, 32, .62); counter-increment: trace-step; }
-  .trace-spine-step:first-child { border-left: 1px solid var(--line); border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .trace-spine-step:last-child { border-right: 1px solid var(--line); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .traversal-path { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 6px 0 20px; counter-reset: trace-step; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .trace-spine-step { position: relative; min-width: 0; padding: 12px 16px 14px 40px; counter-increment: trace-step; }
+  .trace-spine-step + .trace-spine-step { border-top: 1px solid var(--line); }
   .trace-spine-step::before { content: counter(trace-step); position: absolute; top: 14px; left: 13px; width: 20px; height: 20px; border: 1px solid var(--signal); border-radius: 50%; color: var(--signal); font: 650 12px/18px var(--font-mono); text-align: center; }
-  .trace-spine-step:not(:last-child)::after { content: ""; position: absolute; z-index: 1; top: 21px; right: 3px; width: 9px; height: 9px; border-top: 1px solid var(--signal); border-right: 1px solid var(--signal); background: var(--surface); transform: rotate(45deg); }
-  .trace-spine-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
-  .trace-spine-value { min-width: 0; margin-top: 4px; color: var(--text); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+  .trace-spine-head { display: flex; align-items: baseline; gap: 12px; }
+  .trace-spine-label { flex: none; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .trace-spine-head::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+  .trace-spine-count { flex: none; color: var(--text-muted); font: 12px/1.3 var(--font-mono); }
+  .trace-spine-value { min-width: 0; margin-top: 6px; color: var(--text); font: 13px/1.6 var(--font-body); overflow-wrap: anywhere; }
   .matrix-row { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(0, 1.3fr); gap: 8px 18px; }
   .matrix-row .row-head { min-width: 0; align-content: start; }
   .matrix-subject { width: 100%; color: var(--text); font: 650 13px/1.45 var(--font-mono); overflow-wrap: anywhere; }
@@ -449,11 +450,6 @@ export function renderSystemPageHtml(): string {
     #content { min-width: 0; padding: 18px 16px 44px; }
     #tabs { overflow-x: auto; scrollbar-width: thin; }
     .matrix-row, .feature-row { grid-template-columns: minmax(0, 1fr); }
-    .traversal-path { grid-template-columns: minmax(0, 1fr); }
-    .trace-spine-step { border: 1px solid var(--line); border-bottom: 0; border-radius: 0; }
-    .trace-spine-step:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-    .trace-spine-step:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
-    .trace-spine-step:not(:last-child)::after { top: auto; right: auto; bottom: -5px; left: 17px; transform: rotate(135deg); }
     .health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .feature-readiness { justify-self: start; }
     .landing-intro h2, .scope-heading h2 { font-size: 30px; }

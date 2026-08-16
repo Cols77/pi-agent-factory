@@ -456,6 +456,36 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(filesStep.querySelector(".trace-spine-value .bounded-list")).not.toBeNull();
   });
 
+  // Task 3 (legibility increment 2): the four-column grid becomes a
+  // full-width vertical ladder -- one row per step, its count right-aligned
+  // on the label's rule, answerable without expanding the disclosure.
+  test("the ladder is one full-width row per step with its count on the rule", async () => {
+    const dom = await loadPage({
+      scope: "bundle:b1",
+      traversal: {
+        requirement: ["sr:SR-030", "sr:SR-033", "sr:SR-038", "sr:SR-086", "sr:SR-087", "sr:SR-088", "sr:SR-089"],
+        tasks: [], design: [], files: [],
+      },
+    });
+    const doc = dom.window.document;
+    const steps = doc.querySelectorAll(".trace-spine-step");
+    expect(steps.length).toBe(4);
+    expect(steps[0]!.querySelector(".trace-spine-count")?.textContent).toBe("7");
+    expect(steps[0]!.querySelectorAll(".bounded-list > .ref-chip").length).toBe(5);
+    expect(steps[0]!.querySelector("details summary")?.textContent).toBe("+ 2 more");
+  });
+
+  test("an empty step reads Not recorded and carries its next step inline", async () => {
+    const dom = await loadPage({
+      scope: "bundle:b1",
+      traversal: { requirement: ["sr:SR-030"], tasks: [], design: [], files: [] },
+    });
+    const step = dom.window.document.querySelectorAll(".trace-spine-step")[2]!;
+    expect(step.textContent).toContain("Not recorded");
+    expect(step.querySelector(".next-step")).not.toBeNull();
+    expect(step.querySelector(".trace-spine-count")?.textContent).toBe("0");
+  });
+
   test("the Vocabulary header control opens a workspace view grouped by term group, with a Back to the landing page", async () => {
     const dom = await loadPage();
     const doc = dom.window.document;

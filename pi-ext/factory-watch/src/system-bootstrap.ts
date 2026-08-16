@@ -1238,9 +1238,16 @@ export async function systemBootstrap(): Promise<void> {
     function addStep(label: string, values: string[]): void {
       const step = document.createElement('div');
       step.className = 'trace-spine-step';
+      const head = document.createElement('div');
+      head.className = 'trace-spine-head';
       const stepLabel = document.createElement('div');
       stepLabel.className = 'trace-spine-label';
       stepLabel.appendChild(document.createTextNode(label));
+      const count = document.createElement('span');
+      count.className = 'trace-spine-count';
+      count.appendChild(document.createTextNode(String((values || []).length)));
+      head.appendChild(stepLabel);
+      head.appendChild(count);
       const stepValue = document.createElement('div');
       stepValue.className = 'trace-spine-value';
       if (values && values.length) {
@@ -1253,7 +1260,7 @@ export async function systemBootstrap(): Promise<void> {
         // Next step block rather than leaving the sentence to stand alone.
         stepValue.appendChild(nextStepBlock('no_traversal_step', scopeRef));
       }
-      step.appendChild(stepLabel);
+      step.appendChild(head);
       step.appendChild(stepValue);
       node.appendChild(step);
     }
