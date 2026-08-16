@@ -8,11 +8,14 @@ renders the row produced here; it never computes readiness itself.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from factory.goals.registry import load_goals
 from factory.requirements import register as register_module
+from factory.simulation import registry as sim_registry
 from factory.system import bundles as bundles_module
+from factory.system._claims import evidence_dir as _evidence_dir
 from factory.system.coverage import build_artifact_lookup, bundle_coverage
 from factory.system.ordering import GitRecency, ordered_bundle_ids
 from factory.trace import gaps as gaps_module
@@ -223,4 +226,118 @@ def query_health(root: Path, recency_source=None) -> dict:
         "ordering_available": ordering_available,
         "sr_listed": False,
         "degraded": degraded,
+        "vcycle_findings": [asdict(f) for f in vcycle_health(root, nodes=nodes, edges=edges, validation=validation)],
     }
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One derived V-cycle finding (Inc 7 Task 5).
+
+    ``code`` is a stable machine id, ``subject`` the artifact ref
+    (``sr:SR-001`` / ``task:T-001`` / ``goal:GOAL-001`` / ``run:RUN-...`` /
+    ``feat:FEAT-...``), ``detail`` the recorded reason. Findings are derived
+    from recorded signals only -- trace gaps, goal registry, sim run
+    manifests -- never guessed.
+    """
+
+    code: str
+    severity: str
+    subject: str
+    detail: str
+
+
+def vcycle_health(
+    root: Path,
+    *,
+    nodes: list[trace_model.Node] | None = None,
+    edges: list[trace_model.Edge] | None = None,
+    validation: dict[str, SrStatus] | None = None,
+) -> list[Finding]:
+    """Derived-impact probe: missing/inconsistent V-cycle relationships.
+
+    Reuses the trace gap engine, the goal registry and the simulation run
+    registry; it never forks a parser. Findings compose:
+
+    * ``REQ_NO_IMPLEMENTATION``  -- ``sr_unsatisfied`` gap (no task satisfies)
+    * ``REQ_NO_TEST``            -- ``sr_unvalidated``/``sr_unvalidatable`` gap
+    * ``REQ_STALE``              -- ``sr_stale`` gap (evidence predates a change)
+    * ``IMPL_NO_REQ``            -- ``task_no_sr`` gap (no traceable requirement)
+    * ``GOAL_NO_METRIC``         -- goal declares no metric
+    * ``GOAL_NO_EXPERIMENT``     -- goal's metric has no source experiment
+    * ``RUN_NO_COMMIT``          -- simulation run manifest records no commit
+    * ``FEATURE_FAILING_VERIFICATION`` -- feature's latest run did not pass
+
+    Only pending gaps are reported: a deferred/exempt gap is an explicit
+    acceptance, not hidden staleness. Output is deterministic (sorted by
+    code then subject).
+    """
+    if nodes is None:
+        nodes = trace_model.load_nodes(root)
+    if edges is None:
+        edges = trace_model.extract_edges(root, nodes)
+    if validation is None:
+        validation = load_validation(root)
+    gaps = gaps_module.find_gaps(nodes, edges, validation)
+
+    findings: list[Finding] = []
+    for gap in gaps:
+        if gap.disposition != "pending":
+            continue
+        if gap.kind == "sr_unsatisfied":
+            findings.append(
+                Finding("REQ_NO_IMPLEMENTATION", "error", f"sr:{gap.node_id}", gap.detail)
+            )
+        elif gap.kind in ("sr_unvalidated", "sr_unvalidatable"):
+            findings.append(Finding("REQ_NO_TEST", "error", f"sr:{gap.node_id}", gap.detail))
+        elif gap.kind == "sr_stale":
+            findings.append(Finding("REQ_STALE", "error", f"sr:{gap.node_id}", gap.detail))
+        elif gap.kind == "task_no_sr":
+            findings.append(
+                Finding("IMPL_NO_REQ", "warning", f"task:{gap.node_id}", gap.detail)
+            )
+
+    for goal in load_goals(root).values():
+        metric = goal.metric
+        name = metric.get("name") if isinstance(metric, dict) else metric
+        if not name:
+            findings.append(
+                Finding("GOAL_NO_METRIC", "warning", f"goal:{goal.id}", "goal declares no metric")
+            )
+        elif not (metric.get("source_experiment") if isinstance(metric, dict) else None):
+            findings.append(
+                Finding(
+                    "GOAL_NO_EXPERIMENT",
+                    "warning",
+                    f"goal:{goal.id}",
+                    "goal metric has no source experiment",
+                )
+            )
+
+    evidence = _evidence_dir(root)
+    for run in sim_registry.load_runs(evidence):
+        if not run.commit:
+            findings.append(
+                Finding(
+                    "RUN_NO_COMMIT",
+                    "error",
+                    f"run:{run.run_id}",
+                    "simulation run manifest records no commit",
+                )
+            )
+
+    for node in nodes:
+        if node.kind == "feat":
+            latest = sim_registry.latest_run(evidence, node.id)
+            if latest is not None and latest.result not in (None, "passed"):
+                findings.append(
+                    Finding(
+                        "FEATURE_FAILING_VERIFICATION",
+                        "error",
+                        f"feat:{node.id}",
+                        f"latest run {latest.run_id} did not pass (result={latest.result})",
+                    )
+                )
+
+    findings.sort(key=lambda f: (f.code, f.subject))
+    return findings
