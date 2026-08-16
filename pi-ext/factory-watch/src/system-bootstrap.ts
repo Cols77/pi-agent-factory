@@ -272,7 +272,13 @@ export async function systemBootstrap(): Promise<void> {
     if (bundle && bundle.readiness) {
       const readinessSection = railSection('contextRailReadiness', 'Readiness');
       const row = document.createElement('div');
-      row.className = 'context-rail-readiness';
+      // The modifier goes on the container, not the word span, matching the
+      // established pattern (feature-row/scope-item): .readiness-strong
+      // .feature-readiness / .readiness-medium .feature-readiness are
+      // descendant-scoped colour rules in system-shell.ts. Without it every
+      // rail reading falls through to the base .feature-readiness colour
+      // (--stale, the weak colour) regardless of the actual readiness.
+      row.className = 'context-rail-readiness readiness-' + bundle.readiness;
       const word = document.createElement('span');
       word.className = 'feature-readiness';
       word.appendChild(document.createTextNode(bundle.readiness));
