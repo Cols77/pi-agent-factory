@@ -63,6 +63,14 @@ class ContextDelta:
     goals_regressed: list[str] = field(default_factory=list)
     metric_changes: list[dict] = field(default_factory=list)
     new_open_items: list[str] = field(default_factory=list)
+    # Inc 7 Task 5k: freshness integration (filled by delta.freshness
+    # apply_freshness; deterministic, from recorded sources only).
+    code_files_changed: list[str] = field(default_factory=list)
+    invalidated: list[str] = field(default_factory=list)
+    auto_refreshed: list[str] = field(default_factory=list)
+    refresh_required: list[str] = field(default_factory=list)
+    blocked_refreshes: list[str] = field(default_factory=list)
+    freshness_closure_reached: bool = False
 
 
 def _feature_requirements(root: Path, feature_id: str) -> list[str]:
@@ -221,6 +229,8 @@ def compute_delta(root: Path, feature: str, since_commit: str) -> ContextDelta:
 
     metric_changes = _metric_changes(root, feature, since_commit)
 
+    code_files_changed = _code_files_changed(root, feature, since_commit, feature_files)
+
     current_body = git_ops.read_file_at(root, "HEAD", feature_path) or ""
     old_body = git_ops.read_file_at(root, since_commit, feature_path) or ""
     new_open_items = sorted(set(_open_questions(current_body)) - set(_open_questions(old_body)))
@@ -236,6 +246,37 @@ def compute_delta(root: Path, feature: str, since_commit: str) -> ContextDelta:
         goals_regressed=goals_regressed,
         metric_changes=metric_changes,
         new_open_items=new_open_items,
+        code_files_changed=code_files_changed,
+    )
+
+
+def _code_files_changed(
+    root: Path, feature: str, since_commit: str, feature_files: list[Path]
+) -> list[str]:
+    """Implementation/code files under the feature's paths changed since the
+    checkpoint (repo-relative). Deterministic via git; excludes markdown docs.
+    Includes the code files the feature's evidence runs record as dependencies.
+    """
+    from factory.simulation.registry import load_runs
+
+    paths = list(feature_files)
+    for run in load_runs(_evidence_dir(root)):
+        if run.feature != feature:
+            continue
+        try:
+            manifest = json.loads(run.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        for dep in manifest.get("dependencies", []):
+            if isinstance(dep, dict) and isinstance(dep.get("source"), str):
+                paths.append(Path(dep["source"]))
+    changed = git_ops.changed_files_since(root, since_commit, paths)
+    return sorted(
+        path
+        for path in changed
+        if path.rsplit(".", 1)[-1] in {"py", "ts", "tsx", "js", "jsx", "go", "rs", "c", "cpp", "h"}
     )
 
 

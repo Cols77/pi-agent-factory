@@ -26,6 +26,7 @@ from pathlib import Path
 
 from factory.delta.checkpoint import Checkpoint, load_checkpoint, save_checkpoint
 from factory.delta.compute import compute_delta
+from factory.delta.freshness import apply_freshness
 from factory.delta import git_ops
 from factory.presentation.level import Level
 from factory.presentation.router import present
@@ -67,6 +68,7 @@ def run_catchup(
         return outcome
 
     delta = compute_delta(root, feature, checkpoint.commit)
+    delta = apply_freshness(root, delta)
 
     if head is not None and head != checkpoint.commit:
         save_checkpoint(

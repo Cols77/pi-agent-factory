@@ -1872,17 +1872,40 @@ def query_catchup(repo_root: Path, feature: str) -> dict:
     pi_dir = repo_root / ".pi"
     checkpoint = load_checkpoint(pi_dir, feature)
     if checkpoint is None:
-        return {"feature": feature, "reviewed": False, "since_commit": None, "delta": None}
+        return {"feature": feature, "reviewed": False, "since_commit": None, "delta": None, "diagram": None}
     try:
         delta = compute_delta(repo_root, feature, checkpoint.commit)
     except ValueError as exc:
         if str(exc).startswith("feature not found"):
             raise ScopeNotFoundError(str(exc)) from exc
         raise
+    from factory.delta.freshness import apply_freshness
+
+    delta = apply_freshness(repo_root, delta)
     return {
         "feature": feature,
         "reviewed": True,
         "since_commit": checkpoint.commit,
         "reviewed_at": checkpoint.reviewed_at,
         "delta": asdict(delta),
+        "diagram": _feature_diagram(repo_root, feature),
     }
+
+
+def _feature_diagram(repo_root: Path, feature: str) -> dict | None:
+    """The canonical D7 diagram of the feature, if one is declared (5b).
+    Reuses query_diagram -- the sole diagram-dispatch path -- so the D7
+    guards are shared, never forked. None when no diagram illustrates the
+    feature (legitimate, not an error).
+    """
+    from factory.trace import model as trace_model
+
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    for edge in edges:
+        if edge.kind == "illustrates" and edge.dst == feature:
+            try:
+                return query_diagram(repo_root, edge.src)
+            except (ScopeNotFoundError, ValueError):
+                continue
+    return None

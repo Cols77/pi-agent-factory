@@ -143,11 +143,28 @@ def _explainer_edges(root: Path, explainer: explainers_module.Explainer) -> list
 
 
 def _diagram_edges(root: Path) -> list[ArtifactDependency]:
-    """A diagram depends on the feature/requirement/goal it illustrates."""
+    """A diagram depends on the feature/requirement/goal it illustrates.
+
+    The topology edge (``illustrates``) carries no recorded fingerprint;
+    when the diagram doc records ``dep_fingerprint`` (ref -> content digest)
+    those become verifiable dependencies for ``check_artifact``.
+    """
     out: list[ArtifactDependency] = []
     nodes = trace_model.load_nodes(root)
     edges = trace_model.extract_edges(root, nodes)
     node_kinds = {node.id: node.kind for node in nodes}
+    recorded: dict[str, dict[str, str]] = {}
+    for node in nodes:
+        if node.kind != "diag":
+            continue
+        post = trace_model._load_post(node.path)
+        if post is None:
+            continue
+        fp_raw = post.metadata.get("dep_fingerprint")
+        if isinstance(fp_raw, dict):
+            recorded[node.id] = {
+                str(k): v for k, v in fp_raw.items() if isinstance(v, str)
+            }
     for edge in edges:
         if edge.kind != "illustrates" or edge.src not in node_kinds:
             continue
@@ -158,6 +175,16 @@ def _diagram_edges(root: Path) -> list[ArtifactDependency]:
                 edge.dst, f"diag:{edge.src}", None, "illustrated->diagram"
             )
         )
+    for diag_id, fingerprints in recorded.items():
+        for source_ref, digest in fingerprints.items():
+            out.append(
+                ArtifactDependency(
+                    normalize_ref(source_ref),
+                    f"diag:{diag_id}",
+                    digest,
+                    "illustrated->diagram",
+                )
+            )
     return out
 
 
@@ -312,13 +339,19 @@ def check_artifact(root: Path, ref: str) -> ArtifactFreshness:
 
     stale_reasons: list[str] = []
     unknown_reasons: list[str] = []
+    any_verdict = False  # at least one dependency produced a fresh/stale verdict
+    degraded = False  # a recorded dependency's source has vanished (forces UNKNOWN)
     for dep in deps:
         if dep.fingerprint is not None:
             current = _current_source_digest(root, dep.source_ref)
             if current is None:
+                degraded = True
                 unknown_reasons.append(f"{dep.source_ref}: source missing")
             elif current != dep.fingerprint:
                 stale_reasons.append(f"{dep.source_ref}: changed since evidence")
+                any_verdict = True
+            else:
+                any_verdict = True
             continue
         # No recorded digest: place the dependency in time via the dependent's
         # recorded commit (SR/goal sources). Missing commit -> cannot verify.
@@ -327,12 +360,17 @@ def check_artifact(root: Path, ref: str) -> ArtifactFreshness:
             unknown_reasons.append(f"{dep.source_ref}: no recorded fingerprint or commit")
         elif reason == "stale":
             stale_reasons.append(f"{dep.source_ref}: changed since evidence")
+            any_verdict = True
+        else:
+            any_verdict = True
     if stale_reasons:
         state, reasons = FreshnessState.STALE, stale_reasons
-    elif unknown_reasons:
+    elif degraded:
         state, reasons = FreshnessState.UNKNOWN, unknown_reasons
-    else:
+    elif any_verdict:
         state, reasons = FreshnessState.FRESH, []
+    else:
+        state, reasons = FreshnessState.UNKNOWN, unknown_reasons
     return ArtifactFreshness(ref, state, tuple(reasons))
 
 
