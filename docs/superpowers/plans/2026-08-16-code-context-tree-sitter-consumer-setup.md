@@ -41,7 +41,7 @@ TS: vitest; ruff 100 / pyright standard.
 **Files:** `pi-ext/factory-watch/src/factory-init-command.ts`,
 `pi-ext/factory-watch/src/code-context-inject.ts`, `pi-ext/factory-watch/test/`.
 
-^- [ ] **Step 1 (tests):** Extract the `before_agent_start` injection decision into a
+^- [x] **Step 1 (tests):** Extract the `before_agent_start` injection decision into a
   pure, exported function in `code-context-inject.ts`
   (e.g. `composeCodeContextMessage(ctx, injectedSessions)` returning the
   `BeforeAgentStartEventResult` or `{}`), so the handler body is unit-testable.
@@ -51,10 +51,10 @@ TS: vitest; ruff 100 / pyright standard.
   the composed result carries `customType: "factory-code-context"` and non-empty
   content. Without an index, `{}`. Second call (same root+sessionId) returns `{}`.
   This test class must catch the object-vs-string bug.
-^- [ ] **Step 2 (implement):** fix line ~199: `const { root } = resolveProjectRoot(ctx.cwd);`
+^- [x] **Step 2 (implement):** fix line ~199: `const { root } = resolveProjectRoot(ctx.cwd);`
   and route the handler through the extracted pure function. No behaviour change
   otherwise.
-^- [ ] **Step 3:** `npm test --prefix pi-ext/factory-watch` (vitest, targeted file +
+^- [x] **Step 3:** `npm test --prefix pi-ext/factory-watch` (vitest, targeted file +
   full suite) + `npx tsc --noEmit` shows the 200/201/204 errors gone; commit.
 
 ### Task 2: Engine-aware freshness upgrade (Python)
@@ -62,17 +62,17 @@ TS: vitest; ruff 100 / pyright standard.
 **Files:** `src/factory/codeindex/sigs.py`, `src/factory/codeindex/store.py`,
 `src/factory/codeindex/build.py`, `tests/unit/codeindex/`.
 
-^- [ ] **Step 1 (tests):** `preferred_engine()` returns `"tree-sitter"` when the
+^- [x] **Step 1 (tests):** `preferred_engine()` returns `"tree-sitter"` when the
   tree-sitter grammars import, else `"stdlib-ast"`. `ensure_fresh` rebuilds (new
   fingerprint files, changed `engine`) when the stored index's engine differs from
   `preferred_engine()` AND the preferred engine is available; it reuses a fresh index
   whose engine already matches. Existing fingerprint-reuse behaviour unchanged when
   engines match.
-^- [ ] **Step 2 (implement):** export `preferred_engine()` from `sigs.py` (reuse the
+^- [x] **Step 2 (implement):** export `preferred_engine()` from `sigs.py` (reuse the
   existing grammar try-import logic); `ensure_fresh` rebuilds when
   `stored.engine != preferred_engine(available)` or fingerprint changed. Keep the
   `"no-files"` short-circuit.
-^- [ ] **Step 3:** `uv run python -m pytest -m unit -q` (codeindex subset + full) +
+^- [x] **Step 3:** `uv run python -m pytest -m unit -q` (codeindex subset + full) +
   ruff; commit.
 
 ### Task 3: Shared interpreter resolution + factory-init wiring (TS + profile)
@@ -81,7 +81,7 @@ TS: vitest; ruff 100 / pyright standard.
 `pi-ext/factory-watch/src/factory-init-command.ts`, `pi-ext/factory-watch/src/factory-init.ts`,
 `pi-ext/factory-watch/test/`.
 
-^- [ ] **Step 1 (tests):** a resolver `resolveIndexPython(root, factoryRoot)` returns
+^- [x] **Step 1 (tests):** a resolver `resolveIndexPython(root, factoryRoot)` returns
   candidate argv lists that try the factory checkout's own environment first
   (e.g. `uv run --project <factoryRoot> python -m factory.codeindex ...`), then the
   consumer env (`uv run python`), then plain `python` — because the factory venv is
@@ -90,22 +90,22 @@ TS: vitest; ruff 100 / pyright standard.
   accept the resolved argv. `runFactoryInit` records a `codeindex` block
   (`engine`, `interpreter`, `prefer: "tree-sitter"`) in `project-profile.json`
   (schema bump) and `/factory-doctor` prints the active engine + interpreter.
-^- [ ] **Step 2 (implement):** shared resolver used by `buildCodeIndex` and
+^- [x] **Step 2 (implement):** shared resolver used by `buildCodeIndex` and
   `renderIndexSlice`; factory-init runs the builder with the resolved argv after
   writing the profile (best-effort, non-fatal) and persists the `codeindex` block;
   doctor surfaces it.
-^- [ ] **Step 3:** vitest (targeted + full) + typecheck (200-204 remain gone) +
+^- [x] **Step 3:** vitest (targeted + full) + typecheck (200-204 remain gone) +
   Python unit + ruff; commit.
 
 ### Task 4: Slice annotation + docs + whole-branch review
 
-^- [ ] **Step 1:** the injected slice carries a one-line engine note
+^- [x] **Step 1:** the injected slice carries a one-line engine note
   (`engine: tree-sitter | stdlib-ast` from `latest.json`) so the agent knows what it
   is reading; update `docs/superpowers/specs/2026-08-14-code-context-bundle-design.md`
   trigger/freshness section to describe consumer-project engine setup (factory venv
   preferred at init, engine-aware freshness, `code-index` extra for published
   installs) and tick this plan's boxes.
-^- [ ] **Step 2:** full guard suite in the worktree — Python unit, vitest, ruff,
+^- [x] **Step 2:** full guard suite in the worktree — Python unit, vitest, ruff,
   `npx tsc --noEmit` (only the two pre-existing unrelated errors may remain),
   gate script — then a final reviewer sub-agent over the whole branch.
 

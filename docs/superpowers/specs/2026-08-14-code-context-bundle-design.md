@@ -105,8 +105,27 @@ signature extractor from item 1. `render_index_slice`'s output shape matches ite
   if `is_fresh` is true (recompute fingerprint cheaply). Otherwise it falls back to
   item 1's stdlib extractor (correct, just slower) — a stale index is never trusted,
   it is simply bypassed. No parallel staleness engine.
+- **Engine-aware freshness**: `ensure_fresh` rebuilds when the stored index's
+  `engine` differs from the interpreter's currently-available engine
+  (`preferred_engine()`, a pure probe over the same grammar import path the build
+  uses) OR the fingerprint changed. A stdlib-built index therefore upgrades to
+  tree-sitter as soon as the grammars exist, without waiting for a code change, and
+  degrades deterministically when they disappear.
+- **Engine resolution in consumer projects**: consumers install the factory as a
+  dev dependency WITHOUT the `code-index` extra, so their own venv has no
+  tree-sitter. The extension's build/slice paths therefore share
+  `factoryIndexCandidates(root, factoryRoot, extraArgs)`, which tries the factory
+  checkout's own environment first (`uv run --project <factoryRoot> python -m
+  factory.codeindex --root <root> ...` — where the extra actually lives), then the
+  consumer env, then plain `python`. `/factory-init` records the deterministic
+  preference (`codeindex.prefer: "tree-sitter"`, profile schema 2) and
+  `/factory-doctor` reports the built engine from `latest.json` plus the resolution
+  order. The injected `--slice` output leads with a one-line `engine:` note so
+  consumers can tell which parser produced the signatures.
 - **Dependency**: `tree-sitter` + `tree-sitter-languages` registered as optional
   (try-import at build time); the fallback keeps the factory runnable without them.
+  Published (non-checkout) installs should request `pi-agent-factory[code-index]`
+  explicitly — init detects the absence and degrades to the stdlib engine.
 
 ## 5. Token budget / determinism
 
