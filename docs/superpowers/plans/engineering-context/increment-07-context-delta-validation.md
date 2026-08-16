@@ -74,10 +74,10 @@ The domain/freshness architecture is independent of SP-B implementation details.
 def save_checkpoint(pi_dir: Path, cp: Checkpoint) -> None
 def load_checkpoint(pi_dir: Path, feature: str) -> Checkpoint | None   # missing = no review yet
 ```
-- [ ] **Step 1: Failing tests** — write→read round-trip (`.pi/checkpoints.json`); missing feature
+- [x] **Step 1: Failing tests** — write→read round-trip (`.pi/checkpoints.json`); missing feature
   returns `None` (legitimate, not an error); malformed file degrades rather than crashes.
-- [ ] **Step 2: Implement** minimal JSON store under `.pi/` (canonical-only, not evidence).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 2: Implement** minimal JSON store under `.pi/` (canonical-only, not evidence).
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 2: Delta computation
 
@@ -92,10 +92,10 @@ def load_checkpoint(pi_dir: Path, feature: str) -> Checkpoint | None   # missing
     new_open_items: list[str]
 def compute_delta(root, feature, since_commit) -> ContextDelta
 ```
-- [ ] **Step 1: Failing tests** — from a seeded git history + goals/history + sim runs, produce the
+- [x] **Step 1: Failing tests** — from a seeded git history + goals/history + sim runs, produce the
   spec §31 / §9.4 delta (`2 PRs merged, goal reached, metric 87%→95%, new concern false-reacquisition↑`).
   Assert metric regression is flagged.
-- [ ] **Step 2: Implement** — compose:
+- [x] **Step 2: Implement** — compose:
 ```python
 def compute_delta(root, feature, since_commit):
     return ContextDelta(
@@ -109,15 +109,15 @@ def compute_delta(root, feature, since_commit):
       new_open_items=open_questions_since(root, since_commit),
     )
 ```
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: `/catchup` + `query_catchup`
 
-- [ ] **Step 1:** `/catchup FEAT-NAV-017` loads the checkpoint, computes `compute_delta`, upgrades
+- [x] **Step 1:** `/catchup FEAT-NAV-017` loads the checkpoint, computes `compute_delta`, upgrades
   the checkpoint to HEAD, and (at REVIEW) presents via Inc 5/Inc 6 surfaces. Deterministic text block
   matching spec §31 wording.
-- [ ] **Step 2:** `query_catchup` exposes it in the claim/freshness plumbing for agent (Inc 4) use.
-- [ ] **Step 3:** render the delta as an additive **"Catch me up"** view in the SCC browser
+- [x] **Step 2:** `query_catchup` exposes it in the claim/freshness plumbing for agent (Inc 4) use.
+- [x] **Step 3:** render the delta as an additive **"Catch me up"** view in the SCC browser
   (system-page.ts, on top of SP-B/Inc 6), emulating the spec §31 / §9.4 block:
 
 ```
@@ -132,7 +132,7 @@ Metrics            reacquisition_rate 82% -> 91%
 
   It renders *computed* `ContextDelta` fields only (never an LLM summary of the past), via the
   existing claim/freshness render helpers. `system-page.ts` is edited additively, after Inc 6.
-- [ ] **Step 4:** TS vitest + `uv run python -m pytest -q` + lint green; commit.
+- [x] **Step 4:** TS vitest + `uv run python -m pytest -q` + lint green; commit.
 - [ ] **Step 3:** full suite + lint + commit.
 
 ## Task 4: Goal-aware requirement status (additive, spec §28–§30)
