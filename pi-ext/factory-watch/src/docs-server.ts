@@ -26,6 +26,7 @@ import {
   loadSystemStory,
   loadSystemTimeline,
   loadSystemTraversalAsync,
+  loadSystemVcycle,
 } from "./system-cli.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
@@ -256,7 +257,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // /api/system/* projects factory.system's JSON straight through (design
   // section 6.1, 6.3): no freshness/ordering/provenance recomputation here,
-  // and only these ten exact paths exist -- anything else falls through
+  // and only these exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
     const result = loadSystemScopes(cwd);
@@ -314,6 +315,18 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   if (req.method === "GET" && url.pathname === "/api/system/matrix") {
     const result = loadSystemMatrix(cwd, url.searchParams.get("scope") ?? "");
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // Inc 6 Task 2: the interactive V-cycle projection (query_vcycle +
+  // additive statuses map). feat:/sr: scopes only.
+  if (req.method === "GET" && url.pathname === "/api/system/vcycle") {
+    const result = loadSystemVcycle(cwd, url.searchParams.get("scope") ?? "");
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;

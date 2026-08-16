@@ -69,6 +69,7 @@ from factory.system.models import (
     ValidationMatrixRow,
     to_dict,
 )
+from factory.system.vcycle import VCycleSlice
 from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
@@ -1694,6 +1695,47 @@ def query_feature_context(repo_root: Path, scope: SystemScopeRef) -> dict:
     }
 
 
+def _vcycle_statuses(repo_root: Path, slice_: VCycleSlice) -> dict[str, dict[str, object]]:
+    """Attach recorded state to each V-cycle slice node id (Inc 6 Task 2).
+
+    Additive: the V-cycle payload is untouched. Every status is recorded
+    state read from its own source, and nodes with no source are simply
+    absent so the TS renders them neutral -- never guessed.
+
+    * sr/br nodes  <- validation report (state + stale)
+    * goal nodes   <- goal registry frontmatter state
+    * task nodes   <- task ledger frontmatter status
+    """
+    ids: set[str] = set()
+    for side in list(slice_.definition) + list(slice_.verification):
+        ids.update(node.id for node in side.nodes)
+    for group in (slice_.goals, slice_.metrics, slice_.runs):
+        ids.update(node.id for node in group)
+
+    validation = validation_status.load_validation(repo_root)
+    goals = goal_registry.load_goals(repo_root)
+    task_status = {task.id: task.status for task in ledger.load_tasks(repo_root / "tasks")}
+
+    statuses: dict[str, dict[str, object]] = {}
+    for node_id in sorted(ids):
+        status = validation.get(node_id)
+        if status is not None:
+            statuses[node_id] = {
+                "kind": "validation",
+                "state": status.state,
+                "stale": status.stale,
+            }
+            continue
+        goal = goals.get(node_id)
+        if goal is not None:
+            statuses[node_id] = {"kind": "goal", "state": goal.state}
+            continue
+        task_state = task_status.get(node_id)
+        if task_state is not None:
+            statuses[node_id] = {"kind": "task", "state": task_state}
+    return statuses
+
+
 def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
     """Return the typed V-cycle slice for one exact ``feat:`` or ``sr:`` scope."""
     if scope.kind not in {"feat", "sr"}:
@@ -1707,4 +1749,8 @@ def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
         if str(exc) == f"vcycle anchor does not resolve: {scope.ref!r}":
             raise ScopeNotFoundError(f"{scope.kind} not found: {_scope_identifier(scope)!r}") from exc
         raise
-    return {"scope": {"kind": scope.kind, "ref": scope.ref}, "vcycle": to_dict(slice_)}
+    return {
+        "scope": {"kind": scope.kind, "ref": scope.ref},
+        "vcycle": to_dict(slice_),
+        "statuses": _vcycle_statuses(repo_root, slice_),
+    }

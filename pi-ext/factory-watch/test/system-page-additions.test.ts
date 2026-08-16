@@ -60,6 +60,42 @@ const HEALTH = {
   degraded: [],
 };
 
+const VNODE = (id: string, kind: string, title: string) => ({
+  id,
+  kind,
+  title,
+  path: `path/${id}.md`,
+  exempt: false,
+  deferred: null,
+  proposed: false,
+  diagram_file: null,
+});
+
+// Mirrors query_vcycle: slice + additive statuses map.
+const VCYCLE = {
+  scope: { kind: "feat", ref: "feat:FEAT-NAV-017" },
+  vcycle: {
+    anchor: "feat:FEAT-NAV-017",
+    definition: [
+      { label: "NEEDS", nodes: [VNODE("BR-001", "br", "Detect visual loss")] },
+      { label: "SYSTEM_REQUIREMENTS", nodes: [VNODE("SR-010", "sr", "Reacquire target")] },
+    ],
+    verification: [
+      { label: "UNIT_VERIFICATION", nodes: [VNODE("T-022", "task", "Unit test reacquisition")] },
+      { label: "SYSTEM_VALIDATION", nodes: [VNODE("SR-010", "sr", "Reacquire target")] },
+    ],
+    goals: [VNODE("GOAL-NAV-003", "goal", "Reacquire within 2s")],
+    metrics: [],
+    runs: [],
+  },
+  statuses: {
+    "SR-010": { kind: "validation", state: "passed", stale: false },
+    "BR-001": { kind: "validation", state: "failed", stale: true },
+    "GOAL-NAV-003": { kind: "goal", state: "REACHED" },
+    "T-022": { kind: "task", state: "todo" },
+  },
+};
+
 function jsonResponse(body: unknown, status = 200): Promise<Response> {
   return Promise.resolve({
     ok: status >= 200 && status < 300,
@@ -76,6 +112,9 @@ function mockFetch() {
     if (url.pathname === "/api/system/brief") {
       const scope = url.searchParams.get("scope") ?? "";
       return jsonResponse(scope.startsWith("feat:") ? DOSSIER : BRIEF);
+    }
+    if (url.pathname === "/api/system/vcycle") {
+      return jsonResponse(VCYCLE);
     }
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
@@ -139,9 +178,32 @@ describe("Inc 6 tabs registered in the /system page", () => {
     expect(doc.getElementById("tabTimeline")?.hidden).toBe(false);
     expect(doc.getElementById("tabGuide")?.hidden).toBe(false);
     expect(doc.getElementById("tabFeature")?.hidden).toBe(true);
+    expect(doc.getElementById("tabVcycle")?.hidden).toBe(true);
     expect(doc.getElementById("tabStory")?.hidden).toBe(true);
     expect(doc.getElementById("tabReverse")?.hidden).toBe(true);
     expect(doc.getElementById("panelBrief")?.textContent).toContain("Evidence lifecycle");
+  });
+
+  test("feat: and sr: scopes show the V-cycle tab rendering the Python slice", async () => {
+    const dom = await loadPage({ scope: "feat:FEAT-NAV-017" });
+    const doc = dom.window.document;
+    expect(doc.getElementById("tabVcycle")?.hidden).toBe(false);
+    const panel = doc.getElementById("panelVcycle");
+    expect(panel?.textContent).toContain("System requirements");
+    expect(panel?.textContent).toContain("sr:SR-010");
+    expect(panel?.textContent).toContain("br:BR-001");
+    expect(panel?.textContent).toContain("Goals");
+    expect(panel?.textContent).toContain("REACHED");
+    // Recorded state renders, never derived: BR-001 failed + stale.
+    const failed = Array.from(panel?.querySelectorAll(".vcycle-node") ?? []).find(
+      (n) => n.textContent?.includes("BR-001"),
+    );
+    expect(failed?.classList.contains("is-failed")).toBe(true);
+    expect(failed?.classList.contains("is-stale")).toBe(true);
+    expect(failed?.textContent).toContain("stale");
+
+    const srDom = await loadPage({ scope: "sr:SR-010" });
+    expect(srDom.window.document.getElementById("tabVcycle")?.hidden).toBe(false);
   });
 
   test("the page inlines the feature widget as a plain function (no module imports)", () => {

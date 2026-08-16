@@ -23,10 +23,12 @@ declare const clear: (el: HTMLElement) => void;
 declare const invertTraceForScope: (graph: any, refs: string[]) => any[];
 declare const renderBrief: (brief: any) => void;
 declare const renderFeature: (el: HTMLElement, payload: any) => void;
+declare const renderVcycle: (el: HTMLElement, payload: any) => void;
+declare const renderNotApplicable: (panelId: string, note: string) => void;
+declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
 declare const renderGuideFallback: () => void;
 declare const renderMatrix: (matrix: any) => void;
-declare const renderNotApplicable: (panelId: string, note: string) => void;
 declare const renderReverse: (reverse: any) => void;
 declare const renderStory: (story: any) => void;
 declare const renderTimeline: (timeline: any) => void;
@@ -431,11 +433,11 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
-    sr: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
-    feat: ['Feature', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    sr: ['Brief', 'Vcycle', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    feat: ['Feature', 'Vcycle', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     task: ['Story'],
     file: ['Reverse'],
   };
@@ -485,7 +487,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -495,6 +497,7 @@ export async function systemBootstrap(): Promise<void> {
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
   (document.getElementById('tabFeature') as HTMLElement).onclick = () => showTab('Feature');
+  (document.getElementById('tabVcycle') as HTMLElement).onclick = () => showTab('Vcycle');
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -512,7 +515,7 @@ export async function systemBootstrap(): Promise<void> {
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
   window.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-8]$/.test(e.key)) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]!);
       e.preventDefault();
       return;
@@ -666,6 +669,25 @@ export async function systemBootstrap(): Promise<void> {
     else renderGuideFallback();
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
+    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
+    // like the guide -- a failure degrades only the V-cycle tab, never the
+    // scope load.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      try {
+        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
+        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
+        const vcycle = await vcycleRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
     // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
     // come from the matrix rows, in payload order.

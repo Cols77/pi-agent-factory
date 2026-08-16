@@ -534,6 +534,17 @@ export function renderNotApplicable(panelId: string, note: string): void {
   panel.appendChild(p);
 }
 
+// Inc 6 Task 2: a tab whose projection failed to load states the failure
+// explicitly (honest degradation, never a blank).
+export function renderTabError(panelId: string, note: string): void {
+  const panel = document.getElementById(panelId) as HTMLElement;
+  clear(panel);
+  const p = document.createElement('p');
+  p.className = 'empty tab-error';
+  p.appendChild(document.createTextNode(note));
+  panel.appendChild(p);
+}
+
 // Pure inversion of the /api/graph trace graph for the current scope's SR refs.
 // No .sort, no payload remap: walk graph.edges in the order factory.trace emits
 // them. An unresolved hop stays null (never guessed) -- the renderer names it

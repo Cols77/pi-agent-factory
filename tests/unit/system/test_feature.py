@@ -201,6 +201,41 @@ def test_feature_queries_preserve_scope_shape_and_exact_resolution(tmp_path):
         query_vcycle(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-UNKNOWN"))
 
 
+def test_vcycle_query_carries_an_additive_node_statuses_map(tmp_path):
+    """Inc 6 Task 2: query_vcycle gains a `statuses` map so the human
+    V-cycle view can colour failed/stale nodes without re-deriving any
+    state in TS. Sources stay recorded-only: validation report for sr/br,
+    goal registry for goals, task frontmatter for tasks."""
+    _feature_repo(tmp_path)
+    write_validation_report(
+        tmp_path,
+        [
+            {"id": "SR-001", "passed": True, "stale": False, "metric": "m1"},
+            {"id": "SR-002", "passed": False, "stale": True, "metric": "m2"},
+        ],
+    )
+    _write(
+        tmp_path / "goals" / "GOAL-001.md",
+        "---\n"
+        "id: GOAL-001\n"
+        "title: Reach the dossier\n"
+        "demonstrates: [SR-001]\n"
+        "state: REACHED\n"
+        "---\n",
+    )
+
+    result = query_vcycle(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-CONTEXT-001"))
+
+    statuses = result["statuses"]
+    assert statuses["SR-001"] == {"kind": "validation", "state": "passed", "stale": False}
+    assert statuses["SR-002"] == {"kind": "validation", "state": "failed", "stale": True}
+    assert statuses["GOAL-001"] == {"kind": "goal", "state": "REACHED"}
+    assert statuses["T-001"] == {"kind": "task", "state": "done"}
+    # A requirement outside the slice never appears, and node ids missing
+    # from every status source are simply absent (TS renders them neutral).
+    assert set(statuses) == {"SR-001", "SR-002", "GOAL-001", "T-001"}
+
+
 def test_feature_context_recent_changes_is_empty_without_git_history(tmp_path):
     _feature_repo(tmp_path)
 
