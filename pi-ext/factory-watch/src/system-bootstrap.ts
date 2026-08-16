@@ -22,6 +22,7 @@
 declare const clear: (el: HTMLElement) => void;
 declare const invertTraceForScope: (graph: any, refs: string[]) => any[];
 declare const renderBrief: (brief: any) => void;
+declare const renderFeature: (el: HTMLElement, payload: any) => void;
 declare const renderGuide: (guide: any) => void;
 declare const renderGuideFallback: () => void;
 declare const renderMatrix: (matrix: any) => void;
@@ -430,10 +431,11 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     sr: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
+    feat: ['Feature', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     task: ['Story'],
     file: ['Reverse'],
   };
@@ -483,7 +485,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -492,6 +494,7 @@ export async function systemBootstrap(): Promise<void> {
   }
 
   (document.getElementById('tabBrief') as HTMLElement).onclick = () => showTab('Brief');
+  (document.getElementById('tabFeature') as HTMLElement).onclick = () => showTab('Feature');
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
@@ -509,7 +512,7 @@ export async function systemBootstrap(): Promise<void> {
 
   // Task 4 (system nav): keyboard shortcuts + scope-list arrow navigation.
   window.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-8]$/.test(e.key)) {
       showTab(TAB_ORDER[Number(e.key) - 1]!);
       e.preventDefault();
       return;
@@ -560,6 +563,7 @@ export async function systemBootstrap(): Promise<void> {
   function defaultTab(kind: string): string {
     if (kind === 'task') return 'Story';
     if (kind === 'file') return 'Reverse';
+    if (kind === 'feat') return 'Feature';
     return 'Brief';
   }
 
@@ -646,7 +650,16 @@ export async function systemBootstrap(): Promise<void> {
       guideRes.ok ? guideRes.json() : Promise.resolve(null),
     ]);
     if (!isCurrentNavigation(generation, scopeRef)) return;
-    renderBrief(brief);
+    // Inc 6 Task 1: a feat: scope's brief IS the trace-backed dossier
+    // (factory.system cmd_brief dispatches feat: to query_feature_context),
+    // so the same payload renders the Feature tab -- the dossier hub. The
+    // claim-based brief panel does not apply to a feat: scope (the payload
+    // carries no claims), so it is never rendered for one.
+    if (scopeKind(scopeRef) === 'feat') {
+      renderFeature(document.getElementById('panelFeature') as HTMLElement, brief);
+    } else {
+      renderBrief(brief);
+    }
     renderMatrix(matrix);
     renderTimeline(timeline);
     if (guide) renderGuide(guide);
@@ -689,7 +702,7 @@ export async function systemBootstrap(): Promise<void> {
       signal.removeEventListener('abort', cancelTraversal);
     }
     if (!isCurrentNavigation(generation, scopeRef)) return;
-    const selectedTab = selectInitialTab('Brief', updateUrl);
+    const selectedTab = selectInitialTab(defaultTab(scopeKind(scopeRef)), updateUrl);
     if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
     if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);

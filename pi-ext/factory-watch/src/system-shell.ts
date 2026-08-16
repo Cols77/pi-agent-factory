@@ -2,6 +2,15 @@
 
 import { systemBootstrap } from './system-bootstrap.js';
 import {
+  changeList,
+  codeList,
+  dossierSection,
+  refList,
+  renderFeature,
+  taskCard,
+  verificationRows,
+} from './system-feature-view.js';
+import {
   boundedList,
   closeOpenCard,
   definitionCardFields,
@@ -101,6 +110,13 @@ function clientSource(): string {
     renderNotApplicable,
     invertTraceForScope,
     renderTrace,
+    dossierSection,
+    refList,
+    codeList,
+    taskCard,
+    verificationRows,
+    changeList,
+    renderFeature,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -477,6 +493,23 @@ export function renderSystemPageHtml(): string {
     .vocab-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   .info-card-open a:hover, .info-card-open a:focus-visible { text-decoration: underline; }
+  .dossier-heading { margin-bottom: 16px; }
+  .dossier-id { color: var(--text-muted); font: 12px/1.5 var(--font-mono); }
+  .dossier-title { margin: 2px 0 0; font: 650 clamp(20px, 3vw, 30px)/1.1 var(--font-display); letter-spacing: -.02em; }
+  .dossier-section { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .74); }
+  .dossier-section-heading { margin: 0 0 9px; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .dossier-section-body { min-width: 0; }
+  .dossier-intent { margin: 0; max-width: 72ch; font-size: 14px; line-height: 1.6; }
+  .dossier-code-list, .dossier-run-list, .dossier-changes-list, .dossier-verification-list { display: grid; gap: 4px; }
+  .dossier-code-file, .dossier-run, .dossier-change { overflow-wrap: anywhere; font: 12px/1.55 var(--font-mono); }
+  .dossier-verification-row { display: flex; align-items: center; gap: 7px; font: 12px/1.55 var(--font-mono); }
+  .dossier-verification-row.is-stale { border-left: 2px solid var(--stale); padding-left: 6px; }
+  .dossier-task { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .6); }
+  .dossier-task-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .dossier-task-id { color: var(--signal); font: 650 12px/1.3 var(--font-mono); }
+  .dossier-task-title { font: 650 14px/1.35 var(--font-display); }
+  .task-status-text { color: var(--text-muted); font: 12px/1.3 var(--font-mono); }
+  .dossier-run-list, .dossier-tasks-list { margin-top: 7px; }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -536,6 +569,7 @@ export function renderSystemPageHtml(): string {
           <button id="tabStory" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
           <button id="tabReverse" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
           <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
+          <button id="tabFeature" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelFeature" aria-label="Feature">Feature</button>
         </div></nav>
         <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
         <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
@@ -544,6 +578,7 @@ export function renderSystemPageHtml(): string {
         <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
         <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
         <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+        <div id="panelFeature" class="panel" role="tabpanel" aria-labelledby="tabFeature" hidden></div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">
