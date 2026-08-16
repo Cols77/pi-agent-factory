@@ -354,9 +354,9 @@ export function renderSystemPageHtml(): string {
   .trace-spine-step:first-child { border-left: 1px solid var(--line); border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
   .trace-spine-step:last-child { border-right: 1px solid var(--line); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
   .trace-spine-step::before { content: counter(trace-step); position: absolute; top: 14px; left: 13px; width: 20px; height: 20px; border: 1px solid var(--signal); border-radius: 50%; color: var(--signal); font: 650 12px/18px var(--font-mono); text-align: center; }
-  .trace-spine-step:not(:last-child)::after { content: ""; position: absolute; z-index: 1; top: 21px; right: -5px; width: 9px; height: 9px; border-top: 1px solid var(--signal); border-right: 1px solid var(--signal); background: var(--surface); transform: rotate(45deg); }
+  .trace-spine-step:not(:last-child)::after { content: ""; position: absolute; z-index: 1; top: 21px; right: 3px; width: 9px; height: 9px; border-top: 1px solid var(--signal); border-right: 1px solid var(--signal); background: var(--surface); transform: rotate(45deg); }
   .trace-spine-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
-  .trace-spine-value { margin-top: 4px; color: var(--text); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+  .trace-spine-value { min-width: 0; margin-top: 4px; color: var(--text); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
   .matrix-row { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(0, 1.3fr); gap: 8px 18px; }
   .matrix-row .row-head { min-width: 0; align-content: start; }
   .matrix-subject { width: 100%; color: var(--text); font: 650 13px/1.45 var(--font-mono); overflow-wrap: anywhere; }
@@ -411,10 +411,10 @@ export function renderSystemPageHtml(): string {
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
   }
-  .ref-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; }
+  .ref-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; }
   .ref-chip .chip-id { padding: 0 3px; border-radius: 3px; background: var(--signal-soft); font: 12px/1.5 var(--font-mono); }
   .ref-chip .chip-sep { color: var(--text-dim); }
-  .ref-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
@@ -438,7 +438,7 @@ export function renderSystemPageHtml(): string {
   .orientation-strip .secondary-action { flex: 0 0 auto; }
   .first-run-card { margin: 10px 0; padding: 16px 18px; border-radius: var(--radius-md); background: rgba(13, 26, 32, .6); }
   .first-run-heading { margin: 0 0 6px; color: var(--text); font: 650 18px/1.3 var(--font-display); }
-  .bounded-list { display: grid; gap: 4px; }
+  .bounded-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
   .ref-chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 3px; }
   .info-card { opacity: 0; animation: info-card-in .12s ease forwards; }
   @keyframes info-card-in { from { opacity: 0; } to { opacity: 1; } }
@@ -480,9 +480,14 @@ export function renderSystemPageHtml(): string {
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
-    .workspace-split > .panel { width: 100%; }
-    .context-rail { position: sticky; top: 0; align-self: start; border-left: 1px solid var(--line); padding-left: 16px; background: var(--surface-soft); }
+    .workspace-split > .panel { width: 100%; order: 1; }
+    .context-rail { order: 2; position: sticky; top: 0; align-self: start; border-left: 1px solid var(--line); padding-left: 16px; background: var(--surface-soft); }
   }
+  .context-rail-section { padding: 14px 0; border-top: 1px solid var(--line); }
+  .context-rail-section:first-child { border-top: 0; padding-top: 0; }
+  .context-rail-heading { margin: 0 0 8px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+  .context-rail-readiness { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .context-rail-body { color: var(--text); font-size: 13px; line-height: 1.5; }
 </style></head>
 <body>
   <header class="app-header">
@@ -524,26 +529,29 @@ export function renderSystemPageHtml(): string {
           <div id="bundleList"></div>
         </section>
       </section>
-      <section id="scopeWorkspace" hidden>
-        <div class="scope-heading"><div id="scopeKind" class="eyebrow"></div><h2 id="scopeHeader"></h2><div id="scopeRef"></div></div>
-        <div id="loading" role="status" hidden>Loading…</div>
-        <div class="scope-meta"><button id="refresh" type="button">Refresh</button> <span id="loadedAt"></span></div>
-        <nav aria-label="System navigator"><div id="tabs" role="tablist">
-          <button id="tabBrief" class="tab" role="tab" tabindex="0" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
-          <button id="tabMatrix" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
-          <button id="tabTimeline" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
-          <button id="tabGuide" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
-          <button id="tabStory" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
-          <button id="tabReverse" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
-          <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
-        </div></nav>
-        <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
-        <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
-        <div id="panelTimeline" class="panel" role="tabpanel" aria-labelledby="tabTimeline" hidden></div>
-        <div id="panelGuide" class="panel" role="tabpanel" aria-labelledby="tabGuide" hidden></div>
-        <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
-        <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
-        <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+      <section id="scopeWorkspace" class="workspace-split" hidden>
+        <aside id="contextRail" class="context-rail" aria-label="Scope context"></aside>
+        <div class="panel">
+          <div class="scope-heading"><div id="scopeKind" class="eyebrow"></div><h2 id="scopeHeader"></h2><div id="scopeRef"></div></div>
+          <div id="loading" role="status" hidden>Loading…</div>
+          <div class="scope-meta"><button id="refresh" type="button">Refresh</button> <span id="loadedAt"></span></div>
+          <nav aria-label="System navigator"><div id="tabs" role="tablist">
+            <button id="tabBrief" class="tab" role="tab" tabindex="0" aria-selected="true" aria-controls="panelBrief" aria-label="Brief">Brief</button>
+            <button id="tabMatrix" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelMatrix" aria-label="Matrix">Matrix</button>
+            <button id="tabTimeline" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTimeline" aria-label="Timeline">Timeline</button>
+            <button id="tabGuide" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelGuide" aria-label="Guide">Guide</button>
+            <button id="tabStory" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelStory" aria-label="Story">Story</button>
+            <button id="tabReverse" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelReverse" aria-label="Reverse">Reverse</button>
+            <button id="tabTrace" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelTrace" aria-label="Trace">Trace</button>
+          </div></nav>
+          <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
+          <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
+          <div id="panelTimeline" class="panel" role="tabpanel" aria-labelledby="tabTimeline" hidden></div>
+          <div id="panelGuide" class="panel" role="tabpanel" aria-labelledby="tabGuide" hidden></div>
+          <div id="panelStory" class="panel" role="tabpanel" aria-labelledby="tabStory" hidden></div>
+          <div id="panelReverse" class="panel" role="tabpanel" aria-labelledby="tabReverse" hidden></div>
+          <div id="panelTrace" class="panel" role="tabpanel" aria-labelledby="tabTrace" hidden></div>
+        </div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>
         <div class="landing-intro">

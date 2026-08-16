@@ -13,8 +13,8 @@
 //
 // Failure output includes viewport, reproduction step and element references
 // (selector + accessibility name) so findings are actionable.
-import { join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { ensureDocsServer, stopDocsServer } from "../src/docs-server.js";
 
@@ -31,6 +31,7 @@ type PlaywrightElement = {
 };
 type PlaywrightPage = {
   on(evt: string, fn: (arg: any) => void): PlaywrightPage;
+  addInitScript(script: (() => void) | string): Promise<void>;
   $eval<R>(sel: string, fn: (el: Element) => R): Promise<R>;
   $$eval<R>(sel: string, fn: (els: Element[]) => R): Promise<R>;
   $(sel: string): Promise<PlaywrightElement | null>;
@@ -96,6 +97,15 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
     try {
       for (const vp of VIEWPORTS) {
         const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+        // Serving the extension through the tsx/esbuild dev pipeline injects
+        // esbuild's `keepNames` `__name` helper into the stringified page
+        // script; the real product never ships through that pipeline, so
+        // this is a harness artifact, not a product bug. Defined via
+        // addInitScript so it exists before the page's own inline <script>
+        // runs on every navigation this page makes, not just the first.
+        await page.addInitScript(() => {
+          (window as any).__name = (fn: any) => fn;
+        });
         page.on("console", (msg) => {
           if (msg.type() === "error") consoleErrors.push({ viewport: vp.name, type: msg.type(), text: msg.text() });
         });
@@ -144,6 +154,16 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         }
         if (!clicked) record(vp.name, "bundle-focus", "no feature row with href to click");
 
+        // Everything through "Search exact-ref" below assumes a scope was
+        // actually focused. A zero-bundle repo (Task 13's second gate run,
+        // BROWSER_GATE_TARGET=pi-agent-factory) has no feature row to click,
+        // so `clicked` stays false and there is nothing here to open --
+        // the pre-existing unconditional waitForSelector below would then
+        // hang for the full 30s and fail the whole gate on a legitimate
+        // first-run path. The already-recorded "no feature row" finding
+        // above covers that case; the rest of the per-scope assertions are
+        // simply skipped rather than run against a scope that never loaded.
+        if (clicked) {
         await page.waitForSelector("#scopeWorkspace:not([hidden])", { timeout: 30_000 });
         const landingGone = await page.$eval("#landingPanel", (el: Element) => el.hasAttribute("hidden"));
         if (!landingGone) record(vp.name, "bundle-focus", "landing panel not hidden after scope selection", "#landingPanel");
@@ -171,6 +191,152 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         await page.waitForSelector(".trace-spine-step", { timeout: 30_000 }).catch(() => {});
         const spine = await page.$$eval(".trace-spine-step", (els: Element[]) => els.map((e: Element) => e.textContent?.trim() ?? ""));
         if (spine.length === 0) record(vp.name, "trace-spine", "no trace spine steps rendered when traversal exists", ".trace-spine-step");
+
+        // ---------------- Task 13: per-element containment ----------------
+        // A page-level overflow check (`document.body.scrollWidth <=
+        // window.innerWidth`, below) can stay FALSE while a chip spills onto
+        // the next grid column -- the column track itself is sized
+        // correctly; only the chip inside it refused to shrink. That bug is
+        // invisible to a page-level check, so every step and every chip is
+        // measured individually.
+        const containment = await page.evaluate(() => {
+          const steps = Array.from(document.querySelectorAll(".trace-spine-step"));
+          return steps.map((stepEl) => {
+            const step = stepEl as HTMLElement;
+            const stepRect = step.getBoundingClientRect();
+            const chips = Array.from(step.querySelectorAll(".ref-chip")).map((c) => {
+              const r = (c as HTMLElement).getBoundingClientRect();
+              return { right: r.right, text: (c.textContent || "").slice(0, 60) };
+            });
+            return {
+              clientWidth: step.clientWidth,
+              scrollWidth: step.scrollWidth,
+              stepRight: stepRect.right,
+              chips,
+            };
+          });
+        });
+        containment.forEach((s, i) => {
+          if (s.scrollWidth > s.clientWidth + 1) {
+            record(
+              vp.name,
+              "spine-containment",
+              `.trace-spine-step[${i}] overflows its own box: scrollWidth ${s.scrollWidth} > clientWidth ${s.clientWidth} + 1`,
+              ".trace-spine-step",
+            );
+          }
+          s.chips.forEach((chip) => {
+            if (chip.right > s.stepRight + 1) {
+              record(
+                vp.name,
+                "spine-containment",
+                `.ref-chip "${chip.text}" right edge ${chip.right.toFixed(1)} exceeds its step's right edge ${s.stepRight.toFixed(1)}`,
+                ".ref-chip",
+              );
+            }
+          });
+        });
+
+        // document.body.scrollWidth vs window.innerWidth -- distinct from the
+        // documentElement check above (step 4); kept as its own assertion
+        // because it is the exact pair named by the spec for this gate.
+        const bodyOverflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);
+        if (bodyOverflow > 0) record(vp.name, "body-overflow", `document.body.scrollWidth exceeds window.innerWidth by ${bodyOverflow}px`, "body");
+
+        // ---------------- Task 13: bounded-list child cap ----------------
+        const boundedListCounts = await page.$$eval(".trace-spine-step .bounded-list", (lists: Element[]) =>
+          lists.map((l) => l.querySelectorAll(":scope > .ref-chip").length),
+        );
+        boundedListCounts.forEach((count, i) => {
+          if (count > 5) record(vp.name, "bounded-list", `.bounded-list[${i}] has ${count} direct .ref-chip children (max 5)`, ".bounded-list");
+        });
+
+        // ---------------- Task 13: "Not recorded" pairs with a Next step ----------------
+        const orphanedNotRecorded = await page.evaluate(() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          const orphans: string[] = [];
+          let node: Node | null;
+          // eslint-disable-next-line no-cond-assign
+          while ((node = walker.nextNode())) {
+            if ((node.nodeValue || "").trim() !== "Not recorded") continue;
+            const parent = node.parentElement;
+            const panel = parent ? parent.closest(".trace-spine-step, .panel") : null;
+            const hasNextStep = !!(panel && panel.querySelector(".next-step"));
+            if (!hasNextStep) orphans.push(panel ? panel.className : "(no enclosing panel)");
+          }
+          return orphans;
+        });
+        orphanedNotRecorded.forEach((where) => {
+          record(vp.name, "not-recorded", `"Not recorded" text has no .next-step within its panel (${where})`, ".trace-spine-value");
+        });
+
+        // ---------------- Task 13: ref-chip keyboard interaction ----------------
+        const chipHandle = await page.$(".ref-chip[data-ref]");
+        if (!chipHandle) {
+          record(vp.name, "keyboard-chip", "no resolved .ref-chip[data-ref] found to test keyboard focus", ".ref-chip", "warning");
+        } else {
+          await page.evaluate(() => {
+            const chip = document.querySelector(".ref-chip[data-ref]") as HTMLElement | null;
+            chip?.focus();
+          });
+          await page.waitForTimeout(150);
+          const cardOpenedOnFocus = await page.evaluate(() => !!document.querySelector(".info-card"));
+          if (!cardOpenedOnFocus) record(vp.name, "keyboard-chip", "focusing a .ref-chip did not open .info-card", ".ref-chip");
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(150);
+          const afterEscape = await page.evaluate(() => ({
+            cardGone: !document.querySelector(".info-card"),
+            activeIsChip: document.activeElement?.matches?.(".ref-chip[data-ref]") ?? false,
+          }));
+          if (!afterEscape.cardGone) record(vp.name, "keyboard-chip", "Escape did not close .info-card", ".info-card");
+          if (!afterEscape.activeIsChip) record(vp.name, "keyboard-chip", "Escape did not return focus to the triggering .ref-chip", ".ref-chip");
+        }
+
+        // ---------------- Task 13: .gloss contrast (WCAG 4.5:1) ----------------
+        const glossContrast = await page.evaluate(() => {
+          function parseColor(str: string): [number, number, number, number] {
+            const hex = str.match(/^#([0-9a-f]{6})$/i);
+            if (hex) {
+              const n = parseInt(hex[1] ?? "000000", 16);
+              return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1];
+            }
+            const m = str.match(/rgba?\(([^)]+)\)/i);
+            if (!m) return [0, 0, 0, 0];
+            const parts = (m[1] ?? "").split(",").map((s) => parseFloat(s.trim()));
+            return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts.length > 3 ? (parts[3] ?? 1) : 1];
+          }
+          function luminance([r, g, b]: [number, number, number, number]): number {
+            const chan = [r, g, b].map((c) => {
+              const v = c / 255;
+              return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            });
+            return 0.2126 * (chan[0] ?? 0) + 0.7152 * (chan[1] ?? 0) + 0.0722 * (chan[2] ?? 0);
+          }
+          function effectiveBackground(el: Element): [number, number, number, number] {
+            let node: Element | null = el;
+            while (node) {
+              const c = parseColor(getComputedStyle(node).backgroundColor);
+              if (c[3] > 0) return c;
+              node = node.parentElement;
+            }
+            const root = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+            return parseColor(root || "#071015");
+          }
+          const glosses = Array.from(document.querySelectorAll(".gloss"));
+          return glosses.slice(0, 8).map((el) => {
+            const fg = parseColor(getComputedStyle(el).color);
+            const bg = effectiveBackground(el);
+            const lFg = luminance(fg);
+            const lBg = luminance(bg);
+            const ratio = (Math.max(lFg, lBg) + 0.05) / (Math.min(lFg, lBg) + 0.05);
+            return { ratio, text: (el.textContent || "").slice(0, 40) };
+          });
+        });
+        glossContrast.forEach((g) => {
+          if (g.ratio < 4.5) {
+            record(vp.name, "gloss-contrast", `.gloss "${g.text}" contrast ratio ${g.ratio.toFixed(2)} is below WCAG 4.5:1`, ".gloss");
+          }
+        });
 
         // ---------------- Mobile scope sheet --------------
         if (vp.width <= 760) {
@@ -245,6 +411,7 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         if (bad.length > 0) record(vp.name, "search", `search issued invalid bare-ref fetch: ${bad[0]}`, "#scopeFilter");
         else if (!requests.some((u) => u.includes("scope=sr%3ASR-137")))
           record(vp.name, "search", `search did not fetch the encoded sr:SR-137 ref; requests: ${requests.join(" | ")}`, "#scopeFilter");
+        } // if (clicked)
 
         // ---------------- aria-busy lifecycle ----------------
         const busyWait = await page.evaluate(async () => {
@@ -257,6 +424,9 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
 
         // ---------------- Retry after health failure ----------------
         const retryPage = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+        await retryPage.addInitScript(() => {
+          (window as any).__name = (fn: any) => fn;
+        });
         await retryPage.route("**/api/system/health**", (route: { abort(arg: string): unknown }) => route.abort("failed"));
         await retryPage.goto(`${base}/system`, { waitUntil: "domcontentloaded" });
         await retryPage.waitForTimeout(2500);
@@ -265,11 +435,18 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         if (!msg.includes("Project evidence is unavailable"))
           record(vp.name, "retry", `failure message is "${msg}" -- expected 'Project evidence is unavailable...'`, "#healthStatus");
         if (!retryVisible) record(vp.name, "retry", "Retry button not visible after health failure", "#retryHealth");
-        await retryPage.unroute("**/api/system/health**");
-        await retryPage.click("#retryHealth");
-        await retryPage.waitForSelector("#healthSummary .health-overall", { timeout: 60_000 });
-        const recovered = await retryPage.$eval("#retryHealth", (el: Element) => el.hasAttribute("hidden"));
-        if (!recovered) record(vp.name, "retry", "Retry button still visible after successful retry", "#retryHealth");
+        // The finding above already covers a Retry button that never
+        // appeared; a subsequent click on a genuinely hidden element would
+        // just hang for the full actionability timeout and take the whole
+        // gate down with it, so recovery is only exercised when there is
+        // something visible to click.
+        if (retryVisible) {
+          await retryPage.unroute("**/api/system/health**");
+          await retryPage.click("#retryHealth");
+          await retryPage.waitForSelector("#healthSummary .health-overall", { timeout: 60_000 });
+          const recovered = await retryPage.$eval("#retryHealth", (el: Element) => el.hasAttribute("hidden"));
+          if (!recovered) record(vp.name, "retry", "Retry button still visible after successful retry", "#retryHealth");
+        }
         await retryPage.close();
 
         // ---------------- Reduced motion CSS ----------------
@@ -286,6 +463,7 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
       stopDocsServer();
     }
 
+    mkdirSync(dirname(REPORT), { recursive: true });
     writeFileSync(REPORT, JSON.stringify({ findings, consoleErrors }, null, 2));
 
     const errors = findings.filter((f) => f.severity === "error");

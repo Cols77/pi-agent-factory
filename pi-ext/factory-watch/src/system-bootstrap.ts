@@ -226,6 +226,98 @@ export async function systemBootstrap(): Promise<void> {
     node.appendChild(document.createTextNode(description));
   }
 
+  // Task 13: the context rail. Above 1200px it sits beside the panel column
+  // in the dead space the visual addendum names ("Context rail"); below
+  // 1200px it collapses into the single-column flow. Populated from loadScope
+  // (scope summary + readiness/counts, both already resolved by the time
+  // setScopeHeading runs) and, for bundle:/sr: scopes, from the brief payload
+  // once it resolves (membership + the current Next step). Sections are
+  // separated by hairlines, never nested boxes (visual addendum).
+  function railSection(id: string, heading: string): HTMLElement {
+    const section = document.createElement('div');
+    section.id = id;
+    section.className = 'context-rail-section';
+    const h = document.createElement('div');
+    h.className = 'context-rail-heading';
+    h.appendChild(document.createTextNode(heading));
+    section.appendChild(h);
+    return section;
+  }
+
+  function renderContextRail(scopeRef: string): void {
+    const rail = document.getElementById('contextRail') as HTMLElement | null;
+    if (!rail) return;
+    clear(rail);
+    const kind = scopeKind(scopeRef);
+    const bundle = kind === 'bundle'
+      ? healthBundles.find((candidate) => candidate.id === scopeRef.slice('bundle:'.length))
+      : null;
+    const entry = resolveLabel(scopeRef);
+    const title = (entry && entry.title) || bundle?.label || scopeRef;
+
+    const summary = railSection('contextRailSummary', 'Scope');
+    const summaryBody = document.createElement('div');
+    summaryBody.className = 'context-rail-body';
+    summaryBody.appendChild(document.createTextNode(title));
+    summary.appendChild(summaryBody);
+    const summaryRef = document.createElement('div');
+    summaryRef.className = 'commit-range';
+    summaryRef.appendChild(document.createTextNode(scopeRef));
+    summary.appendChild(summaryRef);
+    rail.appendChild(summary);
+
+    // Readiness only exists for bundles (health.bundle_readiness) -- a
+    // task:/file: scope has no readiness of its own, so the section is
+    // omitted rather than showing an invented value.
+    if (bundle && bundle.readiness) {
+      const readinessSection = railSection('contextRailReadiness', 'Readiness');
+      const row = document.createElement('div');
+      row.className = 'context-rail-readiness';
+      const word = document.createElement('span');
+      word.className = 'feature-readiness';
+      word.appendChild(document.createTextNode(bundle.readiness));
+      row.appendChild(word);
+      const counts = document.createElement('span');
+      counts.className = 'readiness-counts';
+      counts.appendChild(document.createTextNode(countsText(bundle.readiness_counts)));
+      row.appendChild(counts);
+      readinessSection.appendChild(row);
+      rail.appendChild(readinessSection);
+    }
+  }
+
+  // Membership and the current Next step both come from the brief payload,
+  // which only bundle:/sr: scopes fetch -- called from loadBundleScope once
+  // it resolves, after renderContextRail has already drawn the summary and
+  // (if applicable) readiness sections above.
+  function renderContextRailMembership(brief: any): void {
+    const rail = document.getElementById('contextRail') as HTMLElement | null;
+    if (!rail) return;
+    document.getElementById('contextRailMembership')?.remove();
+    if (!brief.member_of || !brief.member_of.length) return;
+    const section = railSection('contextRailMembership', 'Member of');
+    section.appendChild(boundedList(brief.member_of));
+    rail.appendChild(section);
+  }
+
+  function renderContextRailNextStep(brief: any): void {
+    const rail = document.getElementById('contextRail') as HTMLElement | null;
+    if (!rail) return;
+    document.getElementById('contextRailNextStep')?.remove();
+    // A next step is only shown while there is a live gap -- an absent
+    // section (rather than an invented "all clear" message) matches how
+    // nextStepBlock is used everywhere else on this page.
+    if (brief.claims && brief.claims.length) return;
+    // No heading wrapper here -- nextStepBlock renders its own "NEXT STEP"
+    // eyebrow, so an outer "Next step" heading would just repeat it. The
+    // section div still gets the hairline via .context-rail-section.
+    const section = document.createElement('div');
+    section.id = 'contextRailNextStep';
+    section.className = 'context-rail-section';
+    section.appendChild(nextStepBlock('no_claims', brief.scope?.ref));
+    rail.appendChild(section);
+  }
+
   // SP-B Task 7: the feature-first sidebar. Python's `health` projection owns
   // bundle order, readiness, and counts; this only groups the rendered rows
   // under Weak/Medium/Strong headers (payload order within each group -- never
@@ -250,7 +342,10 @@ export async function systemBootstrap(): Promise<void> {
     const bundles = payload.bundles || [];
     const groups: Record<string, any[]> = { weak: [], medium: [], strong: [] };
     bundles.forEach((b: any) => {
-      healthBundles.push({ id: b.id, label: b.label });
+      // The full bundle row (id/label/readiness/readiness_counts/members) is
+      // kept, not just id/label, so the context rail can read a bundle's
+      // readiness and counts without a second fetch (Task 13).
+      healthBundles.push(b);
       const bucket = groups[b.readiness];
       if (bucket) bucket.push(b);
     });
@@ -653,6 +748,8 @@ export async function systemBootstrap(): Promise<void> {
     else renderGuideFallback();
     renderNotApplicable('panelStory', 'Not applicable for a bundle:/sr: scope. See the Story tab for a task: scope.');
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
+    renderContextRailMembership(brief);
+    renderContextRailNextStep(brief);
     // Record the trace-able SR refs for this scope so the lazy Trace tab knows
     // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
     // come from the matrix rows, in payload order.
@@ -679,7 +776,7 @@ export async function systemBootstrap(): Promise<void> {
       });
       if (!travRes.ok) throw new Error(String(travRes.status));
       const traversal = await travRes.json();
-      if (isCurrentNavigation(generation, scopeRef)) renderTraversal(traversal);
+      if (isCurrentNavigation(generation, scopeRef)) renderTraversal(traversal, scopeRef);
     } catch {
       if (isCurrentNavigation(generation, scopeRef)) {
         renderTraversalStatus('Traversal is unavailable for this scope.');
@@ -709,6 +806,7 @@ export async function systemBootstrap(): Promise<void> {
     resetScopeEvidence(scopeRef);
     showWorkspace();
     setScopeHeading(scopeRef);
+    renderContextRail(scopeRef);
     selectInitialTab(defaultTab(kind), updateUrl);
     setLoading(true);
     try {
@@ -840,7 +938,7 @@ export async function systemBootstrap(): Promise<void> {
     node.appendChild(status);
   }
 
-  function renderTraversal(trav: any): void {
+  function renderTraversal(trav: any, scopeRef: string): void {
     const node = traversalNode();
     clear(node);
     function addStep(label: string, values: string[]): void {
@@ -855,6 +953,11 @@ export async function systemBootstrap(): Promise<void> {
         stepValue.appendChild(boundedList(values));
       } else {
         stepValue.appendChild(document.createTextNode('Not recorded'));
+        // REMEDIATION.states.no_traversal_step names exactly this gap ("One
+        // step of the working traversal ... came back with no values --
+        // rendered as 'Not recorded' for that step"); pair the text with its
+        // Next step block rather than leaving the sentence to stand alone.
+        stepValue.appendChild(nextStepBlock('no_traversal_step', scopeRef));
       }
       step.appendChild(stepLabel);
       step.appendChild(stepValue);

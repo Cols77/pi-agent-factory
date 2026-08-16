@@ -8,7 +8,7 @@ describe("system navigator visual identity", () => {
   it("renders distinct landing and focus workspaces immediately", () => {
     expect(html).not.toContain('<section id="content" hidden>');
     expect(html).toContain('id="landingPanel"');
-    expect(html).toContain('id="scopeWorkspace" hidden');
+    expect(html).toContain('id="scopeWorkspace" class="workspace-split" hidden');
     expect(html).toContain('id="healthStatus"');
     expect(html).toContain('id="retryHealth"');
   });

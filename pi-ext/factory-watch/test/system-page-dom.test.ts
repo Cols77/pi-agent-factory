@@ -442,8 +442,17 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     const designStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Design")!;
     expect(designStep).toBeTruthy();
     const value = designStep.querySelector(".trace-spine-value")!;
-    expect(value.textContent).toBe("Not recorded");
     expect(value.querySelector(".bounded-list")).toBeNull();
+    // The literal "Not recorded" text node is still present verbatim...
+    const notRecordedNode = Array.from(value.childNodes).find(
+      (node) => node.nodeType === 3 && node.textContent === "Not recorded"
+    );
+    expect(notRecordedNode).toBeTruthy();
+    // ...paired with a Next step block (Task 13: REMEDIATION.states.no_traversal_step),
+    // so the gap it names is never left as a bare, unactionable sentence.
+    const nextStep = value.querySelector(".next-step");
+    expect(nextStep).not.toBeNull();
+    expect(nextStep?.textContent).toContain("NEXT STEP");
     // Sibling steps with data are unaffected by the empty one.
     const filesStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Files")!;
     expect(filesStep.querySelector(".trace-spine-value .bounded-list")).not.toBeNull();
