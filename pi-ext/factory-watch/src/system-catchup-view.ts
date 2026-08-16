@@ -107,6 +107,96 @@ function metricRows(metricChanges: any[]): HTMLElement {
   return list;
 }
 
+export function renderCatchupFreshness(el: HTMLElement, delta: any): void {
+  const { section, body } = catchupSection('Freshness');
+  const closure = delta.freshness_closure_reached;
+  const closureRow = document.createElement('div');
+  closureRow.className = 'catchup-row' + (closure ? ' is-passed' : ' is-regression');
+  const label = document.createElement('span');
+  label.className = 'catchup-row-label';
+  label.appendChild(document.createTextNode('freshness closure'));
+  closureRow.appendChild(label);
+  const value = document.createElement('span');
+  value.className = 'catchup-row-value';
+  value.appendChild(document.createTextNode(closure ? 'REACHED' : 'NOT REACHED'));
+  closureRow.appendChild(value);
+  body.appendChild(closureRow);
+  const lists: Array<[string, any[]]> = [
+    ['automatically invalidated', delta.invalidated ?? []],
+    ['automatically refreshed', delta.auto_refreshed ?? []],
+    ['refresh required', delta.refresh_required ?? []],
+    ['blocked refreshes', delta.blocked_refreshes ?? []],
+  ];
+  lists.forEach(([title, items]) => {
+    if (!items.length) return;
+    body.appendChild(catchupRow(title, String(items.length)));
+    const list = document.createElement('div');
+    list.className = 'catchup-list';
+    items.forEach((item: string) => {
+      const line = document.createElement('div');
+      line.className = 'catchup-item';
+      line.appendChild(document.createTextNode(item));
+      list.appendChild(line);
+    });
+    body.appendChild(list);
+  });
+  el.appendChild(section);
+}
+
+export function renderCatchupDiagram(el: HTMLElement, diagram: any): void {
+  // D7: embed/link the canonical committed diagram HTML only, never a
+  // re-derived graph. Reuses the Diagram view's embed pattern (Inc 6).
+  const { section, body } = catchupSection('Diagram');
+  if (diagram && diagram.diagram_path) {
+    const embed = document.createElement('iframe');
+    embed.className = 'catchup-diagram-embed';
+    embed.setAttribute('src', diagram.diagram_path);
+    embed.setAttribute('title', diagram.title ?? diagram.id);
+    embed.setAttribute('aria-label', 'Diagram ' + (diagram.id ?? ''));
+    body.appendChild(embed);
+    const open = document.createElement('a');
+    open.className = 'catchup-diagram-open';
+    open.href = diagram.diagram_path;
+    open.appendChild(document.createTextNode('Open diagram (' + diagram.diagram_path + ')'));
+    body.appendChild(open);
+  } else {
+    const missing = document.createElement('span');
+    missing.className = 'catchup-empty';
+    missing.appendChild(document.createTextNode('missing diagram'));
+    body.appendChild(missing);
+    if (diagram && diagram.errors) {
+      (diagram.errors as string[]).forEach((error: string) => {
+        const line = document.createElement('div');
+        line.className = 'catchup-item';
+        line.appendChild(document.createTextNode(error));
+        body.appendChild(line);
+      });
+    }
+  }
+  el.appendChild(section);
+}
+
+export function renderCatchupComprehension(el: HTMLElement, feature: string): void {
+  // D8: an explicit, optional comprehension entry -- never auto-run, never a
+  // stored score. Clicking reveals the grill-understanding prompt.
+  const wrapper = document.createElement('div');
+  wrapper.className = 'catchup-verify';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.appendChild(document.createTextNode('Verify my understanding'));
+  button.onclick = () => {
+    if (wrapper.querySelector('.catchup-verify-note')) return;
+    const note = document.createElement('div');
+    note.className = 'catchup-verify-note';
+    note.appendChild(document.createTextNode(
+      'Prompt for a pi session: "Verify my understanding of ' + feature + ' (grill-understanding)".'
+    ));
+    wrapper.appendChild(note);
+  };
+  wrapper.appendChild(button);
+  el.appendChild(wrapper);
+}
+
 export function renderCatchup(el: HTMLElement, payload: any): void {
   clear(el);
 
@@ -210,6 +300,14 @@ export function renderCatchup(el: HTMLElement, payload: any): void {
   const { section: openSection, body: openBody } = catchupSection('New open items');
   openBody.appendChild(textList(delta.new_open_items ?? []));
   el.appendChild(openSection);
+
+  // Inc 7 Task 5k/5b: the freshness outcome and the D7 diagram are part of
+  // the delta view; the comprehension entry is explicit and optional (D8).
+  renderCatchupFreshness(el, delta);
+  if (payload.diagram !== null && payload.diagram !== undefined) {
+    renderCatchupDiagram(el, payload.diagram);
+  }
+  renderCatchupComprehension(el, payload.feature);
 }
 
 export { catchupRow, metricRows, refLine as catchupRefLine, textList as catchupTextList, catchupSection };

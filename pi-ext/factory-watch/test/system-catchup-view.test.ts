@@ -133,3 +133,87 @@ test("does not render an open-anchor without a goal chip helper", () => {
   const { el } = mount(CATCHUP);
   expect(el.querySelectorAll(".catchup-ref-line").length).toBeGreaterThanOrEqual(1);
 });
+
+// ── Inc 7 Task 5k/5b: freshness, diagram, comprehension ────────────────────
+
+const FRESH_DELTA = {
+  feature: "FEAT-NAV-017",
+  reviewed: true,
+  since_commit: "a".repeat(40),
+  delta: {
+    feature: "FEAT-NAV-017",
+    since_commit: "a".repeat(40),
+    prs_merged: [],
+    requirements_changed: ["SR-017"],
+    adrs_added: [],
+    scenarios_added: [],
+    goals_reached: [],
+    goals_regressed: [],
+    metric_changes: [],
+    new_open_items: [],
+    invalidated: ["run:RUN-20260816-0100", "explainer:NAV-PREEMPTION.md"],
+    auto_refreshed: ["explainer:NAV-PREEMPTION.md"],
+    refresh_required: ["code:src/navigation/preemption.py"],
+    blocked_refreshes: ["run:RUN-20260816-0100"],
+    freshness_closure_reached: false,
+  },
+  diagram: {
+    id: "DIAG-NAV-009",
+    title: "Nav pre-emption",
+    diagram_path: "docs/diagrams/DIAG-NAV-009.html",
+    errors: [],
+  },
+};
+
+test("renders the freshness section from the 5k delta fields", () => {
+  const { el } = mount(FRESH_DELTA);
+  const text = el.textContent ?? "";
+  expect(text).toContain("Freshness");
+  expect(text).toContain("NOT REACHED");
+  expect(text).toContain("run:RUN-20260816-0100");
+  expect(text).toContain("explainer:NAV-PREEMPTION.md");
+  expect(text).toContain("code:src/navigation/preemption.py");
+});
+
+test("renders REACHED closure when the delta says so", () => {
+  const payload = JSON.parse(JSON.stringify(FRESH_DELTA));
+  payload.delta.freshness_closure_reached = true;
+  payload.delta.invalidated = [];
+  payload.delta.auto_refreshed = [];
+  payload.delta.refresh_required = [];
+  payload.delta.blocked_refreshes = [];
+  const { el } = mount(payload);
+  expect(el.textContent ?? "").toContain("REACHED");
+});
+
+test("embeds the feature diagram when the payload carries it", () => {
+  const { el } = mount(FRESH_DELTA);
+  const embed = el.querySelector(".catchup-diagram-embed") as HTMLElement | null;
+  expect(embed).not.toBeNull();
+  expect(embed?.getAttribute("src")).toBe("docs/diagrams/DIAG-NAV-009.html");
+  const open = el.querySelector(".catchup-diagram-open") as HTMLElement | null;
+  expect(open?.getAttribute("href")).toBe("docs/diagrams/DIAG-NAV-009.html");
+});
+
+test("renders the missing-diagram state honestly", () => {
+  const payload = JSON.parse(JSON.stringify(FRESH_DELTA));
+  payload.diagram = { id: "DIAG-NAV-009", title: "D", diagram_path: null, errors: ["html missing"] };
+  const { el } = mount(payload);
+  const text = el.textContent ?? "";
+  expect(text).toContain("missing diagram");
+  expect(text).toContain("html missing");
+});
+
+test("verify-my-understanding reveals the grill prompt on click (never auto-runs)", () => {
+  const { el, dom } = mount(FRESH_DELTA);
+  const button = el.querySelector(".catchup-verify button") as HTMLButtonElement | null;
+  expect(button).not.toBeNull();
+  expect(el.querySelector(".catchup-verify-note")).toBeNull();
+  button?.click();
+  const note = el.querySelector(".catchup-verify-note");
+  expect(note).not.toBeNull();
+  expect(note?.textContent ?? "").toContain("grill-understanding");
+  // Clicking again does not duplicate the prompt.
+  button?.click();
+  expect(el.querySelectorAll(".catchup-verify-note").length).toBe(1);
+});

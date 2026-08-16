@@ -16,7 +16,7 @@ import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, short
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
 import { renderDiagram } from './system-diagram-view.js';
-import { catchupRow, catchupRefLine, catchupSection, catchupTextList, metricRows, renderCatchup } from './system-catchup-view.js';
+import { catchupRow, catchupRefLine, catchupSection, catchupTextList, metricRows, renderCatchup, renderCatchupComprehension, renderCatchupDiagram, renderCatchupFreshness } from './system-catchup-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -153,6 +153,9 @@ function clientSource(): string {
     renderSim,
     renderDiagram,
     renderCatchup,
+    renderCatchupFreshness,
+    renderCatchupDiagram,
+    renderCatchupComprehension,
     catchupRow,
     metricRows,
     catchupRefLine,
