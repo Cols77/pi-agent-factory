@@ -253,6 +253,21 @@ def lines_end_byte(source: str, end_row: int) -> int:
     return len(source)
 
 
+def preferred_engine() -> str:
+    """Which extraction engine is available in THIS interpreter right now.
+
+    Probes the tree-sitter stack exactly the way \"tree-sitter\" is exercised
+    during a build (same per-language packages, same bundle fallback), so the
+    value always agrees with what a fresh build would report. Pure probe: no
+    filesystem, no index, no side effects. Returns \"stdlib-ast\" when the
+    grammars are missing or ABI-incompatible."""
+    try:
+        _get_parser(detect_language(Path("probe.py")) or "python")
+        return "tree-sitter"
+    except Exception:
+        return "stdlib-ast"
+
+
 def extract_signatures(
     path: Path, source: str, max_sigs: int = 40, max_chars: int = 200000
 ) -> tuple[str, list[dict]]:

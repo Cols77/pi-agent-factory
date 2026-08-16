@@ -7,7 +7,7 @@ from factory.codeindex.build import (
     render_index_slice,
 )
 from factory.codeindex.model import CodeIndex, IndexFile, IndexSignature
-from factory.codeindex.sigs import detect_language, extract_signatures
+from factory.codeindex.sigs import detect_language, extract_signatures, preferred_engine
 from factory.codeindex.store import ensure_fresh, load_latest, save_index
 
 __all__ = [
@@ -25,4 +25,5 @@ __all__ = [
     "IndexSignature",
     "detect_language",
     "extract_signatures",
+    "preferred_engine",
 ]
