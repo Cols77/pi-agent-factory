@@ -30,7 +30,7 @@
 3. `src/factory/system/cli.py` has NO `_emit`. Dispatch is a flat `if/elif` on **`args.cmd`** that assigns `result`/`rendered` and falls through to a shared print. Every subcommand has a `cmd_*` wrapper.
 4. The adr `AssertionError` is at **`queries.py:1037`**, not `:1011`.
 5. `TABS_BY_KIND` (`system-bootstrap.ts:548`) holds **thirteen** ids: `Brief, Matrix, Timeline, Guide, Trace, Vcycle, Validation, Feature, Story, Reverse, Goal, Sim, Diagram`.
-6. `renderTraversal` (`system-bootstrap.ts:1130`) is an INNER function of `systemBootstrap` — not exported, not importable. Test it through `loadPage(opts)` in `test/system-page-dom.test.ts`, which already accepts `opts.traversal`.
+6. `renderTraversal` (`system-bootstrap.ts:1233` -- NOT 1130, which is inside `loadTrace`) is an INNER function of `systemBootstrap` — not exported, not importable. Test it through `loadPage(opts)` in `test/system-page-dom.test.ts`, which already accepts `opts.traversal`.
 7. A delegated SPA handler for `a.scope-open` + `data-scope` already exists at `system-bootstrap.ts:623`. Reuse it; do not write new navigation.
 8. `system-bootstrap.ts:451` wraps `refChip(ref)` inside its own `<a>` — this becomes nested anchors once chips are anchors.
 9. `ensureCardController`'s document click handler (`system-comprehension.ts:585`) neither `preventDefault`s nor `stopPropagation`s.
@@ -91,7 +91,10 @@ Note there is an EXISTING test asserting >280 chars becomes a load error. **Inve
 `.chip-title` stops clipping by default; keep ellipsis ONLY in the matrix subject column:
 
 ```css
-  .ref-chip .chip-title { overflow-wrap: anywhere; }
+  /* min-width: 0 MUST stay -- .ref-chip is inline-flex, and a flex child without
+     it will not shrink below its content width, reintroducing the per-element
+     overflow Increment 1 fixed and failing Task 9's containment gate. */
+  .ref-chip .chip-title { min-width: 0; overflow-wrap: anywhere; }
   .matrix-subject .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ```
 
@@ -149,6 +152,12 @@ test("a non-openable ref stays a span with button semantics", () => {
 test("clicking an anchor chip navigates and does not toggle the card", () => {
   // dispatch a click on an anchor chip; assert no .info-card is created
 });
+
+test("hover and keyboard focus still open the card for an ANCHOR chip", () => {
+  // the controller matches `.ref-chip[data-ref]`; an anchor missing data-ref
+  // would silently never open. Assert both mouseover (after the 120ms delay)
+  // and focusin produce an .info-card for the anchor form.
+});
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -169,6 +178,20 @@ In `refChip`, when the resolved entry has a non-null `scope_href`:
   // navigation path. Without it the href would hard-reload and discard page state.
   el.setAttribute('data-scope', entry.ref);
   el.setAttribute('aria-describedby', 'system-info-card');
+  // REQUIRED: the card controller matches `.ref-chip[data-ref]`
+  // (system-comprehension.ts:496). Without data-ref, hover and keyboard focus
+  // silently stop opening the card for anchor chips -- the exact behaviour this
+  // task mandates two paragraphs below.
+  el.dataset.ref = entry.ref;
+```
+
+**Neutralise the inherited `.scope-open` styling.** That class already exists as a
+plain-link style (`system-shell.ts:643`: mono 12px, signal colour, dotted underline)
+used by `system-renderers.ts:568`. Combined with `.ref-chip` it would make anchor chips
+look nothing like span chips. Add a more specific rule so the chip keeps its own look:
+
+```css
+  .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
 ```
 
 Otherwise build the `<span role="button" aria-expanded="false">` exactly as today.
@@ -187,10 +210,18 @@ Hover and keyboard focus must still open the card for BOTH forms — do not gate
 ```ts
         // refChip is itself the link now; wrapping it in another <a> would nest
         // interactive elements and race two click handlers.
-        row.appendChild(refChip(ref));
+        const chip = refChip(ref);
+        // KEEP the scope-item class: `markActiveScope` (system-bootstrap.ts:138,190)
+        // and the arrow-key sidebar navigation (:672,:675) both select on it. Dropping
+        // it silently breaks current-scope highlighting and keyboard nav for this list.
+        chip.classList.add('scope-item');
+        row.appendChild(chip);
 ```
 
 Delete that site's own `href`/`preventDefault`/`loadScope` handler — the delegated one covers it.
+
+`test/system-page-navigation.test.ts:118` asserts `#scopeList .scope-item` count; it must
+still pass, which the `classList.add` above ensures. Add that file to this task's test list.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -329,12 +360,17 @@ def test_every_panel_entry_has_both_sentences():
 // test/system-page-dom.test.ts — the completeness test lives HERE, not in Python:
 // TABS_BY_KIND exists only in TypeScript, and mirroring it in Python would
 // reintroduce exactly the drift this guards.
+//
+// KEY BY THE ELEMENT ID, NOT aria-label. Two tabs disagree:
+//   id="tabVcycle" aria-label="V-cycle"   (TABS_BY_KIND says "Vcycle")
+//   id="tabSim"    aria-label="Simulation" (TABS_BY_KIND says "Sim")
+// `id.slice(3)` yields exactly the TABS_BY_KIND id for all thirteen.
 test("every rendered tab has an orientation line", async () => {
   const dom = await loadPage({ scope: "bundle:b1" });
   const doc = dom.window.document;
   doc.querySelectorAll('[role="tab"]').forEach((tab) => {
-    const id = tab.getAttribute("aria-label")!;
-    expect(PANELS_DATA[id], `no orientation for tab ${id}`).toBeTruthy();
+    const key = tab.id.slice(3);            // tabVcycle -> Vcycle
+    expect(PANELS_DATA.panels[key], `no orientation for tab ${key}`).toBeTruthy();
   });
 });
 
@@ -361,7 +397,10 @@ The spec's revision-2 table carries fact-checked wording for the first seven. **
 
 Register the CLI subcommand following the `vocabulary` pattern already in `cli.py` (a `cmd_panels` wrapper plus an `elif args.cmd == "panels"` branch that assigns `result`/`rendered` and falls through — no early `return`).
 
-Mirror into `system-vocabulary-data.ts` as `PANELS_DATA`, and extend `test_table_drift.py` to cover it — the existing drift test's shape applies directly.
+Mirror into `system-vocabulary-data.ts` as `PANELS_DATA`. **Use the SAME wrapped shape
+the other two tables use** — `{"version": 1, "panels": PANELS}` — so `test_table_drift.py`'s
+existing `_extract()` mechanism extends unchanged. Read it as `PANELS_DATA.panels[key]`,
+never flat.
 
 `system-shell.ts` — add `<p id="panelOrientation" class="panel-orientation"></p>` directly beneath the tab strip, and:
 
@@ -400,14 +439,14 @@ git commit -m "feat(system): every panel states what it shows and how to read it
 ```python
 def test_shape_sentence_states_what_the_project_is_made_of(tmp_path):
     # seed 2 SRs, 1 bundle containing them, 1 task satisfying one
-    payload = query_health(tmp_path)
+    payload = health.query_health(tmp_path)   # test_health.py imports the MODULE, not the fn
     s = payload["shape"]["sentence"]
     assert "2 requirements" in s
     assert "1 feature" in s
     assert "1 task" in s
 
 def test_shape_sentence_is_honest_with_no_bundles(tmp_path):
-    payload = query_health(tmp_path)
+    payload = health.query_health(tmp_path)
     assert "no features yet" in payload["shape"]["sentence"]
 ```
 
@@ -419,6 +458,23 @@ Expected: FAIL — `KeyError: 'shape'`.
 - [ ] **Step 3: Implement**
 
 In `health.py`, compose from counts the projection already has — requirement total from `coverage`, feature count from `bundles`, task total, and the validated count from the `SR validated` class:
+
+**Exact payload key paths** — `query_health` has no `requirements`/`features`/`tasks`
+keys; do not guess. `payload["health"]["satisfied"]` is a SUM across all five classes,
+not a requirement count, and using it yields a wrong sentence rather than a crash:
+
+| Count | Path |
+|---|---|
+| requirements | `payload["coverage"]["kinds"]` entry with `kind == "sr"` → `.total` |
+| features | `len(payload["bundles"])` |
+| tasks | `payload["coverage"]["kinds"]` entry with `kind == "task"` → `.total` |
+| validated | `payload["health"]["classes"]` entry with `name == "SR validated"` → `.satisfied` |
+
+**Pluralise every count.** The skeleton below is deliberately NOT correct — it hardcodes
+plurals. "1 requirements" would undercut the whole point of the sentence. And the tests
+above pass against the buggy `"1 features"` because `"1 feature"` is a substring of it:
+assert `"1 feature,"` with the punctuation, or compare the whole sentence, and add a
+singular case per count.
 
 ```python
 def _shape_sentence(requirements: int, features: int, tasks: int, validated: int) -> str:
@@ -495,7 +551,23 @@ Expected: FAIL with `AssertionError: unexpected member kind: 'adr'`.
                 resolution = _resolve_adr_member(member, identifier, repo_root)
 ```
 
-An ADR that does not resolve produces a `missing` claim with the bundle citation — the same shape `bundles.py` already uses for an unresolvable member ref. It must NOT raise.
+`_resolve_adr_member` must return a `_MemberResolution` (`queries.py:412`) — read that
+dataclass and a sibling resolver before writing it. Four things the one-line snippet
+above does not tell you:
+
+1. **It needs the bundle's own citation.** An unresolved ADR produces a `missing` claim
+   carrying `citations=[citation]` — the shape `bundles.py:116-130` already uses for an
+   unresolvable member ref — so the signature must take the citation (or the bundle).
+2. **`CitationKind` has no `adr` member** (`models.py:41`: manifest, task, requirement,
+   validation, review, decision, trace, bundle, session). Use `DECISION` — an ADR *is* a
+   decision record — and say so in a comment.
+3. **Load ADRs once per `query_brief` call**, cached the way `trace_nodes` is at
+   `queries.py:1032`, not once per member.
+4. **`adr_module.load_adrs()` can raise `DuplicateAdrIdError`** (`adr.py:122`). This task
+   requires Brief must NOT raise, so catch it and degrade to a `missing` claim naming
+   the duplicate.
+
+It must NOT raise under any input.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -523,7 +595,10 @@ git commit -m "fix(system): resolve adr bundle members instead of crashing the B
 
 ```python
 def test_a_file_path_colliding_with_a_bare_id_is_recorded_not_silently_shadowed(tmp_path):
-    # a manifest whose changed_files contains a path exactly equal to a task id
+    # Both fixtures exist under these exact names -- seed them, do not hand-wave:
+    # a task at T-060, and a manifest whose changed_files holds the literal "T-060".
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
+    _fixtures.write_run_manifest(tmp_path, changed_files=["T-060"])
     payload = build_labels(tmp_path)
     assert payload["aliases"]["T-060"] == "task:T-060"      # the artifact wins
     assert any("collision" in d for d in payload["degraded"])
@@ -586,12 +661,21 @@ Three decisions only: **Plain** (rewrite in words a newcomer knows), **Contract 
 
 - [ ] **Step 2: Write a test that pins the landing instruction**
 
+The paragraph you are pinning is `system-shell.ts:683` and currently has **no class**:
+`<p>Start with weak or unbundled features, then follow their evidence spine.</p>`.
+Add `class="landing-lead"` to it as part of this task, or the regex below matches
+nothing, `lead` falls back to `""`, and every assertion passes vacuously from the moment
+it is written — a test that can never fail. Confirm it FAILS before rewriting the
+sentence.
+
 ```ts
 test("the landing's first instruction uses no undefined tool vocabulary", () => {
   const html = renderSystemPageHtml();
-  const lead = html.match(/<p class="landing-lead">([^<]*)</)?.[1] ?? "";
+  const m = html.match(/<p class="landing-lead">([^<]*)</);
+  expect(m, "landing-lead paragraph not found -- add the class first").not.toBeNull();
+  const lead = m![1].toLowerCase();
   ["evidence spine", "unbundled", "weak"].forEach((jargon) => {
-    expect(lead.toLowerCase()).not.toContain(jargon);
+    expect(lead).not.toContain(jargon);
   });
 });
 ```
