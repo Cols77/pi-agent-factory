@@ -669,6 +669,36 @@ git commit -m "fix(system): alias collision guard, remaining absence states, dea
 - Modify: `pi-ext/factory-watch/src/system-shell.ts`, `system-renderers.ts`, `system-bootstrap.ts` (literal strings only)
 - Test: `pi-ext/factory-watch/test/system-page-visual-identity.test.ts`
 
+### Scope extension — the Python prose tables are in scope too
+
+Seen rendered on `bundle:reactive-planner` after Task 3, the Design step's Next step
+reads:
+
+> "One step of the working traversal (tasks, design, or files) came back with no values
+> -- rendered as 'Not recorded' for that step (system-bootstrap.ts renderTraversal /
+> addStep). The requirement -> tasks -> design -> files spine has a gap at this step, so
+> the working traversal stops short."
+
+That cites **source files and internal function names** to a reader who has never seen
+this codebase. `remediation.py`'s `what_it_means` / `why_it_matters` and `vocabulary.py`'s
+`definition` fields were authored in Increment 1 for a developer audience, and the
+original scope of this task covered only the shell's literal strings.
+
+Audit those two tables' USER-FACING prose fields as well, by the same three-way
+decision. Specifically:
+
+- Strip `file.py` / `functionName` citations from `what_it_means` and `why_it_matters`.
+  The provenance belongs in `computed_by`, which is already a separate field and is
+  where a curious reader can find it — not in the sentence a newcomer reads first.
+- Lead with what the reader can DO, not with what the renderer did. "No design decision
+  is linked to this requirement yet" beats "one step of the working traversal came back
+  with no values".
+- Contract words still stay (`recorded`, `deferred`, `never-run`); the sentences around
+  them get rewritten.
+
+Do NOT touch `computed_by`, `siblings`, `command`, `command_kind`, or `severity` — only
+the prose a user reads.
+
 - [ ] **Step 1: Produce the audit table FIRST**
 
 Before changing anything, walk every literal user-facing string in those three files and record a decision per string in your report:
