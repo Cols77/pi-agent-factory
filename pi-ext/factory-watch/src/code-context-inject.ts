@@ -14,6 +14,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { BeforeAgentStartEventResult } from "./pi-types.js";
+
 /** Path to the index marker (JSON) that factory.codeindex writes on build. */
 export function indexMarkerPath(root: string): string {
   return join(root, ".factory", "code-index", "latest.json");
@@ -21,6 +23,7 @@ export function indexMarkerPath(root: string): string {
 
 /** Whether this project has any durable code index at all. */
 export function hasCodeIndex(root: string): boolean {
+  if (typeof root !== "string" || root === "") return false;
   try {
     readFileSync(indexMarkerPath(root), "utf-8");
     return true;
@@ -69,4 +72,32 @@ export function shouldInject(
   if (collected.has(key)) return false;
   collected.add(key);
   return true;
+}
+
+/**
+ * Compose the before_agent_start injection result for a project: a bounded
+ * slice of its durable code index, delivered once per (root, sessionId). Pure
+ * and unit-testable — the pi handler is a thin wrapper around it.
+ *
+ * Returns {} (no injection) when the project has no index, the session was
+ * already injected, or the slice comes back empty. `renderSlice` is injectable
+ * so tests never spawn python.
+ */
+export function composeCodeContextMessage(
+  root: string,
+  sessionId: string | undefined,
+  injectedSessions: Set<string>,
+  renderSlice: (root: string) => string = renderIndexSlice,
+): BeforeAgentStartEventResult | Record<string, never> {
+  if (!hasCodeIndex(root)) return {}; // project has no factory code index
+  if (!shouldInject(injectedSessions, root, sessionId)) return {};
+  const slice = renderSlice(root);
+  if (!slice) return {};
+  return {
+    message: {
+      customType: "factory-code-context",
+      content: slice,
+      display: false, // don't clatter the TUI; the slice is agent-only
+    },
+  };
 }

@@ -21,9 +21,7 @@ import {
 } from "./factory-init.js";
 import { subagentTool } from "./subagent-tool.js";
 import {
-  hasCodeIndex,
-  renderIndexSlice,
-  shouldInject,
+  composeCodeContextMessage,
 } from "./code-context-inject.js";
 import {
   ALL_FEEDS,
@@ -196,20 +194,12 @@ export function registerFactoryInit(pi: PiApi): void {
   const injectedSessions = new Set<string>();
   pi.on("before_agent_start", (_event, ctx) => {
     try {
-      const root = resolveProjectRoot(ctx.cwd);
-      if (!hasCodeIndex(root)) return {}; // project has no factory code index
-      if (!shouldInject(injectedSessions, root, ctx.sessionManager?.getSessionId())) {
-        return {};
-      }
-      const slice = renderIndexSlice(root);
-      if (!slice) return {};
-      return {
-        message: {
-          customType: "factory-code-context",
-          content: slice,
-          display: false, // don't clatter the TUI; the slice is agent-only
-        },
-      };
+      const { root } = resolveProjectRoot(ctx.cwd);
+      return composeCodeContextMessage(
+        root,
+        ctx.sessionManager?.getSessionId(),
+        injectedSessions,
+      );
     } catch {
       return {}; // never take the session down over an injection
     }

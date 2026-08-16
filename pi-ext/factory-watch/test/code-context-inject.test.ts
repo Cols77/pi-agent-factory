@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  composeCodeContextMessage,
   hasCodeIndex,
   indexMarkerPath,
   shouldInject,
@@ -36,5 +37,48 @@ describe("code-context-inject", () => {
     expect(shouldInject(collected, "", "s1")).toBe(false);
     expect(shouldInject(collected, "C:/a", undefined)).toBe(false);
     expect(collected.size).toBe(0);
+  });
+});
+
+describe("composeCodeContextMessage", () => {
+  const slice = () => "### REFERENCE (indexed) src/a.py - L1 def f(): x";
+  const rootWithIndex = (): string => {
+    const root = mkdtempSync(join(tmpdir(), "cci2-"));
+    const dir = join(root, ".factory", "code-index");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "latest.json"), "{}", "utf-8");
+    return root;
+  };
+
+  it("injects a code-context message once per (root, sessionId)", () => {
+    const root = rootWithIndex();
+    const collected = new Set<string>();
+    const first = composeCodeContextMessage(root, "s1", collected, slice);
+    expect("message" in first).toBe(true);
+    const msg = (first as { message: { customType: string; content: string } }).message;
+    expect(msg.customType).toBe("factory-code-context");
+    expect(msg.content).toContain("REFERENCE (indexed)");
+    // second call: already injected for this session
+    expect(composeCodeContextMessage(root, "s1", collected, slice)).toEqual({});
+  });
+
+  it("returns {} without an index marker", () => {
+    const root = mkdtempSync(join(tmpdir(), "cci2-"));
+    expect(composeCodeContextMessage(root, "s1", new Set(), slice)).toEqual({});
+  });
+
+  it("returns {} for an empty slice", () => {
+    const root = rootWithIndex();
+    expect(composeCodeContextMessage(root, "s1", new Set(), () => "")).toEqual({});
+  });
+
+  it("returns {} when the root is not a string (regression: object-vs-string bug)", () => {
+    // resolveProjectRoot returns { root, method }; passing the object used to throw
+    // ERR_INVALID_ARG_TYPE inside hasCodeIndex and abort the whole injection.
+    const objectRoot = { root: "C:/proj", method: "git" };
+    expect(() =>
+      composeCodeContextMessage(objectRoot as unknown as string, "s1", new Set(), slice),
+    ).not.toThrow();
+    expect(composeCodeContextMessage(objectRoot as unknown as string, "s1", new Set(), slice)).toEqual({});
   });
 });
