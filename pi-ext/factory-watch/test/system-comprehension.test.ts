@@ -480,7 +480,16 @@ test("an absence uses the dashed rail, not the failure rail", () => {
   expect(empty.className).not.toContain("is-failure");
 });
 
-test("renderBrief's empty state gets the dashed rail and a matching next step", () => {
+test("renderBrief's empty state gets the dashed rail and a matching next step naming the bare id, not the prefixed ref", () => {
+  (globalThis as any).LABELS = {
+    ...((globalThis as any).LABELS),
+    "bundle:empty": {
+      ref: "bundle:empty", id: "empty", kind: "bundle", title: "Empty bundle",
+      description: null, description_source: null, deferral_reason: null,
+      status: null, relations: {}, path: "bundles/empty.json", scope_href: null,
+    },
+  };
+  (globalThis as any).ALIASES = { ...((globalThis as any).ALIASES), "bundle:empty": "bundle:empty" };
   renderBrief({
     scope: { kind: "bundle", ref: "bundle:empty" },
     member_of: [], claims: [], degraded: false, degraded_reasons: [],
@@ -489,7 +498,42 @@ test("renderBrief's empty state gets the dashed rail and a matching next step", 
   const empty = panel.querySelector(".empty")!;
   expect(empty.className).toContain("presence-rail is-absent");
   expect(panel.querySelectorAll(".next-step").length).toBe(1);
-  expect(panel.querySelector(".command-text")?.textContent).toContain("bundle:empty");
+  // no_claims's command is "/trace-fix {id}" -- the bare identifier the
+  // command actually accepts, not the "bundle:" prefixed ref call sites pass
+  // as `subject`.
+  expect(panel.querySelector(".command-text")?.textContent).toBe("/trace-fix empty");
+});
+
+test("nextStepBlock substitutes {id} with the bare identifier and {ref} with the canonical ref, independently", () => {
+  (globalThis as any).REMEDIATION = {
+    ...REMEDIATION_DATA,
+    states: {
+      ...REMEDIATION_DATA.states,
+      __test_both_tokens: {
+        state: "__test_both_tokens", headline: "test", what_it_means: "test", why_it_matters: "test",
+        command: "/trace-fix {id} --canonical {ref}", command_kind: "slash", severity: "absence",
+      },
+    },
+  };
+  const el = nextStepBlock("__test_both_tokens", "sr:SR-121");
+  expect(el.querySelector(".command-text")?.textContent).toBe("/trace-fix SR-121 --canonical sr:SR-121");
+});
+
+test("an unresolvable subject degrades the command to the raw string for both tokens, not a broken guess", () => {
+  (globalThis as any).REMEDIATION = {
+    ...REMEDIATION_DATA,
+    states: {
+      ...REMEDIATION_DATA.states,
+      __test_both_tokens: {
+        state: "__test_both_tokens", headline: "test", what_it_means: "test", why_it_matters: "test",
+        command: "/trace-fix {id} --canonical {ref}", command_kind: "slash", severity: "absence",
+      },
+    },
+  };
+  const el = nextStepBlock("__test_both_tokens", "sr:SR-999-unknown");
+  expect(el.querySelector(".command-text")?.textContent).toBe(
+    "/trace-fix sr:SR-999-unknown --canonical sr:SR-999-unknown",
+  );
 });
 
 test("renderMatrix's empty state gets the dashed rail and a matching next step", () => {

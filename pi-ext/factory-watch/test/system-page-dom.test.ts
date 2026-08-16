@@ -544,4 +544,82 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(chip.className).toContain("is-absent");
     expect(chip.querySelector(".chip-title")?.textContent).toBe("label index unavailable");
   });
+
+  // Fix round 1 (Task 12): sidebar rows render the label and its readiness
+  // counts as two separate block-level elements, never one wrapping
+  // paragraph -- previously untested.
+  test("sidebar rows render the label and its counts as two separate blocks", async () => {
+    const dom = await loadPage();
+    const doc = dom.window.document;
+    const row = doc.querySelector('#scopeList .scope-item[data-kind="bundle"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    const label = row.querySelector(":scope > .scope-label");
+    const counts = row.querySelector(":scope > .readiness-counts");
+    expect(label).not.toBeNull();
+    expect(counts).not.toBeNull();
+    expect(label?.textContent).toContain("Evidence lifecycle");
+    expect(counts?.textContent).toContain("1 SR");
+    // Exactly the two block children -- no stray text node makes it one
+    // wrapping paragraph in disguise.
+    expect(row.children.length).toBe(2);
+    expect(row.childNodes.length).toBe(row.children.length);
+  });
+
+  // Fix round 1 (Task 12): the dismissible landing orientation strip --
+  // previously untested. Shows by default, dismisses via "Hide this",
+  // persists the single localStorage key, and a fresh load with that key
+  // already set stays hidden.
+  test("the orientation strip shows once, dismisses via \"Hide this\", and persists across a fresh load", async () => {
+    const dom = await loadPage();
+    const doc = dom.window.document;
+    const strip = doc.getElementById("orientationStrip") as HTMLElement;
+    expect(strip).not.toBeNull();
+    expect(strip.hidden).toBe(false);
+    const dismiss = doc.getElementById("orientationDismiss") as HTMLButtonElement;
+    expect(dismiss?.textContent).toBe("Hide this");
+    dismiss.click();
+    expect(strip.hidden).toBe(true);
+    expect(dom.window.localStorage.getItem("system-nav-orientation-dismissed")).toBe("1");
+
+    // A fresh page load that already carries the dismissed key keeps the
+    // strip hidden from the start -- the one localStorage key persisting.
+    const html = renderSystemPageHtml();
+    const fetchMock2 = mockFetch();
+    const dom2 = new JSDOM(html, {
+      runScripts: "dangerously",
+      resources: "usable",
+      url: "http://localhost/system",
+      beforeParse(window) {
+        (window as unknown as { fetch: typeof fetch }).fetch = fetchMock2 as unknown as typeof fetch;
+        window.localStorage.setItem("system-nav-orientation-dismissed", "1");
+      },
+    });
+    await vi.waitFor(() => {
+      expect(dom2.window.document.getElementById("scopeList")?.children.length).toBeGreaterThan(0);
+    });
+    expect((dom2.window.document.getElementById("orientationStrip") as HTMLElement).hidden).toBe(true);
+  });
+
+  // Fix round 1 (Task 13): the readiness modifier must sit on the CONTAINER,
+  // matching the established pattern (feature-row/scope-item) -- the CSS is
+  // descendant-scoped (`.readiness-strong .feature-readiness`, `.readiness-medium
+  // .feature-readiness`, system-shell.ts). Without it every rail reading fell
+  // through to the base .feature-readiness colour (the weak colour) regardless
+  // of the actual value. jsdom doesn't apply the real stylesheet, so this
+  // asserts the class is present -- the thing that actually drives the colour
+  // -- rather than a computed colour, which keeps it robust.
+  test.each(["strong", "medium", "weak"] as const)(
+    "the context rail's readiness section carries readiness-%s on its container",
+    async (readiness) => {
+      const dom = await loadPage({
+        scope: "bundle:evidence-lifecycle",
+        health: { ...HEALTH, bundles: [{ ...HEALTH.bundles[0], readiness }] },
+      });
+      const doc = dom.window.document;
+      const readinessRow = doc.querySelector("#contextRail .context-rail-readiness");
+      expect(readinessRow).not.toBeNull();
+      expect(readinessRow?.className).toContain(`readiness-${readiness}`);
+      expect(readinessRow?.querySelector(".feature-readiness")?.textContent).toBe(readiness);
+    },
+  );
 });

@@ -304,9 +304,16 @@ export function nextStepBlock(state: string, subject?: string): HTMLElement {
   commandRow.appendChild(prompt);
 
   // Only the literal tokens {id} and {ref} are substituted, and only when a
-  // subject is known -- never a guess at what belongs there.
+  // subject is known. {id} is the bare identifier (SR-121, T-055); {ref} is
+  // the canonical prefixed ref (sr:SR-121) -- remediation.py's contract, and
+  // every call site here passes a prefixed ref as `subject`, so {id} must be
+  // resolved through the label entry's own `.id`, never guessed by string-
+  // splitting the ref. An unresolved subject falls back to the raw string for
+  // both tokens (never invented) -- a degraded command, not a broken one.
+  const idValue = (labelEntry && labelEntry.id) || subject;
+  const refValue = (labelEntry && labelEntry.ref) || subject;
   const substituted = subject
-    ? String(entry.command).split('{id}').join(subject).split('{ref}').join(subject)
+    ? String(entry.command).split('{id}').join(idValue).split('{ref}').join(refValue)
     : entry.command;
   const commandText = document.createElement('span');
   commandText.className = 'command-text';
