@@ -217,6 +217,17 @@ describe("renderSystemPageHtml", () => {
     expect(html).not.toMatch(/href="https?:/);
   });
 
+  test("never truncates a Matrix chip title -- .matrix-row is its own per-row grid so wrapping cannot break alignment", () => {
+    // Regression pin for the CSS override that clipped ref-chip titles on
+    // the Matrix tab (`.matrix-subject .chip-title { ... white-space:
+    // nowrap }`). `.ref-chip .chip-title { overflow-wrap: anywhere }`
+    // (which makes long titles wrap instead of clip) must not be beaten by
+    // a nowrap/ellipsis rule scoped to `.matrix-subject`.
+    expect(html).not.toMatch(/\.matrix-subject\s+\.chip-title\s*\{[^}]*white-space:\s*nowrap/);
+    expect(html).not.toMatch(/\.matrix-subject\s+\.chip-title\s*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(html).toMatch(/\.ref-chip\s+\.chip-title\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  });
+
   test("offers a scope picker and brief/matrix/timeline/guide tabs", () => {
     for (const id of [
       "picker", "scopeList", "scopeErrors", "content",
@@ -275,6 +286,11 @@ describe("renderSystemPageHtml", () => {
 
   test("never recomputes ordering -- events and rows are rendered in payload order", () => {
     expect(html).not.toContain(".sort(");
+  });
+
+  test("a health metric tile's rule comes straight from the vocabulary entry's denominator_rule field, never a browser-side regex slice of the full definition", () => {
+    expect(html).not.toContain("firstSentence");
+    expect(html).toContain("term.denominator_rule");
   });
 
   test("shows a degraded/stale banner from the payload, not a colour-only cue", () => {

@@ -26,6 +26,7 @@ import {
   humaniseGroup,
   infoCard,
   nextStepBlock,
+  readinessCountsGloss,
   refCardFields,
   refChip,
   renderVocabularyPanel,
@@ -92,6 +93,7 @@ function clientSource(): string {
     ensureCardController,
     closeOpenCard,
     glossFor,
+    readinessCountsGloss,
     definitionTrigger,
     withGloss,
     vocabularyBadgeFor,
@@ -473,7 +475,6 @@ export function renderSystemPageHtml(): string {
      it will not shrink below its content width, reintroducing the per-element
      overflow Increment 1 fixed and failing Task 9's containment gate. */
   .ref-chip .chip-title { min-width: 0; overflow-wrap: anywhere; }
-  .matrix-subject .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
@@ -655,6 +656,18 @@ export function renderSystemPageHtml(): string {
      style above -- higher specificity (two classes) wins regardless of
      declaration order. */
   .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
+  /* Unbundled sidebar rows add .scope-item to that same chip (system-bootstrap.ts's
+     unbundled-group loop), so the element carries all three classes at once.
+     .ref-chip.scope-open above and .scope-item / .scope-item:hover /
+     .scope-item.is-active above it are equal specificity (two classes each);
+     .ref-chip.scope-open wins purely on being declared later, silently
+     dropping .scope-item's own font and its hover/active colour. The
+     three-class selectors below outrank both without touching either rule
+     or reordering them, so a bare .ref-chip.scope-open (an inline citation
+     chip, never also a sidebar row) keeps its Task 2 styling untouched. */
+  .scope-item.ref-chip.scope-open { font: 13px/1.45 var(--font-body); }
+  .scope-item.ref-chip.scope-open:hover, .scope-item.ref-chip.scope-open:focus-visible { color: var(--text); }
+  .scope-item.ref-chip.scope-open.is-active, .scope-item.ref-chip.scope-open[aria-current="page"] { color: var(--text); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
