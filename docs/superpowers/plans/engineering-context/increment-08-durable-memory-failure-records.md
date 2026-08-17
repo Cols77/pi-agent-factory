@@ -99,12 +99,14 @@ def load_failures(root) -> dict[str, FailureRecord]
 
 ## Task 3: Conflict surfacing
 
-- [ ] **Step 1: Failing tests** — a memory note whose root cause contradicts current evidence/code
+- [x] **Step 1: Failing tests** — a memory note whose root cause contradicts current evidence/code
   fingerprints (reused `factory.freshness`) is surfaced as a `conflict` (both sides shown), never
   silently resolved; a note that agrees with evidence is not flagged.
-- [ ] **Step 2: Implement** `conflict.py`: compare a record's cited evidence/commit against current
+- [x] **Step 2: Implement** `conflict.py`: compare a record's cited evidence/commit against current
   state and, on mismatch, emit the pair (brief §5.6 "shows the conflict rather than choosing").
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
+  (commit 67b658b — `query_conflicts` merges structural + fingerprint conflicts; kinds
+  `code-changed` / `commit-unreachable` / `run-superseded`; both sides shown, never resolved)
 
 ## Task 4: `memory`/`failure` CLI + health orphans + optional Memory view
 
