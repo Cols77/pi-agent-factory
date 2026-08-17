@@ -677,11 +677,11 @@ export function renderSystemPageHtml(): string {
   <div id="banner" role="status"></div>
   <div id="layout">
     <aside id="picker">
-      <h2>Declared scopes</h2>
+      <h2>Features and artifacts</h2>
       <button id="scopeToggle" type="button" aria-expanded="false">Browse scopes</button>
       <nav aria-label="Scopes">
         <div class="search-row">
-          <input id="scopeFilter" type="search" placeholder="Search bundles or a ref…" aria-label="Filter scopes" />
+          <input id="scopeFilter" type="search" placeholder="Search bundles or an ID…" aria-label="Filter scopes" />
           <button id="searchGo" type="button">Go</button>
         </div>
         <div id="scopeList"></div>
@@ -693,10 +693,10 @@ export function renderSystemPageHtml(): string {
         <div class="landing-intro">
           <div class="eyebrow">PROJECT EVIDENCE</div>
           <h2 id="landingTitle">See the system clearly.</h2>
-          <p>Start with weak or unbundled features, then follow their evidence spine.</p>
+          <p class="landing-lead">Start with a feature that still needs work, or an artifact with no feature of its own, then open it to see what's missing.</p>
         </div>
         <div id="orientationStrip" class="orientation-strip" hidden>
-          <p>This page is the evidence behind what the system claims. Start with a weak or unbundled feature, open it, and follow its spine: requirement, tasks, decisions, files. Every term here is defined — select the ⓘ beside any badge.</p>
+          <p>This page is the evidence behind what the system claims. Start with a feature that still needs work, or an artifact with no feature of its own, and open it. From there you can follow the chain: the requirement, the tasks that implement it, the design decisions behind it, and the files that changed. Every term here is defined — select the ⓘ beside any badge.</p>
           <button id="orientationDismiss" class="secondary-action" type="button">Hide this</button>
         </div>
         <div id="healthStatus" class="loading-state" role="status">Reading project evidence…</div>

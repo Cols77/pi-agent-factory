@@ -554,7 +554,7 @@ export function renderReversePath(path: any): HTMLElement {
   const stops = document.createElement('div');
   stops.className = 'stops-at';
   stops.appendChild(document.createTextNode(
-    'stops_at: ' + (path.stops_at === null ? 'null (chain complete)' : path.stops_at)
+    'Stops at: ' + (path.stops_at === null ? 'null (chain complete)' : path.stops_at)
   ));
   el.appendChild(stops);
   renderRunDetail(el, path.run);

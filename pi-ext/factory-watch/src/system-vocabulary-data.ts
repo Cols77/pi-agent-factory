@@ -48,7 +48,7 @@ export const VOCABULARY_DATA = {
       "group": "claim-kind",
       "label": "synthesized",
       "gloss": "scaffold prose wrapped around a verified verbatim quote",
-      "definition": "Fixed scaffolding text plus one or more verbatim spans copied character-for-character from a cited source file. No language model is invoked and no text is reworded: `guide.py`'s `_verbatim_span` independently re-reads the cited file and confirms the exact substring is present before this kind is ever assigned -- it only fires when every fact backing the section is fresh; otherwise the section collapses to `derived` or `recorded` bullets instead.",
+      "definition": "Fixed scaffolding text plus one or more verbatim spans copied character-for-character from a cited source file. No language model is invoked and no text is reworded: the exact substring is independently re-checked against the cited file before this kind is ever assigned -- it only fires when every fact backing the section is fresh; otherwise the section collapses to `derived` or `recorded` bullets instead.",
       "siblings": [
         "recorded",
         "derived",
@@ -63,7 +63,7 @@ export const VOCABULARY_DATA = {
       "group": "claim-kind",
       "label": "missing",
       "gloss": "no artifact exists to back this claim",
-      "definition": "There is no recorded basis for the claim at all -- a bundle member that does not resolve to a real file, a requirement with no validation report entry, or a scope that no longer exists. By the SS3.2 coupling rule, `kind == missing` if and only if `freshness.state == n/a`; the two always travel together.",
+      "definition": "There is no recorded basis for the claim at all -- a bundle member that does not resolve to a real file, a requirement with no validation report entry, or a scope that no longer exists. A claim of kind `missing` always has freshness `n/a`, and the reverse: the two always travel together.",
       "siblings": [
         "recorded",
         "derived",
@@ -95,7 +95,7 @@ export const VOCABULARY_DATA = {
       "group": "freshness",
       "label": "stale",
       "gloss": "the requirement changed since this result was recorded",
-      "definition": "The cited evidence exists and was once valid, but the requirement's statement or binding changed after that result was recorded -- `trace.validation_status.SrStatus.stale` -- so the old outcome can no longer be trusted as current. Set for both a brief's validation claim and the matrix row for the same requirement.",
+      "definition": "The cited evidence exists and was once valid, but the requirement's statement or binding changed after that result was recorded, so the old outcome can no longer be trusted as current. Set for both a brief's validation claim and the matrix row for the same requirement.",
       "siblings": [
         "fresh",
         "degraded",
@@ -127,7 +127,7 @@ export const VOCABULARY_DATA = {
       "group": "freshness",
       "label": "not applicable",
       "gloss": "no recorded basis to judge freshness at all",
-      "definition": "There is nothing recorded to be fresh or stale against -- a proposed requirement with no binding yet, or any claim of kind `missing`. By the SS3.2 coupling rule this state only ever pairs with claim kind `missing`; it is never used for a claim that resolved to real content.",
+      "definition": "There is nothing recorded to be fresh or stale against -- a proposed requirement with no binding yet, or any claim of kind `missing`. This state only ever pairs with claim kind `missing`; it is never used for a claim that resolved to real content.",
       "siblings": [
         "fresh",
         "stale",
@@ -161,7 +161,7 @@ export const VOCABULARY_DATA = {
       "group": "matrix-status",
       "label": "failed",
       "gloss": "the validation report recorded this requirement failing",
-      "definition": "`validation/validation-report.json` recorded an entry for this requirement with `passed: false`. For a bundle's run-level verdict, any requirement recorded `passed: false` makes the whole run `failed`, taking priority over any stale result (`queries._validation_verdict`).",
+      "definition": "`validation/validation-report.json` recorded an entry for this requirement with `passed: false`. For a bundle's run-level verdict, any requirement recorded `passed: false` makes the whole run `failed`, taking priority over any stale result.",
       "siblings": [
         "passed",
         "error",
@@ -197,7 +197,7 @@ export const VOCABULARY_DATA = {
       "group": "matrix-status",
       "label": "blocked",
       "gloss": "the requirement has no binding to validate against",
-      "definition": "The requirement is `proposed` -- its register entry has no binding yet -- so there is nothing recorded to run a validation against. `queries._sr_matrix_row` sets this before ever consulting the validation report; freshness is `n/a`, never `fresh`, since there is no basis to be current about.",
+      "definition": "The requirement is `proposed` -- its register entry has no binding yet -- so there is nothing recorded to run a validation against. This is decided before ever consulting the validation report; freshness is `n/a`, never `fresh`, since there is no basis to be current about.",
       "siblings": [
         "passed",
         "failed",
@@ -214,7 +214,7 @@ export const VOCABULARY_DATA = {
       "group": "matrix-status",
       "label": "never run",
       "gloss": "bound and validatable, but no report entry yet",
-      "definition": "The requirement has a decided binding, but `validation/validation-report.json` carries no entry for it -- validation has simply not been run yet, distinct from `blocked` (no binding to run) and `error` (ran and could not complete). Note the hyphen: the underlying validation-status enum spells this same state `never_validated` with an underscore -- `queries._sr_matrix_row`'s `status_map` translates one into the other; they are the same recorded absence, spelled two ways for two different consumers.",
+      "definition": "The requirement has a decided binding, but `validation/validation-report.json` carries no entry for it -- validation has simply not been run yet, distinct from `blocked` (no binding to run) and `error` (ran and could not complete). Note the hyphen: the underlying validation state spells this same state `never_validated` with an underscore; they are the same recorded absence, spelled two ways for two different consumers.",
       "siblings": [
         "passed",
         "failed",
@@ -232,7 +232,7 @@ export const VOCABULARY_DATA = {
       "group": "matrix-status",
       "label": "unknown",
       "gloss": "outcome cannot be determined at all",
-      "definition": "Two distinct \"cannot determine\" cases share this value. As a matrix status, it means either the referenced SR does not exist (`_sr_missing_matrix_row`) or the validation report file exists but is corrupt/unparseable (`_sr_matrix_row`'s `report_corrupt` branch) -- deliberately not `never-run`, which would assert a recorded fact the evidence does not support. As a timeline actor (design SS7.4, `TimelineActor.UNKNOWN`), it is a reserved closed-vocabulary value for an actor string that does not match a recognized case; `query_timeline` in this repo never actually emits it today -- it always emits `not-recorded` instead, because the review-decision artifact this repo reads carries no actor field at all.",
+      "definition": "Two distinct \"cannot determine\" cases share this value. As a matrix status, it means either the referenced SR does not exist, or the validation report file exists but is corrupt or unparseable -- deliberately not `never-run`, which would assert a recorded fact the evidence does not support. As a timeline actor, it is a reserved closed-vocabulary value for an actor string that does not match a recognized case; this repo's timeline never actually emits it today -- it always emits `not-recorded` instead, because the review-decision artifact this repo reads carries no actor field at all.",
       "siblings": [
         "passed",
         "failed",
@@ -250,7 +250,7 @@ export const VOCABULARY_DATA = {
       "group": "validation-state",
       "label": "never validated",
       "gloss": "no report entry recorded; underscore spelling of never-run",
-      "definition": "`trace.validation_status.SrState`'s own spelling (with an underscore) of the state the matrix renders as `never-run` (with a hyphen). The literal is not where you would expect: `validation_status._entry_state`, the actual report parser, only ever returns `error`/`passed`/`failed` -- an SR absent from the report is simply absent from `load_validation`'s returned dict, never assigned this string there. The literal `\"never_validated\"` is written directly by `system/feature.py`'s `_verification` (a separate, ad hoc summary, used when a status lookup came back `None`), and is independently, defensively checked by `trace/gaps.py`'s `sr_unvalidated` branch (`status is None or status.state == \"never_validated\"`) against a value `load_validation` itself never actually produces.",
+      "definition": "The underlying validation state's own spelling (with an underscore) of the state the matrix renders as `never-run` (with a hyphen). An SR absent from the validation report is simply absent from what the report parser returns -- this exact string is written separately, by a fallback summary used only when no status was found for the requirement at all, and is checked defensively wherever an absent status needs a name.",
       "siblings": [
         "passed",
         "failed",
@@ -267,7 +267,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness",
       "label": "weak",
       "gloss": "fallback: not every SR is bound and covered",
-      "definition": "The bundle's member SRs fail the `medium` bar -- at least one member SR has no decided binding, or has no non-exempt task satisfying it. Also the readiness of any bundle that declares no SR members at all. Computed by `health.bundle_readiness`; the browser never computes this itself.",
+      "definition": "The bundle's member SRs fail the `medium` bar -- at least one member SR has no decided binding, or has no non-exempt task satisfying it. Also the readiness of any bundle that declares no SR members at all. This is always computed by Python; the browser never computes it itself.",
       "siblings": [
         "medium",
         "strong"
@@ -281,7 +281,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness",
       "label": "medium",
       "gloss": "every SR is bound and covered by task",
-      "definition": "Every member SR has a decided binding (`bound`) and at least one non-exempt task declaring `satisfies` for it (`covered`) -- but not necessarily `validated`. `bound` (`health.py:83`: `req.binding is not None and not proposed`) is strictly stronger than `current` (`health.py:91`: `req.binding is not None`), so every member SR of a medium bundle is already current too; only `strong` additionally requires a fresh passing validation.",
+      "definition": "Every member SR has a decided binding (`bound`) and at least one non-exempt task declaring `satisfies` for it (`covered`) -- but not necessarily `validated`. `bound` (a binding is decided and the SR is not proposed) is strictly stronger than `current` (a binding is recorded at all), so every member SR of a medium bundle is already current too; only `strong` additionally requires a fresh passing validation.",
       "siblings": [
         "weak",
         "strong"
@@ -295,7 +295,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness",
       "label": "strong",
       "gloss": "every SR is covered, current, and passing validation",
-      "definition": "Every member SR is `covered` (a satisfying task), `current` (a decided binding, not a proposed placeholder), and `validated` (the validation report records a fresh pass for it). The highest of the three grades; `health.bundle_readiness` checks this condition first.",
+      "definition": "Every member SR is `covered` (a satisfying task), `current` (a decided binding, not a proposed placeholder), and `validated` (the validation report records a fresh pass for it). The highest of the three grades; this condition is checked first.",
       "siblings": [
         "weak",
         "medium"
@@ -309,7 +309,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness-count",
       "label": "SR total",
       "gloss": "how many SRs this bundle declares as members",
-      "definition": "The count of `sr:` refs the bundle declares as members -- `len(flags)` in `health.bundle_readiness`. This is a per-bundle denominator, scoped to one bundle's declared membership; it is not the repo-wide SR count the `SR satisfied`/`SR validated` health classes use, which counts every SR node in the whole trace graph regardless of bundle membership.",
+      "definition": "The count of `sr:` refs the bundle declares as members. This is a per-bundle denominator, scoped to one bundle's declared membership; it is not the repo-wide SR count the `SR satisfied`/`SR validated` health classes use, which counts every SR node in the whole trace graph regardless of bundle membership.",
       "siblings": [
         "bound",
         "covered",
@@ -326,7 +326,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness-count",
       "label": "bound",
       "gloss": "has a decided binding, not flagged proposed",
-      "definition": "How many of the bundle's member SRs have a decided binding in the requirements register *and* are not flagged `sr_proposed` in the trace graph -- `health._sr_flags`'s `bound` predicate. An SR can have a register binding yet still be excluded here if the trace independently marks it proposed.",
+      "definition": "How many of the bundle's member SRs have a decided binding in the requirements register *and* are not flagged `sr_proposed` in the trace graph. An SR can have a register binding yet still be excluded here if the trace independently marks it proposed.",
       "siblings": [
         "sr_total",
         "covered",
@@ -343,7 +343,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness-count",
       "label": "covered",
       "gloss": "at least one non-exempt task satisfies this SR",
-      "definition": "How many of the bundle's member SRs have no `sr_unsatisfied` gap recorded against them -- i.e. at least one task declares `satisfies` for the SR (`health._sr_flags`'s `covered` predicate). The predicate's source also excludes an exempt `sr_unsatisfied` gap, but that branch is unreachable in practice: `gaps._disposition_of` forbids `trace_exempt` for `sr`/`br` node kinds, so an SR's own gaps can never actually be `exempt`.",
+      "definition": "How many of the bundle's member SRs have no `sr_unsatisfied` gap recorded against them -- i.e. at least one task declares `satisfies` for the SR. In principle an exempt `sr_unsatisfied` gap would also count as covered, but that case cannot actually happen: an SR's own gaps can never be marked `exempt`, only `pending` or `deferred`.",
       "siblings": [
         "sr_total",
         "bound",
@@ -377,7 +377,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness-count",
       "label": "deferred",
       "gloss": "postponed by a human note or auto-deferred proposal",
-      "definition": "This word means two different, non-interchangeable counts. As a readiness count: how many of the bundle's member SRs carry at least one gap whose disposition is `deferred` (`health._sr_flags`'s `deferred` predicate, checked over ALL of that SR's gaps). Two independent triggers set that disposition (`gaps._disposition_of`, `gaps.find_gaps`): a human recorded `trace_deferred: <reason>` on the node's frontmatter, OR the SR is `proposed` (no binding yet) -- `find_gaps` force-sets `disposition=\"deferred\"` on every `sr_proposed` gap regardless of whether any reason was recorded (`trace/gaps.py:96`), so a proposed SR with no human note still counts here. As a health COUNTER (`trace.health.compute_health`), the same word names a repo-wide tally of gaps with disposition `deferred` that EXCLUDES `sr_proposed` gaps specifically -- `compute_health`'s loop `continue`s on `sr_proposed` before ever checking disposition (`trace/health.py:69-77`), routing a proposed SR's automatic deferral into the repo-wide `proposed` counter instead. The two `deferred` numbers can disagree even for the same repo state.",
+      "definition": "This word means two different, non-interchangeable counts. As a readiness count: how many of the bundle's member SRs carry at least one gap whose disposition is `deferred`, checked over ALL of that SR's gaps. Two independent triggers set that disposition: a human recorded `trace_deferred: <reason>` on the node's frontmatter, OR the SR is `proposed` (no binding yet) -- every `sr_proposed` gap is automatically deferred regardless of whether any reason was recorded, so a proposed SR with no human note still counts here. As a health COUNTER, the same word names a repo-wide tally of gaps with disposition `deferred` that EXCLUDES `sr_proposed` gaps specifically -- a proposed SR's automatic deferral is routed into the repo-wide `proposed` counter instead. The two `deferred` numbers can disagree even for the same repo state.",
       "siblings": [
         "sr_total",
         "bound",
@@ -398,7 +398,7 @@ export const VOCABULARY_DATA = {
       "group": "readiness-count",
       "label": "validated",
       "gloss": "validation report shows a fresh pass for SR",
-      "definition": "As a readiness count: how many of the bundle's member SRs have a validation-report entry with `state == passed` and `stale == False` -- `health._validation_passing`. As a timeline action (design SS7.4, `TimelineAction.VALIDATED`), the same word names a decision-timeline event recording that a requirement was validated; `query_timeline` in this repo does not currently emit that action (its only real source, review decisions, maps to `approved`/`rejected`/`not-recorded`).",
+      "definition": "As a readiness count: how many of the bundle's member SRs have a validation-report entry that passed and is not stale. As a timeline action, the same word names a decision-timeline event recording that a requirement was validated; this repo's timeline does not currently emit that action (its only real source, review decisions, maps to `approved`/`rejected`/`not-recorded`).",
       "siblings": [
         "sr_total",
         "bound",
@@ -416,7 +416,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Tasks linked to a plan",
       "gloss": "share of tasks with a resolving source_plan",
-      "definition": "Denominator: every `task` node in the trace graph, one slot each. Satisfied: the task declares a `source_plan` edge at all -- `task_no_plan` is the only gap kind that unfills this slot. A `source_plan` edge whose target does not resolve to a real node (`task_plan_missing`) does NOT unfill the slot: `compute_health`'s gap loop counts it straight into the separate `dangling` counter and `continue`s before ever reaching `_SLOT_OF_GAP` (`trace/health.py:65-68`), which has no `task_plan_missing` key at all -- so a task with a broken `source_plan` link is reported as `dangling`, not as an unfilled `task->plan` slot, and counts toward this class's percentage as satisfied. A task marked `trace_exempt` removes its slot from the denominator instead of counting it unfilled.",
+      "definition": "Denominator: every `task` node in the trace graph, one slot each. Satisfied: the task declares a `source_plan` edge at all -- `task_no_plan` is the only gap kind that unfills this slot. A `source_plan` edge whose target does not resolve to a real node (`task_plan_missing`) does NOT unfill the slot: it is counted straight into the separate `dangling` counter instead -- so a task with a broken `source_plan` link is reported as `dangling`, not as an unfilled `task->plan` slot, and counts toward this class's percentage as satisfied. A task marked `trace_exempt` removes its slot from the denominator instead of counting it unfilled.",
       "siblings": [
         "task->SR",
         "plan->spec",
@@ -484,7 +484,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Requirements with a passing validation",
       "gloss": "share of non-proposed SRs with a fresh pass",
-      "definition": "Denominator: every `sr` node in the trace graph MINUS every SR flagged `sr_proposed` (no decided binding yet) -- `compute_health` subtracts one expected slot per proposed SR, which is the entire reason this denominator (e.g. 43) is far smaller than `SR satisfied`'s (e.g. 181): a requirement cannot be validated before someone has decided what to measure. Satisfied: the requirement has a validation-report entry with state `passed` that is not stale (`sr_unvalidatable`, `sr_unvalidated`, and `sr_stale` are the gaps that leave this slot unfilled -- `compute_health` also excludes an exempt `sr_stale`, but that branch is unreachable in practice since SR gaps can never be `exempt`).",
+      "definition": "Denominator: every `sr` node in the trace graph MINUS every SR flagged `sr_proposed` (no decided binding yet) -- one expected slot is subtracted per proposed SR, which is the entire reason this denominator (e.g. 43) is far smaller than `SR satisfied`'s (e.g. 181): a requirement cannot be validated before someone has decided what to measure. Satisfied: the requirement has a validation-report entry with state `passed` that is not stale (`sr_unvalidatable`, `sr_unvalidated`, and `sr_stale` are the gaps that leave this slot unfilled; in principle an exempt `sr_stale` would also count as satisfied, but that case cannot actually happen since SR gaps can never be `exempt`).",
       "siblings": [
         "task->plan",
         "task->SR",
@@ -515,7 +515,7 @@ export const VOCABULARY_DATA = {
       "group": "health-counter",
       "label": "proposed",
       "gloss": "an SR with no decided binding yet",
-      "definition": "A count of SRs whose frontmatter carries no `binding` key -- nobody has yet decided what measurement would satisfy them (`trace.model._id_node`'s `proposed` field). Reported on its own line rather than folded into `deferred`, because counting it as an unfilled validation slot would punish recording a real, honest state. Like `dangling`, this is a health COUNTER, not a trace disposition.",
+      "definition": "A count of SRs whose frontmatter carries no `binding` key -- nobody has yet decided what measurement would satisfy them. Reported on its own line rather than folded into `deferred`, because counting it as an unfilled validation slot would punish recording a real, honest state. Like `dangling`, this is a health COUNTER, not a trace disposition.",
       "siblings": [
         "dangling"
       ],
@@ -529,7 +529,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-actor",
       "label": "human",
       "gloss": "reserved actor value: a human decision-maker",
-      "definition": "A reserved value in the `TimelineActor` closed vocabulary (design SS7.4) for a decision event whose recorded artifact names a human as the actor. `query_timeline`'s only real source today -- a run manifest's `reviews` array -- carries no actor field at all, so this repo's timeline never actually emits `human`; every real event's actor is `not-recorded`.",
+      "definition": "A reserved value in the closed vocabulary of timeline actors, for a decision event whose recorded artifact names a human as the actor. The timeline's only real source today -- a run manifest's `reviews` array -- carries no actor field at all, so this repo's timeline never actually emits `human`; every real event's actor is `not-recorded`.",
       "siblings": [
         "dev",
         "review",
@@ -547,7 +547,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-actor",
       "label": "dev",
       "gloss": "reserved actor value: the orchestrator's dev step",
-      "definition": "A reserved value in the `TimelineActor` closed vocabulary (design SS7.4) for a decision event attributed to the orchestrator's automated dev step. Not currently emitted by `query_timeline` for the same reason as `human`: the recorded review artifact carries no actor field.",
+      "definition": "A reserved value in the closed vocabulary of timeline actors, for a decision event attributed to the orchestrator's automated dev step. Not currently emitted, for the same reason as `human`: the recorded review artifact carries no actor field.",
       "siblings": [
         "human",
         "review",
@@ -565,7 +565,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-actor",
       "label": "review",
       "gloss": "reserved value: a review step or artifact",
-      "definition": "As a timeline actor, a reserved value (design SS7.4) for a decision attributed to a review step; not currently emitted (see `human`). As a citation kind (`CitationKind.REVIEW`), a reserved value for citing a review artifact directly; this repo's own review-decision citations are built with kind `decision` instead (`queries._iter_decision_records`), pointing at the owning evidence manifest's `reviews[i]` entry -- `review` is declared in the schema but not constructed by any query in this repo today.",
+      "definition": "As a timeline actor, a reserved value for a decision attributed to a review step; not currently emitted (see `human`). As a citation kind, a reserved value for citing a review artifact directly; this repo's own review-decision citations are built with kind `decision` instead, pointing at the owning evidence manifest's `reviews[i]` entry -- `review` is declared in the schema but not constructed by any query in this repo today.",
       "siblings": [
         "human",
         "dev",
@@ -583,7 +583,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-actor",
       "label": "orchestrator",
       "gloss": "the pipeline controller itself, per the closed vocabulary",
-      "definition": "A reserved value in the `TimelineActor` closed vocabulary (design SS7.4) for a decision event attributed to `factory.orchestrator`'s own control flow rather than a person or a specific node. Not currently emitted by `query_timeline` for the same reason as `human`.",
+      "definition": "A reserved value in the closed vocabulary of timeline actors, for a decision event attributed to the pipeline's own control flow rather than a person or a specific node. Not currently emitted, for the same reason as `human`.",
       "siblings": [
         "human",
         "dev",
@@ -601,7 +601,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-actor",
       "label": "not recorded",
       "gloss": "the source artifact records no such field",
-      "definition": "The honest recorded absence, not a guess -- and it does double duty across two groups. As a timeline actor, the run manifest's `reviews[i]` record this repo reads has no field for an actor identity at all, so `queries._decision_event_from_record` always sets `actor = TimelineActor.NOT_RECORDED` for every real timeline event -- every review-decision actor in this repo actually carries this value today. As a timeline action (`TimelineAction.NOT_RECORDED`), the same spelling is set when `reviews[i].decision` is anything other than `\"approve\"`/`\"reject\"` -- an unrecognized or absent decision value, not merely \"nobody decided yet\".",
+      "definition": "The honest recorded absence, not a guess -- and it does double duty across two groups. As a timeline actor, the run manifest's `reviews[i]` record this repo reads has no field for an actor identity at all, so every real timeline event's actor is set to this value -- every review-decision actor in this repo actually carries this value today. As a timeline action, the same spelling is set when `reviews[i].decision` is anything other than `\"approve\"`/`\"reject\"` -- an unrecognized or absent decision value, not merely \"nobody decided yet\".",
       "siblings": [
         "human",
         "dev",
@@ -619,7 +619,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-action",
       "label": "approved",
       "gloss": "a run manifest recorded decision: \"approve\"",
-      "definition": "The owning evidence manifest's `reviews[i].decision` field is exactly the string `\"approve\"` -- `queries._DECISION_ACTION_MAP`. This is one of the two actions this repo's timeline actually emits today, from the same recorded `reviews` array documented under `citation-kind`'s `decision` entry.",
+      "definition": "The owning evidence manifest's `reviews[i].decision` field is exactly the string `\"approve\"`. This is one of the two actions this repo's timeline actually emits today, from the same recorded `reviews` array documented under `citation-kind`'s `decision` entry.",
       "siblings": [
         "rejected",
         "validated",
@@ -637,7 +637,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-action",
       "label": "rejected",
       "gloss": "a run manifest recorded decision: \"reject\"",
-      "definition": "The owning evidence manifest's `reviews[i].decision` field is exactly the string `\"reject\"` -- `queries._DECISION_ACTION_MAP`. The other action this repo's timeline actually emits today.",
+      "definition": "The owning evidence manifest's `reviews[i].decision` field is exactly the string `\"reject\"`. The other action this repo's timeline actually emits today.",
       "siblings": [
         "approved",
         "validated",
@@ -655,7 +655,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-action",
       "label": "repaired",
       "gloss": "reserved action value: an automated fix",
-      "definition": "A reserved value in the `TimelineAction` closed vocabulary (design SS7.4) for an event recording that something was repaired. Not currently emitted by `query_timeline`: its only recorded source (`reviews[i].decision`) only ever carries `approve` or `reject`, mapped to `approved`/`rejected`; anything else maps to `not-recorded`.",
+      "definition": "A reserved value in the closed vocabulary of timeline actions, for an event recording that something was repaired. Not currently emitted: its only recorded source (`reviews[i].decision`) only ever carries `approve` or `reject`, mapped to `approved`/`rejected`; anything else maps to `not-recorded`.",
       "siblings": [
         "approved",
         "rejected",
@@ -673,7 +673,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-action",
       "label": "published",
       "gloss": "reserved action value: a publish step",
-      "definition": "A reserved value in the `TimelineAction` closed vocabulary (design SS7.4) for an event recording a publish action. Not currently emitted by `query_timeline` for the same reason as `repaired`.",
+      "definition": "A reserved value in the closed vocabulary of timeline actions, for an event recording a publish action. Not currently emitted, for the same reason as `repaired`.",
       "siblings": [
         "approved",
         "rejected",
@@ -691,7 +691,7 @@ export const VOCABULARY_DATA = {
       "group": "timeline-action",
       "label": "stopped",
       "gloss": "reserved action value: a stop event",
-      "definition": "A reserved value in the `TimelineAction` closed vocabulary (design SS7.4) for an event recording that a run or pipeline was stopped. Not currently emitted by `query_timeline` for the same reason as `repaired`.",
+      "definition": "A reserved value in the closed vocabulary of timeline actions, for an event recording that a run or pipeline was stopped. Not currently emitted, for the same reason as `repaired`.",
       "siblings": [
         "approved",
         "rejected",
@@ -709,7 +709,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "evidence manifest",
       "gloss": "cites a durable evidence/runs/<run_id>.json file",
-      "definition": "As a citation kind, the cited path is a durable per-run evidence manifest, `evidence/runs/<run_id>.json` -- always a file, never a directory (`_claims.manifest_path`). As a scope kind for a timeline/citation subject (`kind: \"run\" | \"manifest\"`), it identifies the subject as the manifest record itself rather than the run's outcome.",
+      "definition": "As a citation kind, the cited path is a durable per-run evidence manifest, `evidence/runs/<run_id>.json` -- always a file, never a directory. As a scope kind for a timeline/citation subject (`kind: \"run\" | \"manifest\"`), it identifies the subject as the manifest record itself rather than the run's outcome.",
       "siblings": [
         "task",
         "requirement",
@@ -729,7 +729,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "task",
       "gloss": "cites the task's own T-*.md file",
-      "definition": "This word does three jobs. As a citation kind, the cited path is the task's own file under `tasks/` -- the same file `factory.orchestrator.ledger` loads task status from; used for both a bundle's `task:` member claim and its companion implementation-status claim. As a scope/subject kind (`SystemScopeRef.kind`/`TimelineSubjectRef.kind`, system-cli.ts:106), it identifies a subject as a task rather than an SR, run, or manifest -- e.g. `query_story`'s own scope. As a `stops_at` value (`system.reverse`), `stops_at: \"task\"` means the walked run's own `task_id` did not resolve in the ledger at all -- the earliest possible stop in the file -> run -> task -> requirements chain, one step before the `satisfies` stop.",
+      "definition": "This word does three jobs. As a citation kind, the cited path is the task's own file under `tasks/` -- the same file the orchestrator's ledger loads task status from; used for both a bundle's `task:` member claim and its companion implementation-status claim. As a scope/subject kind, it identifies a subject as a task rather than an SR, run, or manifest -- e.g. the Story tab's own scope. As a `stops_at` value on the Reverse tab, `stops_at: \"task\"` means the walked run's own task did not resolve in the ledger at all -- the earliest possible stop in the file -> run -> task -> requirements chain, one step before the `satisfies` stop.",
       "siblings": [
         "manifest",
         "requirement",
@@ -755,7 +755,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "validation",
       "gloss": "cites the validation-report.json file itself",
-      "definition": "As a citation kind (`CitationKind.VALIDATION`), the cited path is `validation/validation-report.json` itself -- built by `queries._validation_report_citation` and attached to every SR's brief validation claim (`queries.py:734`); covered directly by `test_models.py`. This is an ACTIVELY constructed kind, unlike most of this table's reserved values. As a timeline actor (`TimelineActor.VALIDATION`, design SS7.4), the same spelling is a reserved closed-vocabulary value for a decision attributed to the validation pipeline running automatically -- `query_timeline` never emits it; see `not-recorded` for what it emits instead.",
+      "definition": "As a citation kind, the cited path is `validation/validation-report.json` itself, attached to every SR's brief validation claim. This is an ACTIVELY constructed kind, unlike most of this table's reserved values. As a timeline actor, the same spelling is a reserved closed-vocabulary value for a decision attributed to the validation pipeline running automatically -- the timeline never emits it; see `not-recorded` for what it emits instead.",
       "siblings": [
         "manifest",
         "task",
@@ -776,7 +776,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "requirement",
       "gloss": "cites the SR/BR's own file under requirements/",
-      "definition": "The cited path is the requirement's own `SR-*.md` (or `BR-*.md`) file under `requirements/`, loaded through `factory.requirements.register`. Used for a requirement's statement, upstream, binding, and validation claims alike.",
+      "definition": "The cited path is the requirement's own `SR-*.md` (or `BR-*.md`) file under `requirements/`. Used for a requirement's statement, upstream, binding, and validation claims alike.",
       "siblings": [
         "manifest",
         "task",
@@ -795,7 +795,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "decision",
       "gloss": "cites an ADR file or a review entry",
-      "definition": "The cited path is either an ADR document under `docs/adr/`, or an evidence manifest with an `anchor` naming the specific `reviews[i]` array entry it points at -- the array documented under `_iter_decision_records`, the sole source of signed review decisions. This is the kind actually used for every review-decision timeline event in this repo (not `review`).",
+      "definition": "The cited path is either an ADR document under `docs/adr/`, or an evidence manifest with an `anchor` naming the specific `reviews[i]` array entry it points at -- the sole source of signed review decisions. This is the kind actually used for every review-decision timeline event in this repo (not `review`).",
       "siblings": [
         "manifest",
         "task",
@@ -814,7 +814,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "trace",
       "gloss": "cites a spec, plan, feature, metric, or goal",
-      "definition": "The cited path is one of the trace graph's other document kinds -- a spec or plan (`_resolve_spec_or_plan_member`) or a feat/metric/goal node (`_resolve_trace_member`) -- resolved through `trace.model.load_nodes`, the same loader `factory.trace` itself uses, never a second parser.",
+      "definition": "The cited path is one of the trace graph's other document kinds -- a spec, a plan, or a feat/metric/goal node -- resolved through the same loader the `factory.trace` command itself uses, never a second parser.",
       "siblings": [
         "manifest",
         "task",
@@ -834,7 +834,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "bundle",
       "gloss": "cites the bundle's own declaration file under bundles/",
-      "definition": "As a citation kind, the cited path is the bundle's own declaration file under `bundles/` (`bundles.py`'s loader). As a scope kind (`SystemScopeKind`, system-cli.ts:9), `\"bundle\"` is the `kind` value for `--scope bundle:<id>`. As the noun (design SS3.3), a bundle is a declared feature-scope grouping of spec/plan/task/SR/feat/metric/goal members with a label and exact member refs -- no status or rationale of its own; readiness and health are always computed over its members.",
+      "definition": "As a citation kind, the cited path is the bundle's own declaration file under `bundles/`. As a scope kind, `\"bundle\"` is the `kind` value for `--scope bundle:<id>`. As the noun, a bundle is a declared feature-scope grouping of spec/plan/task/SR/feat/metric/goal members with a label and exact member refs -- no status or rationale of its own; readiness and health are always computed over its members.",
       "siblings": [
         "manifest",
         "task",
@@ -855,7 +855,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "session record",
       "gloss": "cites a fallback sessions/*.session.json when no manifest",
-      "definition": "As a citation kind, the cited path is a `sessions/*.session.json` record -- thinner than an evidence manifest by nature: no commit range, no changed files, no patch, because none was recorded. As a run source (`StoryRun.source`), `\"session\"` means this particular run was reconstructed from that fallback record because no durable evidence manifest exists for it; `\"manifest\"` is the other, preferred source.",
+      "definition": "As a citation kind, the cited path is a `sessions/*.session.json` record -- thinner than an evidence manifest by nature: no commit range, no changed files, no patch, because none was recorded. As a run's source, `\"session\"` means this particular run was reconstructed from that fallback record because no durable evidence manifest exists for it; `\"manifest\"` is the other, preferred source.",
       "siblings": [
         "manifest",
         "task",
@@ -875,7 +875,7 @@ export const VOCABULARY_DATA = {
       "group": "scope-kind",
       "label": "run",
       "gloss": "a timeline/citation subject naming one evidence run",
-      "definition": "One legal value of a timeline or citation subject's `kind` (`\"task\" | \"sr\" | \"run\" | \"manifest\"`, design SS7.4) -- identifies the subject as a specific evidence run (a `run_id`), as distinct from `manifest`, which names the file that recorded it.",
+      "definition": "One legal value of a timeline or citation subject's `kind` -- identifies the subject as a specific evidence run (a `run_id`), as distinct from `manifest`, which names the file that recorded it.",
       "siblings": [
         "manifest",
         "bundle",
@@ -891,7 +891,7 @@ export const VOCABULARY_DATA = {
       "group": "scope-kind",
       "label": "SR (scope/subject kind)",
       "gloss": "lowercase kind tag for an SR-scoped subject",
-      "definition": "The lowercase `kind` value used wherever a scope or subject ref names a requirement: `SystemScopeRef.kind == \"sr\"` for `--scope sr:<id>` (`SystemScopeKind`, system-cli.ts:9), `MatrixSubjectRef`'s only legal kind, and one of `TimelineSubjectRef`'s four legal kinds (system-cli.ts:106). Distinct from the noun `SR`, which names the requirement itself -- its file, statement, and binding -- not this kind tag.",
+      "definition": "The lowercase `kind` value used wherever a scope or subject ref names a requirement: for `--scope sr:<id>`, for a Matrix row's subject, and as one of a Timeline event's four legal subject kinds. Distinct from the noun `SR`, which names the requirement itself -- its file, statement, and binding -- not this kind tag.",
       "siblings": [
         "bundle",
         "task",
@@ -908,7 +908,7 @@ export const VOCABULARY_DATA = {
       "group": "disposition",
       "label": "pending",
       "gloss": "the default: a real, unaddressed gap",
-      "definition": "The default disposition a gap gets when the node it belongs to carries neither `trace_exempt: true` nor a `trace_deferred` reason (`gaps._disposition_of`). A pending gap is a live defect -- it counts as unfilled in its health-class slot, and never reduces the class denominator the way `exempt` does.",
+      "definition": "The default disposition a gap gets when the node it belongs to carries neither `trace_exempt: true` nor a `trace_deferred` reason. A pending gap is a live defect -- it counts as unfilled in its health-class slot, and never reduces the class denominator the way `exempt` does.",
       "siblings": [
         "exempt",
         "deferred"
@@ -922,7 +922,7 @@ export const VOCABULARY_DATA = {
       "group": "disposition",
       "label": "exempt",
       "gloss": "waived by a recorded trace_exempt flag",
-      "definition": "The node's frontmatter declares `trace_exempt: true`. This removes the slot from the health-class denominator entirely (`expected[slot] -= 1`) rather than counting it unfilled -- an exempt gap does not drag the percentage down. SRs and BRs can never carry this disposition (`gaps._disposition_of`'s explicit guard, design 4.4): a requirement's gap can be deferred, never waived outright.",
+      "definition": "The node's frontmatter declares `trace_exempt: true`. This removes the slot from the health-class denominator entirely rather than counting it unfilled -- an exempt gap does not drag the percentage down. SRs and BRs can never carry this disposition: a requirement's gap can be deferred, never waived outright.",
       "siblings": [
         "pending",
         "deferred"
@@ -949,7 +949,7 @@ export const VOCABULARY_DATA = {
       "group": "stops-at",
       "label": "chain complete",
       "gloss": "display label for a null stops_at",
-      "definition": "The browser's rendering of `stops_at: null` -- `system-renderers.ts:441` prints `'null (chain complete)'` -- meaning the walk reached at least one requirement with no unresolved hop in between. Never a value `reverse.py` itself writes into the JSON; `null` is the recorded value, `chain-complete` is only ever a rendered label for it.",
+      "definition": "The browser's rendering of `stops_at: null`, shown as \"null (chain complete)\" -- meaning the walk reached at least one requirement with no unresolved hop in between. Never a value written into the recorded JSON; `null` is the recorded value, `chain-complete` is only ever a rendered label for it.",
       "siblings": [
         "satisfies"
       ],
@@ -963,7 +963,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "scope",
       "gloss": "what a page is about: bundle or SR",
-      "definition": "A `{kind, ref}` pointer naming what a page's brief/matrix/timeline/guide is about -- today always `bundle:<id>` or `sr:<id>` for `--scope`-driven commands (`SystemScopeKind`), though the underlying `SystemScopeRef` shape is reused more broadly for declared bundle members and timeline/matrix subjects, which allow a wider set of kinds.",
+      "definition": "A `{kind, ref}` pointer naming what a page's brief/matrix/timeline/guide is about -- today always `bundle:<id>` or `sr:<id>` for `--scope`-driven commands, though the same shape is reused more broadly for declared bundle members and timeline/matrix subjects, which allow a wider set of kinds.",
       "siblings": [
         "citation",
         "claim"
@@ -978,7 +978,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "SR (requirement)",
       "gloss": "a satisfaction requirement file under requirements/SR-*.md",
-      "definition": "A requirement declared in `requirements/SR-*.md`, loaded by `factory.requirements.register`. Carries a statement, optional upstream requirements, and an optional binding (a harness/experiment/metric/assertion) that validation runs against. An SR with no binding is `proposed`; SRs and BRs are the only node kinds that can never be marked `trace_exempt` (design 4.4).",
+      "definition": "A requirement declared in `requirements/SR-*.md`. Carries a statement, optional upstream requirements, and an optional binding (a harness/experiment/metric/assertion) that validation runs against. An SR with no binding is `proposed`; SRs and BRs are the only node kinds that can never be marked `trace_exempt`.",
       "siblings": [
         "BR",
         "bundle"
@@ -993,7 +993,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "BR (business requirement)",
       "gloss": "same file convention as SR, requirements/BR-*.md",
-      "definition": "A requirement declared in `requirements/BR-*.md` -- the same id/title/frontmatter shape `trace.model._id_node` gives an SR, loaded as trace node kind `\"br\"`. Like an SR, a BR can never be marked `trace_exempt` (`gaps._disposition_of`'s explicit guard checks both kinds), but unlike an SR it has no health-class slot of its own -- `trace.health._SLOTS_PER_NODE` only assigns slots to `task`/`plan`/`sr` node kinds.",
+      "definition": "A requirement declared in `requirements/BR-*.md` -- the same id/title/frontmatter shape an SR gets, loaded as trace node kind `\"br\"`. Like an SR, a BR can never be marked `trace_exempt`, but unlike an SR it has no health-class slot of its own -- only `task`/`plan`/`sr` node kinds get one.",
       "siblings": [
         "SR"
       ],
@@ -1006,7 +1006,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "ADR (architecture decision record)",
       "gloss": "a recorded decision doc, brief only",
-      "definition": "A decision document under `docs/adr/`, loaded by `factory.system.adr`. An ADR scope renders Brief only -- design and gaps but no validation matrix, no runs, and no reverse walk -- because those tabs would be permanently degraded for a document that is a decision record, not an implementation unit.",
+      "definition": "A decision document under `docs/adr/`. An ADR scope renders Brief only -- design and gaps but no validation matrix, no runs, and no reverse walk -- because those tabs would be permanently degraded for a document that is a decision record, not an implementation unit.",
       "siblings": [
         "SR",
         "BR"
@@ -1035,7 +1035,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "evidence manifest",
       "gloss": "the durable evidence/runs/<run_id>.json file for a run",
-      "definition": "The durable, schema-validated record of one run, `evidence/runs/<run_id>.json`, written by `factory.evidence.manifests` and read through `list_run_manifests` everywhere this package consumes it -- never a second parser. Carries the run's `implementation` (changed files, commit range), its `validation` array, and its `reviews` array (the sole source of signed review decisions).",
+      "definition": "The durable, schema-validated record of one run, `evidence/runs/<run_id>.json`, read through the same loader everywhere this package consumes it -- never a second parser. Carries the run's `implementation` (changed files, commit range), its `validation` array, and its `reviews` array (the sole source of signed review decisions).",
       "siblings": [
         "evidence run",
         "session record"
@@ -1050,7 +1050,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "session record",
       "gloss": "a thinner sessions/*.session.json fallback, no changed files",
-      "definition": "A `sessions/*.session.json` file, loaded by `factory.system.sessions.load_session_runs`, used as a fallback for a task run when no durable evidence manifest exists for it. Thinner by nature -- no commit range, no changed files, no patch -- because a session record never captures those; where both exist for the same `run_id`, the manifest always wins and the session record is never read into the story.",
+      "definition": "A `sessions/*.session.json` file, used as a fallback for a task run when no durable evidence manifest exists for it. Thinner by nature -- no commit range, no changed files, no patch -- because a session record never captures those; where both exist for the same `run_id`, the manifest always wins and the session record is never read into the story.",
       "siblings": [
         "evidence run",
         "evidence manifest"
@@ -1065,7 +1065,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "claim",
       "gloss": "the shared record shape: kind, text, citations, freshness",
-      "definition": "The shared record shape (design SS7.2) every fact the navigator renders is packaged as: a `kind` (recorded/derived/synthesized/missing), `text`, a `freshness` verdict, and the `citations` it is traceable back to. A `SystemClaim` also carries `spans` -- but only when `kind` is `synthesized`.",
+      "definition": "The shared record shape every fact the navigator renders is packaged as: a `kind` (recorded/derived/synthesized/missing), `text`, a `freshness` verdict, and the `citations` it is traceable back to. A claim also carries `spans` -- but only when `kind` is `synthesized`.",
       "siblings": [
         "span",
         "citation"
@@ -1079,7 +1079,7 @@ export const VOCABULARY_DATA = {
       "group": "noun",
       "label": "span",
       "gloss": "a verbatim quoted excerpt, verified against its citation",
-      "definition": "A verbatim quoted excerpt of source text (`text`) plus the index of the citation it was pulled from (`citation_index`), present only on `synthesized` claims. `guide._verbatim_span` independently re-reads the cited file and confirms the candidate text is a literal substring of it before a span is ever emitted -- never a paraphrase, never a best-effort quote.",
+      "definition": "A verbatim quoted excerpt of source text (`text`) plus the index of the citation it was pulled from (`citation_index`), present only on `synthesized` claims. The cited file is independently re-read to confirm the candidate text is a literal substring of it before a span is ever emitted -- never a paraphrase, never a best-effort quote.",
       "siblings": [
         "claim",
         "citation"
@@ -1113,7 +1113,7 @@ export const REMEDIATION_DATA = {
     "task_no_sr": {
       "state": "task_no_sr",
       "headline": "Task satisfies no requirement",
-      "what_it_means": "This task declares no `satisfies` edge at all (gaps.py: \"task declares no satisfies\").",
+      "what_it_means": "This task declares no `satisfies` edge linking it to any requirement.",
       "why_it_matters": "A task with no satisfies edge can't be counted toward any requirement's coverage, so the work it represents is invisible to the trace graph.",
       "command": "uv run python -m factory.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",
@@ -1122,7 +1122,7 @@ export const REMEDIATION_DATA = {
     "task_no_plan": {
       "state": "task_no_plan",
       "headline": "Task declares no source plan",
-      "what_it_means": "This task declares no `source_plan` edge at all (gaps.py: \"task declares no source_plan\").",
+      "what_it_means": "This task declares no `source_plan` edge pointing at the plan that produced it.",
       "why_it_matters": "Without a source_plan, the task->plan->spec chain has nothing to walk, so its Trace tab and the working traversal can't reach the plan or spec it came from.",
       "command": "uv run python -m factory.trace link {id} --source-plan <plan-filename>",
       "command_kind": "shell",
@@ -1131,7 +1131,7 @@ export const REMEDIATION_DATA = {
     "task_plan_missing": {
       "state": "task_plan_missing",
       "headline": "Task's source plan does not exist",
-      "what_it_means": "This task's recorded `source_plan` points at a plan node id that isn't in the trace graph (gaps.py: \"source_plan target missing: <id>\").",
+      "what_it_means": "This task's recorded `source_plan` points at a plan that doesn't exist in the trace graph.",
       "why_it_matters": "The link was recorded but the plan it names is gone or was never there, so the task's plan hop dead-ends instead of resolving.",
       "command": "uv run python -m factory.trace link {id} --source-plan <existing-plan-filename>",
       "command_kind": "shell",
@@ -1140,7 +1140,7 @@ export const REMEDIATION_DATA = {
     "plan_no_spec": {
       "state": "plan_no_spec",
       "headline": "Plan references no spec",
-      "what_it_means": "This plan declares no `spec_ref` edge at all (gaps.py: \"plan references no spec\").",
+      "what_it_means": "This plan declares no `spec_ref` edge pointing at the spec that authorized it.",
       "why_it_matters": "Without a spec_ref, the plan's design rationale can't be traced back to the spec that authorized it.",
       "command": "uv run python -m factory.trace link {id} --spec <spec-filename>",
       "command_kind": "shell",
@@ -1149,7 +1149,7 @@ export const REMEDIATION_DATA = {
     "dangling_upstream": {
       "state": "dangling_upstream",
       "headline": "Upstream reference points nowhere",
-      "what_it_means": "This node's recorded `upstream` edge names a node id that isn't in the trace graph (gaps.py: \"upstream target missing: <id>\").",
+      "what_it_means": "This node's recorded `upstream` edge names a node that doesn't exist in the trace graph.",
       "why_it_matters": "The chain from business requirement down to this node is broken at the upstream hop, so its higher-level justification can't be traced.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1158,7 +1158,7 @@ export const REMEDIATION_DATA = {
     "sr_unsatisfied": {
       "state": "sr_unsatisfied",
       "headline": "No task satisfies this requirement",
-      "what_it_means": "No task in the ledger declares a `satisfies` edge to {id} (gaps.py: \"no task declares satisfies for this SR\").",
+      "what_it_means": "No task in the ledger declares a `satisfies` edge to {id}.",
       "why_it_matters": "Nothing implements it yet, so it cannot be validated and the feature it belongs to stays weak.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1167,7 +1167,7 @@ export const REMEDIATION_DATA = {
     "sr_proposed": {
       "state": "sr_proposed",
       "headline": "Requirement's binding is not yet decided",
-      "what_it_means": "This SR is `proposed`: accepted in substance, but it carries no measurement binding yet (gaps.py: \"binding not yet decided\").",
+      "what_it_means": "This SR is `proposed`: accepted in substance, but it carries no measurement binding yet.",
       "why_it_matters": "A proposed SR can never be validated -- there is no experiment, metric, or assertion recorded to check it against.",
       "command": "uv run python -m factory.requirements bind {id} --experiment <name> --metric <metric> --assert <expression>",
       "command_kind": "shell",
@@ -1176,7 +1176,7 @@ export const REMEDIATION_DATA = {
     "sr_unvalidatable": {
       "state": "sr_unvalidatable",
       "headline": "Validation could not run",
-      "what_it_means": "This SR's recorded validation state is `error`: the harness ran but produced no verdict (validation_status.py `SrState`; gaps.py surfaces the recorded error, or \"validation could not run\" if none was recorded). This gap only fires once the SR already has a binding: it's raised in `find_gaps`'s (gaps.py:58) `else` branch of `if node.proposed`, and `proposed` itself means \"no binding\" -- set in `_id_node` (trace/model.py:59) -- so the binding exists, and `factory.requirements bind` is not the fix.",
+      "what_it_means": "This SR's recorded validation state is `error`: the harness ran but produced no pass/fail verdict, only a recorded error (or no error message at all). This requirement already has a binding -- the problem is running validation, not deciding what to measure, so adding a binding is not the fix.",
       "why_it_matters": "An errored harness leaves the requirement's actual status unknown -- it is neither confirmed working nor confirmed broken. If the recorded binding names a harness that isn't actually configured, re-running validation surfaces that configuration error directly rather than silently passing; no command in the current surface repairs a missing harness declaration -- that still requires editing the binding by hand.",
       "command": "uv run python -m factory.validation run --satisfies {id}",
       "command_kind": "shell",
@@ -1185,7 +1185,7 @@ export const REMEDIATION_DATA = {
     "sr_unvalidated": {
       "state": "sr_unvalidated",
       "headline": "Requirement was never validated",
-      "what_it_means": "No entry for this SR exists in the validation report (gaps.py: \"absent from validation report\" -- status is absent, or its state is `never_validated`).",
+      "what_it_means": "No entry for this SR exists in the validation report -- it is absent from the report, or recorded as `never_validated`.",
       "why_it_matters": "A bound requirement with no validation entry has never been checked against its own metric, so passing or failing is still unknown.",
       "command": "uv run python -m factory.validation run --satisfies {id}",
       "command_kind": "shell",
@@ -1194,7 +1194,7 @@ export const REMEDIATION_DATA = {
     "sr_stale": {
       "state": "sr_stale",
       "headline": "Validation result is stale",
-      "what_it_means": "The recorded validation result predates a later change to this SR's statement or binding (gaps.py: \"result predates a change to statement or binding\").",
+      "what_it_means": "The recorded validation result predates a later change to this SR's statement or binding.",
       "why_it_matters": "The passing or failing result on file no longer reflects what the requirement currently says or how it's measured, so it can't be trusted as current evidence.",
       "command": "uv run python -m factory.validation run --satisfies {id}",
       "command_kind": "shell",
@@ -1203,7 +1203,7 @@ export const REMEDIATION_DATA = {
     "dangling_reference": {
       "state": "dangling_reference",
       "headline": "Verification-cycle edge points nowhere",
-      "what_it_means": "A recorded verification-cycle edge (`parent_of`, `verified_by`, `demonstrates`, `evaluates`, `contains`, or `illustrates`) names a source or target node id that isn't in the trace graph (gaps.py: \"<kind> source/target missing: <id>\").",
+      "what_it_means": "A recorded verification-cycle edge (`parent_of`, `verified_by`, `demonstrates`, `evaluates`, `contains`, or `illustrates`) names a source or target node that doesn't exist in the trace graph.",
       "why_it_matters": "The V-cycle view (design intent paired with its verifying evidence) can't be walked past this point for this node.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1212,7 +1212,7 @@ export const REMEDIATION_DATA = {
     "no_claims": {
       "state": "no_claims",
       "headline": "No claims recorded",
-      "what_it_means": "The Brief tab's claims list came back empty for this scope (`query_brief`, queries.py) -- rendered as \"No claims recorded for this scope.\" (system-renderers.ts renderBrief).",
+      "what_it_means": "The Brief tab's list of claims came back empty for this scope.",
       "why_it_matters": "The Brief tab has nothing to show about this scope until its underlying register and trace data exist.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1221,7 +1221,7 @@ export const REMEDIATION_DATA = {
     "no_matrix_rows": {
       "state": "no_matrix_rows",
       "headline": "No validation rows recorded",
-      "what_it_means": "The Matrix tab's rows list came back empty for this scope (`query_matrix` found no sr: members to report on) -- rendered as \"No validation rows recorded for this scope.\" (system-renderers.ts renderMatrix).",
+      "what_it_means": "The Matrix tab found no `sr:` requirements to report on for this scope.",
       "why_it_matters": "With no rows, there is nothing here to confirm this scope's requirements are actually validated.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1230,7 +1230,7 @@ export const REMEDIATION_DATA = {
     "no_timeline_events": {
       "state": "no_timeline_events",
       "headline": "No recorded decisions",
-      "what_it_means": "The Timeline tab's events list came back empty for this scope (`query_timeline`) -- rendered as \"No recorded decisions for this scope.\" (system-renderers.ts renderTimeline).",
+      "what_it_means": "The Timeline tab's list of decisions came back empty for this scope.",
       "why_it_matters": "Without timeline events, there's no recorded history of what was decided and when for this scope.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1239,7 +1239,7 @@ export const REMEDIATION_DATA = {
     "no_guide_sections": {
       "state": "no_guide_sections",
       "headline": "No guide sections recorded",
-      "what_it_means": "The Guide tab's sections list came back empty for this scope (`query_guide`) -- rendered as \"No guide sections recorded for this scope.\" (system-renderers.ts renderGuide).",
+      "what_it_means": "The Guide tab's list of sections came back empty for this scope.",
       "why_it_matters": "The synthesized narrative has nothing recorded to draw on for this scope.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1248,7 +1248,7 @@ export const REMEDIATION_DATA = {
     "no_runs": {
       "state": "no_runs",
       "headline": "No recorded runs",
-      "what_it_means": "This task's Story tab has no recorded runs -- rendered as \"No recorded runs for this task.\" (system-renderers.ts renderStory).",
+      "what_it_means": "This task's Story tab has no recorded runs.",
       "why_it_matters": "Without a run, there is no execution evidence that this task was ever actually worked.",
       "command": "/factory-run {id}",
       "command_kind": "slash",
@@ -1257,7 +1257,7 @@ export const REMEDIATION_DATA = {
     "no_requirements": {
       "state": "no_requirements",
       "headline": "No requirements recorded on this task",
-      "what_it_means": "This task's Story tab shows \"no requirements recorded\": the task declares no `satisfies` edges (story.py) -- the same condition the `task_no_sr` trace gap reports.",
+      "what_it_means": "This task declares no `satisfies` edges -- the same condition the `task_no_sr` gap reports.",
       "why_it_matters": "A task with no requirement link can't be shown as implementing anything the system is tracking.",
       "command": "uv run python -m factory.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",
@@ -1266,7 +1266,7 @@ export const REMEDIATION_DATA = {
     "no_changed_files": {
       "state": "no_changed_files",
       "headline": "No changed files recorded",
-      "what_it_means": "This run's implementation claim has an empty `changed_files` list -- rendered as \"no changed files recorded\" (system-renderers.ts renderChangedFiles).",
+      "what_it_means": "This run's implementation claim has an empty `changed_files` list.",
       "why_it_matters": "Without a changed-files list, this run's evidence can't show what it actually touched.",
       "command": "/factory-run {id}",
       "command_kind": "slash",
@@ -1275,7 +1275,7 @@ export const REMEDIATION_DATA = {
     "no_commit_range": {
       "state": "no_commit_range",
       "headline": "No commit range recorded",
-      "what_it_means": "This run has no `start_commit`/`result_commit` recorded -- rendered as \"commit range not recorded\" (system-renderers.ts renderCommitRange).",
+      "what_it_means": "This run has no `start_commit`/`result_commit` recorded.",
       "why_it_matters": "Without a commit range, this run's change can't be located in git history.",
       "command": "/factory-run {id}",
       "command_kind": "slash",
@@ -1284,7 +1284,7 @@ export const REMEDIATION_DATA = {
     "no_trace": {
       "state": "no_trace",
       "headline": "No trace recorded for this scope",
-      "what_it_means": "The Trace tab found no SR refs to invert for this scope -- rendered as \"No trace recorded for this scope. See the Story or Reverse tabs.\" (system-renderers.ts renderTrace).",
+      "what_it_means": "The Trace tab found no requirement refs to walk for this scope.",
       "why_it_matters": "With no SR refs to walk, the requirement -> task -> plan -> spec chain can't be shown for this scope.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
@@ -1293,8 +1293,8 @@ export const REMEDIATION_DATA = {
     "no_traversal_step": {
       "state": "no_traversal_step",
       "headline": "Traversal step not recorded",
-      "what_it_means": "One step of the working traversal (tasks, design, or files) came back with no values -- rendered as \"Not recorded\" for that step (system-bootstrap.ts renderTraversal / addStep).",
-      "why_it_matters": "The requirement -> tasks -> design -> files spine has a gap at this step, so the working traversal stops short.",
+      "what_it_means": "Nothing is linked to this requirement for this step of its story yet -- it may have no tasks, no design decisions, or no changed files recorded.",
+      "why_it_matters": "Without every step recorded -- the tasks, the design decisions, and the files that changed -- the requirement's story stops short at this point.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
       "severity": "absence"
@@ -1303,7 +1303,7 @@ export const REMEDIATION_DATA = {
       "state": "no_bundles",
       "headline": "No features defined yet",
       "what_it_means": "A feature bundle groups the requirements, tasks, and decisions you read together to understand one part of the system. Bundles are hand-authored, not generated: create `bundles/<id>.json` with `id`, `label`, and `members` (a list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and optionally a `description` of at most 280 characters.",
-      "why_it_matters": "Bundles are how this project is browsed, so until one exists the directory stays empty. The command below only checks a draft file you've already written -- its own docstring says it \"proposes nothing and writes nothing; the draft is judged, not generated\" (`cmd_bundle_check`, system/cli.py:103) -- there is no CLI that creates the bundle file for you.",
+      "why_it_matters": "Bundles are how this project is browsed, so until one exists the directory stays empty. The command below only checks a draft file you've already written -- it proposes nothing and writes nothing, the draft is judged, not generated -- there is no CLI that creates the bundle file for you.",
       "command": "uv run python -m factory.system bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
@@ -1312,7 +1312,7 @@ export const REMEDIATION_DATA = {
       "state": "no_description",
       "headline": "No description recorded",
       "what_it_means": "No description is recorded for this artifact: a bundle has no `description` field, or a spec/plan has none of the named sections the label index looks for (`Purpose`, `Goal`, `Problem`, `Overview`, `Summary`, or a plan's `**Goal:**` line -- design Component 1).",
-      "why_it_matters": "Without a recorded description, the card that opens on hover or focus has nothing to show beyond the id and title. For a bundle, add a `description` (<=280 characters) to its hand-authored `bundles/<id>.json` by hand, then use the command below to check it -- the command validates a draft you edit yourself; it does not write the field for you (`cmd_bundle_check`, system/cli.py:103). For a spec or plan, there is no CLI at all -- add the named section or `**Goal:**` line directly in the document.",
+      "why_it_matters": "Without a recorded description, the card that opens on hover or focus has nothing to show beyond the id and title. For a bundle, add a `description` (<=280 characters) to its hand-authored `bundles/<id>.json` by hand, then use the command below to check it -- the command validates a draft you edit yourself; it does not write the field for you. For a spec or plan, there is no CLI at all -- add the named section or `**Goal:**` line directly in the document.",
       "command": "uv run python -m factory.system bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
@@ -1320,8 +1320,8 @@ export const REMEDIATION_DATA = {
     "traversal_not_applicable": {
       "state": "traversal_not_applicable",
       "headline": "Traversal doesn't apply to this scope",
-      "what_it_means": "Traversal only applies to bundle:/sr: scopes; task:/file: scopes show \"Traversal is not applicable for this scope.\" instead (system-bootstrap.ts resetScopeEvidence).",
-      "why_it_matters": "This is expected behavior for the current scope kind, not a defect -- there is nothing to remediate here.",
+      "what_it_means": "The chain from requirement to tasks, design, and files (shown just below the scope header) only applies to bundle: and sr: scopes; task: and file: scopes don't have one.",
+      "why_it_matters": "This is expected behavior for the current scope kind, not a defect -- there is nothing to fix here.",
       "command": "/system",
       "command_kind": "slash",
       "severity": "absence"
@@ -1329,7 +1329,7 @@ export const REMEDIATION_DATA = {
     "matrix_never_run": {
       "state": "matrix_never_run",
       "headline": "Requirement was never validated",
-      "what_it_means": "This Matrix row's status is `never_run`: the SR resolves and carries a binding, but `_sr_matrix_row` (queries.py:1040) found no entry for it in the validation report -- its `status is None and not report_corrupt` branch returns `MatrixStatus.NEVER_RUN`, summary \"never validated\" (queries.py:1078-1083). This is distinct from an SR ref that doesn't resolve at all, which `_sr_missing_matrix_row` reports separately as `unknown` / \"sr does not exist\".",
+      "what_it_means": "This Matrix row's status is `never-run`: the requirement resolves and has a decided binding, but no entry for it exists yet in the validation report. This is different from an unresolved SR reference, which shows as `unknown` instead.",
       "why_it_matters": "A row that has never run carries no evidence either way -- it is not passing, not failing, simply unchecked.",
       "command": "uv run python -m factory.validation run --satisfies {id}",
       "command_kind": "shell",
@@ -1338,8 +1338,8 @@ export const REMEDIATION_DATA = {
     "unbundled_artifact": {
       "state": "unbundled_artifact",
       "headline": "Not a member of any bundle",
-      "what_it_means": "This artifact is not listed as a member of any bundle declaration (`factory.system coverage`'s `unbundled` list, bundles.py).",
-      "why_it_matters": "Unbundled artifacts are unreachable by browsing the feature directory -- only a direct ref or the Trace tab reaches them. To fix this, add this ref to the `members` list of an existing (or new) hand-authored `bundles/<id>.json` -- the command below only checks that edit; it does not add the membership for you (`cmd_bundle_check`, system/cli.py:103, \"the draft is judged, not generated\").",
+      "what_it_means": "This artifact is not listed as a member of any bundle declaration.",
+      "why_it_matters": "Unbundled artifacts are unreachable by browsing the feature directory -- only a direct ref or the Trace tab reaches them. To fix this, add this ref to the `members` list of an existing (or new) hand-authored `bundles/<id>.json` -- the command below only checks that edit; it does not add the membership for you, the draft is judged, not generated.",
       "command": "uv run python -m factory.system bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
@@ -1347,7 +1347,7 @@ export const REMEDIATION_DATA = {
     "unresolved_ref": {
       "state": "unresolved_ref",
       "headline": "Reference does not resolve",
-      "what_it_means": "A ref shown on this page (a member-of bundle id, a satisfies/upstream target, a trace hop) doesn't resolve to any node in the label index; the browser renders the raw string plus the note \"not in the label index\" (design Component 1).",
+      "what_it_means": "A reference shown on this page (a member-of bundle id, a satisfies/upstream target, a trace hop) doesn't resolve to any known artifact; the browser shows the raw text plus the note \"not in the label index\".",
       "why_it_matters": "A ref that can't resolve means the id it names is either misspelled or was never created, so whatever it points at can't be reached from here. `/trace-fix` only helps when the broken ref is a trace edge (satisfies/source_plan/spec_ref/upstream) -- for the `member_of` flavour of this gap (a bundle listing a member ref that doesn't resolve), `factory.trace link` has no `--member-of` flag, so the fix is to hand-edit the bundle's `members` list directly; running `/trace-fix {id}` will not touch it.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",

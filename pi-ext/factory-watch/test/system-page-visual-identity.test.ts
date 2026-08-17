@@ -1,5 +1,5 @@
 import { JSDOM } from "jsdom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, test, vi } from "vitest";
 import { renderSystemPageHtml } from "../src/system-page.js";
 
 describe("system navigator visual identity", () => {
@@ -55,6 +55,16 @@ describe("system navigator visual identity", () => {
     expect(rule).not.toContain("-webkit-line-clamp");
     expect(rule).toContain("overflow-y: auto");
     expect(rule).toMatch(/max-height/);
+  });
+
+  test("the landing's first instruction uses no undefined tool vocabulary", () => {
+    const html = renderSystemPageHtml();
+    const m = html.match(/<p class="landing-lead">([^<]*)</);
+    expect(m, "landing-lead paragraph not found -- add the class first").not.toBeNull();
+    const lead = (m![1] ?? "").toLowerCase();
+    ["evidence spine", "unbundled", "weak"].forEach((jargon) => {
+      expect(lead).not.toContain(jargon);
+    });
   });
 });
 
