@@ -89,12 +89,12 @@ def load_failures(root) -> dict[str, FailureRecord]
 
 ## Task 2: Durable-memory projection
 
-- [ ] **Step 1: Failing tests** — `query_memory(root, scope)` returns, in one read: decisions
+- [x] **Step 1: Failing tests** — `query_memory(root, scope)` returns, in one read: decisions
   (from `adr:`), failure records, rejected hypotheses, open goals, and conflicts — all with
   provenance citations; it never re-states requirement/ADR/evidence prose it links.
-- [ ] **Step 2: Implement** `durable.py` composing existing loaders (`adr:`, failure records,
+- [x] **Step 2: Implement** `durable.py` composing existing loaders (`adr:`, failure records,
   goals, evidence manifests); render through the claim/freshness plumbing.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: Conflict surfacing
 

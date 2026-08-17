@@ -47,7 +47,7 @@ COVERAGE_REGISTRY: dict[str, tuple[str, ...]] = {
     ),
     "citation-kind": (
         "manifest", "task", "requirement", "validation", "review",
-        "decision", "trace", "bundle", "session",
+        "decision", "trace", "bundle", "session", "failure", "goal",
     ),
     "scope-kind": ("bundle", "sr", "task", "run", "manifest"),
     "run-source": ("session",),
@@ -910,8 +910,40 @@ VOCABULARY: dict[str, dict] = {
             "review decisions. This is the kind actually used for every "
             "review-decision timeline event in this repo (not `review`)."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "trace", "bundle", "session"],
+        "siblings": ["manifest", "task", "requirement", "review", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py"],
+    },
+    "failure": {
+        "term": "failure",
+        "group": "citation-kind",
+        "label": "failure record",
+        "gloss": "cites a failure record under docs/failures/",
+        "definition": (
+            "The cited path is a failure record, `docs/failures/FR-*.md`, "
+            "loaded through `factory.memory.failure_record` -- the durable "
+            "artifact that captures reproduction ref -> root cause -> "
+            "rejected hypotheses -> fix -> regression guard. Introduced by "
+            "Inc 8's durable-memory projection: a decision entry cites its "
+            "ADR, a failure record and each of its rejected hypotheses cite "
+            "the FR file itself (`factory.memory.durable`)."
+        ),
+        "siblings": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle", "session", "goal"],
+        "computed_by": ["src/factory/memory/durable.py"],
+    },
+    "goal": {
+        "term": "goal",
+        "group": "citation-kind",
+        "label": "goal",
+        "gloss": "cites a goal file under goals/",
+        "definition": (
+            "The cited path is a goal file under `goals/`, loaded through "
+            "`factory.goals.registry` -- the measurable engineering "
+            "contract (brief §5.3). Used by the durable-memory projection's "
+            "open-goal entries (`factory.memory.durable`) so an open goal's "
+            "entry carries a citation to the goal file that declares it."
+        ),
+        "siblings": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle", "session", "failure"],
+        "computed_by": ["src/factory/memory/durable.py"],
     },
     "trace": {
         "term": "trace",

@@ -36,6 +36,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
 from factory.goals import registry as goal_registry
+from factory.memory import durable as durable_memory
 from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
@@ -407,6 +408,22 @@ def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
         "goal": goal_id,
         "runs": [_sim_run_payload(repo_root, run) for run in runs],
     }
+
+
+def query_memory(repo_root: Path, scope_ref: str) -> dict:
+    """One read of durable memory: decisions, failures, hypotheses, goals, conflicts.
+
+    Delegates to ``factory.memory.durable.query_memory`` (Inc 8 Task 2) so
+    the projection and this navigator share one implementation -- the
+    navigator never re-parses an artifact the durable module already loads.
+    The projection composes the existing loaders (`adr:`, failure records,
+    goals, evidence manifests) and renders every entry through the same
+    citation/freshness plumbing as the other queries: each decision, record,
+    hypothesis, goal and conflict carries a provenance citation and a
+    freshness state, and no entry re-states the requirement/ADR/evidence
+    prose it links.
+    """
+    return durable_memory.query_memory(repo_root, scope_ref)
 
 
 @dataclass(frozen=True)
