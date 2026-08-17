@@ -32,7 +32,7 @@ import {
   resolveLabel,
   vocabularyBadgeFor,
 } from './system-comprehension.js';
-import { REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
+import { PANELS_DATA, REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
   badge,
   badgeSpan,
@@ -73,6 +73,7 @@ function clientSource(): string {
   var LABELS_LOADED = true;
   var VOCABULARY = ${JSON.stringify(VOCABULARY_DATA)};
   var REMEDIATION = ${JSON.stringify(REMEDIATION_DATA)};
+  var PANELS_DATA = ${JSON.stringify(PANELS_DATA)};
   function setLabels(payload) {
     LABELS = (payload && payload.labels) || {};
     ALIASES = (payload && payload.aliases) || {};
@@ -364,6 +365,8 @@ export function renderSystemPageHtml(): string {
   }
   .tab:hover { color: var(--text); background: var(--surface-soft); }
   .tab[aria-selected="true"] { border-bottom-color: var(--signal); color: var(--signal); }
+  .panel-orientation { margin: 8px 0 14px; max-width: 78ch; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+  .panel-orientation .how-to-read { display: block; margin-top: 3px; color: var(--text-dim); }
   .panel[hidden] { display: none; }
   .panel { width: min(100%, 1040px); }
   .claim, .matrix-row, .timeline-event, .run, .path, .trace-sr, .trace-task {
@@ -720,6 +723,7 @@ export function renderSystemPageHtml(): string {
             <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
             <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
           </div></nav>
+          <p id="panelOrientation" class="panel-orientation"></p>
           <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
           <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
           <div id="panelTimeline" class="panel" role="tabpanel" aria-labelledby="tabTimeline" hidden></div>

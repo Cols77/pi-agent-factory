@@ -101,3 +101,15 @@ def test_disposition_literal_values_are_all_defined_in_vocabulary():
 
     for value in get_args(Disposition):
         assert value in VOCABULARY, f"disposition {value!r} has no vocabulary entry"
+
+
+# --- Task 4: panel orientation -------------------------------------------
+
+
+def test_every_panel_entry_has_both_sentences():
+    from factory.system.vocabulary import PANELS
+
+    for tab, e in PANELS.items():
+        assert e["what_it_shows"].strip(), tab
+        assert e["how_to_read"].strip(), tab
+        assert e["what_it_shows"].endswith("."), tab

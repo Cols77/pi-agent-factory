@@ -1,10 +1,11 @@
 // Generated from the Python source of truth -- copied verbatim, not summarised.
-// Source: src/factory/system/vocabulary.py (build_vocabulary) and
+// Source: src/factory/system/vocabulary.py (build_vocabulary, build_panels) and
 // src/factory/system/remediation.py (build_remediation).
 // Task 13 adds a drift test that fails if this diverges from the Python output.
 // To regenerate:
 //   uv run python -m factory.system vocabulary --json
 //   uv run python -m factory.system remediation --json
+//   uv run python -m factory.system panels --json
 // and paste each JSON payload in verbatim below.
 
 export const VOCABULARY_DATA = {
@@ -1351,6 +1352,77 @@ export const REMEDIATION_DATA = {
       "command": "/trace-fix {id}",
       "command_kind": "slash",
       "severity": "failure"
+    }
+  }
+} as const;
+
+export const PANELS_DATA = {
+  "version": 1,
+  "panels": {
+    "Brief": {
+      "label": "Brief",
+      "what_it_shows": "Every claim this scope makes, with the evidence behind it.",
+      "how_to_read": "The badge says where the claim came from: copied from a file, computed, written by an agent, or missing -- a claim can be recorded as absent."
+    },
+    "Matrix": {
+      "label": "Matrix",
+      "what_it_shows": "Whether each requirement's validation has run, and what it concluded.",
+      "how_to_read": "`never-run` means no result was ever recorded -- not that it failed."
+    },
+    "Timeline": {
+      "label": "Timeline",
+      "what_it_shows": "Decisions recorded against this scope, in the order they happened.",
+      "how_to_read": "An actor of `not-recorded` means the record does not say who decided."
+    },
+    "Guide": {
+      "label": "Guide",
+      "what_it_shows": "A prose walkthrough: fixed scaffolding with verbatim quotes inserted into it.",
+      "how_to_read": "The quoted spans are verbatim from their sources; the prose around them is template text, NOT derived from the quotes."
+    },
+    "Trace": {
+      "label": "Trace",
+      "what_it_shows": "The V-cycle chain: requirement, the tasks satisfying it, and their plans and specs.",
+      "how_to_read": "A hop reading `unresolved` covers two cases: no link was ever recorded, or a link exists whose target cannot be found."
+    },
+    "Vcycle": {
+      "label": "V-cycle",
+      "what_it_shows": "The full V-cycle for this requirement or feature: what defines it (needs through code) on one side, what verifies it (unit through system validation) on the other, plus its goals, metrics, and runs.",
+      "how_to_read": "Each node's colour comes from its own recorded validation, goal, or task status; a band with nothing recorded reads 'none recorded' rather than being left blank."
+    },
+    "Validation": {
+      "label": "Validation",
+      "what_it_shows": "This requirement's recorded validation result, the goals bound to it, the simulation runs that produced that result, and the metrics those goals evaluate.",
+      "how_to_read": "The raw state comes from the validation report alone; the goal-aware status beside it is judged separately: `REGRESSED` if any bound goal regressed, `VALIDATED` only if every bound goal reached its target, otherwise `VERIFICATION_PENDING`."
+    },
+    "Feature": {
+      "label": "Feature",
+      "what_it_shows": "This feature's dossier: its intent, the requirements it covers, its design records, implementation files, tasks and their runs, tests, simulations, goals, and recent changes.",
+      "how_to_read": "Every section renders even when nothing is recorded for it -- an absent section reads 'none recorded' or 'not recorded' rather than being left out."
+    },
+    "Story": {
+      "label": "Story",
+      "what_it_shows": "Every recorded run of this task, and what each one changed.",
+      "how_to_read": "A run sourced from a session has no commit range; only evidence manifests record one."
+    },
+    "Reverse": {
+      "label": "Reverse",
+      "what_it_shows": "Which requirement this file traces back to, and through which run.",
+      "how_to_read": "`stops_at` names the first hop that did not resolve."
+    },
+    "Goal": {
+      "label": "Goal",
+      "what_it_shows": "This goal's contract and current state: the requirements and feature it belongs to, the metric and target it is measured against, its latest evidence, and its full recorded history.",
+      "how_to_read": "The state badge is whatever was last recorded; History lists every past state in order, not just the latest one."
+    },
+    "Sim": {
+      "label": "Simulation",
+      "what_it_shows": "One recorded simulation run: its experiment, feature, requirements, goals, commit, result, per-metric values, and a link to its recording.",
+      "how_to_read": "A field with nothing recorded for it -- no commit, no recording, no metrics -- renders 'not recorded' or 'none recorded' explicitly rather than being omitted."
+    },
+    "Diagram": {
+      "label": "Diagram",
+      "what_it_shows": "One diagram's already-committed HTML file, embedded directly, plus its recorded title.",
+      "how_to_read": "The panel never generates or re-derives a diagram -- when the diagram file is missing or its declared path is invalid, it states that explicitly instead."
     }
   }
 } as const;

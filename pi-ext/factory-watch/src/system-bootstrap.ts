@@ -40,6 +40,10 @@ declare const renderTrace: (trace: any[]) => void;
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 declare const VOCABULARY: { terms: Record<string, any> };
+declare const PANELS_DATA: {
+  version: number;
+  panels: Record<string, { label: string; what_it_shows: string; how_to_read: string }>;
+};
 declare const renderVocabularyPanel: () => void;
 // Task 12: the label index (resolveLabel/setLabels) and the Next step block,
 // both defined in system-comprehension.ts and embedded into the same
@@ -584,6 +588,21 @@ export async function systemBootstrap(): Promise<void> {
       tabNode.setAttribute('tabindex', active ? '0' : '-1');
       (document.getElementById('panel' + tab) as HTMLElement).hidden = !active;
     });
+    // Design Component 4: a persistent one-line orientation beneath the tab
+    // strip, for the active panel only. Wording is Python's, mirrored
+    // verbatim into PANELS_DATA -- this only ever picks and renders it. An
+    // unknown tab (should not happen: PANELS has all thirteen TABS_BY_KIND
+    // ids) renders nothing rather than a placeholder.
+    const orientation = document.getElementById('panelOrientation') as HTMLElement;
+    clear(orientation);
+    const entry = PANELS_DATA.panels[name];
+    if (entry) {
+      orientation.appendChild(document.createTextNode(entry.what_it_shows));
+      const howToRead = document.createElement('span');
+      howToRead.className = 'how-to-read';
+      howToRead.appendChild(document.createTextNode(entry.how_to_read));
+      orientation.appendChild(howToRead);
+    }
     // Keep the active tab in the URL hash (replaceState, not pushState, so tab
     // switching does not pad the back-stack).
     if (updateUrl) {

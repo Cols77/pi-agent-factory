@@ -246,6 +246,10 @@ def cmd_remediation() -> dict:
     return remediation_module.build_remediation()
 
 
+def cmd_panels() -> dict:
+    return vocabulary_module.build_panels()
+
+
 def cmd_memberships(repo_root: Path, ref: str) -> dict:
     """Every bundle that declares `ref` as a member (deterministic order).
 
@@ -593,6 +597,15 @@ def _render_vocabulary(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_panels(result: dict) -> str:
+    panels = result["panels"]
+    lines = [f"panels: {len(panels)} tabs"]
+    for tab, entry in panels.items():
+        lines.append(f"  {tab} [{entry['label']}]: {entry['what_it_shows']}")
+        lines.append(f"    {entry['how_to_read']}")
+    return "\n".join(lines)
+
+
 def _render_remediation(result: dict) -> str:
     states = result["states"]
     lines = [f"remediation: {len(states)} states"]
@@ -738,6 +751,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("remediation", parents=[common])
 
+    sub.add_parser("panels", parents=[common])
+
     p_memberships = sub.add_parser("memberships", parents=[common])
     p_memberships.add_argument("ref")
 
@@ -813,6 +828,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "remediation":
             result = cmd_remediation()
             rendered = _render_remediation(result)
+        elif args.cmd == "panels":
+            result = cmd_panels()
+            rendered = _render_panels(result)
         elif args.cmd == "memberships":
             result = cmd_memberships(args.repo_root, args.ref)
             rendered = _render_memberships(result)

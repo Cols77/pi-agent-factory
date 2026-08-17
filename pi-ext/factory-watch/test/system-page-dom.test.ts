@@ -15,6 +15,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderSystemPageHtml } from "../src/system-page.js";
+import { PANELS_DATA } from "../src/system-vocabulary-data.js";
 
 const HEALTH = {
   health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
@@ -650,4 +651,27 @@ describe("system-page.ts client script, executed against a real DOM", () => {
       expect(readinessRow?.querySelector(".feature-readiness")?.textContent).toBe(readiness);
     },
   );
+
+  // Task 4 (Component 4): every tab gets a persistent one-line orientation
+  // beneath the tab strip. KEY BY THE ELEMENT ID, NOT aria-label -- two tabs
+  // disagree (id="tabVcycle" aria-label="V-cycle", id="tabSim" aria-label=
+  // "Simulation"), and `id.slice(3)` is exactly the TABS_BY_KIND id for all
+  // thirteen tabs.
+  test("every rendered tab has an orientation line", async () => {
+    const dom = await loadPage({ scope: "bundle:b1" });
+    const doc = dom.window.document;
+    doc.querySelectorAll('[role="tab"]').forEach((tab) => {
+      const key = tab.id.slice(3);
+      expect(PANELS_DATA.panels[key as keyof typeof PANELS_DATA.panels], `no orientation for tab ${key}`).toBeTruthy();
+    });
+  });
+
+  test("the orientation line follows the active tab", async () => {
+    const dom = await loadPage({ scope: "bundle:b1" });
+    const doc = dom.window.document;
+    const line = doc.getElementById("panelOrientation")!;
+    expect(line.textContent).toContain("Every claim this scope makes");
+    (doc.getElementById("tabMatrix") as HTMLElement).click();
+    expect(line.textContent).toContain("validation has run");
+  });
 });
