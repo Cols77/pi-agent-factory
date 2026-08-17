@@ -265,3 +265,26 @@ def test_query_health_includes_vcycle_findings(tmp_path):
     payload = health.query_health(tmp_path)
     assert "vcycle_findings" in payload
     assert any(f["code"] == "REQ_NO_IMPLEMENTATION" for f in payload["vcycle_findings"])
+
+
+def test_duplicate_failure_id_degrades_not_crashes(tmp_path):
+    """A repo with two failure records declaring the same id raises in the
+    loader; health degrades by skipping the failure-orphan finding class
+    rather than crashing the whole health query (other findings survive)."""
+    _write_sr(tmp_path, "SR-001", binding=True)
+    # Two FR files that declare the same id (different filenames).
+    _write_failure(tmp_path, "FR-DUP-0001")
+    dup_dir = tmp_path / "docs" / "failures"
+    dup_dir.mkdir(parents=True, exist_ok=True)
+    (dup_dir / "FR-DUP-0001-dup.md").write_text(
+        "---\nid: FR-DUP-0001\ntitle: T\nroot_cause: x\nfix: y\n---\n",
+        encoding="utf-8",
+    )
+
+    findings = health.vcycle_health(tmp_path)
+
+    # No crash; the failure-record orphan class is skipped ...
+    assert not any(c.startswith("FAILURE_") for c, _ in _codes(findings))
+    assert not any(c == "MEMORY_CONFLICT" for c, _ in _codes(findings))
+    # ... but unrelated health findings still surface.
+    assert ("REQ_NO_IMPLEMENTATION", "sr:SR-001") in _codes(findings)

@@ -356,7 +356,10 @@ def vcycle_health(
     # hypothesis with no evidence/outcome ref (only reachable in a degraded
     # record, since the schema requires the triple) is flagged per
     # hypothesis. Deterministic: iterate by declared id.
-    failures = load_failures(root)
+    try:
+        failures = load_failures(root)
+    except DuplicateFailureIdError:
+        failures = {}
     for fr_id in sorted(failures):
         rec = failures[fr_id]
         if not (rec.reproduced_by or "").strip():
