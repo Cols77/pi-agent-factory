@@ -36,6 +36,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from factory.evidence import manifests as evidence_manifests
 from factory.goals import registry as goal_registry
+from factory.memory import conflict as memory_conflict
 from factory.memory import durable as durable_memory
 from factory.orchestrator import ledger
 from factory.requirements import register
@@ -424,6 +425,22 @@ def query_memory(repo_root: Path, scope_ref: str) -> dict:
     prose it links.
     """
     return durable_memory.query_memory(repo_root, scope_ref)
+
+
+def query_conflicts(repo_root: Path, scope_ref: str) -> dict:
+    """One read of memory conflicts for a scope: structural + fingerprint.
+
+    Delegates to ``factory.memory.conflict.query_conflicts`` (Inc 8 Task 3)
+    so the fingerprint checks and the durable projection share one
+    implementation. Structural conflicts (a ``reproduced_by`` run no manifest
+    records, a ``superseded_by`` ADR nobody declares, from ``query_memory``)
+    are merged with fingerprint conflicts (a cited code file whose current
+    digest differs from the digest a cited run recorded, a cited commit no
+    longer reachable from HEAD, a cited run whose recorded evidence no longer
+    matches current state). Both sides are shown, never silently resolved
+    (brief §5.6).
+    """
+    return memory_conflict.query_conflicts(repo_root, scope_ref)
 
 
 @dataclass(frozen=True)
