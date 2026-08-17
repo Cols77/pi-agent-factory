@@ -36,6 +36,7 @@ import frontmatter
 
 from factory.memory.failure_record import (
     DuplicateFailureIdError,
+    FailureRecord,
     load_failures,
     parse_failure,
 )
@@ -102,7 +103,7 @@ def _emit(payload: dict, as_json: bool) -> None:
         print(json.dumps(payload, indent=2))
 
 
-def _load_records(repo: Path) -> dict:
+def _load_records(repo: Path) -> dict[str, FailureRecord]:
     """Every failure record keyed by declared id; a duplicate id fails loudly."""
     try:
         return load_failures(repo)
@@ -119,7 +120,8 @@ def _memory_read(repo: Path, scope: str, conflicts: bool, as_json: bool) -> int:
             else system_queries.query_memory(repo, scope)
         )
     except ValueError as exc:
-        print(f"could not query memory: {exc}", file=sys.stderr)
+        kind = "conflicts" if conflicts else "memory"
+        print(f"could not query {kind}: {exc}", file=sys.stderr)
         return 2
     _emit(payload, as_json)
     return 0
@@ -229,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.subcommand == "show":
             return _failure_show(repo, args.failure_id, args.json)
         return _failure_add(args, repo)
+    # Unreachable today: the top-level subparser is required=True and routes
+    # every command here. Defensive default kept so an unhandled command can
+    # never be mistaken for success.
     return 2
 
 
