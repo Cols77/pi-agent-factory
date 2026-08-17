@@ -255,6 +255,35 @@ export function glossFor(term: string): HTMLElement | null {
   return el;
 }
 
+// IMPORTANT 5 fix round (legibility inc2): the readiness-counts line (e.g.
+// "8 SR · 0 bound · 8 covered · 0 current · 8 deferred · 0 validated") packs
+// six contract words -- sr_total/bound/covered/current/deferred/validated --
+// each with its own VOCABULARY entry, into one string with no gloss at all.
+// A per-word withGloss/glossFor (six always-visible caption lines) would
+// triple every bundle row's height, so this builds ONE combined, plain,
+// always-visible `.gloss` line instead, reusing each present word's own real
+// `gloss` text verbatim (never invented copy) -- the same non-interactive
+// element glossFor returns, so (like the readiness-word glossFor calls
+// beside it) it is safe to nest inside an interactive anchor/button: only an
+// `.info-trigger` BUTTON creates the nested-interactive-control problem, a
+// plain <div> does not.
+export function readinessCountsGloss(counts: any): HTMLElement | null {
+  if (!counts || !VOCABULARY || !VOCABULARY.terms) return null;
+  const order = ['sr_total', 'bound', 'covered', 'current', 'deferred', 'validated'];
+  const parts: string[] = [];
+  order.forEach((key: string) => {
+    if (counts[key] === undefined) return;
+    const entry = VOCABULARY.terms[key];
+    if (!entry || !entry.gloss) return;
+    parts.push((entry.label || key) + ': ' + entry.gloss);
+  });
+  if (!parts.length) return null;
+  const el = document.createElement('div');
+  el.className = 'gloss readiness-counts-gloss';
+  el.appendChild(document.createTextNode(parts.join(' · ')));
+  return el;
+}
+
 // The real <button>, keyboard reachable, that opens the definition card for
 // `term` (visual addendum, "Badge with gloss"). Absent VOCABULARY entry ->
 // null, same silent-degrade rule as glossFor.

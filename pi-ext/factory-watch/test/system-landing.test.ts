@@ -208,6 +208,35 @@ describe("system landing page", () => {
     expect(gloss!.textContent).not.toBe("");
   });
 
+  // IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six more
+  // contract words (sr_total/bound/covered/current/deferred/validated) into
+  // one bare string beside the readiness word above -- same rule applies.
+  // Six per-word gloss lines would triple the row height, so this asserts
+  // the single combined `.readiness-counts-gloss` line lands inside the
+  // counts span (not merely that "4 SR" text appears).
+  test("the sidebar's bundle-row readiness counts carry a gloss, not just the bare numbers", async () => {
+    const doc = await renderWithHealth(FEATURE_HEALTH);
+    const row = doc.querySelector('#scopeList .scope-item[data-kind="bundle"]')!;
+    const counts = row.querySelector(":scope > .readiness-counts")!;
+    expect(counts.textContent).toContain("4 SR");
+    const gloss = counts.querySelector(".readiness-counts-gloss");
+    expect(gloss, "no gloss inside the sidebar row's readiness-counts span").not.toBeNull();
+    expect(gloss!.textContent).toContain("SR total");
+    expect(gloss!.textContent).toContain("bound");
+  });
+
+  // Same word set, the landing page's feature-row site (`row` IS the
+  // clickable anchor there too).
+  test("a feature-row's readiness counts carry a gloss, not just the bare numbers", async () => {
+    const doc = await renderWithHealth(BUNDLED_HEALTH);
+    const row = doc.querySelector("#bundleList .feature-row.readiness-weak")!;
+    const counts = row.querySelector(".readiness-counts")!;
+    expect(counts.textContent).toContain("4 SR");
+    const gloss = counts.querySelector(".readiness-counts-gloss");
+    expect(gloss, "no gloss inside the feature-row's readiness-counts span").not.toBeNull();
+    expect(gloss!.textContent).toContain("SR total");
+  });
+
   test("sidebar expands weak and collapses medium/strong but count-bearing titles", async () => {
     const doc = await renderWithHealth(FEATURE_HEALTH);
     const sidebar = doc.querySelector("#scopeList")!;

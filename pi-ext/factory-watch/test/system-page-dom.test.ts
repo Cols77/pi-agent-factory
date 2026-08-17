@@ -411,10 +411,13 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(shapeEl?.querySelector(".badge")?.textContent).toBe("derived");
   });
 
-  // Task 5 (legibility inc2): the denominator rule is the definition's
-  // FIRST sentence only -- "SR satisfied" cites figures as "(e.g. 181)",
-  // which would truncate mid-abbreviation on a naive split at every period.
-  test("a metric tile's denominator rule stops at the real sentence boundary, not at 'e.g.'", async () => {
+  // Task 5 (legibility inc2, fix wave): a metric tile's rule is now a
+  // Python-authored `denominator_rule` field on the vocabulary entry,
+  // rendered as-is -- never a browser-side regex slicing the full
+  // `definition` (that approach put "sr_proposed", "trace graph", and
+  // "slot" on a newcomer's first screen; see system-page.test.ts's
+  // firstSentence-deletion pin for the other half of this fix).
+  test("a metric tile's rule is the vocabulary entry's own short denominator_rule, not the full definition", async () => {
     const dom = await loadPage({
       health: {
         health: {
@@ -428,13 +431,11 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     const metric = dom.window.document.querySelector(".health-metric")!;
     const rule = metric.querySelector(".health-metric-rule")?.textContent ?? "";
     expect(rule).toBe(
-      "Denominator: every `sr` node in the trace graph -- the full repo-wide count, " +
-      "including proposed SRs with no decided binding yet, which is why this denominator " +
-      "(e.g. 181) is much larger than `SR validated`'s (e.g. 43): proposed SRs keep their " +
-      "`SR satisfied` slot (a requirement with no task is a gap whether or not it is bound) " +
-      "but lose their `SR validated` slot entirely (there is nothing to validate yet)."
+      "Counts every requirement, including ones not yet decided on; " +
+      "satisfied when a task claims to satisfy it."
     );
-    expect(rule).not.toContain("Satisfied: at least one task");
+    expect(rule).not.toContain("Denominator:");
+    expect(rule).not.toContain("trace graph");
   });
 
   // Fix round 1, Task 10: renderTraversal is a closure inside systemBootstrap,
@@ -723,6 +724,26 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     const trigger = readinessRow?.querySelector(".info-trigger[data-term='weak']");
     expect(trigger, "no definition trigger beside the context rail's readiness word").not.toBeNull();
     expect(trigger?.getAttribute("aria-label")).toBe("What does weak mean?");
+  });
+
+  // IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six more
+  // contract words (sr_total/bound/covered/current/deferred/validated) into
+  // one bare string beside the readiness word above -- same rule applies,
+  // but as a single combined `.readiness-counts-gloss` line (see
+  // system-comprehension.ts's readinessCountsGloss), not six separate
+  // triggers.
+  test("the context rail's readiness counts carry a gloss, not just the bare numbers", async () => {
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      health: { ...HEALTH, bundles: [{ ...HEALTH.bundles[0], readiness: "weak" }] },
+    });
+    const doc = dom.window.document;
+    const counts = doc.querySelector("#contextRail .context-rail-readiness .readiness-counts");
+    expect(counts).not.toBeNull();
+    expect(counts?.textContent).toContain("1 SR");
+    const gloss = counts?.querySelector(".readiness-counts-gloss");
+    expect(gloss, "no gloss inside the context rail's readiness-counts span").not.toBeNull();
+    expect(gloss?.textContent).toContain("SR total");
   });
 
   // Task 4 (Component 4): every tab gets a persistent one-line orientation

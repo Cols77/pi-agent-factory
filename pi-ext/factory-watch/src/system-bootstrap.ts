@@ -59,6 +59,12 @@ declare const withGloss: (el: HTMLElement, term: string) => HTMLElement;
 // only the third site (context rail, no click handler of its own) uses the
 // full withGloss precedent.
 declare const glossFor: (term: string) => HTMLElement | null;
+// IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six
+// contract words (sr_total/bound/covered/current/deferred/validated) into
+// one rendered line at the same three sites; readinessCountsGloss follows
+// the glossFor precedent immediately above -- one plain, always-visible
+// `.gloss` line, safe to nest anywhere a plain glossFor() line already is.
+declare const readinessCountsGloss: (counts: any) => HTMLElement | null;
 declare const VOCABULARY: { terms: Record<string, any> };
 declare const PANELS_DATA: {
   version: number;
@@ -328,6 +334,8 @@ export async function systemBootstrap(): Promise<void> {
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(bundle.readiness_counts)));
+      const countsGloss = readinessCountsGloss(bundle.readiness_counts);
+      if (countsGloss) counts.appendChild(countsGloss);
       row.appendChild(counts);
       readinessSection.appendChild(row);
       rail.appendChild(readinessSection);
@@ -439,6 +447,8 @@ export async function systemBootstrap(): Promise<void> {
         const counts = document.createElement('span');
         counts.className = 'readiness-counts';
         counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+        const countsGloss = readinessCountsGloss(b.readiness_counts);
+        if (countsGloss) counts.appendChild(countsGloss);
         a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
@@ -1212,19 +1222,6 @@ export async function systemBootstrap(): Promise<void> {
     }
   }
 
-  // Task 5 (legibility inc2): the definition's first sentence is the
-  // "Denominator: ..." clause every health-class entry opens with -- the
-  // plain-words rule for what the ratio's bottom number counts. Split on a
-  // period that is actually a sentence end (followed by whitespace then a
-  // capital letter/backtick, or by the string's end), not on every period --
-  // several definitions cite figures as "(e.g. 181)", and "e.g." would
-  // otherwise truncate the sentence mid-clause.
-  function firstSentence(text: string): string {
-    if (!text) return '';
-    const match = /^[\s\S]*?\.(?=\s+[A-Z`]|\s*$)/.exec(text);
-    return match ? match[0] : text;
-  }
-
   // Task 6 (SP-B): the landing page health summary + bundle list, rendered
   // straight from the composed `health` projection (factory.system health
   // --json). Python computed every number; this only renders it via text
@@ -1275,10 +1272,10 @@ export async function systemBootstrap(): Promise<void> {
       line.appendChild(label);
       line.appendChild(raw);
       line.appendChild(ratio);
-      if (term && term.definition) {
+      if (term && term.denominator_rule) {
         const rule = document.createElement('div');
         rule.className = 'health-metric-rule';
-        rule.appendChild(document.createTextNode(firstSentence(term.definition)));
+        rule.appendChild(document.createTextNode(term.denominator_rule));
         line.appendChild(rule);
       }
       metrics.appendChild(line);
@@ -1396,6 +1393,8 @@ export async function systemBootstrap(): Promise<void> {
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+      const countsGloss = readinessCountsGloss(b.readiness_counts);
+      if (countsGloss) counts.appendChild(countsGloss);
       row.appendChild(heading);
       row.appendChild(readiness);
       row.appendChild(members);
