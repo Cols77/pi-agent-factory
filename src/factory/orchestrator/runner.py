@@ -10,7 +10,7 @@ from factory.evidence.manifests import load_run_manifest, write_run_manifest
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
-from factory.orchestrator.git_ops import GitOps, SubprocessGitOps, ensure_factory_ignores
+from factory.orchestrator.git_ops import CommitAllError, GitOps, SubprocessGitOps, ensure_factory_ignores
 from factory.orchestrator.human_review import HumanReviewGate, format_review_feedback
 from factory.orchestrator.grill import GrillGate, GrillResult
 from factory.orchestrator.context_packet import build_context_packet, write_context_packet
@@ -58,6 +58,75 @@ def _load_kb_entries(kb_dir: Path, ids: list[str]) -> list[dict]:
 
 def _commit_message(task: Task) -> str:
     return f"{task.id}: {task.title}"
+
+
+def _commit_work(
+    *,
+    task: Task,
+    repo_root: Path,
+    git_ops: GitOps,
+    preexisting_dirty: dict[str, str],
+    execution: RunExecution | None,
+    status: StatusReporter,
+) -> str | None:
+    """Commit the run's work; on a git refusal, record a failed code-commit.
+
+    Returns the remediation error message when the working tree cannot be
+    staged (CommitAllError, e.g. a Windows reserved-name path or an embedded
+    git repository), so the caller can end the run escalated instead of
+    silently continuing without a commit. None means the commit succeeded (or
+    there was nothing to commit)."""
+    try:
+        git_ops.commit_all(repo_root, _commit_message(task), preserve=preexisting_dirty)
+        return None
+    except CommitAllError as exc:
+        if execution is not None:
+            execution.record(
+                node="code-commit",
+                state="failed",
+                attempt=1,
+                next_node="closed",
+                remaining={},
+                data={"error": str(exc)},
+            )
+        status.report(
+            task_id=task.id,
+            node="code-commit",
+            node_state="failed",
+            attempt=1,
+            max_attempts=1,
+            outcome="escalated",
+            handoff=str(exc),
+        )
+        return str(exc)
+
+
+def _commit_or_escalate(
+    *,
+    task: Task,
+    repo_root: Path,
+    git_ops: GitOps,
+    preexisting_dirty: dict[str, str],
+    execution: RunExecution | None,
+    status: StatusReporter,
+    iterations: int,
+    events: list[NodeEvent],
+    manifest: dict | None,
+) -> TaskResult | None:
+    """Commit, returning the escalated result on refusal; None on success."""
+    error = _commit_work(
+        task=task,
+        repo_root=repo_root,
+        git_ops=git_ops,
+        preexisting_dirty=preexisting_dirty,
+        execution=execution,
+        status=status,
+    )
+    if error is None:
+        return None
+    result = TaskResult(task.id, task.title, "escalated", iterations, list(events), False, manifest)
+    result.events.append(NodeEvent("code-commit", "fail", 1, {"error": error}))
+    return result
 
 
 def _utc_now() -> str:
@@ -115,7 +184,11 @@ def run_task(
         None,
     )
     if resume is not None and resume.node != "context-gather" and context_record is not None:
-        context_data = context_record.get("data", {})
+        context_data = (
+            execution.resolve_data(context_record.get("data", {}))
+            if execution is not None
+            else context_record.get("data", {})
+        )
         manifest = context_data.get("manifest")
         c_outcome = NodeOutcome(context_data.get("outcome", "pass"))
         raw_event = context_data.get("event", {})
@@ -343,7 +416,19 @@ def run_task(
         if human_review is None:
             if llm_passed:
                 assert r_ev is not None
-                git_ops.commit_all(repo_root, _commit_message(task), preserve=preexisting_dirty)
+                escalated = _commit_or_escalate(
+                    task=task,
+                    repo_root=repo_root,
+                    git_ops=git_ops,
+                    preexisting_dirty=preexisting_dirty,
+                    execution=execution,
+                    status=status,
+                    iterations=iterations,
+                    events=events,
+                    manifest=manifest,
+                )
+                if escalated is not None:
+                    return escalated
                 if execution is not None:
                     execution.record(
                         node="code-commit",
@@ -424,7 +509,19 @@ def run_task(
                 },
             )
         if decision.decision == "approve":
-            git_ops.commit_all(repo_root, _commit_message(task), preserve=preexisting_dirty)
+            escalated = _commit_or_escalate(
+                task=task,
+                repo_root=repo_root,
+                git_ops=git_ops,
+                preexisting_dirty=preexisting_dirty,
+                execution=execution,
+                status=status,
+                iterations=iterations,
+                events=events,
+                manifest=manifest,
+            )
+            if escalated is not None:
+                return escalated
             if execution is not None:
                 execution.record(
                     node="code-commit",

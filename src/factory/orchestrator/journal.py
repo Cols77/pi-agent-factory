@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -29,12 +29,13 @@ class RunCheckpoint:
     start_commit: str
     head_commit: str
     worktree_fingerprint: str
-    patch_path: str | None
-    completed: list[dict]
-    agent_sessions: dict[str, str]
-    pending_human_round: int | None
-    artifacts: list[str]
-    interruption: str | None
+    tracked_fingerprint: str | None = None
+    patch_path: str | None = None
+    completed: list[dict] = field(default_factory=list)
+    agent_sessions: dict[str, str] = field(default_factory=dict)
+    pending_human_round: int | None = None
+    artifacts: list[str] = field(default_factory=list)
+    interruption: str | None = None
 
 
 class RunJournal:
@@ -81,6 +82,12 @@ class RunJournal:
         return out
 
     def latest(self) -> RunCheckpoint | None:
+        """Load the latest checkpoint, tolerating older schema versions.
+
+        A checkpoint written before a field was added (e.g. the pre-KB-0004
+        checkpoints that lack `tracked_fingerprint`) must still load so resume
+        can fall back to the saved patch for the tracked-diff comparison.
+        Unknown keys are dropped; missing defaulted fields are filled in."""
         try:
             value = json.loads(self.checkpoint_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -89,7 +96,14 @@ class RunJournal:
             raise ValueError("corrupt run checkpoint") from exc
         if not isinstance(value, dict):
             raise ValueError("corrupt run checkpoint")
+        known = {item.name: item for item in fields(RunCheckpoint)}
+        filtered: dict = {}
+        for key, item in known.items():
+            if key in value:
+                filtered[key] = value[key]
+            elif item.default is not MISSING:
+                filtered[key] = item.default
         try:
-            return RunCheckpoint(**value)
+            return RunCheckpoint(**filtered)
         except TypeError as exc:
             raise ValueError("corrupt run checkpoint") from exc
