@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/failure.schema.json",
+  "title": "Failure record frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "root_cause", "fix"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^FR-[A-Z0-9-]+$",
+      "description": "Stable identity. Scope refs use this (fr:FR-NAV-0001), never the filename, so a file may be renamed for readability without breaking refs."
+    },
+    "title": {"type": "string", "minLength": 1},
+    "reproduced_by": {
+      "type": ["string", "null"],
+      "description": "Run id / reproduction task ref that reproduces the failure. Absent means the failure was not reproduced under a recorded run."
+    },
+    "root_cause": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Root cause. Must cite evidence or an ADR (recorded, never inferred)."
+    },
+    "rejected_hypotheses": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hypothesis", "why_rejected", "evidence"],
+        "properties": {
+          "hypothesis": {"type": "string", "minLength": 1},
+          "why_rejected": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "fix": {"type": "string", "minLength": 1},
+    "regression_link": {
+      "type": ["string", "null"],
+      "description": "Ref to the permanent regression test / task that guards this failure."
+    },
+    "linked_req": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^SR-[A-Z0-9-]+$"}
+    },
+    "linked_feature": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^FEAT-[A-Z0-9-]+$"}
+    }
+  }
+}
