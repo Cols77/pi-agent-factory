@@ -63,6 +63,7 @@ def test_validate_verdict_missing_reasoning() -> None:
     v.pop("reasoning")
     result, error = validate_verdict(v)
     assert result is None
+    assert error is not None
     assert "reasoning" in error
 
 
@@ -71,6 +72,7 @@ def test_validate_verdict_missing_checked() -> None:
     v.pop("checked")
     result, error = validate_verdict(v)
     assert result is None
+    assert error is not None
     assert "checked" in error
 
 
@@ -79,6 +81,7 @@ def test_validate_verdict_missing_assumed() -> None:
     v.pop("assumed")
     result, error = validate_verdict(v)
     assert result is None
+    assert error is not None
     assert "assumed" in error
 
 
@@ -87,6 +90,7 @@ def test_validate_verify_item_requires_item() -> None:
     v["verify"] = [{"file": "src/x.py", "why": "tight margin"}]
     result, error = validate_verdict(v)
     assert result is None
+    assert error is not None
     assert "verify" in error
 
 

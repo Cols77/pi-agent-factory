@@ -24,7 +24,12 @@ def render_human_summary(report: dict) -> str:
     scope = report.get("scope", {})
     lines.append(f"Declared SRs: {len(scope.get('declared', []))}")
     lines.append(f"Linked SRs:   {len(scope.get('linked', []))}")
-    lines.append(f"Tasks:        {len(scope.get('tasks', {}))}")
+    task_ids = {
+        t.get("task_id")
+        for sr in report.get("srs", {}).values()
+        for t in sr.get("tasks", [])
+    }
+    lines.append(f"Tasks:        {len(task_ids)}")
     lines.append("")
 
     completeness = report.get("completeness", [])
