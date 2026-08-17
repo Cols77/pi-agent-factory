@@ -32,6 +32,7 @@ import { buildCliTaskReads, buildTaskPreamble } from "./task-preamble.js";
 import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { registerFactoryInit } from "./factory-init-command.js";
 import { registerSessionMemory } from "./session-memory-command.js";
+import { registerCoverageRun } from "./coverage-run-command.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -531,6 +532,8 @@ export default function factoryWatch(pi: PiApi): void {
   // The volatile session-continuity layer: /remember, session_shutdown prune,
   // and before_agent_start rollup injection.
   registerSessionMemory(pi);
+  // The feature-scoped coverage audit: /coverage-review (factory-run style).
+  registerCoverageRun(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
