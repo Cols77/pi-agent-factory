@@ -80,12 +80,13 @@ never a transcript archive, never chat residue (brief §5.6).
 def load_failure(path) -> FailureRecord
 def load_failures(root) -> dict[str, FailureRecord]
 ```
-- [ ] **Step 1: Failing tests** — write→read round-trip of `docs/failures/FR-*.md`; a malformed
+- [x] **Step 1: Failing tests** — write→read round-trip of `docs/failures/FR-*.md`; a malformed
   record degrades to `scope_errors` (never crashes the set); a record whose `reproduced_by` run is
   missing is flagged (orphan) via `health`.
-- [ ] **Step 2: Implement** mirroring `adr.py`/`load_adrs`; add `failure.schema.json`
+- [x] **Step 2: Implement** mirroring `adr.py`/`load_adrs`; add `failure.schema.json`
   (id `^FR-[A-Z0-9-]+$`, required `root_cause`/`fix`; `rejected_hypotheses` optional, bounded length).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
+  (committed by the interrupted session as 7a64334; re-verified green under this session)
 
 ## Task 2: Durable-memory projection
 
@@ -161,12 +162,27 @@ def load_failures(root) -> dict[str, FailureRecord]
 
 ## Task 5: Seed the reference slice + review handoff
 
-- [ ] **Step 1:** in cool_physical_ai_project, author one real failure record for the reference
+- [x] **Step 1:** in cool_physical_ai_project, author one real failure record for the reference
   feature (e.g. the false-reacquisition regression seen in Inc 2/3 demo), linking the failing run
   + the ADR decision + a `kb/` entry, and a rejected-hypothesis note (brief §5.6).
-- [ ] **Step 2:** reviewer sub-agent — compliance vs brief §5.6 (durable ≠ archive; conflict shows
+  Committed c48762a on feature/scc-feature-spine: `docs/failures/FR-NAV-0001.md` links the real
+  failing run RUN-20260814-114859700 (SIM-047, result failed, false_reacquisition_rate 0.4) +
+  ADR-0001 (legacy Directive execution not authoritative) + new kb-0005 supplement; two rejected
+  hypotheses each with evidence. All citations verified to real artifacts; `load_failures`
+  scope_errors empty, no conflicts (run resolves).
+- [x] **Step 2:** reviewer sub-agent — compliance vs brief §5.6 (durable ≠ archive; conflict shows
   not chooses), D3 additive, and "no second source of truth". Fix findings as `T-###`.
-- [ ] **Step 3:** update checkboxes; note escalations.
+  Reviewer FOUND 1 finding (F-1, medium): the initial root-cause mechanism claim referenced a
+  code path that does not exist (no transition into REACQUIRING; the scorer's recorded semantics
+  is restart-at-waypoint-0 vs resume token). REWORDED both FR-NAV-0001 and kb-0005 to the
+  recorded MET-NAV-004 / scorers.py semantics — "recorded, never inferred" restored. Re-verified:
+  schema-valid, kb parses, no conflicts.
+- [x] **Step 3:** update checkboxes; note escalations.
+  Notes/escalations: (1) kb/index.json is gitignored in cool_physical_ai_project, so the kb-0005
+  index entry is local-only (the kb-0005 .md is committed); (2) FR-NAV-0001 is not placed in a
+  bundle — no bundle/coverage gate scans docs/failures (verified in the Inc 8 machinery), so this
+  is not an escalation; (3) pre-existing kb index gap (kb-0002/0003 absent from kb/index.json)
+  predates this task.
 
 ## Freshness/history integration
 
