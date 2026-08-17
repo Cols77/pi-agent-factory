@@ -100,19 +100,39 @@ def _resolve_scope_file(repo_root: Path, scope: SystemScopeRef) -> Path:
     return resolved
 
 
+def _changed_files(manifest: dict) -> list[str]:
+    """The manifest's recorded changed files, read tolerantly.
+
+    `load_run_manifest` returns spec-§20 simulation bundles *unvalidated*
+    (tolerant path), so such a bundle may carry no `implementation` block at
+    all -- a run with no recorded changed files, not a corruption the walk
+    should crash on. A manifest like that can never match a file scope; the
+    honest answer is the designed `no recorded run touching it` degraded
+    reason, never a KeyError that kills the whole reverse query (which was
+    surfacing in the browser as a raw traceback behind `why this file:`).
+    """
+    implementation = manifest.get("implementation")
+    changed = implementation.get("changed_files") if isinstance(implementation, dict) else None
+    if not isinstance(changed, list):
+        return []
+    return [entry for entry in changed if isinstance(entry, str)]
+
+
 def _run_entry(evidence_dir: Path, manifest: dict) -> dict:
     """One matched run: the manifest whose `implementation.changed_files`
     named the walked file. Mirrors `story._manifest_run`'s claim/citation
     construction -- `CitationKind.MANIFEST`, `recorded`/`fresh`, changed
     files reproduced verbatim, never reconstructed -- so a run reads the
     same whether the V-cycle is walked forward (`query_story`) or backward
-    (here). `manifest` always came back from `list_run_manifests`, already
-    schema-validated, so every field accessed below is safe to index plainly.
+    (here). `manifest` came back from `list_run_manifests`; the remaining
+    fields (`run_id`, `outcome`, timestamps, commits) are schema-validated
+    on every validation-tracked shape, and `changed_files` is read through
+    `_changed_files` so the tolerant §20 path cannot break it either.
     """
     run_id = manifest["run_id"]
     path = _manifest_path(evidence_dir, run_id)
     citation = SystemCitation(kind=CitationKind.MANIFEST, path=str(path), sha256=_sha256_file(path))
-    changed_files = list(manifest["implementation"]["changed_files"])
+    changed_files = _changed_files(manifest)
     claim = SystemClaim(
         kind=ClaimClass.RECORDED,
         text=f"run {run_id}: {len(changed_files)} changed file(s) recorded",
@@ -207,7 +227,7 @@ def query_reverse(repo_root: Path, scope: SystemScopeRef) -> dict:
     matched_manifests = [
         manifest
         for manifest in evidence_manifests.list_run_manifests(evidence_dir_path)
-        if file_ref in manifest["implementation"]["changed_files"]
+        if file_ref in _changed_files(manifest)
     ]
 
     paths = [
