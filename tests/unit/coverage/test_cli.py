@@ -133,3 +133,28 @@ def test_report_renders_human_summary(tmp_path: Path) -> None:
     cmd_verdict(tmp_path, "FEAT-001", "test-run", "SR-001", _verdict_json())
     cmd_consolidate(tmp_path, "FEAT-001", "test-run")
     assert cmd_report(tmp_path, "FEAT-001", "test-run")
+
+
+def test_pipeline_end_to_end_on_fixture() -> None:
+    """The committed demo fixture: audit -> verdict -> consolidate -> gate."""
+    from pathlib import Path as P
+
+    root = P(__file__).resolve().parents[2] / "fixtures" / "coverage-demo"
+    run_id = "demo-run"
+    audit = cmd_audit(root, "FEAT-001", run_id=run_id)
+    assert "SR-001" in audit["srs"]
+    # The demo test imports the implementation, so overlap is true.
+    assert audit["overlaps"]["SR-001"]["ok"] is True
+    verdict = {
+        "sr_id": "SR-001", "implemented": True, "honest": True,
+        "confidence": "high", "margin": None,
+        "reasoning": "preempt() returns the detection flag and the test drives it.",
+        "checked": ["preempt path in src/demo/feature.py"],
+        "assumed": ["detection flag is the only behavior"],
+        "verify": [],
+    }
+    assert cmd_verdict(root, "FEAT-001", run_id, "SR-001", verdict)["valid"] is True
+    report = cmd_consolidate(root, "FEAT-001", run_id)
+    assert report["gate"]["outcome"] == "pass"
+    assert cmd_gate(root, "FEAT-001", run_id) == "pass"
+    assert cmd_report(root, "FEAT-001", run_id)
