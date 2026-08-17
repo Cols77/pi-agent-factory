@@ -1339,7 +1339,7 @@ PANELS: dict[str, dict] = {
         "label": "Validation",
         "what_it_shows": (
             "This requirement's recorded validation result, the goals "
-            "bound to it, the simulation runs that produced that result, "
+            "bound to it, the simulation runs that declare it, "
             "and the metrics those goals evaluate."
         ),
         "how_to_read": (

@@ -1391,7 +1391,7 @@ export const PANELS_DATA = {
     },
     "Validation": {
       "label": "Validation",
-      "what_it_shows": "This requirement's recorded validation result, the goals bound to it, the simulation runs that produced that result, and the metrics those goals evaluate.",
+      "what_it_shows": "This requirement's recorded validation result, the goals bound to it, the simulation runs that declare it, and the metrics those goals evaluate.",
       "how_to_read": "The raw state comes from the validation report alone; the goal-aware status beside it is judged separately: `REGRESSED` if any bound goal regressed, `VALIDATED` only if every bound goal reached its target, otherwise `VERIFICATION_PENDING`."
     },
     "Feature": {
