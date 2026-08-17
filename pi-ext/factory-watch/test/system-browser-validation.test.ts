@@ -245,11 +245,14 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         await page.waitForSelector(".matrix-row", { timeout: 45_000 });
 
         // ---------------- Task 9: no chip title visually truncated (1440x900) ----------------
-        // .matrix-subject .chip-title is styled `overflow: hidden;
-        // text-overflow: ellipsis; white-space: nowrap`, so a long title can
-        // truncate silently with no visual cue beyond the browser render
-        // itself -- jsdom never lays out CSS and so never sees it. Checked
-        // only at the plan's reference desktop width.
+        // Fix wave (legibility inc2): .matrix-subject .chip-title used to be
+        // styled `overflow: hidden; text-overflow: ellipsis; white-space:
+        // nowrap`, truncating a long title silently with no visual cue
+        // beyond the browser render itself -- jsdom never lays out CSS and
+        // so never saw it. That rule is now deleted (.ref-chip .chip-title's
+        // overflow-wrap: anywhere applies instead, so a long title wraps),
+        // and this assertion is what pins the wrap-not-clip behaviour in a
+        // real browser. Checked only at the plan's reference desktop width.
         if (vp.width === 1440 && vp.height === 900) {
           const truncatedMatrix = await page.$$eval(".chip-title", (els: Element[]) =>
             els

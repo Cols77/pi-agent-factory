@@ -438,6 +438,13 @@ export function renderSystemPageHtml(): string {
   .feature-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; margin: 7px 0; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .72); color: var(--text); text-decoration: none; }
   .feature-row:hover { border-color: var(--line-strong); background: var(--surface-raised); }
   .feature-row > strong { min-width: 0; font: 650 16px/1.35 var(--font-display); overflow-wrap: anywhere; }
+  /* Fix round 2 (legibility inc2): the combined readiness-counts gloss is
+     appended as its own child of .feature-row (not nested inside the
+     auto-sized .readiness-counts column) specifically so it never
+     contributes to that column's max-content sizing -- see system-bootstrap.ts's
+     comment at the readinessCountsGloss call site for why. Spanning both
+     columns here gives it the full row width to wrap normally in. */
+  .feature-row > .readiness-counts-gloss { grid-column: 1 / -1; }
   .feature-readiness { justify-self: end; color: var(--stale); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .feature-members { color: var(--text-muted); font-size: 12px; }
   .readiness-ready { border-left-color: var(--fresh); }
@@ -658,14 +665,17 @@ export function renderSystemPageHtml(): string {
   .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
   /* Unbundled sidebar rows add .scope-item to that same chip (system-bootstrap.ts's
      unbundled-group loop), so the element carries all three classes at once.
-     .ref-chip.scope-open above and .scope-item / .scope-item:hover /
-     .scope-item.is-active above it are equal specificity (two classes each);
-     .ref-chip.scope-open wins purely on being declared later, silently
-     dropping .scope-item's own font and its hover/active colour. The
-     three-class selectors below outrank both without touching either rule
-     or reordering them, so a bare .ref-chip.scope-open (an inline citation
-     chip, never also a sidebar row) keeps its Task 2 styling untouched. */
-  .scope-item.ref-chip.scope-open { font: 13px/1.45 var(--font-body); }
+     .ref-chip.scope-open above beats the bare .scope-item rule (one class)
+     on specificity alone -- one class can never outrank two, regardless of
+     order -- which is why .scope-item's base colour and font were lost.
+     .scope-item:hover / .scope-item.is-active are a different case: each is
+     two selectors, the same specificity as .ref-chip.scope-open, so THOSE
+     lose only because .ref-chip.scope-open is declared later. Either way,
+     the three-class selectors below outrank all of them without touching
+     or reordering any existing rule, so a bare .ref-chip.scope-open (an
+     inline citation chip, never also a sidebar row) keeps its Task 2
+     styling untouched. */
+  .scope-item.ref-chip.scope-open { color: var(--text-muted); font: 13px/1.45 var(--font-body); }
   .scope-item.ref-chip.scope-open:hover, .scope-item.ref-chip.scope-open:focus-visible { color: var(--text); }
   .scope-item.ref-chip.scope-open.is-active, .scope-item.ref-chip.scope-open[aria-current="page"] { color: var(--text); }
   @media (min-width: 1200px) {

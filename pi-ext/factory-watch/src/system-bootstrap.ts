@@ -1393,12 +1393,22 @@ export async function systemBootstrap(): Promise<void> {
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
-      const countsGloss = readinessCountsGloss(b.readiness_counts);
-      if (countsGloss) counts.appendChild(countsGloss);
       row.appendChild(heading);
       row.appendChild(readiness);
       row.appendChild(members);
       row.appendChild(counts);
+      // Fix round 2 (legibility inc2): `counts` is the grid's `auto`-sized
+      // column (`.feature-row { grid-template-columns: minmax(0, 1fr) auto }`).
+      // The combined gloss is one unbroken ~2400-char line -- appended INSIDE
+      // `counts` (as originally shipped) that becomes the `auto` track's
+      // max-content contribution, which the grid honours in full regardless
+      // of wrapping, so the `auto` track claims the row's entire width and
+      // the `minmax(0, 1fr)` title column is squeezed to 0. Appending it as
+      // its own child of `row` instead (grid-column: 1 / -1 below) takes it
+      // out of the auto column's sizing calculation entirely and gives it
+      // the full row width to wrap normally in.
+      const countsGloss = readinessCountsGloss(b.readiness_counts);
+      if (countsGloss) row.appendChild(countsGloss);
       // Task 8 fix round: readiness needs a gloss here too, but `row` IS the
       // clickable anchor (its own click listener navigates, right below) --
       // nesting withGloss's `.info-trigger` <button> inside it would put an

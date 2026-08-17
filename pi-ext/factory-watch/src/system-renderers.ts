@@ -448,9 +448,12 @@ export function renderChangedFiles(changedFiles: string[] | null): HTMLElement |
 // no_runs/"no recorded run" empty state, which this must never duplicate.
 export function appendRunAbsenceNextSteps(panel: HTMLElement, runs: any[], scopeRef?: string): void {
   if (!runs.length) return;
-  // reverse.py's tolerant-manifest path (this same branch) can produce a run
-  // whose `implementation` is absent entirely, not merely one with no
-  // changed_files -- guard the parent, not just the field.
+  // Defence-in-depth, not a reachable case today: reverse.py's `_run_entry`
+  // always sets `implementation` (degrading only `changed_files` to `[]` on
+  // the tolerant §20 path), and `implementation` is `required` on both
+  // storyRun and reverseRun in system_response.schema.json. Guarding the
+  // parent anyway costs nothing and avoids a crash if that contract ever
+  // changes.
   if (runs.every((run: any) => !run.implementation || !run.implementation.changed_files || !run.implementation.changed_files.length)) {
     panel.appendChild(nextStepBlock('no_changed_files', scopeRef));
   }
