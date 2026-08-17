@@ -108,6 +108,9 @@ def load_failures(root) -> dict[str, FailureRecord]
   (commit 67b658b — `query_conflicts` merges structural + fingerprint conflicts; kinds
   `code-changed` / `commit-unreachable` / `run-superseded`; both sides shown, never resolved)
 
+  Reviewed: spec COMPLIANT; quality APPROVED (minor non-blocking follow-ups: memoize
+  `_current_digest` + run manifests per query, restrict run-ref scanning to run-ref fields).
+
 ## Task 4: `memory`/`failure` CLI + health orphans + optional Memory view
 
 - [ ] **Step 1:** `factory memory show/conflicts` and `factory failure add/list/show` subcommands
