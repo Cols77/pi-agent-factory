@@ -269,6 +269,10 @@ export interface SystemHealth {
   ordering_available: boolean;
   sr_listed: boolean;
   degraded: string[];
+  shape: {
+    sentence: string;
+    parts: { requirements: number; features: number; tasks: number; validated: number };
+  };
 }
 
 export function loadSystemHealth(cwd: string): CliResult<SystemHealth> {

@@ -418,12 +418,14 @@ export function renderSystemPageHtml(): string {
   .matrix-summary { margin-top: 0; }
   .matrix-row .evidence { grid-column: 1 / -1; }
   #healthSummary { margin: 4px 0 16px; }
+  .shape-sentence { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); color: var(--text); font: 500 15px/1.55 var(--font-body); }
   .health-overall { margin: 4px 0 12px; padding: 18px 20px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 650 clamp(18px, 2.4vw, 27px)/1.2 var(--font-display); }
   .health-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
   .health-metric { display: flex; flex-direction: column; min-width: 0; padding: 10px 11px; border-top: 1px solid var(--line); background: rgba(13, 26, 32, .5); }
   .health-metric-label { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
   .health-metric-raw { margin-top: 1px; color: var(--text-dim); font: 12px/1.4 var(--font-mono); overflow-wrap: anywhere; }
   .health-metric strong { margin-top: 2px; color: var(--text); font: 650 13px/1.4 var(--font-mono); }
+  .health-metric-rule { margin-top: 6px; color: var(--text-muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
   .health-line { padding: 2px 0; }
   .bundle-group { margin: 14px 0 4px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .readiness-counts { margin-left: 6px; color: var(--text-muted); font: 12px/1.4 var(--font-mono); }

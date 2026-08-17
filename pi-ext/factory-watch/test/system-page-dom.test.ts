@@ -383,6 +383,60 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("not-a-real-class");
   });
 
+  // Task 5 (legibility inc2): the landing states what the project is made
+  // of, above the metric tiles, badged `derived` (reused withGloss) so its
+  // provenance is as visible as any other claim's. `HEALTH` carries no
+  // `shape` key at all -- the two tests above already exercise that guard
+  // implicitly by rendering without it -- so this test opts a real `shape`
+  // payload in explicitly.
+  test("the shape sentence renders above the metric tiles with a derived badge", async () => {
+    const dom = await loadPage({
+      health: {
+        ...HEALTH,
+        shape: {
+          sentence:
+            "This project is described by 2 requirements, grouped into 1 feature. " +
+            "1 task implements them, and 0 of those requirements have a passing validation.",
+          parts: { requirements: 2, features: 1, tasks: 1, validated: 0 },
+        },
+      },
+    });
+    const doc = dom.window.document;
+    const shapeEl = doc.querySelector("#healthSummary .shape-sentence");
+    expect(shapeEl?.textContent).toContain(
+      "This project is described by 2 requirements, grouped into 1 feature."
+    );
+    // It must precede the metric tiles, not follow them.
+    expect(shapeEl?.nextElementSibling?.className).toContain("health-overall");
+    expect(shapeEl?.querySelector(".badge")?.textContent).toBe("derived");
+  });
+
+  // Task 5 (legibility inc2): the denominator rule is the definition's
+  // FIRST sentence only -- "SR satisfied" cites figures as "(e.g. 181)",
+  // which would truncate mid-abbreviation on a naive split at every period.
+  test("a metric tile's denominator rule stops at the real sentence boundary, not at 'e.g.'", async () => {
+    const dom = await loadPage({
+      health: {
+        health: {
+          classes: [{ name: "SR satisfied", satisfied: 3, expected: 5, exempt: 0 }],
+          satisfied: 3, expected: 5, percent: 60, dangling: 0, deferred: 0, proposed: 0,
+        },
+        coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+        bundles: [], unbundled: { sr: ["sr:SR-999"] }, ordering_available: true, sr_listed: false, degraded: [],
+      },
+    });
+    const metric = dom.window.document.querySelector(".health-metric")!;
+    const rule = metric.querySelector(".health-metric-rule")?.textContent ?? "";
+    expect(rule).toBe(
+      "Denominator: every `sr` node in the trace graph -- the full repo-wide count, " +
+      "including proposed SRs with no decided binding yet, which is why this denominator " +
+      "(e.g. 181) is much larger than `SR validated`'s (e.g. 43): proposed SRs keep their " +
+      "`SR satisfied` slot (a requirement with no task is a gap whether or not it is bound) " +
+      "but lose their `SR validated` slot entirely (there is nothing to validate yet)."
+    );
+    expect(rule).not.toContain("Satisfied: at least one task");
+  });
+
   // Fix round 1, Task 10: renderTraversal is a closure inside systemBootstrap,
   // not exported -- exercised only through the real page via loadPage(), the
   // same shape Task 11 used for renderHealthSummary above. boundedList's

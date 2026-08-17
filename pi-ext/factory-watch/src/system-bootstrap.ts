@@ -39,6 +39,11 @@ declare const renderTimeline: (timeline: any) => void;
 declare const renderTrace: (trace: any[]) => void;
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
+// Task 5 (legibility inc2): the shape-sentence provenance badge reuses the
+// same badgeSpan/withGloss pair every other badge on the page goes through,
+// declared here for the same type-only, no-runtime-import reason as above.
+declare const badgeSpan: (text: string, extraClass: string) => HTMLElement;
+declare const withGloss: (el: HTMLElement, term: string) => HTMLElement;
 declare const VOCABULARY: { terms: Record<string, any> };
 declare const PANELS_DATA: {
   version: number;
@@ -1180,14 +1185,41 @@ export async function systemBootstrap(): Promise<void> {
     }
   }
 
+  // Task 5 (legibility inc2): the definition's first sentence is the
+  // "Denominator: ..." clause every health-class entry opens with -- the
+  // plain-words rule for what the ratio's bottom number counts. Split on a
+  // period that is actually a sentence end (followed by whitespace then a
+  // capital letter/backtick, or by the string's end), not on every period --
+  // several definitions cite figures as "(e.g. 181)", and "e.g." would
+  // otherwise truncate the sentence mid-clause.
+  function firstSentence(text: string): string {
+    if (!text) return '';
+    const match = /^[\s\S]*?\.(?=\s+[A-Z`]|\s*$)/.exec(text);
+    return match ? match[0] : text;
+  }
+
   // Task 6 (SP-B): the landing page health summary + bundle list, rendered
   // straight from the composed `health` projection (factory.system health
   // --json). Python computed every number; this only renders it via text
   // nodes -- a denominator-of-one ratio ("SR validated 1/1") stays a real
   // ratio, never a green checkmark.
+  //
+  // Task 5 (legibility inc2): `shape.sentence` answers the newcomer's first
+  // question -- what is this project made of -- as a Python-composed
+  // template with recorded counts substituted, never browser prose. It gets
+  // a `derived` badge via withGloss so its provenance is as visible as any
+  // other claim's.
   function renderHealthSummary(payload: any): void {
     const summary = document.getElementById('healthSummary') as HTMLElement;
     clear(summary);
+    const shape = payload.shape;
+    if (shape && shape.sentence) {
+      const shapeLine = document.createElement('div');
+      shapeLine.className = 'shape-sentence';
+      shapeLine.appendChild(document.createTextNode(shape.sentence + ' '));
+      shapeLine.appendChild(withGloss(badgeSpan('derived', 'shape-derived'), 'derived'));
+      summary.appendChild(shapeLine);
+    }
     const h = payload.health || {};
     const overall = document.createElement('div');
     overall.className = 'health-overall';
@@ -1216,6 +1248,12 @@ export async function systemBootstrap(): Promise<void> {
       line.appendChild(label);
       line.appendChild(raw);
       line.appendChild(ratio);
+      if (term && term.definition) {
+        const rule = document.createElement('div');
+        rule.className = 'health-metric-rule';
+        rule.appendChild(document.createTextNode(firstSentence(term.definition)));
+        line.appendChild(rule);
+      }
       metrics.appendChild(line);
     });
     summary.appendChild(metrics);
