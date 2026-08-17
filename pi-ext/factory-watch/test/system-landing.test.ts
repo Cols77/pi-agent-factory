@@ -227,13 +227,21 @@ describe("system landing page", () => {
 
   // Same word set, the landing page's feature-row site (`row` IS the
   // clickable anchor there too).
+  // Fix round 2 (legibility inc2): the gloss is a *sibling* of
+  // .readiness-counts here, not nested inside it -- .readiness-counts sits
+  // in .feature-row's auto-sized grid column, and nesting the gloss there
+  // made its ~2400-char unbroken line the column's max-content
+  // contribution, collapsing the title column to 0 width (measured in a
+  // real browser: 0px title / 1191px row before, 525px / 151px after).
+  // .feature-row > .readiness-counts-gloss { grid-column: 1 / -1 }
+  // (system-shell.ts) is what keeps it out of that column's sizing.
   test("a feature-row's readiness counts carry a gloss, not just the bare numbers", async () => {
     const doc = await renderWithHealth(BUNDLED_HEALTH);
     const row = doc.querySelector("#bundleList .feature-row.readiness-weak")!;
     const counts = row.querySelector(".readiness-counts")!;
     expect(counts.textContent).toContain("4 SR");
-    const gloss = counts.querySelector(".readiness-counts-gloss");
-    expect(gloss, "no gloss inside the feature-row's readiness-counts span").not.toBeNull();
+    const gloss = row.querySelector(":scope > .readiness-counts-gloss");
+    expect(gloss, "no gloss as a direct child of the feature-row").not.toBeNull();
     expect(gloss!.textContent).toContain("SR total");
   });
 
