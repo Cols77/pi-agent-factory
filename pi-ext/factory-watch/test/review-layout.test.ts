@@ -48,12 +48,20 @@ describe("zoomPane", () => {
 describe("normalizeLayout", () => {
   test("unknown pane ids are dropped", () => {
     expect(normalizeLayout({ collapsed: ["tree", "nope"], zoomed: "bogus" }))
-      .toEqual({ collapsed: ["tree"], zoomed: null });
+      .toEqual({ collapsed: ["tree"], zoomed: null, guide: false });
   });
 
   test("junk falls back to the default", () => {
     expect(normalizeLayout(null)).toEqual(DEFAULT_LAYOUT);
     expect(normalizeLayout("garbage")).toEqual(DEFAULT_LAYOUT);
     expect(normalizeLayout({ collapsed: "tree" })).toEqual(DEFAULT_LAYOUT);
+  });
+
+  test("the guidance flag survives round trips and only true means expanded", () => {
+    expect(normalizeLayout({ collapsed: [], zoomed: null, guide: true })).toEqual({
+      collapsed: [], zoomed: null, guide: true,
+    });
+    expect(normalizeLayout({ collapsed: [], zoomed: null, guide: 1 }).guide).toBe(false);
+    expect(normalizeLayout({ collapsed: [], zoomed: null }).guide).toBe(false);
   });
 });

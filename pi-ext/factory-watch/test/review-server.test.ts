@@ -245,7 +245,91 @@ describe("review server endpoints", () => {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ collapsed: ["tree"], zoomed: null }),
     });
-    expect(written).toEqual([{ collapsed: ["tree"], zoomed: null }]);
+    expect(written).toEqual([{ collapsed: ["tree"], zoomed: null, guide: false }]);
+    srv.close();
+  });
+});
+
+describe("reference pages", () => {
+  test("GET /reference/task serves the task context page", async () => {
+    const data = buildReviewPageData(repoWithTask(), "abc", FILES, { taskId: "T-001", deps: okDeps as never });
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+    const res = await fetch(`${srv.url}/reference/task`);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("T-001 — Review task");
+    expect(text).toContain("Implementation context"); // rendered task file
+    srv.close();
+  });
+
+  test("GET /reference/plan serves the resolved plan section", async () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+    const text = await (await fetch(`${srv.url}/reference/plan`)).text();
+    expect(text).toContain("Task 1: A task");
+    expect(text).toContain("Do the thing.");
+    srv.close();
+  });
+
+  test("GET /reference/spec renders the spec file from the intent chain", async () => {
+    const root = repoWithTask();
+    mkdirSync(join(root, "docs", "superpowers", "specs"), { recursive: true });
+    writeFileSync(
+      join(root, "docs", "superpowers", "specs", "2026-07-20-design.md"),
+      "# Design spec\n\nThe spec body must render here.\n",
+      "utf-8",
+    );
+    const specDeps = {
+      ...okDeps,
+      context: () => ({
+        context: {},
+        graph: {
+          nodes: [
+            { id: "T-001", kind: "task", title: "A task", path: "tasks/T-001-a.md", exempt: false, deferred: null },
+            { id: "plan:p.md", kind: "plan", title: "A plan", path: "docs/superpowers/plans/p.md", exempt: false, deferred: null },
+            { id: "spec:2026-07-20-design.md", kind: "spec", title: "Design spec", path: "docs/superpowers/specs/2026-07-20-design.md", exempt: false, deferred: null },
+          ],
+          edges: [
+            { src: "T-001", dst: "plan:p.md", kind: "source_plan" },
+            { src: "plan:p.md", dst: "spec:2026-07-20-design.md", kind: "spec_ref" },
+          ],
+          gaps: [],
+          validation: {},
+          health: { percent: 0, satisfied: 0, expected: 0, dangling: 0, deferred: 0, proposed: 0, classes: [] },
+        },
+      }),
+    };
+    const data = buildReviewPageData(root, "abc", FILES, { taskId: "T-001", deps: specDeps as never });
+    const srv = await startReviewServer(data, { cwd: root });
+    const text = await (await fetch(`${srv.url}/reference/spec`)).text();
+    expect(text).toContain("spec:2026-07-20-design.md");
+    expect(text).toContain("The spec body must render here.");
+    srv.close();
+  });
+
+  test("GET /reference/verify serves the guidance (gates, verify list)", async () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, {
+      taskId: "T-001",
+      deps: okDeps as never,
+      guide: {
+        confidence: "high",
+        validation: [{ gate: "unit", ok: true, summary: "163 passed" }],
+        verify: [{ item: "reject a missing colon", file: "a.py", line: 22 }],
+        addressed: ["moved the file"],
+      },
+    });
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+    const text = await (await fetch(`${srv.url}/reference/verify`)).text();
+    expect(text).toContain("Verify before approving");
+    expect(text).toContain("unit 163 passed ✓");
+    expect(text).toContain("reject a missing colon");
+    srv.close();
+  });
+
+  test("an unknown reference kind is a 404, not a page", async () => {
+    const data = buildReviewPageData("/repo", "abc", FILES, { taskId: "T-001", deps: okDeps as never });
+    const srv = await startReviewServer(data, { cwd: "/repo" });
+    expect((await fetch(`${srv.url}/reference/bogus`)).status).toBe(404);
     srv.close();
   });
 });

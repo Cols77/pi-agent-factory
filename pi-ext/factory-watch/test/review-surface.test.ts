@@ -94,14 +94,14 @@ describe("surface preference keys", () => {
 describe("layout preference", () => {
   test("round-trips through the surface preference file", () => {
     const cwd = tmp();
-    writeLayoutPref(cwd, { collapsed: ["tree"], zoomed: "diff" });
-    expect(readLayoutPref(cwd)).toEqual({ collapsed: ["tree"], zoomed: "diff" });
+    writeLayoutPref(cwd, { collapsed: ["tree"], zoomed: "diff", guide: false });
+    expect(readLayoutPref(cwd)).toEqual({ collapsed: ["tree"], zoomed: "diff", guide: false });
   });
 
   test("does not disturb the surface preference stored in the same file", () => {
     const cwd = tmp();
     writeSurfacePref(cwd, "browser");
-    writeLayoutPref(cwd, { collapsed: ["comments"], zoomed: null });
+    writeLayoutPref(cwd, { collapsed: ["comments"], zoomed: null, guide: false });
     expect(readSurfacePref(cwd)).toBe("browser");
   });
 

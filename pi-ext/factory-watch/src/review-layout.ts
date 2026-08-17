@@ -5,9 +5,12 @@ export const PANE_ORDER: readonly PaneId[] = ["context", "tree", "diff", "commen
 export interface LayoutState {
   collapsed: PaneId[];
   zoomed: PaneId | null;
+  /** Whether the review-guidance strip is expanded. Defaults to collapsed:
+   * the diff is the review; guidance is consulted on demand. */
+  guide: boolean;
 }
 
-export const DEFAULT_LAYOUT: LayoutState = { collapsed: [], zoomed: null };
+export const DEFAULT_LAYOUT: LayoutState = { collapsed: [], zoomed: null, guide: false };
 
 const RAIL = "28px";
 const NATURAL: Record<PaneId, string> = {
@@ -51,10 +54,11 @@ export function columnTemplate(state: LayoutState): string {
  * pane id into a CSS template. */
 export function normalizeLayout(raw: unknown): LayoutState {
   if (raw === null || typeof raw !== "object") return DEFAULT_LAYOUT;
-  const value = raw as { collapsed?: unknown; zoomed?: unknown };
+  const value = raw as { collapsed?: unknown; zoomed?: unknown; guide?: unknown };
   if (value.collapsed !== undefined && !Array.isArray(value.collapsed)) return DEFAULT_LAYOUT;
   return {
     collapsed: (value.collapsed ?? []).filter(isPaneId),
     zoomed: isPaneId(value.zoomed) ? value.zoomed : null,
+    guide: value.guide === true,
   };
 }
