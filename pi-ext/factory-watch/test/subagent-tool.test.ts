@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  createJsonlCollector,
   parseChildJsonl,
+  renderChildOutcome,
   renderSubagentOutcome,
-  SUBAGENT_MAX_BUFFER,
+  spawnStreamedChild,
   SUBAGENT_TIMEOUT_MS,
 } from "../src/subagent-tool.js";
 
@@ -87,6 +89,138 @@ describe("parseChildJsonl", () => {
     const garbage = parseChildJsonl("not json\nstill not\n");
     expect(garbage.jsonEvents).toBe(0);
   });
+
+  test("incremental collector agrees with one-shot parse", () => {
+    const stdout = [
+      sessionEvent(),
+      textEnd("user", "TASK"),
+      thinkingEnd("assistant", "thinking..."),
+      textEnd("assistant", "Final."),
+    ].join("\n");
+    const collector = createJsonlCollector();
+    for (const line of stdout.split(/\r?\n/)) collector.pushLine(line);
+    const incremental = collector.answer();
+    const oneShot = parseChildJsonl(stdout);
+    expect(incremental.text).toBe(oneShot.text);
+    expect(incremental.thinkingOnly).toBe(oneShot.thinkingOnly);
+    expect(incremental.jsonEvents).toBe(oneShot.jsonEvents);
+    expect(incremental.assistantMessages).toBe(oneShot.assistantMessages);
+    expect(incremental.sessionId).toBe(oneShot.sessionId);
+    expect(incremental.text).toBe("Final.");
+  });
+});
+
+// Real subprocesses: prove the streaming runner survives streams the old
+// sync maxBuffer (1 MiB) would have killed with ENOBUFS, and that both
+// timeout budgets really kill a stalled child.
+describe("spawnStreamedChild", () => {
+  const node = process.execPath;
+
+  test("extracts the answer from a real child stream", async () => {
+    const script = [
+      `console.log(${JSON.stringify(JSON.stringify({ type: "session", id: "real-1" }))});`,
+      `console.log(${JSON.stringify(
+        JSON.stringify({
+          type: "message_end",
+          message: { role: "assistant", content: [{ type: "text", text: "real answer" }] },
+        }),
+      )});`,
+    ].join("\n");
+    const run = await spawnStreamedChild(node, ["-e", script], {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      idleTimeoutMs: 5_000,
+      totalTimeoutMs: 5_000,
+    });
+    expect(run.status).toBe(0);
+    expect(run.killedFor).toBeNull();
+    expect(run.answer.text).toBe("real answer");
+    expect(run.answer.sessionId).toBe("real-1");
+  });
+
+  test("survives a multi-MB stream (old ENOBUFS failure mode) with bounded tails", async () => {
+    const line = `JSON.stringify({ type: "tool_execution_end", toolName: "bash", result: ${'"x".repeat(100)'} })`;
+    const answer = `JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "big stream done" }] } })`;
+    const script = `const line = ${line};\nfor (let i = 0; i < 20000; i++) console.log(line);\nconsole.log(${answer});`;
+    const run = await spawnStreamedChild(node, ["-e", script], {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      idleTimeoutMs: 10_000,
+      totalTimeoutMs: 10_000,
+    });
+    expect(run.status).toBe(0);
+    expect(run.killedFor).toBeNull();
+    expect(run.answer.text).toBe("big stream done");
+    // ~2.4 MB streamed; only bounded tails retained.
+    expect(run.stdoutTail.length).toBeLessThanOrEqual(2100);
+    expect(run.stdoutTail).toContain("big stream done");
+  });
+
+  test("idle timeout kills a child that goes silent", async () => {
+    const run = await spawnStreamedChild(node, ["-e", "console.log('hi'); setTimeout(()=>{}, 60000)"], {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      idleTimeoutMs: 400,
+      totalTimeoutMs: 10_000,
+    });
+    expect(run.killedFor).toBe("idle");
+    expect(run.status).not.toBe(0);
+  });
+
+  test("total timeout kills a child that keeps producing", async () => {
+    const run = await spawnStreamedChild(node, ["-e", "setInterval(()=>console.log('tick'), 50)"], {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      idleTimeoutMs: 10_000,
+      totalTimeoutMs: 500,
+    });
+    expect(run.killedFor).toBe("total");
+  });
+
+  test("spawn error surfaces on the run", async () => {
+    const run = await spawnStreamedChild("definitely-not-a-real-binary-xyz", [], {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      idleTimeoutMs: 2_000,
+      totalTimeoutMs: 2_000,
+    });
+    expect(run.error).not.toBeNull();
+  });
+});
+
+describe("renderChildOutcome", () => {
+  test("idle kill is reported distinctly", () => {
+    const msg = renderChildOutcome({
+      status: null,
+      signal: "SIGTERM",
+      error: null,
+      answer: parseChildJsonl(""),
+      stdoutTail: "",
+      stderrTail: "",
+      killedFor: "idle",
+    });
+    expect(msg).toContain("subagent killed");
+    expect(msg).toContain("idle timeout");
+  });
+
+  test("total kill is reported distinctly", () => {
+    const msg = renderChildOutcome({
+      status: null,
+      signal: "SIGTERM",
+      error: null,
+      answer: parseChildJsonl(""),
+      stdoutTail: "",
+      stderrTail: "",
+      killedFor: "total",
+    });
+    expect(msg).toContain("subagent killed");
+    expect(msg).toContain("total timeout");
+  });
 });
 
 describe("renderSubagentOutcome", () => {
@@ -115,7 +249,7 @@ describe("renderSubagentOutcome", () => {
       stderr: "",
     });
     expect(msg).toContain("subagent spawn failed");
-    expect(msg).toContain(String(SUBAGENT_MAX_BUFFER));
+    expect(msg).toContain("streamed"); // streaming makes ENOBUFS unreachable
   });
 
   test("generic spawn error includes the message and code", () => {
