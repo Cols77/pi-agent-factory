@@ -30,6 +30,10 @@ declare const renderSim: (el: HTMLElement, payload: any) => void;
 declare const renderDiagram: (el: HTMLElement, payload: any, focus?: string | null) => void;
 declare const renderCatchup: (el: HTMLElement, payload: any) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
+// Task 7 (legibility inc2): wires REMEDIATION.states.traversal_not_applicable
+// at its one real call site below (resetScopeEvidence) -- declared here for
+// the same type-only, no-runtime-import reason as the bindings above.
+declare const renderTraversalNotApplicable: (node: HTMLElement, scopeRef: string) => void;
 declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
 declare const renderGuideFallback: () => void;
@@ -40,7 +44,33 @@ declare const renderTimeline: (timeline: any) => void;
 declare const renderTrace: (trace: any[]) => void;
 declare const refChip: (raw: string) => HTMLElement;
 declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
+// Task 5 (legibility inc2): the shape-sentence provenance badge reuses the
+// same badgeSpan/withGloss pair every other badge on the page goes through,
+// declared here for the same type-only, no-runtime-import reason as above.
+declare const badgeSpan: (text: string, extraClass: string) => HTMLElement;
+declare const withGloss: (el: HTMLElement, term: string) => HTMLElement;
+// Task 8 fix round (legibility inc2): the readiness word (weak/medium/strong)
+// is a contract word needing a gloss at three render sites below. Two of
+// those sites are themselves the clickable/toggling element (the feature-row
+// anchor, the scope-group-title button), so wrapping in withGloss would nest
+// its `.info-trigger` <button> inside another interactive element -- invalid
+// markup, and a click on the trigger would bubble into the row's own
+// navigate/toggle handler instead of just opening the definition. Those two
+// call glossFor directly for a plain, non-interactive `.gloss` line instead;
+// only the third site (context rail, no click handler of its own) uses the
+// full withGloss precedent.
+declare const glossFor: (term: string) => HTMLElement | null;
+// IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six
+// contract words (sr_total/bound/covered/current/deferred/validated) into
+// one rendered line at the same three sites; readinessCountsGloss follows
+// the glossFor precedent immediately above -- one plain, always-visible
+// `.gloss` line, safe to nest anywhere a plain glossFor() line already is.
+declare const readinessCountsGloss: (counts: any) => HTMLElement | null;
 declare const VOCABULARY: { terms: Record<string, any> };
+declare const PANELS_DATA: {
+  version: number;
+  panels: Record<string, { label: string; what_it_shows: string; how_to_read: string }>;
+};
 declare const renderVocabularyPanel: () => void;
 // Task 12: the label index (resolveLabel/setLabels) and the Next step block,
 // both defined in system-comprehension.ts and embedded into the same
@@ -296,10 +326,17 @@ export async function systemBootstrap(): Promise<void> {
       const word = document.createElement('span');
       word.className = 'feature-readiness';
       word.appendChild(document.createTextNode(bundle.readiness));
-      row.appendChild(word);
+      // Task 8 fix round: this row has no click handler and isn't itself an
+      // anchor or button, so wrapping through withGloss (Task 5's
+      // shape-sentence badge uses the same pair) is safe here -- unlike the
+      // two sidebar sites below, the added .info-trigger button never nests
+      // inside another interactive element.
+      row.appendChild(withGloss(word, bundle.readiness));
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(bundle.readiness_counts)));
+      const countsGloss = readinessCountsGloss(bundle.readiness_counts);
+      if (countsGloss) counts.appendChild(countsGloss);
       row.appendChild(counts);
       readinessSection.appendChild(row);
       rail.appendChild(readinessSection);
@@ -387,6 +424,13 @@ export async function systemBootstrap(): Promise<void> {
       groupCount.appendChild(document.createTextNode('· ' + rows.length));
       title.appendChild(groupCount);
       group.appendChild(title);
+      // Task 8 fix round: same contract word, same nested-interactive-control
+      // problem as the feature-row site above -- `title` is itself a
+      // <button> (it owns the expand/collapse click handler below), so the
+      // gloss sits beside it as a sibling, not inside it, and carries no
+      // `.info-trigger` button of its own.
+      const readinessGloss = glossFor(readiness);
+      if (readinessGloss) group.appendChild(readinessGloss);
       const rowEls: HTMLElement[] = [];
       rows.forEach((b: any) => {
         const row = document.createElement('div');
@@ -404,6 +448,8 @@ export async function systemBootstrap(): Promise<void> {
         const counts = document.createElement('span');
         counts.className = 'readiness-counts';
         counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+        const countsGloss = readinessCountsGloss(b.readiness_counts);
+        if (countsGloss) counts.appendChild(countsGloss);
         a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
@@ -446,15 +492,17 @@ export async function systemBootstrap(): Promise<void> {
       unbundledRefs.forEach((ref: string) => {
         const row = document.createElement('div');
         row.className = 'scope-row';
-        const a = document.createElement('a');
-        a.className = 'scope-item';
-        a.href = scopeHref(ref);
-        a.appendChild(refChip(ref));
-        a.addEventListener('click', (clickEvent: Event) => {
-          clickEvent.preventDefault();
-          void loadScope(ref);
-        });
-        row.appendChild(a);
+        // refChip is itself the link now (Task 2, legibility inc 2);
+        // wrapping it in another <a> would nest interactive elements and
+        // race two click handlers. The delegated `a.scope-open` handler
+        // (system-bootstrap.ts's document click listener) already covers
+        // navigation, so no per-row click listener is needed here either.
+        const chip = refChip(ref);
+        // KEEP the scope-item class: markActiveScope and the arrow-key
+        // sidebar navigation both select on it. Dropping it would silently
+        // break current-scope highlighting and keyboard nav for this list.
+        chip.classList.add('scope-item');
+        row.appendChild(chip);
         group.appendChild(row);
         rowEls.push(row);
       });
@@ -584,6 +632,21 @@ export async function systemBootstrap(): Promise<void> {
       tabNode.setAttribute('tabindex', active ? '0' : '-1');
       (document.getElementById('panel' + tab) as HTMLElement).hidden = !active;
     });
+    // Design Component 4: a persistent one-line orientation beneath the tab
+    // strip, for the active panel only. Wording is Python's, mirrored
+    // verbatim into PANELS_DATA -- this only ever picks and renders it. An
+    // unknown tab (should not happen: PANELS has all thirteen TABS_BY_KIND
+    // ids) renders nothing rather than a placeholder.
+    const orientation = document.getElementById('panelOrientation') as HTMLElement;
+    clear(orientation);
+    const entry = PANELS_DATA.panels[name];
+    if (entry) {
+      orientation.appendChild(document.createTextNode(entry.what_it_shows));
+      const howToRead = document.createElement('span');
+      howToRead.className = 'how-to-read';
+      howToRead.appendChild(document.createTextNode(entry.how_to_read));
+      orientation.appendChild(howToRead);
+    }
     // Keep the active tab in the URL hash (replaceState, not pushState, so tab
     // switching does not pad the back-stack).
     if (updateUrl) {
@@ -716,7 +779,7 @@ export async function systemBootstrap(): Promise<void> {
     traceData = null;
     TAB_ORDER.forEach((tab) => clear(document.getElementById('panel' + tab) as HTMLElement));
     if (kind === 'task' || kind === 'file') {
-      renderTraversalStatus('Traversal is not applicable for this scope.');
+      renderTraversalNotApplicable(traversalNode(), scopeRef);
       renderNotApplicable(
         'panelTrace',
         'Not applicable for this scope. See the Story or Reverse tab.'
@@ -770,33 +833,13 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
-  async function loadBundleScope(
+  function renderBundleBase(
     scopeRef: string,
-    generation: number,
-    signal: AbortSignal,
-    updateUrl: boolean
-  ): Promise<void> {
-    const scopeParam = encodeURIComponent(scopeRef);
-    // The guide fetch is intentionally not in the failure gate below: a
-    // failed/unavailable guide degrades only its own tab.
-    const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
-      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
-      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
-      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
-      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
-    ]);
-    const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
-    if (failed) throw new Error(await responseFailure(failed));
-    const [brief, matrix, timeline, guide] = await Promise.all([
-      briefRes.json(), matrixRes.json(), timelineRes.json(),
-      guideRes.ok ? guideRes.json() : Promise.resolve(null),
-    ]);
-    if (!isCurrentNavigation(generation, scopeRef)) return;
-    // Inc 6 Task 1: a feat: scope's brief IS the trace-backed dossier
-    // (factory.system cmd_brief dispatches feat: to query_feature_context),
-    // so the same payload renders the Feature tab -- the dossier hub. The
-    // claim-based brief panel does not apply to a feat: scope (the payload
-    // carries no claims), so it is never rendered for one.
+    brief: any,
+    matrix: any,
+    timeline: any,
+    guide: any
+  ): void {
     if (scopeKind(scopeRef) === 'feat') {
       renderFeature(document.getElementById('panelFeature') as HTMLElement, brief);
     } else {
@@ -810,46 +853,23 @@ export async function systemBootstrap(): Promise<void> {
     renderNotApplicable('panelReverse', 'Not applicable for a bundle:/sr: scope. See the Reverse tab for a file: scope.');
     renderContextRailMembership(brief);
     renderContextRailNextStep(brief);
-    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
-    // like the guide -- a failure degrades only the V-cycle tab, never the
-    // scope load.
-    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
-      try {
-        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
-        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
-        const vcycle = await vcycleRes.json();
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
-        }
-      } catch {
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
-        }
-      }
-    } else {
-      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
-    }
-    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
-    // like the vcycle fetch -- a failure degrades only its own tab.
-    if (scopeKind(scopeRef) === 'sr') {
-      try {
-        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
-        if (!validationRes.ok) throw new Error(String(validationRes.status));
-        const validation = await validationRes.json();
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
-        }
-      } catch {
-        if (isCurrentNavigation(generation, scopeRef)) {
-          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
-        }
-      }
-    } else {
-      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
-    }
-    // Record the trace-able SR refs for this scope so the lazy Trace tab knows
-    // what to invert. An sr: scope is its own single SR; a bundle: scope's SRs
-    // come from the matrix rows, in payload order.
+  }
+
+  // Shared tail of a bundle/sr/feat scope load: trace ref recording, the
+  // best-effort traversal fetch, initial tab selection, and the loading
+  // flag. Identical for the dossier fast path and the legacy per-endpoint
+  // path, so the two cannot drift apart in what they leave on the page.
+  async function finishBundleScopeLoad(
+    scopeRef: string,
+    matrix: any,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const scopeParam = encodeURIComponent(scopeRef);
+    // Record the trace-able SR refs for this scope so the lazy Trace tab
+    // knows what to invert. An sr: scope is its own single SR; a bundle:
+    // scope's SRs come from the matrix rows, in payload order.
     if (scopeKind(scopeRef) === 'sr') {
       scopeSrRefs = [scopeRef];
     } else {
@@ -887,6 +907,152 @@ export async function systemBootstrap(): Promise<void> {
     if (selectedTab === 'Trace') await loadTrace(generation, scopeRef, signal);
     if (!isCurrentNavigation(generation, scopeRef)) return;
     setLoading(false, true);
+  }
+
+  // SP-B performance (extended): the combined dossier payload. Returns null
+  // when the fast path is unavailable -- endpoint missing, non-ok response,
+  // malformed shape, or a transport error -- so the caller falls back to the
+  // legacy per-endpoint fetches. An abort is not a fast-path failure: it
+  // propagates so navigation cancellation behaves exactly like a legacy
+  // fetch abort (the loadScope catch reports it the same way).
+  async function fetchDossier(scopeRef: string, signal: AbortSignal): Promise<any | null> {
+    try {
+      const res = await fetch('/api/system/dossier?scope=' + encodeURIComponent(scopeRef), { signal });
+      if (!res.ok) return null;
+      const payload = await res.json();
+      if (
+        !payload || typeof payload !== 'object' ||
+        !('brief' in payload) || !('matrix' in payload) || !('timeline' in payload)
+      ) {
+        return null;
+      }
+      return payload;
+    } catch (err) {
+      const name = (typeof err === 'object' && err !== null && 'name' in err)
+        ? String((err as { name?: unknown }).name)
+        : '';
+      if (name === 'AbortError') throw err;
+      return null;
+    }
+  }
+
+  // Fast path: one `/api/system/dossier` request carries brief/matrix/
+  // timeline/guide (+vcycle/validation for the kinds that carry them), pre- 
+  // computed by Python in a single process. Renders exactly what the legacy
+  // path renders, with the same degrade-only-its-tab semantics for the
+  // best-effort sections.
+  async function loadDossierScope(
+    scopeRef: string,
+    dossier: any,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderBundleBase(scopeRef, dossier.brief, dossier.matrix, dossier.timeline, dossier.guide);
+    // The V-cycle and validation tabs arrive precomputed in the dossier for
+    // the scope kinds that carry them; a section error degrades only its own
+    // tab, exactly as a failed per-endpoint fetch would today.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      if (dossier.vcycle) {
+        renderVcycle(document.getElementById('panelVcycle') as HTMLElement, dossier.vcycle);
+      } else if (dossier.vcycle_error) {
+        renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+      } else {
+        renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    if (scopeKind(scopeRef) === 'sr') {
+      if (dossier.validation) {
+        renderValidation(document.getElementById('panelValidation') as HTMLElement, dossier.validation);
+      } else if (dossier.validation_error) {
+        renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+      } else {
+        renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+    }
+    await finishBundleScopeLoad(scopeRef, dossier.matrix, generation, signal, updateUrl);
+  }
+
+  async function loadBundleScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const dossier = await fetchDossier(scopeRef, signal);
+    if (dossier !== null) {
+      await loadDossierScope(scopeRef, dossier, generation, signal, updateUrl);
+      return;
+    }
+    await loadBundleScopeLegacy(scopeRef, generation, signal, updateUrl);
+  }
+
+  async function loadBundleScopeLegacy(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    const scopeParam = encodeURIComponent(scopeRef);
+    // The guide fetch is intentionally not in the failure gate below: a
+    // failed/unavailable guide degrades only its own tab.
+    const [briefRes, matrixRes, timelineRes, guideRes] = await Promise.all([
+      fetch('/api/system/brief?scope=' + scopeParam, { signal }),
+      fetch('/api/system/matrix?scope=' + scopeParam, { signal }),
+      fetch('/api/system/timeline?scope=' + scopeParam, { signal }),
+      fetch('/api/system/guide?scope=' + scopeParam, { signal }),
+    ]);
+    const failed = [briefRes, matrixRes, timelineRes].find((r) => !r.ok);
+    if (failed) throw new Error(await responseFailure(failed));
+    const [brief, matrix, timeline, guide] = await Promise.all([
+      briefRes.json(), matrixRes.json(), timelineRes.json(),
+      guideRes.ok ? guideRes.json() : Promise.resolve(null),
+    ]);
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderBundleBase(scopeRef, brief, matrix, timeline, guide);
+    // Inc 6 Task 2: the interactive V-cycle for feat:/sr: scopes. Best-effort
+    // like the guide -- a failure degrades only the V-cycle tab, never the
+    // scope load.
+    if (scopeKind(scopeRef) === 'feat' || scopeKind(scopeRef) === 'sr') {
+      try {
+        const vcycleRes = await fetch('/api/system/vcycle?scope=' + scopeParam, { signal });
+        if (!vcycleRes.ok) throw new Error(String(vcycleRes.status));
+        const vcycle = await vcycleRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderVcycle(document.getElementById('panelVcycle') as HTMLElement, vcycle);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelVcycle', 'The V-cycle view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelVcycle', 'The V-cycle tab applies to feat: and sr: scopes only.');
+    }
+    // Inc 6 Task 4: the validation evidence tab for sr: scopes. Best-effort
+    // like the vcycle fetch -- a failure degrades only its own tab.
+    if (scopeKind(scopeRef) === 'sr') {
+      try {
+        const validationRes = await fetch('/api/system/validation?scope=' + scopeParam, { signal });
+        if (!validationRes.ok) throw new Error(String(validationRes.status));
+        const validation = await validationRes.json();
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderValidation(document.getElementById('panelValidation') as HTMLElement, validation);
+        }
+      } catch {
+        if (isCurrentNavigation(generation, scopeRef)) {
+          renderTabError('panelValidation', 'The validation evidence view is unavailable for this scope.');
+        }
+      }
+    } else {
+      renderNotApplicable('panelValidation', 'The Validation tab applies to sr: scopes only.');
+    }
+    await finishBundleScopeLoad(scopeRef, matrix, generation, signal, updateUrl);
   }
 
   async function loadGoalScope(
@@ -1094,9 +1260,23 @@ export async function systemBootstrap(): Promise<void> {
   // --json). Python computed every number; this only renders it via text
   // nodes -- a denominator-of-one ratio ("SR validated 1/1") stays a real
   // ratio, never a green checkmark.
+  //
+  // Task 5 (legibility inc2): `shape.sentence` answers the newcomer's first
+  // question -- what is this project made of -- as a Python-composed
+  // template with recorded counts substituted, never browser prose. It gets
+  // a `derived` badge via withGloss so its provenance is as visible as any
+  // other claim's.
   function renderHealthSummary(payload: any): void {
     const summary = document.getElementById('healthSummary') as HTMLElement;
     clear(summary);
+    const shape = payload.shape;
+    if (shape && shape.sentence) {
+      const shapeLine = document.createElement('div');
+      shapeLine.className = 'shape-sentence';
+      shapeLine.appendChild(document.createTextNode(shape.sentence + ' '));
+      shapeLine.appendChild(withGloss(badgeSpan('derived', 'shape-derived'), 'derived'));
+      summary.appendChild(shapeLine);
+    }
     const h = payload.health || {};
     const overall = document.createElement('div');
     overall.className = 'health-overall';
@@ -1125,6 +1305,12 @@ export async function systemBootstrap(): Promise<void> {
       line.appendChild(label);
       line.appendChild(raw);
       line.appendChild(ratio);
+      if (term && term.denominator_rule) {
+        const rule = document.createElement('div');
+        rule.className = 'health-metric-rule';
+        rule.appendChild(document.createTextNode(term.denominator_rule));
+        line.appendChild(rule);
+      }
       metrics.appendChild(line);
     });
     summary.appendChild(metrics);
@@ -1166,9 +1352,16 @@ export async function systemBootstrap(): Promise<void> {
     function addStep(label: string, values: string[]): void {
       const step = document.createElement('div');
       step.className = 'trace-spine-step';
+      const head = document.createElement('div');
+      head.className = 'trace-spine-head';
       const stepLabel = document.createElement('div');
       stepLabel.className = 'trace-spine-label';
       stepLabel.appendChild(document.createTextNode(label));
+      const count = document.createElement('span');
+      count.className = 'trace-spine-count';
+      count.appendChild(document.createTextNode(String((values || []).length)));
+      head.appendChild(stepLabel);
+      head.appendChild(count);
       const stepValue = document.createElement('div');
       stepValue.className = 'trace-spine-value';
       if (values && values.length) {
@@ -1181,7 +1374,7 @@ export async function systemBootstrap(): Promise<void> {
         // Next step block rather than leaving the sentence to stand alone.
         stepValue.appendChild(nextStepBlock('no_traversal_step', scopeRef));
       }
-      step.appendChild(stepLabel);
+      step.appendChild(head);
       step.appendChild(stepValue);
       node.appendChild(step);
     }
@@ -1237,6 +1430,28 @@ export async function systemBootstrap(): Promise<void> {
       row.appendChild(readiness);
       row.appendChild(members);
       row.appendChild(counts);
+      // Fix round 2 (legibility inc2): `counts` is the grid's `auto`-sized
+      // column (`.feature-row { grid-template-columns: minmax(0, 1fr) auto }`).
+      // The combined gloss is one unbroken ~2400-char line -- appended INSIDE
+      // `counts` (as originally shipped) that becomes the `auto` track's
+      // max-content contribution, which the grid honours in full regardless
+      // of wrapping, so the `auto` track claims the row's entire width and
+      // the `minmax(0, 1fr)` title column is squeezed to 0. Appending it as
+      // its own child of `row` instead (grid-column: 1 / -1 below) takes it
+      // out of the auto column's sizing calculation entirely and gives it
+      // the full row width to wrap normally in.
+      const countsGloss = readinessCountsGloss(b.readiness_counts);
+      if (countsGloss) row.appendChild(countsGloss);
+      // Task 8 fix round: readiness needs a gloss here too, but `row` IS the
+      // clickable anchor (its own click listener navigates, right below) --
+      // nesting withGloss's `.info-trigger` <button> inside it would put an
+      // interactive control inside another interactive control: invalid
+      // markup, and a click on the trigger would bubble up to this listener
+      // and navigate away before the definition could ever be read. glossFor
+      // alone (no trigger button) sidesteps both problems while still
+      // answering "what does this word mean" right at the row.
+      const readinessGloss = glossFor(b.readiness);
+      if (readinessGloss) row.appendChild(readinessGloss);
       row.addEventListener('click', (clickEvent: Event) => {
         clickEvent.preventDefault();
         void loadScope('bundle:' + b.id);

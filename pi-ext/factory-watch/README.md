@@ -25,6 +25,40 @@ sub-agent sessions, which load `scope-guard` instead).
     to `sessions/.factory-transcripts/<session-id>/review-decision.json`,
     which the orchestrator's `FileHumanReviewGate` (Python side) polls for.
     This is the human-in-the-loop path.
+
+    The same review can run in the browser instead (surface preference or
+    `--browser`): the **diff is the review** -- three panes -- **Files**
+    (status chips, change counts, reviewed checkboxes), **Diff** (gutter
+    line numbers, hunk rules, hover-revealed `+` line comments) and
+    **Actions** (severity-split comment cards) -- under a sticky verdict
+    band with Approve/Reject always visible. Everything else is a
+    read-only reference opened on demand in its own browser window from
+    four header buttons:
+
+    - **Task** -- the task context: intent chain with fan-out markers,
+      requirements, definition of done, rendered task file;
+    - **Plan** -- the plan section the implementer worked from;
+    - **Spec** -- the spec(s) the intent chain links to, rendered from
+      `docs/superpowers/specs/`;
+    - **Verify** -- verifications and validation state before approving:
+      confidence, validation gates (pass/fail), the verify checklist and
+      already-addressed items.
+
+    Keyboard: `1`-`3` zoom a pane to the full window (click its number to
+    focus), `Esc` restores, `J`/`K` walk files, `?` shows the key map;
+    every pane collapses to a labelled rail. Below 900px the panes stack
+    into a single column and the verdict actions stay on screen. Pane
+    state is persisted server-side (never localStorage: the review server
+    binds an ephemeral port) and restored on the next review.
+
+    The browser surface is also covered by an opt-in end-to-end gate:
+    `BROWSER_GATE=1 npm test -- test/review-browser-validation.test.ts`
+    boots the real review server against a throwaway git repo, drives real
+    Chromium at three viewports, and asserts the verdict buttons are
+    on-screen and clickable, the reference buttons actually open Task /
+    Plan / Spec / Verify windows with the right content, and a comment +
+    approve round-trips back to the server (playwright must be installed
+    to run it).
   - With `--auto`: reproduces the original fully-automated behavior
     unchanged -- detached spawn, no stdin/stdout piping, no review gate, no
     mission control dashboard, polls `sessions/.factory-status.json`

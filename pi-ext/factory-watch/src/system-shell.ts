@@ -27,14 +27,16 @@ import {
   humaniseGroup,
   infoCard,
   nextStepBlock,
+  readinessCountsGloss,
   refCardFields,
   refChip,
   renderVocabularyPanel,
   resolveLabel,
   vocabularyBadgeFor,
 } from './system-comprehension.js';
-import { REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
+import { PANELS_DATA, REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
+  appendRunAbsenceNextSteps,
   badge,
   badgeSpan,
   citationLine,
@@ -61,6 +63,7 @@ import {
   renderTimeline,
   renderTimelineEvent,
   renderTrace,
+  renderTraversalNotApplicable,
   withGloss,
 } from './system-renderers.js';
 
@@ -74,6 +77,7 @@ function clientSource(): string {
   var LABELS_LOADED = true;
   var VOCABULARY = ${JSON.stringify(VOCABULARY_DATA)};
   var REMEDIATION = ${JSON.stringify(REMEDIATION_DATA)};
+  var PANELS_DATA = ${JSON.stringify(PANELS_DATA)};
   function setLabels(payload) {
     LABELS = (payload && payload.labels) || {};
     ALIASES = (payload && payload.aliases) || {};
@@ -90,6 +94,7 @@ function clientSource(): string {
     ensureCardController,
     closeOpenCard,
     glossFor,
+    readinessCountsGloss,
     definitionTrigger,
     withGloss,
     vocabularyBadgeFor,
@@ -111,12 +116,14 @@ function clientSource(): string {
     renderDegradedBanner,
     renderCommitRange,
     renderChangedFiles,
+    appendRunAbsenceNextSteps,
     renderRunDetail,
     renderStoryRun,
     renderStory,
     renderReversePath,
     renderReverse,
     renderNotApplicable,
+    renderTraversalNotApplicable,
     renderTabError,
     openAnchor,
     invertTraceForScope,
@@ -374,6 +381,8 @@ export function renderSystemPageHtml(): string {
   }
   .tab:hover { color: var(--text); background: var(--surface-soft); }
   .tab[aria-selected="true"] { border-bottom-color: var(--signal); color: var(--signal); }
+  .panel-orientation { margin: 8px 0 14px; max-width: 78ch; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+  .panel-orientation .how-to-read { display: block; margin-top: 3px; color: var(--text-dim); }
   .panel[hidden] { display: none; }
   .panel { width: min(100%, 1040px); }
   .claim, .matrix-row, .timeline-event, .run, .path, .trace-sr, .trace-task {
@@ -409,14 +418,15 @@ export function renderSystemPageHtml(): string {
   .requirements { margin-top: 8px; font-size: 13px; }
   .requirement { padding: 1px 0; }
   .trace-upstream { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
-  .traversal-path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 6px 0 20px; counter-reset: trace-step; }
-  .trace-spine-step { position: relative; min-width: 0; padding: 12px 14px 12px 37px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(13, 26, 32, .62); counter-increment: trace-step; }
-  .trace-spine-step:first-child { border-left: 1px solid var(--line); border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .trace-spine-step:last-child { border-right: 1px solid var(--line); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .traversal-path { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 6px 0 20px; counter-reset: trace-step; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .trace-spine-step { position: relative; min-width: 0; padding: 12px 16px 14px 40px; counter-increment: trace-step; }
+  .trace-spine-step + .trace-spine-step { border-top: 1px solid var(--line); }
   .trace-spine-step::before { content: counter(trace-step); position: absolute; top: 14px; left: 13px; width: 20px; height: 20px; border: 1px solid var(--signal); border-radius: 50%; color: var(--signal); font: 650 12px/18px var(--font-mono); text-align: center; }
-  .trace-spine-step:not(:last-child)::after { content: ""; position: absolute; z-index: 1; top: 21px; right: 3px; width: 9px; height: 9px; border-top: 1px solid var(--signal); border-right: 1px solid var(--signal); background: var(--surface); transform: rotate(45deg); }
-  .trace-spine-label { color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
-  .trace-spine-value { min-width: 0; margin-top: 4px; color: var(--text); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+  .trace-spine-head { display: flex; align-items: baseline; gap: 12px; }
+  .trace-spine-label { flex: none; color: var(--signal); font: 650 12px/1.3 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+  .trace-spine-head::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+  .trace-spine-count { flex: none; color: var(--text-muted); font: 12px/1.3 var(--font-mono); }
+  .trace-spine-value { min-width: 0; margin-top: 6px; color: var(--text); font: 13px/1.6 var(--font-body); overflow-wrap: anywhere; }
   .matrix-row { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(0, 1.3fr); gap: 8px 18px; }
   .matrix-row .row-head { min-width: 0; align-content: start; }
   .matrix-subject { width: 100%; color: var(--text); font: 650 13px/1.45 var(--font-mono); overflow-wrap: anywhere; }
@@ -424,18 +434,27 @@ export function renderSystemPageHtml(): string {
   .matrix-summary { margin-top: 0; }
   .matrix-row .evidence { grid-column: 1 / -1; }
   #healthSummary { margin: 4px 0 16px; }
+  .shape-sentence { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); color: var(--text); font: 500 15px/1.55 var(--font-body); }
   .health-overall { margin: 4px 0 12px; padding: 18px 20px; border: 1px solid var(--line); border-left: 3px solid var(--signal); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 650 clamp(18px, 2.4vw, 27px)/1.2 var(--font-display); }
   .health-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
   .health-metric { display: flex; flex-direction: column; min-width: 0; padding: 10px 11px; border-top: 1px solid var(--line); background: rgba(13, 26, 32, .5); }
   .health-metric-label { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
   .health-metric-raw { margin-top: 1px; color: var(--text-dim); font: 12px/1.4 var(--font-mono); overflow-wrap: anywhere; }
   .health-metric strong { margin-top: 2px; color: var(--text); font: 650 13px/1.4 var(--font-mono); }
+  .health-metric-rule { margin-top: 6px; color: var(--text-muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
   .health-line { padding: 2px 0; }
   .bundle-group { margin: 14px 0 4px; color: var(--text-muted); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .readiness-counts { margin-left: 6px; color: var(--text-muted); font: 12px/1.4 var(--font-mono); }
   .feature-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; margin: 7px 0; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .72); color: var(--text); text-decoration: none; }
   .feature-row:hover { border-color: var(--line-strong); background: var(--surface-raised); }
   .feature-row > strong { min-width: 0; font: 650 16px/1.35 var(--font-display); overflow-wrap: anywhere; }
+  /* Fix round 2 (legibility inc2): the combined readiness-counts gloss is
+     appended as its own child of .feature-row (not nested inside the
+     auto-sized .readiness-counts column) specifically so it never
+     contributes to that column's max-content sizing -- see system-bootstrap.ts's
+     comment at the readinessCountsGloss call site for why. Spanning both
+     columns here gives it the full row width to wrap normally in. */
+  .feature-row > .readiness-counts-gloss { grid-column: 1 / -1; }
   .feature-readiness { justify-self: end; color: var(--stale); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .feature-members { color: var(--text-muted); font-size: 12px; }
   .readiness-ready { border-left-color: var(--fresh); }
@@ -459,11 +478,6 @@ export function renderSystemPageHtml(): string {
     #content { min-width: 0; padding: 18px 16px 44px; }
     #tabs { overflow-x: auto; scrollbar-width: thin; }
     .matrix-row, .feature-row { grid-template-columns: minmax(0, 1fr); }
-    .traversal-path { grid-template-columns: minmax(0, 1fr); }
-    .trace-spine-step { border: 1px solid var(--line); border-bottom: 0; border-radius: 0; }
-    .trace-spine-step:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-    .trace-spine-step:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
-    .trace-spine-step:not(:last-child)::after { top: auto; right: auto; bottom: -5px; left: 17px; transform: rotate(135deg); }
     .health-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .feature-readiness { justify-self: start; }
     .landing-intro h2, .scope-heading h2 { font-size: 30px; }
@@ -474,7 +488,10 @@ export function renderSystemPageHtml(): string {
   .ref-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; }
   .ref-chip .chip-id { padding: 0 3px; border-radius: 3px; background: var(--signal-soft); font: 12px/1.5 var(--font-mono); }
   .ref-chip .chip-sep { color: var(--text-dim); }
-  .ref-chip .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  /* min-width: 0 MUST stay -- .ref-chip is inline-flex, and a flex child without
+     it will not shrink below its content width, reintroducing the per-element
+     overflow Increment 1 fixed and failing Task 9's containment gate. */
+  .ref-chip .chip-title { min-width: 0; overflow-wrap: anywhere; }
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
@@ -483,7 +500,6 @@ export function renderSystemPageHtml(): string {
   .info-card { position: fixed; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
   .presence-rail { border-left: 3px solid var(--line-strong); padding-left: 12px; }
   .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
-  .presence-rail.is-failure { border-left-style: solid; border-left-color: var(--degraded); }
   .next-step { margin: 12px 0; }
   .next-step p { max-width: 64ch; margin: 6px 0 0; color: var(--text); font: 14px/1.55 var(--font-body); }
   .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }
@@ -504,7 +520,7 @@ export function renderSystemPageHtml(): string {
   @keyframes info-card-in { from { opacity: 0; } to { opacity: 1; } }
   .info-card-meta { color: var(--text-dim); font: 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
   .info-card-title { margin-top: 4px; color: var(--text); font: 650 14px/1.35 var(--font-display); }
-  .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .info-card-description { margin-top: 6px; color: var(--text-muted); font-size: 13px; line-height: 1.5; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
   .info-card-empty { font-style: italic; }
   .info-card-from, .info-card-path, .info-card-relations { margin-top: 6px; font: 12px/1.5 var(--font-mono); overflow-wrap: anywhere; }
   .info-card-from { color: var(--text-dim); }
@@ -652,6 +668,26 @@ export function renderSystemPageHtml(): string {
   .dossier-nav-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .scope-open { color: var(--signal); font: 12px/1.4 var(--font-mono); text-decoration: underline dotted; }
   .scope-open:hover, .scope-open:focus-visible { text-decoration: underline; }
+  /* A ref chip that's also an SPA-navigating anchor (Task 2, legibility inc
+     2) must keep the ordinary chip look, not the plain-link .scope-open
+     style above -- higher specificity (two classes) wins regardless of
+     declaration order. */
+  .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
+  /* Unbundled sidebar rows add .scope-item to that same chip (system-bootstrap.ts's
+     unbundled-group loop), so the element carries all three classes at once.
+     .ref-chip.scope-open above beats the bare .scope-item rule (one class)
+     on specificity alone -- one class can never outrank two, regardless of
+     order -- which is why .scope-item's base colour and font were lost.
+     .scope-item:hover / .scope-item.is-active are a different case: each is
+     two selectors, the same specificity as .ref-chip.scope-open, so THOSE
+     lose only because .ref-chip.scope-open is declared later. Either way,
+     the three-class selectors below outrank all of them without touching
+     or reordering any existing rule, so a bare .ref-chip.scope-open (an
+     inline citation chip, never also a sidebar row) keeps its Task 2
+     styling untouched. */
+  .scope-item.ref-chip.scope-open { color: var(--text-muted); font: 13px/1.45 var(--font-body); }
+  .scope-item.ref-chip.scope-open:hover, .scope-item.ref-chip.scope-open:focus-visible { color: var(--text); }
+  .scope-item.ref-chip.scope-open.is-active, .scope-item.ref-chip.scope-open[aria-current="page"] { color: var(--text); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -674,11 +710,11 @@ export function renderSystemPageHtml(): string {
   <div id="banner" role="status"></div>
   <div id="layout">
     <aside id="picker">
-      <h2>Declared scopes</h2>
+      <h2>Features and artifacts</h2>
       <button id="scopeToggle" type="button" aria-expanded="false">Browse scopes</button>
       <nav aria-label="Scopes">
         <div class="search-row">
-          <input id="scopeFilter" type="search" placeholder="Search bundles or a ref…" aria-label="Filter scopes" />
+          <input id="scopeFilter" type="search" placeholder="Search bundles or an ID…" aria-label="Filter scopes" />
           <button id="searchGo" type="button">Go</button>
         </div>
         <div id="scopeList"></div>
@@ -690,10 +726,10 @@ export function renderSystemPageHtml(): string {
         <div class="landing-intro">
           <div class="eyebrow">PROJECT EVIDENCE</div>
           <h2 id="landingTitle">See the system clearly.</h2>
-          <p>Start with weak or unbundled features, then follow their evidence spine.</p>
+          <p class="landing-lead">Start with a feature that still needs work, or an artifact with no feature of its own, then open it to see what's missing.</p>
         </div>
         <div id="orientationStrip" class="orientation-strip" hidden>
-          <p>This page is the evidence behind what the system claims. Start with a weak or unbundled feature, open it, and follow its spine: requirement, tasks, decisions, files. Every term here is defined — select the ⓘ beside any badge.</p>
+          <p>This page is the evidence behind what the system claims. Start with a feature that still needs work, or an artifact with no feature of its own, and open it. From there you can follow the chain: the requirement, the tasks that implement it, the design decisions behind it, and the files that changed. Every term here is defined — select the ⓘ beside any badge.</p>
           <button id="orientationDismiss" class="secondary-action" type="button">Hide this</button>
         </div>
         <div id="healthStatus" class="loading-state" role="status">Reading project evidence…</div>
@@ -726,6 +762,7 @@ export function renderSystemPageHtml(): string {
             <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
             <button id="tabCatchup" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelCatchup" aria-label="Catch me up">Catch me up</button>
           </div></nav>
+          <p id="panelOrientation" class="panel-orientation"></p>
           <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
           <div id="panelMatrix" class="panel" role="tabpanel" aria-labelledby="tabMatrix" hidden></div>
           <div id="panelTimeline" class="panel" role="tabpanel" aria-labelledby="tabTimeline" hidden></div>

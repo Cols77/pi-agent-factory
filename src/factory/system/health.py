@@ -157,6 +157,40 @@ def bundle_readiness(
     return rows
 
 
+def _kind_total(kinds, kind: str) -> int:
+    return next((k.total for k in kinds if k.kind == kind), 0)
+
+
+def _class_satisfied(classes, name: str) -> int:
+    return next((c.satisfied for c in classes if c.name == name), 0)
+
+
+def _shape_sentence(requirements: int, features: int, tasks: int, validated: int) -> str:
+    """Plain-words statement of what the project is made of.
+
+    A template with recorded counts substituted -- never model prose. It is
+    `derived`, and the browser badges it as such, so its provenance is as
+    visible as any other claim's. Every count is pluralised on its own value
+    -- "1 requirements" would undercut the whole point of the sentence.
+    """
+    req_noun = "requirement" if requirements == 1 else "requirements"
+    if features:
+        feature_noun = "feature" if features == 1 else "features"
+        feature_part = f"grouped into {features} {feature_noun}"
+    else:
+        feature_part = "grouped into no features yet"
+    task_noun = "task" if tasks == 1 else "tasks"
+    task_verb = "implements" if tasks == 1 else "implement"
+    pronoun = "it" if requirements == 1 else "them"
+    those_requirements = "that requirement" if requirements == 1 else "those requirements"
+    validated_verb = "has" if validated == 1 else "have"
+    return (
+        f"This project is described by {requirements} {req_noun}, {feature_part}. "
+        f"{tasks} {task_noun} {task_verb} {pronoun}, and {validated} of "
+        f"{those_requirements} {validated_verb} a passing validation."
+    )
+
+
 def query_health(root: Path, recency_source=None) -> dict:
     """The single JSON document the browser renders as the landing page.
 
@@ -199,6 +233,11 @@ def query_health(root: Path, recency_source=None) -> dict:
     for bundle_id in sorted(rows.keys() - set(order)):
         ordered_rows.append(_row_dict(rows[bundle_id]))
 
+    requirements_total = _kind_total(cov.kinds, "sr")
+    tasks_total = _kind_total(cov.kinds, "task")
+    validated_total = _class_satisfied(health.classes, "SR validated")
+    features_total = len(ordered_rows)
+
     return {
         "health": {
             "classes": [
@@ -230,6 +269,17 @@ def query_health(root: Path, recency_source=None) -> dict:
         "degraded": degraded,
         "vcycle_findings": [asdict(f) for f in vcycle_health(root, nodes=nodes, edges=edges, validation=validation)],
         "freshness_findings": [asdict(f) for f in freshness_health(root, nodes=nodes, edges=edges)],
+        "shape": {
+            "sentence": _shape_sentence(
+                requirements_total, features_total, tasks_total, validated_total
+            ),
+            "parts": {
+                "requirements": requirements_total,
+                "features": features_total,
+                "tasks": tasks_total,
+                "validated": validated_total,
+            },
+        },
     }
 
 

@@ -22,6 +22,8 @@ import {
   renderMatrix,
   renderReverse,
   renderStory,
+  renderTrace,
+  renderTraversalNotApplicable,
 } from "../src/system-renderers.js";
 import { REMEDIATION_DATA } from "../src/system-vocabulary-data.js";
 
@@ -33,13 +35,64 @@ const T060 = {
   path: "tasks/T-060.md", scope_href: "/system?scope=task%3AT-060",
 };
 
+// sr IS an openable kind (_OPENABLE_KINDS = {bundle, sr, task, file} in
+// labels.py), so build_labels always emits a non-null scope_href for a real
+// sr: ref -- this fixture must carry a truthful one, or tests that use it
+// exercise a shape production can never produce.
 const SR121 = {
   ref: "sr:SR-121", id: "SR-121", kind: "sr",
   title: "Battery-aware return",
   description: "The rover must return to base before battery falls below 15%.",
   description_source: "statement", deferral_reason: null,
   status: null, relations: {},
-  path: "requirements/SR-121.md", scope_href: null,
+  path: "requirements/SR-121.md", scope_href: "/system?scope=sr%3ASR-121",
+};
+
+// A spec ref: never openable (spec is NOT in _OPENABLE_KINDS), so its
+// scope_href is always null -- the genuine non-openable/span fixture. Tests
+// that need to exercise the span path use this, not SR121.
+const SPEC_FOO = {
+  ref: "spec:docs/superpowers/specs/2026-08-14-foo-design.md",
+  id: "2026-08-14-foo-design.md", kind: "spec",
+  title: "Foo Design",
+  description: "Why foo exists.", description_source: "purpose",
+  deferral_reason: null, status: null, relations: {},
+  path: "docs/superpowers/specs/2026-08-14-foo-design.md",
+  scope_href: null,
+};
+
+// A story/reverse run WITH recorded changed files and a recorded commit
+// range -- story.py's `_manifest_run` / reverse.py's `_run_entry` shape.
+const RUN_WITH_DATA = {
+  run_id: "run-001", source: "manifest", outcome: "completed",
+  start_commit: "a".repeat(40), result_commit: "b".repeat(40),
+  implementation: {
+    kind: "recorded", text: "run run-001: 1 changed file(s) recorded",
+    freshness: { state: "fresh", reason: null, dependencies: [] },
+    citations: [], spans: [], changed_files: ["src/a.py"],
+  },
+  citation: { kind: "manifest", path: "evidence/runs/run-001.json", sha256: "c".repeat(64), anchor: null },
+};
+
+// A session-only run: story.py's `_session_run` / reverse.py's shape for a
+// run with no matching evidence manifest -- changed_files is null (never an
+// empty array) and both commits are null, per design (a session record never
+// captures either).
+const RUN_NO_DATA = {
+  run_id: "run-002", source: "session", outcome: "completed",
+  start_commit: null, result_commit: null,
+  implementation: {
+    kind: "missing", text: "run run-002: implementation not recorded",
+    freshness: { state: "n/a", reason: "session records do not capture changed files or a commit range", dependencies: [] },
+    citations: [], spans: [], changed_files: null,
+  },
+  citation: { kind: "session", path: "sessions/run-002.session.json", sha256: "d".repeat(64), anchor: null },
+};
+
+const A_CLAIM = {
+  kind: "recorded", text: "Battery-aware return",
+  freshness: { state: "fresh", reason: null, dependencies: [] },
+  citations: [], spans: [],
 };
 
 const RECORDED_TERM = {
@@ -69,10 +122,14 @@ beforeEach(() => {
   );
   (globalThis as any).window = dom.window;
   (globalThis as any).document = dom.window.document;
-  (globalThis as any).LABELS = { "task:T-060": T060, "sr:SR-121": SR121 };
+  (globalThis as any).LABELS = {
+    "task:T-060": T060, "sr:SR-121": SR121,
+    [SPEC_FOO.ref]: SPEC_FOO,
+  };
   (globalThis as any).ALIASES = {
     "T-060": "task:T-060", "task:T-060": "task:T-060",
     "SR-121": "sr:SR-121", "sr:SR-121": "sr:SR-121",
+    [SPEC_FOO.ref]: SPEC_FOO.ref,
   };
   (globalThis as any).VOCABULARY = { terms: {} };
   (globalThis as any).REMEDIATION = REMEDIATION_DATA;
@@ -128,7 +185,62 @@ test("bounded list under the limit renders no disclosure", () => {
   expect(boundedList(["T-060"]).querySelector("details")).toBeNull();
 });
 
+// --- Task 2 (legibility inc 2): artifact chips are real links ---
+
+test("an openable ref renders as a link carrying the SPA contract", () => {
+  const el = refChip("task:T-060");
+  expect(el.tagName).toBe("A");
+  expect(el.getAttribute("href")).toBe("/system?scope=task%3AT-060");
+  expect(el.getAttribute("data-scope")).toBe("task:T-060");
+  expect(el.className).toContain("scope-open");
+  expect(el.hasAttribute("role")).toBe(false); // an anchor is already actionable
+});
+
+test("a non-openable ref stays a span with button semantics", () => {
+  const el = refChip(SPEC_FOO.ref);
+  expect(el.tagName).toBe("SPAN");
+  expect(el.getAttribute("role")).toBe("button");
+  expect(el.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("openable kinds render as anchors, non-openable kinds as spans", () => {
+  expect(refChip("sr:SR-121").tagName).toBe("A"); // sr IS openable
+  expect(refChip("task:T-060").tagName).toBe("A");
+  expect(refChip(SPEC_FOO.ref).tagName).toBe("SPAN"); // spec is NOT
+});
+
+test("clicking an anchor chip navigates and does not toggle the card", () => {
+  const chip = refChip("task:T-060");
+  document.body.appendChild(chip);
+  chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  expect(document.querySelector(".info-card")).toBeNull();
+});
+
+test("hover and keyboard focus still open the card for an ANCHOR chip", () => {
+  // The controller matches `.ref-chip[data-ref]`; an anchor missing data-ref
+  // would silently never open (the exact regression this task must avoid).
+  vi.useFakeTimers();
+  try {
+    const hoverChip = refChip("task:T-060");
+    document.body.appendChild(hoverChip);
+    hoverChip.dispatchEvent(new (window as any).MouseEvent("mouseover", { bubbles: true }));
+    expect(document.querySelector(".info-card")).toBeNull();
+    vi.advanceTimersByTime(120);
+    expect(document.querySelector(".info-card")).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+  closeOpenCard();
+
+  const focusChip = refChip("task:T-060");
+  document.body.appendChild(focusChip);
+  focusChip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
+  expect(document.querySelector(".info-card")).not.toBeNull();
+});
+
 test("refCardFields orders id/kind/status, title, description, from, path, open", () => {
+  // SR121 truthfully carries a scope_href (sr IS openable), so the Open
+  // field this test's title has always named is now actually exercised.
   const fields = refCardFields(SR121);
   expect(fields.map((f) => f.className)).toEqual([
     "info-card-meta",
@@ -136,9 +248,11 @@ test("refCardFields orders id/kind/status, title, description, from, path, open"
     "info-card-description",
     "info-card-from",
     "info-card-path",
+    "info-card-open",
   ]);
   expect(fields[0]?.text).toBe("SR-121 · sr");
   expect(fields[3]?.text).toBe("from: statement");
+  expect(fields[5]?.href).toBe("/system?scope=sr%3ASR-121");
 });
 
 test("refCardFields never blanks a missing description or a missing Open link", () => {
@@ -163,9 +277,11 @@ test("refCardFields adds no relations line when relations is empty", () => {
 });
 
 test("infoCard renders each field as a line, with href fields as links", () => {
+  // SR121's fields include its truthful Open field (see refCardFields
+  // test above), so 6 lines, not 5.
   const card = infoCard(refCardFields(SR121));
   expect(card.className).toBe("info-card");
-  expect(card.querySelectorAll(".info-card-line").length).toBe(5);
+  expect(card.querySelectorAll(".info-card-line").length).toBe(6);
   const meta = card.querySelector(".info-card-meta");
   expect(meta?.textContent).toBe("SR-121 · sr");
 });
@@ -201,7 +317,12 @@ test("focusing a chip via keyboard opens its card immediately", () => {
 });
 
 test("an opened card sets aria-controls on its trigger, cleared on close (M6)", () => {
-  const chip = refChip("T-060");
+  // SPEC_FOO (non-openable, span form): click both opens and closes it, so
+  // it still exercises the aria-controls set/clear round trip via a click.
+  // The anchor form's click-does-not-toggle behaviour has its own dedicated
+  // test. sr IS openable (SR-121 is now an anchor), so it can't stand in
+  // for the span case any more.
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   const card = document.querySelector(".info-card") as HTMLElement | null;
@@ -211,8 +332,12 @@ test("an opened card sets aria-controls on its trigger, cleared on close (M6)", 
   expect(chip.getAttribute("aria-controls")).toBeNull();
 });
 
-test("clicking a chip toggles the card open then closed", () => {
-  const chip = refChip("T-060");
+test("clicking a span chip toggles the card open then closed", () => {
+  // T-060 and SR-121 are both openable and render as anchors whose click
+  // navigates instead of toggling (see "clicking an anchor chip
+  // navigates..." above); SPEC_FOO stays a span, so it still exercises the
+  // click-to-toggle contract.
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   chip.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
   expect(document.querySelector(".info-card")).not.toBeNull();
@@ -221,13 +346,15 @@ test("clicking a chip toggles the card open then closed", () => {
 });
 
 test("only one card is open at a time", () => {
+  // Opened via focus rather than click so this exercises the shared
+  // exclusivity behaviour regardless of chip form (anchor vs span).
   const a = refChip("T-060");
   const b = refChip("SR-121");
   document.body.appendChild(a);
   document.body.appendChild(b);
-  a.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  a.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   expect(document.querySelectorAll(".info-card").length).toBe(1);
-  b.dispatchEvent(new (window as any).MouseEvent("click", { bubbles: true }));
+  b.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
   expect(document.querySelectorAll(".info-card").length).toBe(1);
   expect(document.querySelector(".info-card")?.textContent).toContain("Battery-aware return");
 });
@@ -284,8 +411,12 @@ test("a keydown that closes the card outside it does not steal focus", () => {
 });
 
 test("aria-expanded flips to true when the card opens and back to false when it closes", () => {
+  // SPEC_FOO (span form): only span chips carry an initial aria-expanded
+  // attribute (an anchor is already actionable and skips role/aria-expanded
+  // entirely -- see "an openable ref renders as a link..." above). SR-121
+  // is openable now (a real sr: ref always is), so it can't stand in here.
   ensureCardController();
-  const chip = refChip("T-060");
+  const chip = refChip(SPEC_FOO.ref);
   document.body.appendChild(chip);
   expect(chip.getAttribute("aria-expanded")).toBe("false");
   chip.dispatchEvent(new (window as any).FocusEvent("focusin", { bubbles: true }));
@@ -488,7 +619,12 @@ test("a recorded deferral_reason outranks the generic what_it_means sentence", (
   expect(el.textContent).not.toContain(REMEDIATION_DATA.states.sr_unsatisfied.what_it_means);
 });
 
-test("an empty panel renders exactly one next step, after the degraded banner", () => {
+test("an empty panel renders one next step per distinct empty condition, all after the degraded banner", () => {
+  // Both runs AND requirements are empty here -- two distinct, real gaps
+  // (no_runs, no_requirements), each contributing its own next step. This is
+  // not the "one Next step per empty child" case renderChangedFiles' comment
+  // guards against (many empty items in ONE list); these are two separate
+  // sections of one panel, each independently empty.
   renderStory({
     scope: { kind: "task", ref: "task:T-001" },
     task: { id: "T-001", title: "Load skills", status: "done" },
@@ -496,12 +632,12 @@ test("an empty panel renders exactly one next step, after the degraded banner", 
     degraded_reasons: ["task has no recorded runs"],
   });
   const panel = document.getElementById("panelStory") as HTMLElement;
-  expect(panel.querySelectorAll(".next-step").length).toBe(1);
+  expect(panel.querySelectorAll(".next-step").length).toBe(2);
   const children = Array.from(panel.children);
   const bannerIndex = children.findIndex((el) => el.className === "degraded-banner");
   const nextStepIndex = children.findIndex((el) => el.className === "next-step");
   expect(bannerIndex).toBeGreaterThanOrEqual(0);
-  // The next step comes after the banner in document order.
+  // The (first) next step comes after the banner in document order.
   expect(nextStepIndex).toBeGreaterThan(bannerIndex);
 });
 
@@ -512,8 +648,13 @@ test("an absence uses the dashed rail, not the failure rail", () => {
     runs: [], requirements: [], degraded: false, degraded_reasons: [],
   });
   const empty = document.querySelector("#panelStory .presence-rail")!;
-  expect(empty.className).toContain("is-absent");
-  expect(empty.className).not.toContain("is-failure");
+  // Exact match, not .toContain: an absence renders exactly one className
+  // today ("empty presence-rail is-absent") -- there is no separate
+  // failure-rail class to distinguish from, so an exact-match assertion is
+  // the strongest real check available (a .not.toContain("is-failure")
+  // check here could never fail, since nothing in the renderer sets that
+  // class).
+  expect(empty.className).toBe("empty presence-rail is-absent");
 });
 
 test("renderBrief's empty state gets the dashed rail and no panel-level next step (M10: the rail owns it)", () => {
@@ -527,8 +668,13 @@ test("renderBrief's empty state gets the dashed rail and no panel-level next ste
   };
   (globalThis as any).ALIASES = { ...((globalThis as any).ALIASES), "bundle:empty": "bundle:empty" };
   renderBrief({
+    // A bundle: scope's real query_brief payload carries no `member_of` key
+    // at all (queries.py:1049, "Other scope kinds omit the key") -- this
+    // fixture must not carry one either, or it would be misread as an sr:
+    // scope's empty membership and spuriously add an unbundled_artifact
+    // next step, defeating this test's own point.
     scope: { kind: "bundle", ref: "bundle:empty" },
-    member_of: [], claims: [], degraded: false, degraded_reasons: [],
+    claims: [], degraded: false, degraded_reasons: [],
   });
   const panel = document.getElementById("panelBrief") as HTMLElement;
   const empty = panel.querySelector(".empty")!;
@@ -594,6 +740,131 @@ test("renderReverse's empty state is styled with no matching remediation next st
   const panel = document.getElementById("panelReverse") as HTMLElement;
   expect(panel.querySelector(".empty")?.className).toContain("presence-rail is-absent");
   expect(panel.querySelector(".next-step")).toBeNull();
+});
+
+// -- Task 7 residuals: no_requirements, unbundled_artifact, no_changed_files,
+// no_commit_range, no_trace, traversal_not_applicable ------------------------
+
+test("renderStory wires no_requirements as a panel-level empty, styled and followed by its next step", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-060" },
+    task: { id: "T-060", title: "Wire the governor", status: "done" },
+    runs: [RUN_WITH_DATA], requirements: [], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelStory") as HTMLElement;
+  const reqs = panel.querySelector(".requirements") as HTMLElement;
+  expect(reqs.querySelector(".empty")?.className).toContain("presence-rail is-absent");
+  expect(reqs.textContent).toContain("no requirements recorded");
+  expect(reqs.querySelectorAll(".next-step").length).toBe(1);
+});
+
+test("renderStory renders no no_requirements next step when requirements are present", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-060" },
+    task: { id: "T-060", title: "Wire the governor", status: "done" },
+    runs: [RUN_WITH_DATA], requirements: ["sr:SR-121"], degraded: false, degraded_reasons: [],
+  });
+  const reqs = document.querySelector("#panelStory .requirements") as HTMLElement;
+  expect(reqs.querySelector(".presence-rail")).toBeNull();
+  expect(reqs.querySelectorAll(".next-step").length).toBe(0);
+});
+
+test("renderBrief wires unbundled_artifact per-artifact, like matrix_never_run, when member_of is empty", () => {
+  renderBrief({
+    scope: { kind: "sr", ref: "sr:SR-121" },
+    member_of: [], claims: [A_CLAIM], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelBrief") as HTMLElement;
+  expect(panel.querySelector("#memberOf")).toBeNull();
+  expect(panel.querySelectorAll(".next-step").length).toBe(1);
+});
+
+test("renderBrief renders no unbundled_artifact next step when member_of has entries", () => {
+  // Registered so boundedList's refChip resolves this member cleanly --
+  // an unregistered ref would legitimately add its OWN unresolved_ref next
+  // step (a different, real gap), which would confound this assertion.
+  (globalThis as any).LABELS = {
+    ...((globalThis as any).LABELS),
+    "bundle:evidence-lifecycle": {
+      ref: "bundle:evidence-lifecycle", id: "evidence-lifecycle", kind: "bundle",
+      title: "Evidence lifecycle", description: null, description_source: null,
+      deferral_reason: null, status: null, relations: {},
+      path: "bundles/evidence-lifecycle.json", scope_href: "/system?scope=bundle%3Aevidence-lifecycle",
+    },
+  };
+  (globalThis as any).ALIASES = {
+    ...((globalThis as any).ALIASES),
+    "bundle:evidence-lifecycle": "bundle:evidence-lifecycle",
+  };
+  renderBrief({
+    scope: { kind: "sr", ref: "sr:SR-121" },
+    member_of: ["bundle:evidence-lifecycle"], claims: [A_CLAIM], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelBrief") as HTMLElement;
+  expect(panel.querySelector("#memberOf")).not.toBeNull();
+  expect(panel.querySelectorAll(".next-step").length).toBe(0);
+});
+
+test("renderBrief renders no unbundled_artifact next step for a scope kind with no member_of key at all", () => {
+  // A bundle: scope's own query_brief payload carries no `member_of` key
+  // (queries.py:1049) -- must not be misread as "empty membership".
+  renderBrief({ scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, claims: [A_CLAIM] });
+  const panel = document.getElementById("panelBrief") as HTMLElement;
+  expect(panel.querySelectorAll(".next-step").length).toBe(0);
+});
+
+test("renderStory rolls up no_changed_files and no_commit_range into ONE next step each, never one per run", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-060" },
+    task: { id: "T-060", title: "Wire the governor", status: "done" },
+    runs: [RUN_NO_DATA, RUN_NO_DATA], requirements: ["sr:SR-121"], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelStory") as HTMLElement;
+  // Panel-level, not nested inside either .run box -- direct children only.
+  const panelLevel = Array.from(panel.children).filter((el) => el.className === "next-step");
+  expect(panelLevel.length).toBe(2);
+});
+
+test("renderStory renders neither rollup next step once at least one run carries the data", () => {
+  renderStory({
+    scope: { kind: "task", ref: "task:T-060" },
+    task: { id: "T-060", title: "Wire the governor", status: "done" },
+    runs: [RUN_NO_DATA, RUN_WITH_DATA], requirements: ["sr:SR-121"], degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelStory") as HTMLElement;
+  const panelLevel = Array.from(panel.children).filter((el) => el.className === "next-step");
+  expect(panelLevel.length).toBe(0);
+});
+
+test("renderReverse rolls up no_changed_files and no_commit_range the same way, from paths[].run", () => {
+  renderReverse({
+    scope: { kind: "file", ref: "file:src/a.py" },
+    paths: [
+      { file: "src/a.py", run: RUN_NO_DATA, task: null, requirements: [], stops_at: "task" },
+    ],
+    degraded: false, degraded_reasons: [],
+  });
+  const panel = document.getElementById("panelReverse") as HTMLElement;
+  const panelLevel = Array.from(panel.children).filter((el) => el.className === "next-step");
+  expect(panelLevel.length).toBe(2);
+});
+
+test("renderTrace's empty branch stays the plain not-applicable path -- no presence rail, no next step", () => {
+  renderTrace([]);
+  const panel = document.getElementById("panelTrace") as HTMLElement;
+  expect(panel.textContent).toContain("No trace recorded for this scope. See the Story or Reverse tabs.");
+  expect(panel.querySelector(".presence-rail")).toBeNull();
+  expect(panel.querySelectorAll(".next-step").length).toBe(0);
+});
+
+test("renderTraversalNotApplicable wires traversal_not_applicable with the dashed rail and a next step", () => {
+  const node = document.createElement("div");
+  node.id = "traversalPath";
+  document.body.appendChild(node);
+  renderTraversalNotApplicable(node, "task:T-060");
+  expect(node.textContent).toContain("Traversal is not applicable for this scope.");
+  expect(node.querySelector(".empty")?.className).toContain("presence-rail is-absent");
+  expect(node.querySelectorAll(".next-step").length).toBe(1);
 });
 
 test("humaniseGroup falls back to a capitalised slug for an unlisted group, without inventing new terms", () => {

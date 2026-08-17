@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from factory.system.remediation import REMEDIATION
-from factory.system.vocabulary import VOCABULARY
+from factory.system.vocabulary import PANELS, VOCABULARY
 
 pytestmark = pytest.mark.unit
 
@@ -30,3 +30,7 @@ def test_vocabulary_mirror_matches_python():
 
 def test_remediation_mirror_matches_python():
     assert _extract("REMEDIATION_DATA") == {"version": 1, "states": REMEDIATION}
+
+
+def test_panels_mirror_matches_python():
+    assert _extract("PANELS_DATA") == {"version": 1, "panels": PANELS}

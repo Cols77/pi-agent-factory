@@ -244,3 +244,13 @@ def test_file_entry_never_invents_a_title_or_description(tmp_path):
         "deferral_reason": None, "status": None, "relations": {},
         "path": "src/a.py", "scope_href": "/system?scope=file%3Asrc%2Fa.py",
     }
+
+
+def test_a_file_path_colliding_with_a_bare_id_is_recorded_not_silently_shadowed(tmp_path):
+    # Both fixtures exist under these exact names -- seed them, do not hand-wave:
+    # a task at T-060, and a manifest whose changed_files holds the literal "T-060".
+    _fixtures.write_task(tmp_path / "tasks", "T-060", title="Wire the governor")
+    _fixtures.write_run_manifest(tmp_path, changed_files=["T-060"])
+    payload = build_labels(tmp_path)
+    assert payload["aliases"]["T-060"] == "task:T-060"      # the artifact wins
+    assert any("collision" in d for d in payload["degraded"])

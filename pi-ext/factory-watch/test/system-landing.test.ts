@@ -180,6 +180,71 @@ describe("system landing page", () => {
       .toEqual(["weak", "medium", "strong", "unbundled"]);
   });
 
+  // Task 8 fix round: readiness is a contract word (vocabulary.py's
+  // `readiness` group) and needs a gloss present at every site it renders --
+  // not just an inline-trigger button, since `title` here is itself the
+  // expand/collapse <button> (nesting withGloss's `.info-trigger` inside it
+  // would put an interactive control inside another one). Assert the gloss
+  // text is actually there, not merely that "Weak"/"Medium"/"Strong" appears.
+  test("the sidebar's readiness group title carries a gloss, not just the bare word", async () => {
+    const doc = await renderWithHealth(FEATURE_HEALTH);
+    const sidebar = doc.querySelector("#scopeList")!;
+    const weak = sidebar.querySelector('[data-readiness="weak"]')!;
+    const gloss = weak.querySelector(".scope-group-title + .gloss");
+    expect(gloss, "no gloss beside the sidebar's Weak group title").not.toBeNull();
+    expect(gloss!.textContent).not.toBe("");
+  });
+
+  // Task 8 fix round: same contract word, same rule, at the landing page's
+  // feature-row (`#bundleList`). `row` there IS the clickable anchor, so
+  // (same reasoning as the sidebar) this checks for the plain gloss line
+  // rather than an interactive trigger nested inside the link.
+  test("a feature-row's readiness word carries a gloss, not just the bare word", async () => {
+    const doc = await renderWithHealth(BUNDLED_HEALTH);
+    const row = doc.querySelector("#bundleList .feature-row.readiness-weak")!;
+    expect(row, "no weak feature-row rendered").not.toBeNull();
+    const gloss = row.querySelector(".gloss");
+    expect(gloss, "no gloss on the weak feature-row").not.toBeNull();
+    expect(gloss!.textContent).not.toBe("");
+  });
+
+  // IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six more
+  // contract words (sr_total/bound/covered/current/deferred/validated) into
+  // one bare string beside the readiness word above -- same rule applies.
+  // Six per-word gloss lines would triple the row height, so this asserts
+  // the single combined `.readiness-counts-gloss` line lands inside the
+  // counts span (not merely that "4 SR" text appears).
+  test("the sidebar's bundle-row readiness counts carry a gloss, not just the bare numbers", async () => {
+    const doc = await renderWithHealth(FEATURE_HEALTH);
+    const row = doc.querySelector('#scopeList .scope-item[data-kind="bundle"]')!;
+    const counts = row.querySelector(":scope > .readiness-counts")!;
+    expect(counts.textContent).toContain("4 SR");
+    const gloss = counts.querySelector(".readiness-counts-gloss");
+    expect(gloss, "no gloss inside the sidebar row's readiness-counts span").not.toBeNull();
+    expect(gloss!.textContent).toContain("SR total");
+    expect(gloss!.textContent).toContain("bound");
+  });
+
+  // Same word set, the landing page's feature-row site (`row` IS the
+  // clickable anchor there too).
+  // Fix round 2 (legibility inc2): the gloss is a *sibling* of
+  // .readiness-counts here, not nested inside it -- .readiness-counts sits
+  // in .feature-row's auto-sized grid column, and nesting the gloss there
+  // made its ~2400-char unbroken line the column's max-content
+  // contribution, collapsing the title column to 0 width (measured in a
+  // real browser: 0px title / 1191px row before, 525px / 151px after).
+  // .feature-row > .readiness-counts-gloss { grid-column: 1 / -1 }
+  // (system-shell.ts) is what keeps it out of that column's sizing.
+  test("a feature-row's readiness counts carry a gloss, not just the bare numbers", async () => {
+    const doc = await renderWithHealth(BUNDLED_HEALTH);
+    const row = doc.querySelector("#bundleList .feature-row.readiness-weak")!;
+    const counts = row.querySelector(".readiness-counts")!;
+    expect(counts.textContent).toContain("4 SR");
+    const gloss = row.querySelector(":scope > .readiness-counts-gloss");
+    expect(gloss, "no gloss as a direct child of the feature-row").not.toBeNull();
+    expect(gloss!.textContent).toContain("SR total");
+  });
+
   test("sidebar expands weak and collapses medium/strong but count-bearing titles", async () => {
     const doc = await renderWithHealth(FEATURE_HEALTH);
     const sidebar = doc.querySelector("#scopeList")!;

@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -106,8 +107,17 @@ const TRAVERSAL = {
   files: ["src/example.ts"],
 };
 
-function childProcess(): EventEmitter & { stdout: PassThrough; stderr: PassThrough } {
-  return Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+function childProcess(): EventEmitter & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough } {
+  // stdin + kill + exitCode: the docs server now runs a long-lived
+  // `factory.system worker` process whose stdin carries JSON-lines requests,
+  // so the fake child must be shaped like the real one.
+  return Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    stdin: new PassThrough(),
+    kill: vi.fn(() => true),
+    exitCode: null as number | null,
+  });
 }
 
 function closeChild(
@@ -123,13 +133,50 @@ function closeChild(
   });
 }
 
+function crashChild(child: ReturnType<typeof childProcess>): void {
+  // Exit on a microtask so the worker's own exit listeners are attached
+  // before the event fires (a synchronous emit during spawn would be lost).
+  queueMicrotask(() => child.emit("exit", 1, null));
+}
+
+// Serves the JSON-lines worker protocol against a fake child: one response
+// line per request line, values from `handlers` keyed by worker command.
+function serveWorker(
+  child: ReturnType<typeof childProcess>,
+  handlers: Record<string, unknown>,
+): void {
+  const lines = createInterface({ input: child.stdin });
+  lines.on("line", (raw) => {
+    const req = JSON.parse(raw) as { id: number; cmd: string };
+    if (Object.prototype.hasOwnProperty.call(handlers, req.cmd)) {
+      child.stdout.write(JSON.stringify({ id: req.id, ok: true, value: handlers[req.cmd] }) + "\n");
+    } else {
+      child.stdout.write(
+        JSON.stringify({
+          id: req.id,
+          ok: false,
+          error: `unexpected worker cmd: ${req.cmd}`,
+          kind: "WorkerProtocolError",
+        }) + "\n",
+      );
+    }
+  });
+}
+
+// The docs server spawns exactly one long-lived worker process; when the
+// worker answers, the one-shot per-command spawn is never used.
+function isWorkerArgv(args: string[]): boolean {
+  return args[4] === "factory.system" && args[5] === "worker";
+}
+
 function mockAsyncSystemCli(): void {
   spawn.mockImplementation((_bin: string, args: string[]) => {
     const child = childProcess();
-    const sub = args[4];
-    if (sub === "health") closeChild(child, JSON.stringify(HEALTH));
-    else if (sub === "traversal") closeChild(child, JSON.stringify(TRAVERSAL));
-    else closeChild(child, "", 1, `unexpected sub: ${String(sub)}`);
+    if (isWorkerArgv(args)) {
+      serveWorker(child, { health: HEALTH, traversal: TRAVERSAL });
+      return child;
+    }
+    closeChild(child, "", 1, `unexpected sub: ${String(args[4])}`);
     return child;
   });
 }
@@ -153,6 +200,11 @@ function repo(): string {
 afterEach(() => {
   stopDocsServer();
   vi.clearAllMocks();
+  // clearAllMocks keeps implementations installed by earlier tests; a stale
+  // worker-shaped spawn would leak into the spawnSync-fallback tests, so the
+  // bare mock is restored too (each test installs what it needs).
+  spawn.mockReset();
+  spawnSync.mockReset();
 });
 
 describe("renderSystemPageHtml", () => {
@@ -163,6 +215,17 @@ describe("renderSystemPageHtml", () => {
     expect(html).toContain("</html>");
     expect(html).not.toMatch(/src="https?:/);
     expect(html).not.toMatch(/href="https?:/);
+  });
+
+  test("never truncates a Matrix chip title -- .matrix-row is its own per-row grid so wrapping cannot break alignment", () => {
+    // Regression pin for the CSS override that clipped ref-chip titles on
+    // the Matrix tab (`.matrix-subject .chip-title { ... white-space:
+    // nowrap }`). `.ref-chip .chip-title { overflow-wrap: anywhere }`
+    // (which makes long titles wrap instead of clip) must not be beaten by
+    // a nowrap/ellipsis rule scoped to `.matrix-subject`.
+    expect(html).not.toMatch(/\.matrix-subject\s+\.chip-title\s*\{[^}]*white-space:\s*nowrap/);
+    expect(html).not.toMatch(/\.matrix-subject\s+\.chip-title\s*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(html).toMatch(/\.ref-chip\s+\.chip-title\s*\{[^}]*overflow-wrap:\s*anywhere/);
   });
 
   test("offers a scope picker and brief/matrix/timeline/guide tabs", () => {
@@ -223,6 +286,11 @@ describe("renderSystemPageHtml", () => {
 
   test("never recomputes ordering -- events and rows are rendered in payload order", () => {
     expect(html).not.toContain(".sort(");
+  });
+
+  test("a health metric tile's rule comes straight from the vocabulary entry's denominator_rule field, never a browser-side regex slice of the full definition", () => {
+    expect(html).not.toContain("firstSentence");
+    expect(html).toContain("term.denominator_rule");
   });
 
   test("shows a degraded/stale banner from the payload, not a colour-only cue", () => {
@@ -297,7 +365,7 @@ describe("GET /system and /api/system/*", () => {
     expect(body).toEqual(SCOPE_LIST);
   });
 
-  test("serves health and traversal JSON from async child processes", async () => {
+  test("serves health and traversal JSON through the long-lived worker", async () => {
     spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
     mockAsyncSystemCli();
     const server = await ensureDocsServer(repo());
@@ -308,40 +376,37 @@ describe("GET /system and /api/system/*", () => {
     const traversal = await fetch(`${server.url}/api/system/traversal?scope=sr:SR-001`);
     expect(traversal.status).toBe(200);
     expect(await traversal.json()).toEqual(TRAVERSAL);
-    expect(spawn).toHaveBeenNthCalledWith(
-      1,
+    // One long-lived worker process served both projections; the one-shot
+    // per-command CLI was never spawned (and the sync runner never used).
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledWith(
       "uv",
-      ["run", "python", "-m", "factory.system", "health", "--json"],
-      { cwd: expect.any(String), stdio: ["ignore", "pipe", "pipe"] },
+      ["run", "python", "-u", "-m", "factory.system", "worker", "--repo-root", expect.any(String)],
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
     );
-    expect(spawn).toHaveBeenNthCalledWith(
-      2,
-      "uv",
-      ["run", "python", "-m", "factory.system", "traversal", "--json", "--scope", "sr:SR-001"],
-      { cwd: expect.any(String), stdio: ["ignore", "pipe", "pipe"] },
-    );
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 
-  test("reports an async system CLI failure as JSON", async () => {
+  test("reports a worker-served command failure as JSON", async () => {
     spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(HEALTH), stderr: "" });
-    spawn.mockImplementation(() => {
+    spawn.mockImplementation((_bin: string, args: string[]) => {
       const child = childProcess();
-      closeChild(child, "", 1, "health unavailable");
+      if (isWorkerArgv(args)) serveWorker(child, {}); // every command is unknown
       return child;
     });
     const server = await ensureDocsServer(repo());
 
     const res = await fetch(`${server.url}/api/system/health`);
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toContain("health unavailable");
+    expect((await res.json()).error).toContain("unexpected worker cmd");
   });
 
   test("reports an async traversal CLI failure as JSON", async () => {
     spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
     spawn.mockImplementation((_bin: string, args: string[]) => {
       const child = childProcess();
-      expect(args).toEqual(["run", "python", "-m", "factory.system", "traversal", "--json", "--scope", "bundle:one"]);
-      closeChild(child, "", 1, "traversal unavailable");
+      if (isWorkerArgv(args)) crashChild(child);
+      else closeChild(child, "", 1, "traversal unavailable"); // the fallback one-shot
       return child;
     });
     const server = await ensureDocsServer(repo());
@@ -351,34 +416,33 @@ describe("GET /system and /api/system/*", () => {
     expect((await res.json()).error).toContain("traversal unavailable");
   });
 
-  test("serves health before a held traversal child releases", async () => {
+  test("a crashed worker never starves a route: requests fall back to the one-shot CLI", async () => {
     spawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "sync runner must not be used" });
-    let heldTraversal: ReturnType<typeof childProcess> | undefined;
     spawn.mockImplementation((_bin: string, args: string[]) => {
       const child = childProcess();
-      if (args[4] === "traversal") {
-        heldTraversal = child;
+      if (isWorkerArgv(args)) {
+        crashChild(child);
       } else if (args[4] === "health") {
         closeChild(child, JSON.stringify(HEALTH));
+      } else if (args[4] === "traversal") {
+        closeChild(child, JSON.stringify(TRAVERSAL));
       } else {
         closeChild(child, "", 1, `unexpected sub: ${String(args[4])}`);
       }
       return child;
     });
     const server = await ensureDocsServer(repo());
-    const traversal = fetch(`${server.url}/api/system/traversal?scope=sr:SR-001`);
-    await vi.waitFor(() => expect(heldTraversal).toBeDefined());
-    const child = heldTraversal;
-    if (child === undefined) throw new Error("traversal child was not started");
 
-    try {
-      const health = await fetch(`${server.url}/api/system/health`);
-      expect(health.status).toBe(200);
-      expect(await health.json()).toEqual(HEALTH);
-    } finally {
-      closeChild(child, JSON.stringify(TRAVERSAL));
-      expect((await traversal).status).toBe(200);
-    }
+    const health = await fetch(`${server.url}/api/system/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual(HEALTH);
+    const traversal = await fetch(`${server.url}/api/system/traversal?scope=sr:SR-001`);
+    expect(traversal.status).toBe(200);
+    expect(await traversal.json()).toEqual(TRAVERSAL);
+    // The worker was attempted for each request and crashed; every request
+    // still answered through the one-shot async CLI fallback.
+    expect(spawn.mock.calls.some((call) => isWorkerArgv(call[1] as string[]))).toBe(true);
+    expect(spawn.mock.calls.some((call) => !isWorkerArgv(call[1] as string[]))).toBe(true);
   });
 
   test("serves brief/matrix/timeline/guide JSON for a scope", async () => {

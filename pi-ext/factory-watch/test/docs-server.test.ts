@@ -134,6 +134,43 @@ describe("ensureDocsServer", () => {
     expect(scoped.nodes.map((n: { id: string }) => n.id).sort()).toEqual(["SR-001", "T-001"]);
   });
 
+  test("serves the combined dossier payload on /api/system/dossier via the fallback", async () => {
+    const dossier = {
+      scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" },
+      brief: { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, claims: [], degraded: false, degraded_reasons: [] },
+      matrix: { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, rows: [] },
+      timeline: { scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" }, events: [], degraded: false, degraded_reasons: [] },
+      guide: null,
+      guide_error: null,
+      vcycle: null,
+      vcycle_error: null,
+      validation: null,
+      validation_error: null,
+    };
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(dossier), stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/dossier?scope=bundle%3Aevidence-lifecycle`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(dossier);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      ["run", "python", "-m", "factory.system", "dossier", "--scope", "bundle:evidence-lifecycle", "--json"],
+      expect.objectContaining({ cwd: expect.any(String) }),
+    );
+  });
+
+  test("reports a dossier failure as 503 with the structured Python error", async () => {
+    spawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: JSON.stringify({ error: "bundle not found: 'missing'", kind: "ScopeNotFoundError" }),
+    });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/dossier?scope=bundle%3Amissing`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("bundle not found");
+  });
+
   test("serves durable task evidence from the Python model", async () => {
     const root = repo();
     const { manifest } = writeDurableEvidence(root);

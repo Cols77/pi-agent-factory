@@ -15,6 +15,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { renderSystemPageHtml } from "../src/system-page.js";
+import { PANELS_DATA } from "../src/system-vocabulary-data.js";
 
 const HEALTH = {
   health: { classes: [], satisfied: 0, expected: 0, percent: 0, dangling: 0, deferred: 0, proposed: 0 },
@@ -382,6 +383,61 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(metric.querySelector(".health-metric-raw")?.textContent).toBe("not-a-real-class");
   });
 
+  // Task 5 (legibility inc2): the landing states what the project is made
+  // of, above the metric tiles, badged `derived` (reused withGloss) so its
+  // provenance is as visible as any other claim's. `HEALTH` carries no
+  // `shape` key at all -- the two tests above already exercise that guard
+  // implicitly by rendering without it -- so this test opts a real `shape`
+  // payload in explicitly.
+  test("the shape sentence renders above the metric tiles with a derived badge", async () => {
+    const dom = await loadPage({
+      health: {
+        ...HEALTH,
+        shape: {
+          sentence:
+            "This project is described by 2 requirements, grouped into 1 feature. " +
+            "1 task implements them, and 0 of those requirements have a passing validation.",
+          parts: { requirements: 2, features: 1, tasks: 1, validated: 0 },
+        },
+      },
+    });
+    const doc = dom.window.document;
+    const shapeEl = doc.querySelector("#healthSummary .shape-sentence");
+    expect(shapeEl?.textContent).toContain(
+      "This project is described by 2 requirements, grouped into 1 feature."
+    );
+    // It must precede the metric tiles, not follow them.
+    expect(shapeEl?.nextElementSibling?.className).toContain("health-overall");
+    expect(shapeEl?.querySelector(".badge")?.textContent).toBe("derived");
+  });
+
+  // Task 5 (legibility inc2, fix wave): a metric tile's rule is now a
+  // Python-authored `denominator_rule` field on the vocabulary entry,
+  // rendered as-is -- never a browser-side regex slicing the full
+  // `definition` (that approach put "sr_proposed", "trace graph", and
+  // "slot" on a newcomer's first screen; see system-page.test.ts's
+  // firstSentence-deletion pin for the other half of this fix).
+  test("a metric tile's rule is the vocabulary entry's own short denominator_rule, not the full definition", async () => {
+    const dom = await loadPage({
+      health: {
+        health: {
+          classes: [{ name: "SR satisfied", satisfied: 3, expected: 5, exempt: 0 }],
+          satisfied: 3, expected: 5, percent: 60, dangling: 0, deferred: 0, proposed: 0,
+        },
+        coverage: { total: 0, bundled: 0, unbundled: 0, kinds: [] },
+        bundles: [], unbundled: { sr: ["sr:SR-999"] }, ordering_available: true, sr_listed: false, degraded: [],
+      },
+    });
+    const metric = dom.window.document.querySelector(".health-metric")!;
+    const rule = metric.querySelector(".health-metric-rule")?.textContent ?? "";
+    expect(rule).toBe(
+      "Counts every requirement, including ones not yet decided on; " +
+      "satisfied when a task claims to satisfy it."
+    );
+    expect(rule).not.toContain("Denominator:");
+    expect(rule).not.toContain("trace graph");
+  });
+
   // Fix round 1, Task 10: renderTraversal is a closure inside systemBootstrap,
   // not exported -- exercised only through the real page via loadPage(), the
   // same shape Task 11 used for renderHealthSummary above. boundedList's
@@ -454,6 +510,36 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     // Sibling steps with data are unaffected by the empty one.
     const filesStep = steps.find((step) => step.querySelector(".trace-spine-label")?.textContent === "Files")!;
     expect(filesStep.querySelector(".trace-spine-value .bounded-list")).not.toBeNull();
+  });
+
+  // Task 3 (legibility increment 2): the four-column grid becomes a
+  // full-width vertical ladder -- one row per step, its count right-aligned
+  // on the label's rule, answerable without expanding the disclosure.
+  test("the ladder is one full-width row per step with its count on the rule", async () => {
+    const dom = await loadPage({
+      scope: "bundle:b1",
+      traversal: {
+        requirement: ["sr:SR-030", "sr:SR-033", "sr:SR-038", "sr:SR-086", "sr:SR-087", "sr:SR-088", "sr:SR-089"],
+        tasks: [], design: [], files: [],
+      },
+    });
+    const doc = dom.window.document;
+    const steps = doc.querySelectorAll(".trace-spine-step");
+    expect(steps.length).toBe(4);
+    expect(steps[0]!.querySelector(".trace-spine-count")?.textContent).toBe("7");
+    expect(steps[0]!.querySelectorAll(".bounded-list > .ref-chip").length).toBe(5);
+    expect(steps[0]!.querySelector("details summary")?.textContent).toBe("+ 2 more");
+  });
+
+  test("an empty step reads Not recorded and carries its next step inline", async () => {
+    const dom = await loadPage({
+      scope: "bundle:b1",
+      traversal: { requirement: ["sr:SR-030"], tasks: [], design: [], files: [] },
+    });
+    const step = dom.window.document.querySelectorAll(".trace-spine-step")[2]!;
+    expect(step.textContent).toContain("Not recorded");
+    expect(step.querySelector(".next-step")).not.toBeNull();
+    expect(step.querySelector(".trace-spine-count")?.textContent).toBe("0");
   });
 
   test("the Vocabulary header control opens a workspace view grouped by term group, with a Back to the landing page", async () => {
@@ -620,4 +706,66 @@ describe("system-page.ts client script, executed against a real DOM", () => {
       expect(readinessRow?.querySelector(".feature-readiness")?.textContent).toBe(readiness);
     },
   );
+
+  // Task 8 fix round: readiness is a contract word (vocabulary.py's
+  // `readiness` group) and needs a gloss/trigger at every site it renders,
+  // same as any other contract word on the page. The context rail is not
+  // itself a clickable/toggling element, so it follows the full withGloss
+  // precedent -- assert the real .info-trigger button is present, not just
+  // that the word "weak"/"medium"/"strong" appears as text.
+  test("the context rail's readiness word carries a definition trigger, not just bare text", async () => {
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      health: { ...HEALTH, bundles: [{ ...HEALTH.bundles[0], readiness: "weak" }] },
+    });
+    const doc = dom.window.document;
+    const readinessRow = doc.querySelector("#contextRail .context-rail-readiness");
+    expect(readinessRow).not.toBeNull();
+    const trigger = readinessRow?.querySelector(".info-trigger[data-term='weak']");
+    expect(trigger, "no definition trigger beside the context rail's readiness word").not.toBeNull();
+    expect(trigger?.getAttribute("aria-label")).toBe("What does weak mean?");
+  });
+
+  // IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six more
+  // contract words (sr_total/bound/covered/current/deferred/validated) into
+  // one bare string beside the readiness word above -- same rule applies,
+  // but as a single combined `.readiness-counts-gloss` line (see
+  // system-comprehension.ts's readinessCountsGloss), not six separate
+  // triggers.
+  test("the context rail's readiness counts carry a gloss, not just the bare numbers", async () => {
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      health: { ...HEALTH, bundles: [{ ...HEALTH.bundles[0], readiness: "weak" }] },
+    });
+    const doc = dom.window.document;
+    const counts = doc.querySelector("#contextRail .context-rail-readiness .readiness-counts");
+    expect(counts).not.toBeNull();
+    expect(counts?.textContent).toContain("1 SR");
+    const gloss = counts?.querySelector(".readiness-counts-gloss");
+    expect(gloss, "no gloss inside the context rail's readiness-counts span").not.toBeNull();
+    expect(gloss?.textContent).toContain("SR total");
+  });
+
+  // Task 4 (Component 4): every tab gets a persistent one-line orientation
+  // beneath the tab strip. KEY BY THE ELEMENT ID, NOT aria-label -- two tabs
+  // disagree (id="tabVcycle" aria-label="V-cycle", id="tabSim" aria-label=
+  // "Simulation"), and `id.slice(3)` is exactly the TABS_BY_KIND id for all
+  // thirteen tabs.
+  test("every rendered tab has an orientation line", async () => {
+    const dom = await loadPage({ scope: "bundle:b1" });
+    const doc = dom.window.document;
+    doc.querySelectorAll('[role="tab"]').forEach((tab) => {
+      const key = tab.id.slice(3);
+      expect(PANELS_DATA.panels[key as keyof typeof PANELS_DATA.panels], `no orientation for tab ${key}`).toBeTruthy();
+    });
+  });
+
+  test("the orientation line follows the active tab", async () => {
+    const dom = await loadPage({ scope: "bundle:b1" });
+    const doc = dom.window.document;
+    const line = doc.getElementById("panelOrientation")!;
+    expect(line.textContent).toContain("Every claim this scope makes");
+    (doc.getElementById("tabMatrix") as HTMLElement).click();
+    expect(line.textContent).toContain("validation has run");
+  });
 });

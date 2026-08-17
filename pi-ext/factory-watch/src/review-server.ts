@@ -174,6 +174,7 @@ import { renderMarkdown } from "./md-render.js";
 import { parseTaskFrontmatter } from "./task-header.js";
 import type { ReviewDecisionPayload } from "./review-model.js";
 import { renderReviewHtml } from "./review-html.js"; // Task 3
+import { isReferenceKind, renderReferencePage } from "./review-reference.js";
 
 export interface RunningReviewServer {
   url: string;
@@ -205,6 +206,20 @@ export function startReviewServer(
       if (req.method === "GET" && url === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(renderReviewHtml());
+        return;
+      }
+      // Read-only reference pages (Task / Plan / Spec / Verify), opened in a
+      // new browser window from the review page's header buttons. Rendered
+      // from the already-loaded ReviewPageData; spec bodies read on demand.
+      if (req.method === "GET" && url.startsWith("/reference/")) {
+        const kind = url.slice("/reference/".length);
+        if (!isReferenceKind(kind)) {
+          res.writeHead(404);
+          res.end();
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(renderReferencePage(kind, data, opts.cwd));
         return;
       }
       if (req.method === "GET" && url === "/api/review") {

@@ -6,6 +6,7 @@ vi.mock("node:child_process", () => ({ spawnSync }));
 import {
   buildSystemCommand,
   loadSystemBriefing,
+  loadSystemDossier,
   loadSystemGuide,
   loadSystemMatrix,
   loadSystemScopes,
@@ -81,6 +82,51 @@ const TIMELINE = {
   degraded: true,
   degraded_reasons: ["1 event(s) do not have a recorded actor"],
 };
+
+const DOSSIER = {
+  scope: { kind: "bundle", ref: "bundle:evidence-lifecycle" },
+  brief: BRIEF,
+  matrix: MATRIX,
+  timeline: TIMELINE,
+  guide: GUIDE,
+  guide_error: null,
+  vcycle: null,
+  vcycle_error: null,
+  validation: null,
+  validation_error: null,
+};
+
+describe("loadSystemDossier", () => {
+  test("parses the combined navigation payload", () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(DOSSIER), stderr: "" });
+    const result = loadSystemDossier("/repo", "bundle:evidence-lifecycle");
+    expect(result).toEqual({ ok: true, value: DOSSIER });
+  });
+
+  test("invokes dossier --scope <ref> --json", () => {
+    spawnSync.mockReturnValue({ status: 0, stdout: "{}", stderr: "" });
+    loadSystemDossier("/repo", "bundle:evidence-lifecycle");
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      ["run", "python", "-m", "factory.system", "dossier", "--scope", "bundle:evidence-lifecycle", "--json"],
+      expect.objectContaining({ cwd: "/repo" }),
+    );
+  });
+
+  test("surfaces the structured Python error on a bad scope ref", () => {
+    spawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: JSON.stringify({ error: "unsupported scope kind: 'feat'", kind: "ScopeKindError" }),
+    });
+    const result = loadSystemDossier("/repo", "feat:FEAT-X");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("unsupported scope kind");
+      expect(result.error).toContain("ScopeKindError");
+    }
+  });
+});
 
 describe("buildSystemCommand", () => {
   test("runs the system module through uv, mirroring buildTraceCommand", () => {

@@ -12,6 +12,7 @@ import {
   runReconcile,
 } from "./evidence-client.js";
 import { renderMarkdown } from "./md-render.js";
+import type { CliResult } from "./cli-runner.js";
 import { layoutGraph, neighbourhood } from "./graph-layout.js";
 import { loadTraceGraph } from "./trace-cli.js";
 import { renderDocsHtml } from "./docs-html.js";
@@ -32,7 +33,27 @@ import {
   loadSystemCatchup,
   loadSystemSimRun,
   loadSystemDiagram,
+  loadSystemDossier,
 } from "./system-cli.js";
+import type {
+  SimRun,
+  SystemBrief,
+  SystemDiagram,
+  SystemDossier,
+  SystemGoal,
+  SystemGuide,
+  SystemHealth,
+  SystemLabels,
+  SystemMatrix,
+  SystemReverse,
+  SystemScopeList,
+  SystemStory,
+  SystemTimeline,
+  SystemTraversal,
+  SystemValidation,
+  SystemVcycle,
+} from "./system-cli.js";
+import { stopSystemWorker, systemWorkerRequest } from "./system-worker.js";
 import { renderSystemPageHtml } from "./system-page.js";
 
 export interface RunningDocsServer {
@@ -56,6 +77,24 @@ export function resolveDocPath(root: string, relative: string): string | null {
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+// Worker-first execution for every /api/system/* route (SP-B performance,
+// extended): ask the long-lived `factory.system worker` process first -- it
+// amortizes interpreter boot and module import across requests. `null` from
+// the worker means "unusable right now", and the caller then falls back to
+// the existing one-shot CLI runner, so the routes work identically with or
+// without the worker. A structured worker error (e.g. an unresolvable
+// scope) is a non-null `{ ok: false }` result and is reported as a 503,
+// exactly like the one-shot CLI path.
+async function systemRequest<T>(
+  cwd: string,
+  cmd: string,
+  params: Record<string, string>,
+  fallback: () => Promise<CliResult<T>> | CliResult<T>,
+): Promise<CliResult<T>> {
+  const viaWorker = await systemWorkerRequest<T>(cwd, { cmd, params });
+  return viaWorker !== null ? viaWorker : fallback();
 }
 
 export interface ArchivedReviewAnnotation {
@@ -265,7 +304,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // and only these exact paths exist -- anything else falls through
   // to the 404 below.
   if (req.method === "GET" && url.pathname === "/api/system/scope") {
-    const result = loadSystemScopes(cwd);
+    const result = await systemRequest<SystemScopeList>(cwd, "scope", {}, () => loadSystemScopes(cwd));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -276,7 +315,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // SP-B Task 6: the composed landing projection the browser renders on load.
   if (req.method === "GET" && url.pathname === "/api/system/health") {
-    const result = await loadSystemHealthAsync(cwd);
+    const result = await systemRequest<SystemHealth>(cwd, "health", {}, () => loadSystemHealthAsync(cwd));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -288,7 +327,7 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // The label index: every ref's title and recorded description. Async only --
   // this reads every spec and plan body, so it must not block the event loop.
   if (req.method === "GET" && url.pathname === "/api/system/labels") {
-    const result = await loadSystemLabelsAsync(cwd);
+    const result = await systemRequest<SystemLabels>(cwd, "labels", {}, () => loadSystemLabelsAsync(cwd));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -299,7 +338,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // SP-B Task 9: requirement -> tasks -> design -> files traversal.
   if (req.method === "GET" && url.pathname === "/api/system/traversal") {
-    const result = await loadSystemTraversalAsync(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemTraversal>(cwd, "traversal", { scope }, () => loadSystemTraversalAsync(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -309,7 +349,24 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   }
 
   if (req.method === "GET" && url.pathname === "/api/system/brief") {
-    const result = loadSystemBriefing(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemBrief>(cwd, "brief", { scope }, () => loadSystemBriefing(cwd, scope));
+    if (!result.ok) {
+      json(res, 503, { error: result.error });
+      return;
+    }
+    json(res, 200, result.value);
+    return;
+  }
+
+  // SP-B performance, extended: the combined scope-navigation payload. One
+  // worker request (or one one-shot process as fallback) computes
+  // brief+matrix+timeline+guide(+vcycle+validation) instead of the browser
+  // firing a process per projection. Same projection discipline as every
+  // other route -- Python computes, this route renders, never re-derives.
+  if (req.method === "GET" && url.pathname === "/api/system/dossier") {
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemDossier>(cwd, "dossier", { scope }, () => loadSystemDossier(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -319,7 +376,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   }
 
   if (req.method === "GET" && url.pathname === "/api/system/matrix") {
-    const result = loadSystemMatrix(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemMatrix>(cwd, "matrix", { scope }, () => loadSystemMatrix(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -331,7 +389,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // Inc 6 Task 2: the interactive V-cycle projection (query_vcycle +
   // additive statuses map). feat:/sr: scopes only.
   if (req.method === "GET" && url.pathname === "/api/system/vcycle") {
-    const result = loadSystemVcycle(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemVcycle>(cwd, "vcycle", { scope }, () => loadSystemVcycle(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -343,7 +402,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // Inc 6 Task 3: one goal's contract/state/evidence/history (query_goal,
   // the Inc 4 eng_get_goal projection).
   if (req.method === "GET" && url.pathname === "/api/system/goal") {
-    const result = loadSystemGoal(cwd, url.searchParams.get("id") ?? "");
+    const goalId = url.searchParams.get("id") ?? "";
+    const result = await systemRequest<SystemGoal>(cwd, "goal_show", { goal_id: goalId }, () => loadSystemGoal(cwd, goalId));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -355,7 +415,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // Inc 6 Task 4: a requirement's validation evidence (query_validation).
   // sr: scopes only.
   if (req.method === "GET" && url.pathname === "/api/system/validation") {
-    const result = loadSystemValidation(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemValidation>(cwd, "validation", { scope }, () => loadSystemValidation(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -366,7 +427,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // Inc 6 Task 5: one simulation run's summary (query_simulation_run).
   if (req.method === "GET" && url.pathname === "/api/system/sim/run") {
-    const result = loadSystemSimRun(cwd, url.searchParams.get("id") ?? "");
+    const runId = url.searchParams.get("id") ?? "";
+    const result = await systemRequest<SimRun>(cwd, "sim_run", { run_id: runId }, () => loadSystemSimRun(cwd, runId));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -377,7 +439,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
 
   // Inc 6 Task 5b: one diagram stub + its committed HTML (query_diagram).
   if (req.method === "GET" && url.pathname === "/api/system/diagram") {
-    const result = loadSystemDiagram(cwd, url.searchParams.get("id") ?? "");
+    const diagramId = url.searchParams.get("id") ?? "";
+    const result = await systemRequest<SystemDiagram>(cwd, "diagram", { diagram_id: diagramId }, () => loadSystemDiagram(cwd, diagramId));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -399,7 +462,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   }
 
   if (req.method === "GET" && url.pathname === "/api/system/timeline") {
-    const result = loadSystemTimeline(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemTimeline>(cwd, "timeline", { scope }, () => loadSystemTimeline(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -412,7 +476,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // (design SS4.5: export is a CLI-only, explicit, user-initiated write;
   // `loadSystemGuide` never passes `--export`).
   if (req.method === "GET" && url.pathname === "/api/system/guide") {
-    const result = loadSystemGuide(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemGuide>(cwd, "guide", { scope }, () => loadSystemGuide(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -425,7 +490,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   // requirements), `reverse` the backward half (file -> run -> task ->
   // requirements). Same exact-pathname discipline as the five routes above.
   if (req.method === "GET" && url.pathname === "/api/system/story") {
-    const result = loadSystemStory(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemStory>(cwd, "story", { scope }, () => loadSystemStory(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -435,7 +501,8 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
   }
 
   if (req.method === "GET" && url.pathname === "/api/system/reverse") {
-    const result = loadSystemReverse(cwd, url.searchParams.get("scope") ?? "");
+    const scope = url.searchParams.get("scope") ?? "";
+    const result = await systemRequest<SystemReverse>(cwd, "reverse", { scope }, () => loadSystemReverse(cwd, scope));
     if (!result.ok) {
       json(res, 503, { error: result.error });
       return;
@@ -607,8 +674,12 @@ export function ensureDocsServer(cwd: string): Promise<RunningDocsServer> {
 }
 
 export function stopDocsServer(): boolean {
-  if (running === null) return false;
-  running.server.close();
-  running = null;
-  return true;
+  const hadServer = running !== null;
+  if (running !== null) {
+    running.server.close();
+    running = null;
+  }
+  // The worker serves only this docs server; it must not outlive it.
+  stopSystemWorker();
+  return hadServer;
 }

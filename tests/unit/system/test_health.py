@@ -131,6 +131,55 @@ def test_query_health_shares_one_lookup_between_coverage_and_ordering(tmp_path, 
     assert seen[0] is seen[1]
 
 
+def test_shape_sentence_states_what_the_project_is_made_of(tmp_path):
+    # seed 2 SRs, 1 bundle containing them, 1 task satisfying one
+    _write_sr(tmp_path, "SR-001", binding=True)
+    _write_sr(tmp_path, "SR-002", binding=True)
+    _write_bundle(tmp_path, "b1", ["sr:SR-001", "sr:SR-002"])
+    _write_task_satisfying(tmp_path, "T-001", "SR-001")
+    payload = health.query_health(tmp_path)
+    s = payload["shape"]["sentence"]
+    # Asserted with the punctuation that ends each count's word, not a bare
+    # "N feature" substring -- "1 feature" is a substring of the buggy
+    # "1 features", so a boundary-free assertion would pass against the bug.
+    assert "2 requirements," in s
+    assert "grouped into 1 feature." in s
+    assert "1 task implements" in s
+    assert payload["shape"]["parts"] == {
+        "requirements": 2, "features": 1, "tasks": 1, "validated": 0,
+    }
+
+
+def test_shape_sentence_is_honest_with_no_bundles(tmp_path):
+    payload = health.query_health(tmp_path)
+    assert "no features yet" in payload["shape"]["sentence"]
+
+
+def test_shape_sentence_pluralizes_each_count_in_the_singular():
+    s = health._shape_sentence(requirements=1, features=1, tasks=1, validated=1)
+    assert "1 requirement," in s
+    assert "1 requirements" not in s
+    assert "grouped into 1 feature." in s
+    assert "1 features" not in s
+    assert "1 task implements" in s
+    assert "1 tasks" not in s
+    assert "1 of that requirement has" in s
+
+
+def test_shape_sentence_pluralizes_each_count_in_the_plural():
+    s = health._shape_sentence(requirements=2, features=2, tasks=2, validated=2)
+    assert "2 requirements," in s
+    assert "grouped into 2 features." in s
+    assert "2 tasks implement" in s
+    assert "2 of those requirements have" in s
+
+
+def test_shape_sentence_names_no_features_yet_when_features_is_zero():
+    s = health._shape_sentence(requirements=0, features=0, tasks=0, validated=0)
+    assert "grouped into no features yet" in s
+    assert "0 requirements," in s
+
+
 def test_query_health_loads_trace_nodes_once_for_a_multi_member_bundle(tmp_path, monkeypatch):
     from factory.system.ordering import FixedRecency
 

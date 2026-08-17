@@ -363,6 +363,49 @@ def test_health_subcommand_emits_composed_projection(tmp_path, capsys):
     assert payload["sr_listed"] is False
 
 
+def test_dossier_json_flag_emits_all_sections_for_a_bundle(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+
+    rc = main(["dossier", "--scope", "bundle:b1", "--repo-root", str(tmp_path), "--json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    payload = json.loads(out)
+    assert payload["scope"] == {"kind": "bundle", "ref": "bundle:b1"}
+    assert payload["brief"]["claims"]
+    assert payload["matrix"]["rows"]
+    assert "events" in payload["timeline"]
+    assert payload["validation"] is None
+    assert payload["vcycle"] is None
+    # Every section is present as a key, even when null, so the browser can
+    # branch on the same shape for every scope kind.
+    assert set(payload) == {
+        "scope", "brief", "matrix", "timeline",
+        "guide", "guide_error", "vcycle", "vcycle_error",
+        "validation", "validation_error",
+    }
+
+
+def test_dossier_without_json_flag_prints_human_readable_text(tmp_path, capsys):
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+
+    rc = main(["dossier", "--scope", "bundle:b1", "--repo-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "scope: bundle:b1" in out
+    assert "brief:" in out and "matrix:" in out and "timeline:" in out
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(out)
+
+
+def test_dossier_unknown_scope_exits_nonzero_with_structured_stderr(tmp_path, capsys):
+    rc = main(["dossier", "--scope", "bundle:missing", "--repo-root", str(tmp_path), "--json"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert json.loads(err)["kind"] == "ScopeNotFoundError"
+
+
 def test_health_without_json_flag_prints_human_readable_text(tmp_path, capsys):
     write_sr(tmp_path / "requirements", "SR-001")
     write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])

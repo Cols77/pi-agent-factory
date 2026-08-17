@@ -50,6 +50,10 @@ function mockFetch() {
     if (url.pathname === "/api/system/guide") return jsonResponse({ scope: EMPTY.scope, sections: [] });
     if (url.pathname === "/api/system/brief")
       return jsonResponse({ scope: EMPTY.scope, claims: [], degraded: false, degraded_reasons: [] });
+    // The combined dossier endpoint is deliberately unavailable here: it
+    // proves every test below exercises the legacy per-endpoint fallback,
+    // exactly what the browser does on a repo without the fast path.
+    if (url.pathname === "/api/system/dossier") return jsonResponse({ error: "dossier unavailable" }, 404);
     if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
     throw new Error(`unmocked fetch: ${String(input)}`);
   });
@@ -193,5 +197,70 @@ describe("system-page navigation", () => {
     expect(matrix.getAttribute("aria-label")).toBe("Matrix");
     // The tabs sit inside a labelled nav landmark.
     expect(tabs.closest("nav[aria-label='System navigator']")).not.toBeNull();
+  });
+
+  // SP-B performance (extended): when the combined dossier endpoint answers,
+  // ONE request replaces the brief/matrix/timeline/guide/vcycle/validation
+  // fan-out. The browser must render the scope from that single payload and
+  // never fire the per-projection fetches the legacy path uses. Health and
+  // labels (boot) and traversal (shared tail) are still expected.
+  test("renders a scope from the single dossier request (fast path)", async () => {
+    const requests: string[] = [];
+    const record = (url: URL): void => {
+      requests.push(url.pathname + url.search);
+    };
+    const dossierFetch = vi.fn((input: string | URL) => {
+      const url = new URL(String(input), "http://localhost/");
+      record(url);
+      if (url.pathname === "/api/system/health") return jsonResponse(HEALTH);
+      if (url.pathname === "/api/system/labels") return jsonResponse({ labels: {}, aliases: {}, degraded: [] });
+      if (url.pathname === "/api/system/dossier") {
+        return jsonResponse({
+          scope: EMPTY.scope,
+          brief: { scope: EMPTY.scope, claims: [], degraded: false, degraded_reasons: [] },
+          matrix: EMPTY,
+          timeline: EMPTY_TL,
+          guide: { scope: EMPTY.scope, sections: [] },
+          guide_error: null,
+          vcycle: null,
+          vcycle_error: null,
+          validation: null,
+          validation_error: null,
+        });
+      }
+      if (url.pathname === "/api/system/traversal") {
+        return jsonResponse({ requirement: [], tasks: [], design: [], files: [] });
+      }
+      return jsonResponse({ error: `unmocked fetch: ${String(input)}` }, 500);
+    });
+    const dom = new JSDOM(renderSystemPageHtml(), {
+      runScripts: "dangerously",
+      resources: "usable",
+      url: "http://localhost/system?scope=bundle%3Aevidence-lifecycle",
+      beforeParse(window) {
+        (window as unknown as { fetch: typeof fetch }).fetch = dossierFetch as unknown as typeof fetch;
+      },
+    });
+    // Navigation started (workspace visible) AND the shared traversal tail
+    // fired: the fast path finished loading, not merely started.
+    await vi.waitFor(
+      () => expect(dom.window.document.getElementById("scopeWorkspace")!.hidden).toBe(false),
+      { timeout: 2000 },
+    );
+    await vi.waitFor(
+      () => expect(requests).toContain("/api/system/traversal?scope=bundle%3Aevidence-lifecycle"),
+      { timeout: 2000 },
+    );
+    const systemRequests = requests.filter((r) => r.startsWith("/api/system/"));
+    // The one combined request carried the scope payload...
+    expect(systemRequests).toContain("/api/system/dossier?scope=bundle%3Aevidence-lifecycle");
+    // ...and the per-projection endpoints the legacy path would fire were
+    // never touched.
+    expect(systemRequests).not.toContain("/api/system/brief?scope=bundle%3Aevidence-lifecycle");
+    expect(systemRequests).not.toContain("/api/system/matrix?scope=bundle%3Aevidence-lifecycle");
+    expect(systemRequests).not.toContain("/api/system/timeline?scope=bundle%3Aevidence-lifecycle");
+    expect(systemRequests).not.toContain("/api/system/guide?scope=bundle%3Aevidence-lifecycle");
+    expect(systemRequests).not.toContain("/api/system/vcycle?scope=bundle%3Aevidence-lifecycle");
+    expect(systemRequests).not.toContain("/api/system/validation?scope=bundle%3Aevidence-lifecycle");
   });
 });
