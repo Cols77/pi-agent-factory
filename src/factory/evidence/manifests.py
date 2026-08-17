@@ -21,7 +21,12 @@ def migrate_manifest(manifest: dict) -> dict:
     version = manifest.get("schema_version")
     if version == MANIFEST_SCHEMA_VERSION:
         return manifest
-    if version != 1:
+    # A manifest with no schema_version is a legacy v1-shaped record written
+    # before the field was introduced (KB-0004 saw finalize crash on such a
+    # skew: "schema_version: 2 was expected"). Migrate it through the v1 path;
+    # schema validation still rejects garbage afterwards, loudly and at
+    # preflight with the file's location.
+    if version != 1 and version is not None:
         raise ValueError(f"unsupported evidence manifest schema version: {version}")
     migrated = copy.deepcopy(manifest)
     inputs = migrated.get("inputs", {})

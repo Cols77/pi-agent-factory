@@ -106,3 +106,60 @@ def test_resume_does_not_rerun_completed_context_or_dev(tmp_path, monkeypatch):
     )
     assert result.outcome == "completed"
     assert [event.node for event in result.events][:2] == ["context-gather", "validation"]
+
+
+def test_commit_refusal_ends_the_run_escalated_with_a_failed_code_commit(
+    tmp_path, monkeypatch
+):
+    """KB-0004: a `git add` refusal (Windows reserved name / embedded repo) must
+    end the run escalated with remediation, not silently continue without a
+    commit."""
+    from factory.orchestrator.git_ops import CommitAllError
+
+    task = Task("T-001", "Commit refusal", "todo", ["works"], "body", tmp_path / "task.md")
+    git = FakeGitOps(head="a" * 40, has_uncommitted=True)
+    execution = RunExecution.create(tmp_path, "run-1", task.id, git.head, git)
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_context_gatherer",
+        lambda *_args, **_kwargs: (
+            NodeOutcome.PASS,
+            {"context": {"source_files": []}},
+            NodeEvent("context-gather", "pass"),
+        ),
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_dev",
+        lambda *_args, **_kwargs: (NodeOutcome.PASS, NodeEvent("dev", "pass")),
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_validation",
+        lambda *_args, **_kwargs: (NodeOutcome.PASS, NodeEvent("validation", "pass")),
+    )
+    monkeypatch.setattr(
+        "factory.orchestrator.runner.run_review",
+        lambda *_args, **_kwargs: (NodeOutcome.PASS, NodeEvent("review", "pass"), []),
+    )
+
+    def refusing_commit_all(repo_root, message, preserve=None):
+        raise CommitAllError("git refused to stage the working tree; fix before continuing")
+
+    git.commit_all = refusing_commit_all  # type: ignore[method-assign]
+
+    result = run_task(
+        task,
+        FakeAgentBackend({}),
+        FakeGateRunner(),
+        tmp_path,
+        git_ops=git,
+        execution=execution,
+        start_commit=git.head,
+    )
+
+    assert result.outcome == "escalated"
+    assert result.dod_met is False
+    assert any(
+        event.node == "code-commit" and event.result == "fail" for event in result.events
+    )
+    checkpoint = execution.journal.latest()
+    assert checkpoint is not None
+    assert checkpoint.node == "closed"  # the run ended, no further steps

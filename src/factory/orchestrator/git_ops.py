@@ -18,21 +18,134 @@ from typing import Protocol
 # earlier sidecar: 768MB -> 1.8GB -> 4.3GB -> 10GB across four checkpoints in
 # cool_physical_ai_project, then MemoryError in json.dumps. The run died at its
 # first execution.record, before finalize_run_evidence, which is why no
-# evidence manifest was ever written in any repo.
+# evidence manifest was ever written in any repo. The same writes also flipped
+# the worktree fingerprint (sessions/latest.md and sessions/.factory-*.json are
+# tracked in a target repo and re-written by the factory mid-run), which is why
+# the fingerprint and checkpoint patch must exclude them from the tracked diff
+# too, not only from the untracked enumeration.
 #
 # These are excluded by path rather than by .gitignore because the fix must
 # hold even in a target repo that has not been told to ignore them.
 _FACTORY_SCRATCH_PREFIXES = (
     "sessions/.factory-runs/",
     "sessions/.factory-transcripts/",
-    ".factory/artifacts/",
+    ".factory/",
+    "sessions/latest.md",
+    "sessions/.factory-",
 )
+
+# Positive pathspecs for `git reset -- <paths>` after `git add -A`: staging the
+# whole tree must never sweep the factory's own writes into the run's commit.
+_FACTORY_SCRATCH_RESET_PATHSPECS = (
+    "sessions/.factory-runs/",
+    "sessions/.factory-transcripts/",
+    ".factory/",
+    "sessions/latest.md",
+    "sessions/.factory-*",
+)
+
+# Pathspecs (with :(exclude) magic) for the tracked diff the checkpoint patch
+# and worktree fingerprint are built from. Factory-owned writes -- whether
+# untracked or tracked -- must never flip the fingerprint or bloat the patch.
+_FACTORY_SCRATCH_TRACKED_PATHSPECS = (
+    ".",
+    ":(exclude)sessions/.factory-runs/**",
+    ":(exclude)sessions/.factory-transcripts/**",
+    ":(exclude).factory/**",
+    ":(exclude)sessions/latest.md",
+    ":(exclude)sessions/.factory-*",
+)
+
+# Windows reserved device names: git's `add -A` refuses to stage a path whose
+# basename (sans extension) matches one of these, even when the file is
+# gitignored, because the OS intercepts the name as a device handle. A literal
+# `nul` file at the repo root broke commit_all in cool_physical_ai_project.
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {
+        "con", "prn", "aux", "nul",
+        *(f"com{i}" for i in range(1, 10)),
+        *(f"lpt{i}" for i in range(1, 10)),
+    }
+)
+
+# Untracked files above this size are recorded in the checkpoint sidecar by
+# path only (content skipped), so patch recording stays bounded even when a
+# run's working tree contains an accidental giant artifact.
+MAX_SIDECAR_FILE_BYTES = 64 * 1024 * 1024
+
+
+class CommitAllError(RuntimeError):
+    """git refused to stage the working tree for a reason the run must stop for.
+
+    Distinguished from the ordinary "nothing to commit"/transient failure path
+    (which returns False from commit_all) so the runner can surface the refusal
+    as a run-blocking error with remediation instead of silently continuing
+    without a commit.
+    """
 
 
 def _is_factory_scratch(relative: str) -> bool:
     """True for the factory's own run output, which is never a work product."""
     normalized = relative.replace("\\", "/")
     return normalized.startswith(_FACTORY_SCRATCH_PREFIXES)
+
+
+def _reserved_name_path(relative: str) -> bool:
+    """True when a path's final component is a Windows reserved device name."""
+    normalized = relative.replace("\\", "/").rstrip("/")
+    stem = normalized.rsplit("/", 1)[-1].split(".", 1)[0].lower()
+    return stem in _WINDOWS_RESERVED_NAMES
+
+
+def _exc_stderr(exc: subprocess.CalledProcessError) -> str:
+    if isinstance(exc.stderr, bytes):
+        return exc.stderr.decode("utf-8", errors="replace")
+    return exc.stderr or ""
+
+
+def _is_commit_refusal(repo_root: Path, stderr: str) -> bool:
+    """True when git's staging failure means the run must stop, not skip.
+
+    A Windows reserved device name (nul, con, ...) or an embedded git
+    repository makes `git add -A` fail in a way that no retry will fix and
+    that silently committing nothing would mask -- surface it as a
+    CommitAllError with remediation instead. Other failures keep the old
+    warn-and-continue behavior."""
+    if any(
+        marker in stderr
+        for marker in ("invalid path", "adding files failed", "does not have a commit checked out")
+    ):
+        return True
+    return bool(_find_reserved_name_files(repo_root))
+
+
+def _find_reserved_name_files(repo_root: Path) -> list[str]:
+    """Repo-relative paths whose basename is a Windows reserved device name.
+
+    Tracked, untracked (non-ignored) and ignored paths are all checked: the
+    incident file was gitignored yet still made `git add -A` fail on Windows,
+    because git's readdir resolves `nul` to a device handle before the ignore
+    filter runs."""
+    found: list[str] = []
+    commands = [
+        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        ["git", "status", "--ignored", "--porcelain", "-z"],
+    ]
+    for command in commands:
+        try:
+            result = subprocess.run(command, cwd=repo_root, capture_output=True, check=True)
+        except subprocess.CalledProcessError:
+            continue
+        for entry in (result.stdout or b"").split(b"\0"):
+            if not entry:
+                continue
+            text = os.fsdecode(entry)
+            if len(text) >= 3 and text[2] == " " and text[0] in " MARC?!":
+                text = text[3:]  # porcelain `XY <path>` (or `!! ` for ignored)
+            if _reserved_name_path(text):
+                found.append(text)
+    return sorted(set(found))
 
 
 _IGNORE_BLOCK_HEADER = "# factory scratch (written by the orchestrator; never a work product)"
@@ -56,7 +169,16 @@ def ensure_factory_ignores(repo_root: Path) -> bool:
     except OSError:
         return False
     present = {line.strip() for line in existing.splitlines()}
-    missing = [p for p in _FACTORY_SCRATCH_PREFIXES if p not in present]
+    # .gitignore lines are glob patterns, not path prefixes: `sessions/.factory-`
+    # (no wildcard) would only match a literal name, not `.factory-status.json`.
+    ignore_lines = (
+        "sessions/.factory-runs/",
+        "sessions/.factory-transcripts/",
+        ".factory/",
+        "sessions/latest.md",
+        "sessions/.factory-*",
+    )
+    missing = [p for p in ignore_lines if p not in present]
     if not missing:
         return False
     block = "\n".join([_IGNORE_BLOCK_HEADER, *missing])
@@ -83,7 +205,13 @@ class GitOps(Protocol):
     def binary_diff(
         self, repo_root: Path, start_commit: str, end_commit: str | None = None
     ) -> bytes: ...
-    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str: ...
+    def worktree_diff(self, repo_root: Path, start_commit: str) -> bytes: ...
+    def worktree_fingerprint(
+        self, repo_root: Path, start_commit: str, *, include_untracked: bool = True
+    ) -> str: ...
+    def tracked_fingerprint(self, repo_root: Path, start_commit: str) -> str: ...
+    def untracked_snapshot(self, repo_root: Path) -> dict[str, str]: ...
+    def read_untracked_sidecar(self, patch_path: Path) -> dict[str, str]: ...
     def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path: ...
     def check_patch(self, repo_root: Path, path: Path) -> bool: ...
     def restore_patch(self, repo_root: Path, path: Path) -> None: ...
@@ -139,7 +267,10 @@ class SubprocessGitOps:
         # failure (e.g. a path git refuses, such as the Windows reserved name
         # `nul` that its readdir can pick up) must NOT crash the orchestrator
         # and strand a human's approve mid-pipeline -- warn and continue
-        # without a commit.
+        # without a commit. A refusal that indicates a broken tree (reserved
+        # name / embedded repository) raises CommitAllError instead, so the
+        # run stops loudly with remediation rather than silently committing
+        # nothing.
         #
         # `preserve` maps paths that were ALREADY dirty when the run started to
         # their content hash then. Such a path is left alone only while it
@@ -157,17 +288,40 @@ class SubprocessGitOps:
                     ["git", "reset", "-q", "HEAD", "--", relative],
                     cwd=repo_root, capture_output=True, check=False,
                 )
+            self._unstage_scratch(repo_root)
             staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
             if staged.returncode == 0:
                 return False
             subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo_root, check=True)
             return True
         except subprocess.CalledProcessError as exc:
+            stderr = _exc_stderr(exc)
+            if _is_commit_refusal(repo_root, stderr):
+                raise CommitAllError(
+                    "git refused to stage the working tree; fix before continuing: "
+                    + (stderr.strip() or str(exc))
+                ) from exc
             print(
                 f"factory: warning: commit_all failed, completing without a commit: {exc}",
                 file=sys.stderr,
             )
             return False
+
+    def _unstage_scratch(self, repo_root: Path) -> None:
+        """Unstage the factory's own run output so it never enters the run's commit.
+
+        Runs after `git add -A` even though ensure_factory_ignores keeps
+        untracked scratch out of the index: a target repo may track some of it
+        (sessions/latest.md, sessions/.factory-*.json), and `git add -A` would
+        otherwise sweep the factory's mid-run rewrites of those files into the
+        commit.
+        """
+        subprocess.run(
+            ["git", "reset", "-q", "HEAD", "--", *_FACTORY_SCRATCH_RESET_PATHSPECS],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
 
     def _unchanged_since(self, repo_root: Path, preserve: dict[str, str]) -> list[str]:
         """Paths from the snapshot whose bytes the run never touched."""
@@ -238,6 +392,25 @@ class SubprocessGitOps:
         result = subprocess.run(args, cwd=repo_root, capture_output=True, check=True)
         return result.stdout
 
+    def worktree_diff(self, repo_root: Path, start_commit: str) -> bytes:
+        """Tracked diff from start_commit to the working tree, minus factory scratch.
+
+        The checkpoint patch and worktree fingerprint are built from this, so
+        the factory's own mid-run rewrites of tracked scratch files
+        (sessions/latest.md, sessions/.factory-*.json) can never flip the
+        fingerprint or bloat the patch. Evidence's binary_diff is untouched.
+        """
+        result = subprocess.run(
+            [
+                "git", "diff", "--binary", start_commit, "--",
+                *_FACTORY_SCRATCH_TRACKED_PATHSPECS,
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        )
+        return result.stdout
+
     def _untracked_files(self, repo_root: Path) -> list[str]:
         result = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard", "-z"],
@@ -261,19 +434,70 @@ class SubprocessGitOps:
             files.append(relative)
         return sorted(files)
 
-    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+    def worktree_fingerprint(
+        self, repo_root: Path, start_commit: str, *, include_untracked: bool = True
+    ) -> str:
         digest = hashlib.sha256()
-        patch = self.binary_diff(repo_root, start_commit)
+        patch = self.worktree_diff(repo_root, start_commit)
         digest.update(len(patch).to_bytes(8, "big"))
         digest.update(patch)
-        for relative in self._untracked_files(repo_root):
-            name = relative.encode("utf-8", errors="surrogateescape")
-            data = (repo_root / relative).read_bytes()
-            digest.update(len(name).to_bytes(8, "big"))
-            digest.update(name)
-            digest.update(len(data).to_bytes(8, "big"))
-            digest.update(data)
+        if include_untracked:
+            for relative in self._untracked_files(repo_root):
+                name = relative.encode("utf-8", errors="surrogateescape")
+                data = (repo_root / relative).read_bytes()
+                digest.update(len(name).to_bytes(8, "big"))
+                digest.update(name)
+                digest.update(len(data).to_bytes(8, "big"))
+                digest.update(data)
         return digest.hexdigest()
+
+    def tracked_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+        """Fingerprint of the tracked diff only (factory scratch excluded).
+
+        The full worktree fingerprint also folds in every untracked file, so it
+        flips on untracked churn that never affects a run's continuation. Resume
+        compares this separately: when HEAD matches and the tracked diff still
+        matches the checkpoint, the run is resumable even if untracked files
+        drifted (they are simply left in place).
+        """
+        return self.worktree_fingerprint(repo_root, start_commit, include_untracked=False)
+
+    def untracked_snapshot(self, repo_root: Path) -> dict[str, str]:
+        """Current untracked non-scratch files as path -> sha256."""
+        snapshot: dict[str, str] = {}
+        for relative in self._untracked_files(repo_root):
+            try:
+                snapshot[relative] = hashlib.sha256(
+                    (repo_root / relative).read_bytes()
+                ).hexdigest()
+            except OSError:
+                continue
+        return snapshot
+
+    def read_untracked_sidecar(self, patch_path: Path) -> dict[str, str]:
+        """The checkpoint's recorded untracked files as path -> sha256.
+
+        Tolerant of old sidecars that only stored base64 content: their digest
+        is derived from the content. A missing or unreadable sidecar returns an
+        empty mapping (no recorded untracked state to compare against)."""
+        sidecar = patch_path.with_suffix(patch_path.suffix + ".untracked.json")
+        try:
+            value = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        out: dict[str, str] = {}
+        for item in value.get("files", []):
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                continue
+            digest = item.get("sha256")
+            if not isinstance(digest, str):
+                try:
+                    raw = base64.b64decode(item.get("data", ""), validate=True)
+                except (TypeError, ValueError):
+                    continue
+                digest = hashlib.sha256(raw).hexdigest()
+            out[item["path"]] = digest
+        return out
 
     def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path:
         try:
@@ -285,19 +509,41 @@ class SubprocessGitOps:
         untracked_files = self._untracked_files(repo_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_bytes(self.binary_diff(repo_root, start_commit))
+        tmp.write_bytes(self.worktree_diff(repo_root, start_commit))
         tmp.replace(path)
-        untracked = [
-            {
-                "path": relative,
-                "data": base64.b64encode((repo_root / relative).read_bytes()).decode("ascii"),
-                "mode": stat.S_IMODE((repo_root / relative).stat().st_mode),
-            }
-            for relative in untracked_files
-        ]
+
+        def items():
+            for relative in untracked_files:
+                full = repo_root / relative
+                size = full.stat().st_size
+                if size > MAX_SIDECAR_FILE_BYTES:
+                    yield {
+                        "path": relative,
+                        "size": size,
+                        "skipped": True,
+                        "reason": "too_large",
+                    }
+                    continue
+                data = full.read_bytes()
+                yield {
+                    "path": relative,
+                    "data": base64.b64encode(data).decode("ascii"),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "mode": stat.S_IMODE(full.stat().st_mode),
+                }
+
         sidecar = path.with_suffix(path.suffix + ".untracked.json")
         sidecar_tmp = sidecar.with_name(sidecar.name + ".tmp")
-        sidecar_tmp.write_text(json.dumps({"files": untracked}, indent=2), encoding="utf-8")
+        # Stream item-by-item instead of building one giant in-memory string: the
+        # old json.dumps of the full list was what hit MemoryError once sidecars
+        # began embedding each other (768MB -> 10GB).
+        with sidecar_tmp.open("w", encoding="utf-8") as stream:
+            stream.write('{"files":[')
+            for index, item in enumerate(items()):
+                if index:
+                    stream.write(",")
+                json.dump(item, stream, separators=(",", ":"))
+            stream.write("]}")
         sidecar_tmp.replace(sidecar)
         return path
 
@@ -329,6 +575,10 @@ class SubprocessGitOps:
                 target.relative_to(repo_root.resolve())
             except ValueError as exc:
                 raise ValueError(f"untracked checkpoint path escapes repository: {relative}") from exc
+            if item.get("skipped"):
+                # Content was too large to record; the file was never removed
+                # from the tree, so there is nothing to restore.
+                continue
             data = base64.b64decode(item["data"], validate=True)
             if target.exists() and target.read_bytes() != data:
                 raise ValueError(f"untracked checkpoint conflicts with existing file: {relative}")
@@ -349,6 +599,10 @@ class FakeGitOps:
         self.committed_paths: list[list[Path]] = []
         self._changed_files_result = changed_files_result or []
         self.fingerprint = "f" * 64
+        self.tracked_fp = "t" * 64
+        self.untracked: dict[str, str] = {}
+        self.sidecar: dict[str, str] = {}
+        self.worktree_diff_result: bytes = b""
 
     def head_commit(self, repo_root: Path) -> str:
         return self.head
@@ -385,8 +639,22 @@ class FakeGitOps:
     ) -> bytes:
         return b""
 
-    def worktree_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+    def worktree_diff(self, repo_root: Path, start_commit: str) -> bytes:
+        return self.worktree_diff_result
+
+    def worktree_fingerprint(
+        self, repo_root: Path, start_commit: str, *, include_untracked: bool = True
+    ) -> str:
         return self.fingerprint
+
+    def tracked_fingerprint(self, repo_root: Path, start_commit: str) -> str:
+        return self.tracked_fp
+
+    def untracked_snapshot(self, repo_root: Path) -> dict[str, str]:
+        return dict(self.untracked)
+
+    def read_untracked_sidecar(self, patch_path: Path) -> dict[str, str]:
+        return dict(self.sidecar)
 
     def write_patch(self, repo_root: Path, start_commit: str, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)

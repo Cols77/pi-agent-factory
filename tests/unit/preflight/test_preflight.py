@@ -58,6 +58,60 @@ def test_malformed_task_is_integrity_failure(tmp_path):
     assert codes(report)["task_register_invalid"].severity is FreshnessSeverity.INTEGRITY
 
 
+def test_invalid_evidence_manifest_blocks_preflight_with_actionable_message(tmp_path):
+    """KB-0004: a manifest finalize would choke on (schema skew / corruption)
+    must fail at preflight with the file's location and remediation."""
+    repo = _repo(tmp_path)
+    runs = repo / "evidence" / "runs"
+    runs.mkdir(parents=True)
+    (runs / "broken.json").write_text(
+        json.dumps({"run_id": "run-1", "schema_version": 99}), encoding="utf-8"
+    )
+
+    report = run_preflight(repo, "T-001")
+
+    issue = codes(report)["evidence_manifest_invalid"]
+    assert issue.severity is FreshnessSeverity.INTEGRITY
+    assert "broken.json" in issue.detail
+    assert "repair it or delete it" in issue.detail
+
+
+def test_legacy_v1_evidence_manifest_does_not_block_preflight(tmp_path):
+    """Migratable skew is a non-event: v1 manifests load and migrate."""
+    repo = _repo(tmp_path)
+    runs = repo / "evidence" / "runs"
+    runs.mkdir(parents=True)
+    legacy = {
+        "schema_version": 1,
+        "run_id": "run-old",
+        "task_id": "T-001",
+        "started_at": "2026-08-07T12:00:00Z",
+        "ended_at": "2026-08-07T12:01:00Z",
+        "start_commit": "a" * 40,
+        "result_commit": "b" * 40,
+        "outcome": "completed",
+        "inputs": {
+            "task": {"path": "tasks/T-001.md", "sha256": "c" * 64},
+            "requirements": [],
+            "factory_config_sha256": "d" * 64,
+        },
+        "implementation": {
+            "changed_files": ["src/a.py"],
+            "patch": {"sha256": "e" * 64, "size": 12, "media_type": "text/x-diff"},
+        },
+        "validation": [],
+        "reviews": [],
+        "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
+    (runs / "legacy.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    report = run_preflight(repo, "T-001")
+
+    assert "evidence_manifest_invalid" not in codes(report)
+    assert report.ok is True
+
+
 def test_declared_missing_requirement_is_integrity_failure(tmp_path):
     repo = _repo(tmp_path)
     path = repo / "tasks" / "T-001-example.md"
