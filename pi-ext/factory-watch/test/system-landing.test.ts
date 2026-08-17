@@ -180,6 +180,34 @@ describe("system landing page", () => {
       .toEqual(["weak", "medium", "strong", "unbundled"]);
   });
 
+  // Task 8 fix round: readiness is a contract word (vocabulary.py's
+  // `readiness` group) and needs a gloss present at every site it renders --
+  // not just an inline-trigger button, since `title` here is itself the
+  // expand/collapse <button> (nesting withGloss's `.info-trigger` inside it
+  // would put an interactive control inside another one). Assert the gloss
+  // text is actually there, not merely that "Weak"/"Medium"/"Strong" appears.
+  test("the sidebar's readiness group title carries a gloss, not just the bare word", async () => {
+    const doc = await renderWithHealth(FEATURE_HEALTH);
+    const sidebar = doc.querySelector("#scopeList")!;
+    const weak = sidebar.querySelector('[data-readiness="weak"]')!;
+    const gloss = weak.querySelector(".scope-group-title + .gloss");
+    expect(gloss, "no gloss beside the sidebar's Weak group title").not.toBeNull();
+    expect(gloss!.textContent).not.toBe("");
+  });
+
+  // Task 8 fix round: same contract word, same rule, at the landing page's
+  // feature-row (`#bundleList`). `row` there IS the clickable anchor, so
+  // (same reasoning as the sidebar) this checks for the plain gloss line
+  // rather than an interactive trigger nested inside the link.
+  test("a feature-row's readiness word carries a gloss, not just the bare word", async () => {
+    const doc = await renderWithHealth(BUNDLED_HEALTH);
+    const row = doc.querySelector("#bundleList .feature-row.readiness-weak")!;
+    expect(row, "no weak feature-row rendered").not.toBeNull();
+    const gloss = row.querySelector(".gloss");
+    expect(gloss, "no gloss on the weak feature-row").not.toBeNull();
+    expect(gloss!.textContent).not.toBe("");
+  });
+
   test("sidebar expands weak and collapses medium/strong but count-bearing titles", async () => {
     const doc = await renderWithHealth(FEATURE_HEALTH);
     const sidebar = doc.querySelector("#scopeList")!;

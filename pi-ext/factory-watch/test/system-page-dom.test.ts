@@ -706,6 +706,25 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     },
   );
 
+  // Task 8 fix round: readiness is a contract word (vocabulary.py's
+  // `readiness` group) and needs a gloss/trigger at every site it renders,
+  // same as any other contract word on the page. The context rail is not
+  // itself a clickable/toggling element, so it follows the full withGloss
+  // precedent -- assert the real .info-trigger button is present, not just
+  // that the word "weak"/"medium"/"strong" appears as text.
+  test("the context rail's readiness word carries a definition trigger, not just bare text", async () => {
+    const dom = await loadPage({
+      scope: "bundle:evidence-lifecycle",
+      health: { ...HEALTH, bundles: [{ ...HEALTH.bundles[0], readiness: "weak" }] },
+    });
+    const doc = dom.window.document;
+    const readinessRow = doc.querySelector("#contextRail .context-rail-readiness");
+    expect(readinessRow).not.toBeNull();
+    const trigger = readinessRow?.querySelector(".info-trigger[data-term='weak']");
+    expect(trigger, "no definition trigger beside the context rail's readiness word").not.toBeNull();
+    expect(trigger?.getAttribute("aria-label")).toBe("What does weak mean?");
+  });
+
   // Task 4 (Component 4): every tab gets a persistent one-line orientation
   // beneath the tab strip. KEY BY THE ELEMENT ID, NOT aria-label -- two tabs
   // disagree (id="tabVcycle" aria-label="V-cycle", id="tabSim" aria-label=

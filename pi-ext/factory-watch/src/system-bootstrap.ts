@@ -48,6 +48,17 @@ declare const boundedList: (refs: string[], limit?: number) => HTMLElement;
 // declared here for the same type-only, no-runtime-import reason as above.
 declare const badgeSpan: (text: string, extraClass: string) => HTMLElement;
 declare const withGloss: (el: HTMLElement, term: string) => HTMLElement;
+// Task 8 fix round (legibility inc2): the readiness word (weak/medium/strong)
+// is a contract word needing a gloss at three render sites below. Two of
+// those sites are themselves the clickable/toggling element (the feature-row
+// anchor, the scope-group-title button), so wrapping in withGloss would nest
+// its `.info-trigger` <button> inside another interactive element -- invalid
+// markup, and a click on the trigger would bubble into the row's own
+// navigate/toggle handler instead of just opening the definition. Those two
+// call glossFor directly for a plain, non-interactive `.gloss` line instead;
+// only the third site (context rail, no click handler of its own) uses the
+// full withGloss precedent.
+declare const glossFor: (term: string) => HTMLElement | null;
 declare const VOCABULARY: { terms: Record<string, any> };
 declare const PANELS_DATA: {
   version: number;
@@ -308,7 +319,12 @@ export async function systemBootstrap(): Promise<void> {
       const word = document.createElement('span');
       word.className = 'feature-readiness';
       word.appendChild(document.createTextNode(bundle.readiness));
-      row.appendChild(word);
+      // Task 8 fix round: this row has no click handler and isn't itself an
+      // anchor or button, so wrapping through withGloss (Task 5's
+      // shape-sentence badge uses the same pair) is safe here -- unlike the
+      // two sidebar sites below, the added .info-trigger button never nests
+      // inside another interactive element.
+      row.appendChild(withGloss(word, bundle.readiness));
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(bundle.readiness_counts)));
@@ -399,6 +415,13 @@ export async function systemBootstrap(): Promise<void> {
       groupCount.appendChild(document.createTextNode('· ' + rows.length));
       title.appendChild(groupCount);
       group.appendChild(title);
+      // Task 8 fix round: same contract word, same nested-interactive-control
+      // problem as the feature-row site above -- `title` is itself a
+      // <button> (it owns the expand/collapse click handler below), so the
+      // gloss sits beside it as a sibling, not inside it, and carries no
+      // `.info-trigger` button of its own.
+      const readinessGloss = glossFor(readiness);
+      if (readinessGloss) group.appendChild(readinessGloss);
       const rowEls: HTMLElement[] = [];
       rows.forEach((b: any) => {
         const row = document.createElement('div');
@@ -1377,6 +1400,16 @@ export async function systemBootstrap(): Promise<void> {
       row.appendChild(readiness);
       row.appendChild(members);
       row.appendChild(counts);
+      // Task 8 fix round: readiness needs a gloss here too, but `row` IS the
+      // clickable anchor (its own click listener navigates, right below) --
+      // nesting withGloss's `.info-trigger` <button> inside it would put an
+      // interactive control inside another interactive control: invalid
+      // markup, and a click on the trigger would bubble up to this listener
+      // and navigate away before the definition could ever be read. glossFor
+      // alone (no trigger button) sidesteps both problems while still
+      // answering "what does this word mean" right at the row.
+      const readinessGloss = glossFor(b.readiness);
+      if (readinessGloss) row.appendChild(readinessGloss);
       row.addEventListener('click', (clickEvent: Event) => {
         clickEvent.preventDefault();
         void loadScope('bundle:' + b.id);
