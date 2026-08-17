@@ -416,6 +416,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Tasks linked to a plan",
       "gloss": "share of tasks with a resolving source_plan",
+      "denominator_rule": "Counts every task; satisfied when it names the plan it came from.",
       "definition": "Denominator: every `task` node in the trace graph, one slot each. Satisfied: the task declares a `source_plan` edge at all -- `task_no_plan` is the only gap kind that unfills this slot. A `source_plan` edge whose target does not resolve to a real node (`task_plan_missing`) does NOT unfill the slot: it is counted straight into the separate `dangling` counter instead -- so a task with a broken `source_plan` link is reported as `dangling`, not as an unfilled `task->plan` slot, and counts toward this class's percentage as satisfied. A task marked `trace_exempt` removes its slot from the denominator instead of counting it unfilled.",
       "siblings": [
         "task->SR",
@@ -433,6 +434,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Tasks linked to a requirement",
       "gloss": "share of tasks that declare a satisfies edge",
+      "denominator_rule": "Counts every task; satisfied when it names at least one requirement it helps satisfy.",
       "definition": "Denominator: every `task` node in the trace graph, one slot each (the same task also has a `task->plan` slot; they are counted independently). Satisfied: the task declares at least one `satisfies` edge (`task_no_sr` is the gap when it declares none). Exempt tasks remove their slot from the denominator.",
       "siblings": [
         "task->plan",
@@ -450,6 +452,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Plans linked to a spec",
       "gloss": "share of plans that cite a spec_ref",
+      "denominator_rule": "Counts every plan; satisfied when it cites the spec it followed.",
       "definition": "Denominator: every `plan` node in the trace graph, one slot each. Satisfied: the plan declares at least one `spec_ref` edge (`plan_no_spec` is the gap when it declares none). Exempt plans remove their slot from the denominator rather than counting as unfilled.",
       "siblings": [
         "task->plan",
@@ -467,6 +470,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Requirements with a satisfying task",
       "gloss": "share of all SRs with a satisfying task",
+      "denominator_rule": "Counts every requirement, including ones not yet decided on; satisfied when a task claims to satisfy it.",
       "definition": "Denominator: every `sr` node in the trace graph -- the full repo-wide count, including proposed SRs with no decided binding yet, which is why this denominator (e.g. 181) is much larger than `SR validated`'s (e.g. 43): proposed SRs keep their `SR satisfied` slot (a requirement with no task is a gap whether or not it is bound) but lose their `SR validated` slot entirely (there is nothing to validate yet). Satisfied: at least one task declares `satisfies` for the SR (`sr_unsatisfied` is the gap when none does).",
       "siblings": [
         "task->plan",
@@ -484,6 +488,7 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Requirements with a passing validation",
       "gloss": "share of non-proposed SRs with a fresh pass",
+      "denominator_rule": "Counts only requirements that have been decided on; satisfied when there's a passing validation that hasn't gone stale.",
       "definition": "Denominator: every `sr` node in the trace graph MINUS every SR flagged `sr_proposed` (no decided binding yet) -- one expected slot is subtracted per proposed SR, which is the entire reason this denominator (e.g. 43) is far smaller than `SR satisfied`'s (e.g. 181): a requirement cannot be validated before someone has decided what to measure. Satisfied: the requirement has a validation-report entry with state `passed` that is not stale (`sr_unvalidatable`, `sr_unvalidated`, and `sr_stale` are the gaps that leave this slot unfilled; in principle an exempt `sr_stale` would also count as satisfied, but that case cannot actually happen since SR gaps can never be `exempt`).",
       "siblings": [
         "task->plan",
@@ -1293,8 +1298,8 @@ export const REMEDIATION_DATA = {
     "no_traversal_step": {
       "state": "no_traversal_step",
       "headline": "Traversal step not recorded",
-      "what_it_means": "Nothing is linked to this requirement for this step of its story yet -- it may have no tasks, no design decisions, or no changed files recorded.",
-      "why_it_matters": "Without every step recorded -- the tasks, the design decisions, and the files that changed -- the requirement's story stops short at this point.",
+      "what_it_means": "Nothing is linked for this step of the story yet -- it may have no tasks, no design decisions, or no changed files recorded.",
+      "why_it_matters": "Without every step recorded -- the tasks, the design decisions, and the files that changed -- the requirement's story stops short at this point. The command below closes gaps like this one at a time: it proposes which task or plan to link and why, then waits for you to confirm before it writes anything.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
       "severity": "absence"
@@ -1302,7 +1307,7 @@ export const REMEDIATION_DATA = {
     "no_bundles": {
       "state": "no_bundles",
       "headline": "No features defined yet",
-      "what_it_means": "A feature bundle groups the requirements, tasks, and decisions you read together to understand one part of the system. Bundles are hand-authored, not generated: create `bundles/<id>.json` with `id`, `label`, and `members` (a list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and optionally a `description` of at most 280 characters.",
+      "what_it_means": "A feature bundle groups the requirements, tasks, and decisions you read together to understand one part of the system. Bundles are hand-authored, not generated: create `bundles/<id>.json` with `id`, `label`, and `members` (a list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and optionally a `description` (one or two sentences stating what the feature is -- there is no length cap).",
       "why_it_matters": "Bundles are how this project is browsed, so until one exists the directory stays empty. The command below only checks a draft file you've already written -- it proposes nothing and writes nothing, the draft is judged, not generated -- there is no CLI that creates the bundle file for you.",
       "command": "uv run python -m factory.system bundle check --draft <path>",
       "command_kind": "shell",
@@ -1312,7 +1317,7 @@ export const REMEDIATION_DATA = {
       "state": "no_description",
       "headline": "No description recorded",
       "what_it_means": "No description is recorded for this artifact: a bundle has no `description` field, or a spec/plan has none of the named sections the label index looks for (`Purpose`, `Goal`, `Problem`, `Overview`, `Summary`, or a plan's `**Goal:**` line -- design Component 1).",
-      "why_it_matters": "Without a recorded description, the card that opens on hover or focus has nothing to show beyond the id and title. For a bundle, add a `description` (<=280 characters) to its hand-authored `bundles/<id>.json` by hand, then use the command below to check it -- the command validates a draft you edit yourself; it does not write the field for you. For a spec or plan, there is no CLI at all -- add the named section or `**Goal:**` line directly in the document.",
+      "why_it_matters": "Without a recorded description, the card that opens on hover or focus has nothing to show beyond the id and title. For a bundle, add a `description` (one or two sentences stating what the feature is -- there is no length cap) to its hand-authored `bundles/<id>.json` by hand, then use the command below to check it -- the command validates a draft you edit yourself; it does not write the field for you. For a spec or plan, there is no CLI at all -- add the named section or `**Goal:**` line directly in the document.",
       "command": "uv run python -m factory.system bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
@@ -1362,7 +1367,7 @@ export const PANELS_DATA = {
     "Brief": {
       "label": "Brief",
       "what_it_shows": "Every claim this scope makes, with the evidence behind it.",
-      "how_to_read": "The badge says where the claim came from: copied from a file, computed, written by an agent, or missing -- a claim can be recorded as absent."
+      "how_to_read": "The badge says where the claim came from: copied from a file, computed, scaffold text wrapped around a verbatim quote, or missing -- a claim can be recorded as absent."
     },
     "Matrix": {
       "label": "Matrix",
@@ -1371,7 +1376,7 @@ export const PANELS_DATA = {
     },
     "Timeline": {
       "label": "Timeline",
-      "what_it_shows": "Decisions recorded against this scope, in the order they happened.",
+      "what_it_shows": "Decisions recorded against this scope, in a deterministic recorded order.",
       "how_to_read": "An actor of `not-recorded` means the record does not say who decided."
     },
     "Guide": {
@@ -1392,7 +1397,7 @@ export const PANELS_DATA = {
     "Validation": {
       "label": "Validation",
       "what_it_shows": "This requirement's recorded validation result, the goals bound to it, the simulation runs that declare it, and the metrics those goals evaluate.",
-      "how_to_read": "The raw state comes from the validation report alone; the goal-aware status beside it is judged separately: `REGRESSED` if any bound goal regressed, `VALIDATED` only if every bound goal reached its target, otherwise `VERIFICATION_PENDING`."
+      "how_to_read": "The raw state comes from the validation report alone; the goal-aware status beside it is judged separately: `REGRESSED` if any bound goal regressed, `VALIDATED` only if every bound goal reached its target, `VERIFICATION_PENDING` if goals are bound but neither, or `not recorded` when no goal is bound to this requirement at all."
     },
     "Feature": {
       "label": "Feature",
@@ -1407,7 +1412,7 @@ export const PANELS_DATA = {
     "Reverse": {
       "label": "Reverse",
       "what_it_shows": "Which requirement this file traces back to, and through which run.",
-      "how_to_read": "`stops_at` names the first hop that did not resolve."
+      "how_to_read": "\"Stops at\" names the first hop that did not resolve."
     },
     "Goal": {
       "label": "Goal",

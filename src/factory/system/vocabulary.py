@@ -495,6 +495,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Tasks linked to a plan",
         "gloss": "share of tasks with a resolving source_plan",
+        "denominator_rule": "Counts every task; satisfied when it names the plan it came from.",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
             "each. Satisfied: the task declares a `source_plan` edge at "
@@ -516,6 +517,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Tasks linked to a requirement",
         "gloss": "share of tasks that declare a satisfies edge",
+        "denominator_rule": "Counts every task; satisfied when it names at least one requirement it helps satisfy.",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
             "each (the same task also has a `task->plan` slot; they are "
@@ -531,6 +533,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Plans linked to a spec",
         "gloss": "share of plans that cite a spec_ref",
+        "denominator_rule": "Counts every plan; satisfied when it cites the spec it followed.",
         "definition": (
             "Denominator: every `plan` node in the trace graph, one slot "
             "each. Satisfied: the plan declares at least one `spec_ref` "
@@ -546,6 +549,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Requirements with a satisfying task",
         "gloss": "share of all SRs with a satisfying task",
+        "denominator_rule": "Counts every requirement, including ones not yet decided on; satisfied when a task claims to satisfy it.",
         "definition": (
             "Denominator: every `sr` node in the trace graph -- the full "
             "repo-wide count, including proposed SRs with no decided "
@@ -565,6 +569,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Requirements with a passing validation",
         "gloss": "share of non-proposed SRs with a fresh pass",
+        "denominator_rule": "Counts only requirements that have been decided on; satisfied when there's a passing validation that hasn't gone stale.",
         "definition": (
             "Denominator: every `sr` node in the trace graph MINUS every SR "
             "flagged `sr_proposed` (no decided binding yet) -- one expected "
@@ -1229,8 +1234,8 @@ PANELS: dict[str, dict] = {
         "what_it_shows": "Every claim this scope makes, with the evidence behind it.",
         "how_to_read": (
             "The badge says where the claim came from: copied from a file, "
-            "computed, written by an agent, or missing -- a claim can be "
-            "recorded as absent."
+            "computed, scaffold text wrapped around a verbatim quote, or "
+            "missing -- a claim can be recorded as absent."
         ),
     },
     "Matrix": {
@@ -1246,7 +1251,7 @@ PANELS: dict[str, dict] = {
     },
     "Timeline": {
         "label": "Timeline",
-        "what_it_shows": "Decisions recorded against this scope, in the order they happened.",
+        "what_it_shows": "Decisions recorded against this scope, in a deterministic recorded order.",
         "how_to_read": (
             "An actor of `not-recorded` means the record does not say who "
             "decided."
@@ -1300,7 +1305,9 @@ PANELS: dict[str, dict] = {
             "The raw state comes from the validation report alone; the "
             "goal-aware status beside it is judged separately: `REGRESSED` "
             "if any bound goal regressed, `VALIDATED` only if every bound "
-            "goal reached its target, otherwise `VERIFICATION_PENDING`."
+            "goal reached its target, `VERIFICATION_PENDING` if goals are "
+            "bound but neither, or `not recorded` when no goal is bound "
+            "to this requirement at all."
         ),
     },
     "Feature": {
@@ -1327,7 +1334,7 @@ PANELS: dict[str, dict] = {
     "Reverse": {
         "label": "Reverse",
         "what_it_shows": "Which requirement this file traces back to, and through which run.",
-        "how_to_read": "`stops_at` names the first hop that did not resolve.",
+        "how_to_read": "\"Stops at\" names the first hop that did not resolve.",
     },
     "Goal": {
         "label": "Goal",
