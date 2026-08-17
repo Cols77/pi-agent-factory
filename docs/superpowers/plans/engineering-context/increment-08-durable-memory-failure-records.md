@@ -95,6 +95,7 @@ def load_failures(root) -> dict[str, FailureRecord]
 - [x] **Step 2: Implement** `durable.py` composing existing loaders (`adr:`, failure records,
   goals, evidence manifests); render through the claim/freshness plumbing.
 - [x] **Step 3:** full suite + lint + commit.
+  (commits b268fd7, d333ca2, 1ed4b01 — reviewed: spec COMPLIANT, quality APPROVED)
 
 ## Task 3: Conflict surfacing
 
