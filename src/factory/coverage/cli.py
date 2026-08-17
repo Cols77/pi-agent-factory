@@ -7,6 +7,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+import frontmatter
+
 from factory.coverage.audit import classify, validate_verdict
 from factory.coverage.gate import run_gate
 from factory.coverage.imports import compute_overlap
@@ -207,6 +209,50 @@ def cmd_report(root: Path, feat: str, run_id: str) -> str:
     return render_human_summary(report)
 
 
+def cmd_list_features(root: Path) -> list[dict]:
+    """List features for the picker: id, title, declared SR count."""
+    features: list[dict] = []
+    feat_dir = root / "docs" / "features"
+    if not feat_dir.exists():
+        return features
+    for p in sorted(feat_dir.glob("FEAT-*.md")):
+        try:
+            post = frontmatter.load(str(p))
+        except Exception:
+            continue
+        reqs = post.metadata.get("requirements", [])
+        if not isinstance(reqs, list):
+            reqs = []
+        title = str(post.metadata.get("title", p.stem))
+        features.append(
+            {
+                "id": str(post.metadata.get("id", p.stem)),
+                "title": title,
+                "declared_srs": len(reqs),
+            }
+        )
+    return features
+
+
+def cmd_run(
+    root: Path,
+    feat: str,
+    *,
+    provider: str = "",
+    model: str = "",
+    run_id: str | None = None,
+    no_gates: bool = False,
+) -> int:
+    """Execute the deterministic coverage run (Phase 0 -> 5)."""
+    # Lazy import: runner.py imports this module, so importing it here at
+    # module load would be a circular import.
+    from factory.coverage.runner import run as run_coverage
+
+    return run_coverage(
+        root, feat, provider=provider, model=model, run_id=run_id, no_gates=no_gates
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="factory-coverage")
     common = argparse.ArgumentParser(add_help=False)
@@ -244,9 +290,29 @@ def main(argv: list[str] | None = None) -> int:
     p_failure.add_argument("sr_id")
     p_failure.add_argument("--issue", required=True)
 
+    sub.add_parser("list-features", parents=[common])
+
+    p_run = sub.add_parser("run", parents=[common])
+    p_run.add_argument("feat")
+    p_run.add_argument("--provider", default="")
+    p_run.add_argument("--model", default="")
+    p_run.add_argument("--run-id", default=None)
+    p_run.add_argument("--no-gates", action="store_true")
+
     args = parser.parse_args(argv)
 
-    if args.cmd == "audit":
+    if args.cmd == "list-features":
+        print(json.dumps(cmd_list_features(args.project_root), indent=2))
+    elif args.cmd == "run":
+        return cmd_run(
+            args.project_root,
+            args.feat,
+            provider=args.provider,
+            model=args.model,
+            run_id=args.run_id,
+            no_gates=args.no_gates,
+        )
+    elif args.cmd == "audit":
         print(json.dumps(cmd_audit(args.project_root, args.feat, run_id=args.run_id), indent=2))
     elif args.cmd == "failure":
         print(
