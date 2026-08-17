@@ -829,7 +829,7 @@ VOCABULARY: dict[str, dict] = {
             "\"manifest\"`), it identifies the subject as the manifest "
             "record itself rather than the run's outcome."
         ),
-        "siblings": ["task", "requirement", "review", "decision", "trace", "bundle", "session"],
+        "siblings": ["task", "requirement", "review", "decision", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/_claims.py", "src/factory/system/story.py"],
     },
     "task": {
@@ -854,7 +854,7 @@ VOCABULARY: dict[str, dict] = {
         ),
         "siblings": [
             "manifest", "requirement", "validation", "review", "decision",
-            "trace", "bundle", "session", "sr", "run", "satisfies", "chain-complete",
+            "trace", "bundle", "session", "failure", "goal", "sr", "run", "satisfies", "chain-complete",
         ],
         "computed_by": [
             "src/factory/system/queries.py",
@@ -894,7 +894,7 @@ VOCABULARY: dict[str, dict] = {
             "`factory.requirements.register`. Used for a requirement's "
             "statement, upstream, binding, and validation claims alike."
         ),
-        "siblings": ["manifest", "task", "review", "decision", "trace", "bundle", "session"],
+        "siblings": ["manifest", "task", "review", "decision", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py"],
     },
     "decision": {
@@ -957,7 +957,7 @@ VOCABULARY: dict[str, dict] = {
             "through `trace.model.load_nodes`, the same loader "
             "`factory.trace` itself uses, never a second parser."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "bundle", "session"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py", "src/factory/trace/model.py"],
     },
     "bundle": {
@@ -975,7 +975,7 @@ VOCABULARY: dict[str, dict] = {
             "exact member refs -- no status or rationale of its own; "
             "readiness and health are always computed over its members."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session", "sr"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session", "failure", "goal", "sr"],
         "computed_by": ["src/factory/system/bundles.py", "src/factory/system/models.py"],
     },
     "session": {
@@ -992,7 +992,7 @@ VOCABULARY: dict[str, dict] = {
             "record because no durable evidence manifest exists for it; "
             "`\"manifest\"` is the other, preferred source."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "bundle"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "bundle", "failure", "goal"],
         "computed_by": ["src/factory/system/sessions.py", "src/factory/system/story.py"],
     },
     # -----------------------------------------------------------------

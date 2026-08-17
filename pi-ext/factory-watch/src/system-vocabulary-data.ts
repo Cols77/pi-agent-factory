@@ -716,7 +716,9 @@ export const VOCABULARY_DATA = {
         "decision",
         "trace",
         "bundle",
-        "session"
+        "session",
+        "failure",
+        "goal"
       ],
       "computed_by": [
         "src/factory/system/_claims.py",
@@ -738,6 +740,8 @@ export const VOCABULARY_DATA = {
         "trace",
         "bundle",
         "session",
+        "failure",
+        "goal",
         "sr",
         "run",
         "satisfies",
@@ -783,7 +787,9 @@ export const VOCABULARY_DATA = {
         "decision",
         "trace",
         "bundle",
-        "session"
+        "session",
+        "failure",
+        "goal"
       ],
       "computed_by": [
         "src/factory/system/queries.py"
@@ -867,7 +873,9 @@ export const VOCABULARY_DATA = {
         "review",
         "decision",
         "bundle",
-        "session"
+        "session",
+        "failure",
+        "goal"
       ],
       "computed_by": [
         "src/factory/system/queries.py",
@@ -888,6 +896,8 @@ export const VOCABULARY_DATA = {
         "decision",
         "trace",
         "session",
+        "failure",
+        "goal",
         "sr"
       ],
       "computed_by": [
@@ -908,7 +918,9 @@ export const VOCABULARY_DATA = {
         "review",
         "decision",
         "trace",
-        "bundle"
+        "bundle",
+        "failure",
+        "goal"
       ],
       "computed_by": [
         "src/factory/system/sessions.py",

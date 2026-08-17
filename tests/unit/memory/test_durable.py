@@ -148,6 +148,25 @@ linked_feature: [FEAT-NAV-017]
 Orphan run.
 """
 
+_FR_BARE_HYPOTHESIS_EVIDENCE = """---
+id: FR-NAV-0003
+title: Bare evidence failure
+reproduced_by: null
+root_cause: "Some root cause"
+fix: "Some fix"
+regression_link: null
+linked_req: []
+linked_feature: [FEAT-NAV-017]
+rejected_hypotheses:
+  - hypothesis: "Bare run id hypothesis"
+    why_rejected: "Replay ruled it out"
+    evidence: "RUN-NONEXISTENT"
+---
+
+## Symptom
+Bare run evidence.
+"""
+
 
 def _write_adr(adr_dir: Path, filename: str, text: str) -> Path:
     adr_dir.mkdir(parents=True, exist_ok=True)
@@ -185,6 +204,15 @@ def _write_evidence_run(repo_root: Path, run_id: str) -> Path:
         "validation": [],
         "reviews": [],
     }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _write_bundle(bundles_dir: Path, bundle_id: str, members: list[str]) -> Path:
+    """Write a minimal declared bundle whose members are exact refs."""
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    path = bundles_dir / f"{bundle_id}.json"
+    payload = {"id": bundle_id, "label": bundle_id, "members": members}
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
@@ -468,6 +496,81 @@ def test_failure_record_no_reproduced_by_does_not_cause_conflict(tmp_path):
     # No conflict about missing-run for this record
     run_conflicts = [c for c in result["conflicts"] if c["kind"] == "missing-run"]
     assert not any(c["memory"]["id"] == "FR-OTHER-0001" for c in run_conflicts)
+
+
+def test_scope_feat_returns_bundle_linked_decisions(tmp_path):
+    """T-001 regression: a feat: scope resolves its decisions through the
+    bundle map, so a linked decision must appear even though the ADR's id
+    is bare (ADR-0002) while the bundle member ref is prefixed
+    (adr:ADR-0002). Previously the prefixed ref never matched the adrs
+    dict key and the decision was silently dropped."""
+    _write_adr(tmp_path / "docs" / "adr", "0001-latch.md", _ADR_WELL_FORMED)
+    _write_bundle(
+        tmp_path / "bundles",
+        "nav-latch",
+        ["feat:FEAT-NAV-017", "adr:ADR-0002"],
+    )
+
+    result = query_memory(tmp_path, "feat:FEAT-NAV-017")
+
+    assert len(result["decisions"]) == 1
+    assert result["decisions"][0]["id"] == "ADR-0002"
+
+
+def test_scope_sr_returns_bundle_linked_decisions(tmp_path):
+    """T-001 regression, sr: side: same bundle-map normalization."""
+    _write_adr(tmp_path / "docs" / "adr", "0001-latch.md", _ADR_WELL_FORMED)
+    _write_bundle(tmp_path / "bundles", "nav-latch", ["sr:SR-017", "adr:ADR-0002"])
+
+    result = query_memory(tmp_path, "sr:SR-017")
+
+    assert len(result["decisions"]) == 1
+    assert result["decisions"][0]["id"] == "ADR-0002"
+
+
+def test_scope_feat_surfaces_missing_superseded_adr_via_bundle(tmp_path):
+    """T-001 regression: a feat: scope's bundle-linked ADR whose
+    superseded_by names a non-declared ADR surfaces as a missing-adr
+    conflict — previously the prefixed member ref never resolved against
+    the adrs dict, so the conflict check was silently skipped."""
+    _write_adr(tmp_path / "docs" / "adr", "0004-orphan.md", _ADR_ORPHAN_SUPERSEDED)
+    _write_bundle(
+        tmp_path / "bundles",
+        "nav-orphan",
+        ["feat:FEAT-NAV-017", "adr:ADR-0004"],
+    )
+
+    result = query_memory(tmp_path, "feat:FEAT-NAV-017")
+
+    assert len(result["decisions"]) == 1
+    assert result["decisions"][0]["id"] == "ADR-0004"
+    conflicts = [c for c in result["conflicts"] if c["kind"] == "missing-adr"]
+    assert len(conflicts) == 1
+    assert conflicts[0]["memory"]["id"] == "ADR-0004"
+    assert conflicts[0]["memory"]["field"] == "superseded_by"
+    assert conflicts[0]["memory"]["value"] == "ADR-9999"
+
+
+def test_conflict_hypothesis_evidence_bare_run_missing(tmp_path):
+    """T-002 regression: a hypothesis whose evidence is a BARE run id (no
+    run: prefix) is detected the same way as reproduced_by's bare id and
+    surfaces as a conflict when no manifest records it — previously only
+    run:-prefixed evidence was checked, so the bare id passed silently."""
+    _write_failure(
+        tmp_path / "docs" / "failures", "FR-NAV-0003.md", _FR_BARE_HYPOTHESIS_EVIDENCE
+    )
+
+    result = query_memory(tmp_path, "all")
+
+    hyp_conflicts = [
+        c
+        for c in result["conflicts"]
+        if c["kind"] == "missing-run" and c["memory"]["field"] == "evidence"
+    ]
+    assert len(hyp_conflicts) == 1
+    assert hyp_conflicts[0]["memory"]["id"] == "FR-NAV-0003"
+    assert hyp_conflicts[0]["memory"]["value"] == "RUN-NONEXISTENT"
+    assert "RUN-NONEXISTENT" in hyp_conflicts[0]["evidence"]
 
 
 def test_conflict_hypothesis_evidence_run_missing(tmp_path):

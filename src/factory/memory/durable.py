@@ -14,10 +14,10 @@ session must be able to recover from into one provenance-carrying read:
 - **conflicts** — structural contradictions between memory links and the
   artifacts they cite (a `reproduced_by` run that no evidence manifest
   records, a `superseded_by` ADR that no ADR declares, a hypothesis whose
-  `run:` evidence does not exist). Both sides are shown, never silently
-  resolved (brief §5.6 #4). Deeper evidence-vs-note fingerprint comparison
-  is Inc 8 Task 3's `conflict.py`; this module only surfaces what the
-  composed loaders can already prove.
+  run evidence — a `run:<id>` ref or a bare run id — does not exist). Both
+  sides are shown, never silently resolved (brief §5.6 #4). Deeper
+  evidence-vs-note fingerprint comparison is Inc 8 Task 3's `conflict.py`;
+  this module only surfaces what the composed loaders can already prove.
 
 Discipline (brief §5.6, D3, D9): this is durable memory, not an archive. The
 projection LINKS canonical artifacts with provenance citations — it never
@@ -101,14 +101,21 @@ def _run_ids(repo_root: Path) -> set[str]:
     return ids
 
 
-def _run_ref_missing(repo_root: Path, run_ref: str) -> bool:
-    """True when `run_ref` is a `run:<id>` ref whose id no evidence manifest
-    records. Non-`run:` refs (task refs, etc.) are not checked here — only
-    the evidence link this projection can prove."""
-    if not run_ref.startswith("run:"):
+def _run_ref_missing(run_ref: str, run_ids: set[str]) -> bool:
+    """True when `run_ref` names a run (`run:<id>` or a bare id that is not
+    task-shaped) whose id no evidence manifest records.
+
+    Detection is the same `_run_ref_detected` rule `reproduced_by` uses, so
+    the two run-ref fields cannot drift: a bare `RUN-...` evidence id is
+    checked exactly like a bare `RUN-...` `reproduced_by`. Non-run refs
+    (task refs, etc.) are not checked — only the evidence link this
+    projection can prove. `run_ids` is the already-computed manifest id
+    set, read once per `query_memory` call, never per ref.
+    """
+    if not _run_ref_detected(run_ref):
         return False
-    run_id = run_ref[len("run:"):]
-    return bool(run_id) and run_id not in _run_ids(repo_root)
+    run_id = run_ref[len("run:"):] if run_ref.startswith("run:") else run_ref
+    return bool(run_id) and run_id not in run_ids
 
 
 def _decision_links(repo_root: Path, feat_ids: list[str], sr_ids: list[str]) -> list[str]:
@@ -124,8 +131,15 @@ def _decision_links(repo_root: Path, feat_ids: list[str], sr_ids: list[str]) -> 
             except (OSError, ValueError):
                 continue
             for member in bundle.members:
-                if member.kind == "adr" and member.ref not in linked:
-                    linked.append(member.ref)
+                if member.kind != "adr":
+                    continue
+                # Bundle member refs are prefixed (`adr:ADR-0002`); the
+                # `adrs` dict is keyed by the bare declared id. Normalize
+                # with the same split `queries._traversal_for_sr` applies
+                # (`member.ref.split(":", 1)[1]`) — never a re-glob.
+                identifier = member.ref.split(":", 1)[1]
+                if identifier not in linked:
+                    linked.append(identifier)
     return linked
 
 
@@ -209,8 +223,9 @@ def query_memory(repo_root: Path, scope_ref: str) -> dict:
     Conflicts surface structural contradictions the composed loaders can
     prove: a failure record whose `reproduced_by` run has no evidence
     manifest, an ADR whose `superseded_by` names no declared ADR, a
-    hypothesis whose `run:` evidence does not exist. Both sides are shown
-    (`memory` claim vs `evidence` state), never silently resolved.
+    hypothesis whose run evidence (`run:<id>` or a bare run id) does not
+    exist. Both sides are shown (`memory` claim vs `evidence` state), never
+    silently resolved.
     """
     kind, identifier = _parse_memory_scope(scope_ref)
 
@@ -309,7 +324,8 @@ def query_memory(repo_root: Path, scope_ref: str) -> dict:
 
 
 def _run_ref_detected(value: str) -> bool:
-    """Whether a `reproduced_by` value names a run rather than a task ref.
+    """Whether a run-ref field value (`reproduced_by`, hypothesis
+    `evidence`) names a run rather than a task ref.
 
     The record schema allows a reproduction *task ref* (`task:T-###` or a
     bare `T-###`) as well as a run id. Only run refs are checked against
@@ -362,31 +378,33 @@ def _build_conflicts(
 
     for fr in failure_records:
         reproduced_by = fr.get("reproduced_by")
-        if isinstance(reproduced_by, str) and _run_ref_detected(reproduced_by):
+        if isinstance(reproduced_by, str) and _run_ref_missing(reproduced_by, run_ids):
             run_id = (
                 reproduced_by[len("run:"):] if reproduced_by.startswith("run:") else reproduced_by
             )
-            if run_id and run_id not in run_ids:
-                conflicts.append(
-                    {
-                        "kind": "missing-run",
-                        "memory": {
-                            "id": fr["id"],
-                            "field": "reproduced_by",
-                            "value": reproduced_by,
-                        },
-                        "evidence": f"no run manifest found for {run_id!r}",
-                        "citation": fr["citation"],
-                        "freshness": to_dict(_fresh()),
-                    }
-                )
+            conflicts.append(
+                {
+                    "kind": "missing-run",
+                    "memory": {
+                        "id": fr["id"],
+                        "field": "reproduced_by",
+                        "value": reproduced_by,
+                    },
+                    "evidence": f"no run manifest found for {run_id!r}",
+                    "citation": fr["citation"],
+                    "freshness": to_dict(_fresh()),
+                }
+            )
 
-    # Hypothesis evidence refs (`run:<id>`): each must resolve too. The
-    # hypothesis has no file of its own, so its citation is the record's.
+    # Hypothesis evidence run refs (`run:<id>` or a bare run id): each
+    # must resolve too, using the same detection as `reproduced_by` and the
+    # same already-computed `run_ids` (evidence is read once per
+    # `query_memory` call, never per ref). The hypothesis has no file of
+    # its own, so its citation is the record's.
     for hypothesis in rejected_hypotheses:
         evidence = hypothesis.get("evidence", "")
-        if _run_ref_missing(repo_root, evidence):
-            run_id = evidence[len("run:"):]
+        if isinstance(evidence, str) and _run_ref_missing(evidence, run_ids):
+            run_id = evidence[len("run:"):] if evidence.startswith("run:") else evidence
             conflicts.append(
                 {
                     "kind": "missing-run",
