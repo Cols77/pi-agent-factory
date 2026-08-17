@@ -317,7 +317,10 @@ def build_labels(root: Path) -> dict:
         ref = entry["ref"]
         labels[ref] = entry
         aliases[ref] = ref
-        aliases[path] = ref
+        if path in aliases and aliases[path] != ref:
+            degraded.append(f"alias collision: {path!r} already resolves to {aliases[path]}")
+        else:
+            aliases[path] = ref
 
     return {"labels": labels, "aliases": aliases, "degraded": degraded}
 

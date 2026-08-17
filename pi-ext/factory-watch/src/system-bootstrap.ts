@@ -29,6 +29,10 @@ declare const renderValidation: (el: HTMLElement, payload: any) => void;
 declare const renderSim: (el: HTMLElement, payload: any) => void;
 declare const renderDiagram: (el: HTMLElement, payload: any, focus?: string | null) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
+// Task 7 (legibility inc2): wires REMEDIATION.states.traversal_not_applicable
+// at its one real call site below (resetScopeEvidence) -- declared here for
+// the same type-only, no-runtime-import reason as the bindings above.
+declare const renderTraversalNotApplicable: (node: HTMLElement, scopeRef: string) => void;
 declare const renderTabError: (panelId: string, note: string) => void;
 declare const renderGuide: (guide: any) => void;
 declare const renderGuideFallback: () => void;
@@ -738,7 +742,7 @@ export async function systemBootstrap(): Promise<void> {
     traceData = null;
     TAB_ORDER.forEach((tab) => clear(document.getElementById('panel' + tab) as HTMLElement));
     if (kind === 'task' || kind === 'file') {
-      renderTraversalStatus('Traversal is not applicable for this scope.');
+      renderTraversalNotApplicable(traversalNode(), scopeRef);
       renderNotApplicable(
         'panelTrace',
         'Not applicable for this scope. See the Story or Reverse tab.'

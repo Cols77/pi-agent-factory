@@ -34,6 +34,7 @@ import {
 } from './system-comprehension.js';
 import { PANELS_DATA, REMEDIATION_DATA, VOCABULARY_DATA } from './system-vocabulary-data.js';
 import {
+  appendRunAbsenceNextSteps,
   badge,
   badgeSpan,
   citationLine,
@@ -60,6 +61,7 @@ import {
   renderTimeline,
   renderTimelineEvent,
   renderTrace,
+  renderTraversalNotApplicable,
   withGloss,
 } from './system-renderers.js';
 
@@ -111,12 +113,14 @@ function clientSource(): string {
     renderDegradedBanner,
     renderCommitRange,
     renderChangedFiles,
+    appendRunAbsenceNextSteps,
     renderRunDetail,
     renderStoryRun,
     renderStory,
     renderReversePath,
     renderReverse,
     renderNotApplicable,
+    renderTraversalNotApplicable,
     renderTabError,
     openAnchor,
     invertTraceForScope,
@@ -478,7 +482,6 @@ export function renderSystemPageHtml(): string {
   .info-card { position: fixed; z-index: 40; max-width: 34ch; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-raised); }
   .presence-rail { border-left: 3px solid var(--line-strong); padding-left: 12px; }
   .presence-rail.is-absent { border-left-style: dashed; border-left-color: var(--stale); }
-  .presence-rail.is-failure { border-left-style: solid; border-left-color: var(--degraded); }
   .next-step { margin: 12px 0; }
   .next-step p { max-width: 64ch; margin: 6px 0 0; color: var(--text); font: 14px/1.55 var(--font-body); }
   .next-step .command { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-soft); font: 13px/1.5 var(--font-mono); }

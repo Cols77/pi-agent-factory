@@ -206,6 +206,14 @@ export function renderBrief(brief: any): void {
     member.appendChild(document.createTextNode('member of bundles:'));
     member.appendChild(boundedList(brief.member_of));
     panel.appendChild(member);
+  } else if (brief.member_of) {
+    // `member_of` is present (an array, even empty) only for an sr: scope
+    // (queries.py:1049) -- an empty one means this requirement is not a
+    // member of any bundle declaration. Per-artifact, like matrix_never_run's
+    // per-row next step: not gated by the "one Next step per panel" cap,
+    // which scopes only to the browser-decided `if (!x.length)` panel
+    // empties (Component 3, "Severity, narrowed").
+    panel.appendChild(nextStepBlock('unbundled_artifact', brief.scope?.ref));
   }
   if (brief.degraded) {
     const banner2 = document.createElement('div');
@@ -425,6 +433,29 @@ export function renderChangedFiles(changedFiles: string[] | null): HTMLElement |
   return el;
 }
 
+// Rolls up no_changed_files/no_commit_range to ONE panel-level Next step
+// each, only when EVERY run in the panel lacks the data -- renderChangedFiles'
+// own comment above ("no Next step block here: one Next step per panel,
+// never one per empty child") applies here too: wiring these naively at the
+// per-run box (inside renderRunDetail) would reintroduce exactly what that
+// rule prevents. Shared by renderStory and renderReverse -- both render a
+// list of runs through renderRunDetail (story.runs / reverse.paths[].run),
+// and both need the identical rollup. A run "lacks" changed files when its
+// implementation carries none at all (a session-only run's null) or an
+// empty recorded list -- either way there is nothing to show; commit range
+// is absent when either commit is falsy, mirroring renderCommitRange's own
+// check. No-op when `runs` is empty: that panel already has its own
+// no_runs/"no recorded run" empty state, which this must never duplicate.
+export function appendRunAbsenceNextSteps(panel: HTMLElement, runs: any[], scopeRef?: string): void {
+  if (!runs.length) return;
+  if (runs.every((run: any) => !run.implementation.changed_files || !run.implementation.changed_files.length)) {
+    panel.appendChild(nextStepBlock('no_changed_files', scopeRef));
+  }
+  if (runs.every((run: any) => !run.start_commit || !run.result_commit)) {
+    panel.appendChild(nextStepBlock('no_commit_range', scopeRef));
+  }
+}
+
 // One storyRun/reverseRun's implementation + changed files + citation -- shared
 // by renderStoryRun and renderReversePath.
 export function renderRunDetail(el: HTMLElement, run: any): void {
@@ -471,6 +502,7 @@ export function renderStory(story: any): void {
     panel.appendChild(nextStepBlock('no_runs', story.scope?.ref));
   } else {
     story.runs.forEach((run: any) => panel.appendChild(renderStoryRun(run)));
+    appendRunAbsenceNextSteps(panel, story.runs, story.scope?.ref);
   }
   const reqs = document.createElement('div');
   reqs.className = 'requirements';
@@ -480,7 +512,14 @@ export function renderStory(story: any): void {
     reqs.appendChild(label);
     reqs.appendChild(boundedList(story.requirements));
   } else {
-    reqs.appendChild(document.createTextNode('no requirements recorded'));
+    // Panel-level empty, wired the same way as the other browser-decided
+    // empties above (no_matrix_rows/no_timeline_events/no_guide_sections/
+    // no_runs): styled with the dashed presence rail, then its Next step.
+    const empty = document.createElement('p');
+    empty.className = 'empty presence-rail is-absent';
+    empty.appendChild(document.createTextNode('no requirements recorded'));
+    reqs.appendChild(empty);
+    reqs.appendChild(nextStepBlock('no_requirements', story.scope?.ref));
   }
   panel.appendChild(reqs);
 }
@@ -534,6 +573,7 @@ export function renderReverse(reverse: any): void {
     return;
   }
   reverse.paths.forEach((path: any) => panel.appendChild(renderReversePath(path)));
+  appendRunAbsenceNextSteps(panel, reverse.paths.map((path: any) => path.run), reverse.scope?.ref);
 }
 
 // A plain, visible notice for a panel whose view does not apply to the current
@@ -545,6 +585,25 @@ export function renderNotApplicable(panelId: string, note: string): void {
   p.className = 'empty';
   p.appendChild(document.createTextNode(note));
   panel.appendChild(p);
+}
+
+// Wires REMEDIATION.states.traversal_not_applicable: the working-traversal
+// spine for a task:/file: scope, where traversal (which only walks
+// bundle:/sr: scopes) genuinely does not apply. Unlike renderNotApplicable
+// above -- the plain, next-step-free path no_trace deliberately keeps -- this
+// IS one of "the existing ones", styled with the dashed presence rail and
+// followed by its Next step, exactly like the panel-level empties in this
+// file. Takes the traversal node directly (system-bootstrap.ts's
+// resetScopeEvidence owns locating/creating #traversalPath; this only fills
+// it) rather than a panel id, since the traversal spine is not one of the
+// tab panels renderNotApplicable's `panelId` lookup addresses.
+export function renderTraversalNotApplicable(node: HTMLElement, scopeRef: string): void {
+  clear(node);
+  const status = document.createElement('div');
+  status.className = 'empty presence-rail is-absent';
+  status.appendChild(document.createTextNode('Traversal is not applicable for this scope.'));
+  node.appendChild(status);
+  node.appendChild(nextStepBlock('traversal_not_applicable', scopeRef));
 }
 
 // Inc 6 Task 2: a tab whose projection failed to load states the failure
