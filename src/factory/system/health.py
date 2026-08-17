@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from factory.goals.registry import load_goals
+from factory.memory.durable import query_memory as _durable_query_memory
+from factory.memory.failure_record import DuplicateFailureIdError, load_failures
 from factory.requirements import register as register_module
 from factory.simulation import registry as sim_registry
 from factory.system import bundles as bundles_module
@@ -237,9 +239,10 @@ class Finding:
 
     ``code`` is a stable machine id, ``subject`` the artifact ref
     (``sr:SR-001`` / ``task:T-001`` / ``goal:GOAL-001`` / ``run:RUN-...`` /
-    ``feat:FEAT-...``), ``detail`` the recorded reason. Findings are derived
-    from recorded signals only -- trace gaps, goal registry, sim run
-    manifests -- never guessed.
+    ``feat:FEAT-...`` / ``fr:FR-...``), ``detail`` the recorded reason.
+    Findings are derived from recorded signals only -- trace gaps, goal
+    registry, sim run manifests, failure records, the durable-memory
+    projection -- never guessed.
     """
 
     code: str
@@ -268,6 +271,12 @@ def vcycle_health(
     * ``GOAL_NO_EXPERIMENT``     -- goal's metric has no source experiment
     * ``RUN_NO_COMMIT``          -- simulation run manifest records no commit
     * ``FEATURE_FAILING_VERIFICATION`` -- feature's latest run did not pass
+    * ``FAILURE_NO_RUN``         -- failure record names no reproduction run
+    * ``HYPOTHESIS_NO_OUTCOME``  -- rejected hypothesis carries no evidence ref
+    * ``MEMORY_CONFLICT``        -- a memory link contradicts the artifact it
+      cites (a ``reproduced_by``/hypothesis-``evidence`` run no manifest
+      records); surfaced for the declared failure record the conflict
+      anchors on (subject ``fr:<id>``)
 
     Only pending gaps are reported: a deferred/exempt gap is an explicit
     acceptance, not hidden staleness. Output is deterministic (sorted by
@@ -339,6 +348,67 @@ def vcycle_health(
                         f"latest run {latest.run_id} did not pass (result={latest.result})",
                     )
                 )
+
+    # Failure-record orphans (Inc 8 Task 4): composed from the existing
+    # loader (`load_failures`), never a fork of its parser. A record that
+    # names no reproduction run (`reproduced_by` absent/empty) is an orphan
+    # the schema deliberately permits but health surfaces; a rejected
+    # hypothesis with no evidence/outcome ref (only reachable in a degraded
+    # record, since the schema requires the triple) is flagged per
+    # hypothesis. Deterministic: iterate by declared id.
+    failures = load_failures(root)
+    for fr_id in sorted(failures):
+        rec = failures[fr_id]
+        if not (rec.reproduced_by or "").strip():
+            findings.append(
+                Finding(
+                    "FAILURE_NO_RUN",
+                    "warning",
+                    f"fr:{rec.id}",
+                    "failure record names no reproduction run (reproduced_by absent)",
+                )
+            )
+        for index, hypothesis in enumerate(rec.rejected_hypotheses):
+            if not isinstance(hypothesis, dict):
+                continue
+            if not str(hypothesis.get("evidence") or "").strip():
+                findings.append(
+                    Finding(
+                        "HYPOTHESIS_NO_OUTCOME",
+                        "warning",
+                        f"fr:{rec.id}",
+                        f"rejected hypothesis {index + 1} carries no evidence/outcome ref",
+                    )
+                )
+
+    # MEMORY_CONFLICT: surface the structural conflicts the durable
+    # projection already proves (`durable.query_memory(root, "all")` -- a
+    # `reproduced_by`/hypothesis-`evidence` run no manifest records), with
+    # subject `fr:<id>` per the finding contract. Only conflicts anchored on
+    # a declared failure record are surfaced here; ADR supersession
+    # conflicts are ADR concerns, not failure-record orphans. Fingerprint
+    # conflicts (`query_conflicts` code-changed / commit-unreachable /
+    # run-superseded) need a git baseline and are deliberately NOT derived
+    # here -- health stays git-free and they remain queryable through
+    # `factory memory conflicts`. A repo with duplicate FR ids is a loud
+    # load error; health degrades by skipping this finding class rather
+    # than inventing findings.
+    try:
+        conflicts = _durable_query_memory(root, "all")["conflicts"]
+    except DuplicateFailureIdError:
+        conflicts = []
+    for conflict in conflicts:
+        memory = conflict.get("memory") or {}
+        memory_id = memory.get("id")
+        if not isinstance(memory_id, str) or not memory_id.startswith("FR-"):
+            continue
+        kind = conflict.get("kind", "memory-conflict")
+        field = memory.get("field") or ""
+        evidence_text = conflict.get("evidence", "")
+        detail = f"{kind} ({field}): {evidence_text}" if field else f"{kind}: {evidence_text}"
+        findings.append(
+            Finding("MEMORY_CONFLICT", "error", f"fr:{memory_id}", detail)
+        )
 
     findings.sort(key=lambda f: (f.code, f.subject))
     return findings

@@ -70,6 +70,31 @@ def _write_run(root, run_id, *, commit="c" * 40, result="passed"):
     (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
+def _write_failure(root, fr_id, *, reproduced_by=None, hypothesis_evidence=None):
+    """A minimal failure record under `docs/failures/`.
+
+    ``hypothesis_evidence=None`` writes a rejected hypothesis WITHOUT an
+    evidence ref (degraded record, but the list is still surfaced); pass a
+    string to include the evidence ref; ``False`` omits the hypotheses key
+    entirely.
+    """
+    failures_dir = root / "docs" / "failures"
+    failures_dir.mkdir(parents=True, exist_ok=True)
+    lines = ["---", f"id: {fr_id}", "title: T"]
+    if reproduced_by is not None:
+        lines.append(f"reproduced_by: {reproduced_by}")
+    lines.extend(["root_cause: x", "fix: y"])
+    if hypothesis_evidence is not False:
+        lines.append("rejected_hypotheses:")
+        lines.append('  - hypothesis: "H"')
+        lines.append('    why_rejected: "R"')
+        if hypothesis_evidence is not None:
+            lines.append(f'    evidence: "{hypothesis_evidence}"')
+    lines.append("---")
+    lines.append("")
+    (failures_dir / f"{fr_id}.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 def _codes(findings):
     return [(f.code, f.subject) for f in findings]
 
@@ -166,6 +191,62 @@ def test_deferred_gap_is_not_reported(tmp_path):
     )
     findings = health.vcycle_health(tmp_path)
     assert not any(f.subject == "sr:SR-006" for f in findings)
+
+
+def test_failure_without_run_finding(tmp_path):
+    _write_failure(tmp_path, "FR-NAV-0001", hypothesis_evidence=False)
+    findings = health.vcycle_health(tmp_path)
+    assert ("FAILURE_NO_RUN", "fr:FR-NAV-0001") in _codes(findings)
+
+
+def test_failure_with_reproduction_run_has_no_orphan_finding(tmp_path):
+    _write_failure(tmp_path, "FR-NAV-0002", reproduced_by="RUN-NAV-001", hypothesis_evidence=False)
+    findings = health.vcycle_health(tmp_path)
+    assert not any(f.code == "FAILURE_NO_RUN" for f in findings)
+
+
+def test_failure_with_task_reproduction_ref_is_not_an_orphan(tmp_path):
+    # `reproduced_by` may be a reproduction task ref; that still names a
+    # reproduction, so only a truly absent field is the orphan.
+    _write_failure(tmp_path, "FR-NAV-0003", reproduced_by="task:T-042", hypothesis_evidence=False)
+    findings = health.vcycle_health(tmp_path)
+    assert not any(f.code == "FAILURE_NO_RUN" for f in findings)
+
+
+def test_hypothesis_without_outcome_finding(tmp_path):
+    _write_failure(tmp_path, "FR-NAV-0004", hypothesis_evidence=None)
+    findings = health.vcycle_health(tmp_path)
+    assert ("HYPOTHESIS_NO_OUTCOME", "fr:FR-NAV-0004") in _codes(findings)
+
+
+def test_hypothesis_with_evidence_has_no_outcome_finding(tmp_path):
+    _write_failure(tmp_path, "FR-NAV-0005", hypothesis_evidence="run:RUN-NAV-001")
+    findings = health.vcycle_health(tmp_path)
+    assert not any(f.code == "HYPOTHESIS_NO_OUTCOME" for f in findings)
+
+
+def test_memory_conflict_finding_for_missing_reproduction_run(tmp_path):
+    # `reproduced_by` names a run no evidence manifest records: the durable
+    # projection proves a missing-run conflict, surfaced as MEMORY_CONFLICT.
+    _write_failure(tmp_path, "FR-NAV-0006", reproduced_by="RUN-NOPE", hypothesis_evidence=False)
+    findings = health.vcycle_health(tmp_path)
+    assert ("MEMORY_CONFLICT", "fr:FR-NAV-0006") in _codes(findings)
+
+
+def test_memory_conflict_absent_when_reproduction_run_is_recorded(tmp_path):
+    _write_failure(tmp_path, "FR-NAV-0007", reproduced_by="RUN-NAV-001", hypothesis_evidence=False)
+    _write_run(tmp_path, "RUN-NAV-001")
+    findings = health.vcycle_health(tmp_path)
+    assert not any(f.code == "MEMORY_CONFLICT" for f in findings)
+
+
+def test_memory_conflict_absent_when_record_names_no_run(tmp_path):
+    # A record without `reproduced_by` is FAILURE_NO_RUN (orphan), not a
+    # MEMORY_CONFLICT (dangling link) -- the two findings never double-fire.
+    _write_failure(tmp_path, "FR-NAV-0008", hypothesis_evidence=False)
+    findings = health.vcycle_health(tmp_path)
+    assert not any(f.code == "MEMORY_CONFLICT" for f in findings)
+    assert ("FAILURE_NO_RUN", "fr:FR-NAV-0008") in _codes(findings)
 
 
 def test_findings_are_deterministically_sorted(tmp_path):

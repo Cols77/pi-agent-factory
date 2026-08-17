@@ -113,13 +113,51 @@ def load_failures(root) -> dict[str, FailureRecord]
 
 ## Task 4: `memory`/`failure` CLI + health orphans + optional Memory view
 
-- [ ] **Step 1:** `factory memory show/conflicts` and `factory failure add/list/show` subcommands
+- [x] **Step 1:** `factory memory show/conflicts` and `factory failure add/list/show` subcommands
   (additive). Extend `vcycle_health` (Inc 7) with `failure without run` / `rejected hypothesis
   without outcome` / `memory conflict` findings.
-- [ ] **Step 2:** optional additive "Memory" tab/view in `system-page.ts` (Inc 6 pattern) if it
+- [x] **Step 2:** optional additive "Memory" tab/view in `system-page.ts` (Inc 6 pattern) if it
   measures useful; otherwise expose via `eng_get_memory`-style query only. (D2: SCC browser sole
   human surface; no new surface outside it.)
-- [ ] **Step 3:** full suite + lint + commit.
+  **Decision: QUERY/CLI path chosen — no new `system-page.ts` tab.** The `memory`/`failure` CLI
+  (`factory memory show/conflicts`, `factory failure list/show/add`) plus the existing
+  `system.queries.query_memory`/`query_conflicts` (already exposed to agents; the D2 gate names
+  the SCC browser as the *sole human* surface and this work adds no browser surface) already make
+  durable memory fully queryable, and `vcycle_health` surfaces the three orphan/conflict finding
+  classes on the existing landing page (`query_health` -> `vcycle_findings`). A dedicated tab
+  would duplicate `query_memory`'s projection in the browser with no new measure, so it was
+  deliberately not added to keep the increment isolated and additive (low-risk path). If a later
+  increment needs a human Memory view it composes the same `query_memory` payload behind the Inc 6
+  pattern.
+- [x] **Step 3:** full suite + lint + commit.
+  (commit — `feat(memory): memory/failure CLI + health orphans (Inc 8, Task 4)`; unit gate
+  1617 passed / 1 skipped / 40 deselected, ruff clean)
+
+### Task 4 implementation notes (recorded for the reviewer)
+
+- **CLI surface** (`src/factory/memory/cli.py` + `__main__.py`, entry `python -m factory.memory`):
+  `memory show [scope]` / `memory conflicts [scope]` delegate to
+  `factory.system.queries.query_memory`/`query_conflicts` (scope default `all`, exact `feat:`/
+  `sr:`/`goal:`/`adr:`/`fr:` refs, ValueError -> exit 2); `failure list`/`show` load through
+  `factory.memory.failure_record.load_failures` (ordered by declared `FR-` id, never mtime);
+  `failure add` composes frontmatter through the existing `frontmatter` writer and validates the
+  whole meta dict against `failure.schema.json` (id `^FR-[A-Z0-9-]+$`, required `root_cause`/
+  `fix`, hypothesis triple) before writing — the parser is reused, never forked (D3).
+- **Health findings** (`src/factory/system/health.py`, additive): `FAILURE_NO_RUN` (warning,
+  `reproduced_by` absent/empty — a task ref still names a reproduction), `HYPOTHESIS_NO_OUTCOME`
+  (warning, a rejected hypothesis whose `evidence` ref is empty — only reachable in a degraded
+  record), `MEMORY_CONFLICT` (error, structural conflicts from `durable.query_memory(root, "all")`
+  anchored on a declared failure record, subject `fr:<id>`; ADR-supersession conflicts are ADR
+  concerns and are left out; fingerprint conflicts need a git baseline and stay queryable via
+  `factory memory conflicts` — health remains git-free; a duplicate-FR repo degrades by skipping
+  this finding class rather than inventing findings). All findings are derived, deterministic,
+  sorted by (code, subject), and composed from existing loaders.
+- **Test packaging fix:** `tests/unit/memory/test_cli.py` needed `tests/unit/memory/__init__.py`
+  (the `evidence` convention) so it imports as `memory.test_cli` instead of bare `test_cli`,
+  which collides with `tests/unit/goals/test_cli.py` under pytest prepend mode.
+- **No new `queries.py` function:** `failure show` composes `load_failures` directly; the plan's
+  `query_failure` row was not needed because the loader is the existing one and the CLI delegates
+  memory reads to the already-existing `queries.query_memory`/`query_conflicts`.
 
 ## Task 5: Seed the reference slice + review handoff
 
