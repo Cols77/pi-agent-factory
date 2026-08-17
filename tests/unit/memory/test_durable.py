@@ -584,3 +584,81 @@ def test_conflict_hypothesis_evidence_run_missing(tmp_path):
     # The hypothesis's evidence run:RUN-20260811-1702 does not exist
     hyp_conflicts = [c for c in result["conflicts"] if c["kind"] == "missing-run"]
     assert any("RUN-20260811-1702" in c["evidence"] for c in hyp_conflicts)
+
+def test_decisions_ordered_by_declared_id(tmp_path):
+    """Decision entries sort by declared ADR id, not by file order (determinism)."""
+    # Filename order (0001 < 0002) is the opposite of declared id order
+    # (ADR-0002 > ADR-0001), so an unsorted projection would expose file order.
+    _write_adr(
+        tmp_path / "docs" / "adr",
+        "0001-first.md",
+        _ADR_WELL_FORMED,  # id ADR-0002
+    )
+    _write_adr(
+        tmp_path / "docs" / "adr",
+        "0002-second.md",
+        _ADR_SUPERSEDED,  # id ADR-0003
+    )
+
+    result = query_memory(tmp_path, "all")
+
+    ids = [d["id"] for d in result["decisions"]]
+    assert ids == sorted(ids)
+
+
+def test_task_ref_reproduced_by_never_conflicts(tmp_path):
+    """A `reproduced_by` that names a task (`task:T-###` or bare `T-###`) is a
+    task ref, not a run ref: it must never surface a missing-run conflict."""
+    task_ref_fr = (
+        _WELL_FORMED_FR.replace("id: FR-NAV-0001", "id: FR-TASK-0001")
+        .replace("reproduced_by: RUN-20260811-1702", 'reproduced_by: "task:T-042"')
+    )
+    bare_task_fr = (
+        _WELL_FORMED_FR.replace("id: FR-NAV-0001", "id: FR-TASK-0002")
+        .replace("reproduced_by: RUN-20260811-1702", 'reproduced_by: "T-042"')
+    )
+    _write_failure(tmp_path / "docs" / "failures", "FR-TASK-0001.md", task_ref_fr)
+    _write_failure(tmp_path / "docs" / "failures", "FR-TASK-0002.md", bare_task_fr)
+
+    result = query_memory(tmp_path, "all")
+
+    run_conflicts = [
+        c
+        for c in result["conflicts"]
+        if c["kind"] == "missing-run" and c["memory"]["field"] == "reproduced_by"
+    ]
+    assert run_conflicts == []
+
+
+def test_run_prefixed_reproduced_by_missing_conflict(tmp_path):
+    """A `run:`-prefixed `reproduced_by` whose run has no manifest surfaces as
+    a missing-run conflict (the other accepted run-ref spelling)."""
+    _write_failure(
+        tmp_path / "docs" / "failures",
+        "FR-RUNPREFIX-0001.md",
+        _WELL_FORMED_FR.replace(
+            "reproduced_by: RUN-20260811-1702", "reproduced_by: run:RUN-MISSING-001"
+        ),
+    )
+
+    result = query_memory(tmp_path, "all")
+
+    conflicts = [
+        c
+        for c in result["conflicts"]
+        if c["kind"] == "missing-run" and c["memory"]["field"] == "reproduced_by"
+    ]
+    assert len(conflicts) == 1
+    assert conflicts[0]["memory"]["value"] == "run:RUN-MISSING-001"
+    assert "RUN-MISSING-001" in conflicts[0]["evidence"]
+
+
+def test_goal_scope_terminal_goal_yields_no_open_entry(tmp_path):
+    """A `goal:` ref that resolves to a terminal-state goal (REACHED) is
+    recorded but not open: the read resolves with an empty open_goals list."""
+    _write_goal(tmp_path, "GOAL-NAV-002.md", _GOAL_CLOSED)
+
+    result = query_memory(tmp_path, "goal:GOAL-NAV-002")
+
+    assert result["scope"] == "goal:GOAL-NAV-002"
+    assert result["open_goals"] == []

@@ -36,7 +36,9 @@ from pathlib import Path
 
 from factory.evidence import manifests as evidence_manifests
 from factory.goals import registry as goal_registry
-from factory.memory.failure_record import load_failures
+from factory.goals.lifecycle import TERMINAL_GOAL_STATES
+from factory.goals.schema import Goal
+from factory.memory.failure_record import FailureRecord, load_failures
 from factory.system import adr as adr_module
 from factory.system import bundles
 from factory.system._claims import evidence_dir as _evidence_dir
@@ -47,11 +49,6 @@ from factory.system.models import (
     SystemCitation,
     to_dict,
 )
-
-# Goal lifecycle states that are terminal (spec §13): a goal that is REACHED
-# or NOT_REACHED has a recorded outcome and is no longer open. Everything
-# else (DECLARED, ACTIVE, EVALUATING, REGRESSED, BLOCKED) is still open.
-_TERMINAL_GOAL_STATES = {"REACHED", "NOT_REACHED"}
 
 # Scope kinds `query_memory` accepts. `bundle:`/`task:`/`file:`/`diag:`/
 # `metric:` are system-navigator scopes, not memory scopes — memory is
@@ -157,7 +154,7 @@ def _decision_payload(doc: adr_module.AdrDocument) -> dict:
     }
 
 
-def _failure_payload(rec) -> dict:
+def _failure_payload(rec: FailureRecord) -> dict:
     """A failure-record entry: curated frontmatter fields + citation. The
     record's root-cause prose is the record's own content; the projection
     links it, it does not re-quote the record's body."""
@@ -190,7 +187,7 @@ def _hypothesis_payload(rec, index: int, hypothesis: dict) -> dict:
     }
 
 
-def _goal_payload(goal) -> dict:
+def _goal_payload(goal: Goal) -> dict:
     """An open-goal entry: contract fields + citation. Goal prose (the file
     body) is left in the file."""
     return {
@@ -219,6 +216,10 @@ def query_memory(repo_root: Path, scope_ref: str) -> dict:
     `goal:`/`adr:`/`fr:` scope returns that artifact's own entry plus
     anything declared to link to it. Unknown kinds and unresolvable ids are
     rejected or empty, never fuzzy-matched.
+
+    A `goal:` ref whose goal is in a terminal state (REACHED/NOT_REACHED)
+    resolves to its own artifact but yields no open-goal row: the goal is
+    recorded, not open.
 
     Conflicts surface structural contradictions the composed loaders can
     prove: a failure record whose `reproduced_by` run has no evidence
@@ -296,16 +297,18 @@ def query_memory(repo_root: Path, scope_ref: str) -> dict:
     open_goals = [
         _goal_payload(goals[g])
         for g in goal_ids
-        if g in goals and str(goals[g].state) not in _TERMINAL_GOAL_STATES
+        if g in goals and str(goals[g].state) not in TERMINAL_GOAL_STATES
     ]
 
     # Deterministic order: declared id (ADR/FR/goal), never mtime.
+    decisions.sort(key=lambda e: e["id"])
     failure_records.sort(key=lambda e: e["id"])
     rejected_hypotheses.sort(key=lambda e: e["id"])
     open_goals.sort(key=lambda e: e["id"])
 
     conflicts = _build_conflicts(
         repo_root,
+        adrs=adrs,
         decisions=decisions,
         failure_records=failure_records,
         rejected_hypotheses=rejected_hypotheses,
@@ -343,6 +346,7 @@ def _run_ref_detected(value: str) -> bool:
 def _build_conflicts(
     repo_root: Path,
     *,
+    adrs: dict,
     decisions: list[dict],
     failure_records: list[dict],
     rejected_hypotheses: list[dict],
@@ -354,11 +358,11 @@ def _build_conflicts(
 
     Scope-aware: conflicts are only reported for the memory entries the
     scope selected — an out-of-scope record never drags its own orphan into
-    a feature's read.
+    a feature's read. `adrs` is the already-loaded ADR map from
+    `query_memory` — ADRs are parsed once per read, never re-loaded here.
     """
     conflicts: list[dict] = []
 
-    adrs = adr_module.load_adrs(repo_root)
     selected_adr_ids = {d["id"] for d in decisions}
     for adr_id in adr_ids:
         doc = adrs.get(adr_id)
