@@ -9,6 +9,7 @@ import pytest
 from factory.evidence.artifacts import LocalArtifactStore
 from factory.evidence.cli import main
 from factory.evidence.manifests import load_run_manifest, write_run_manifest
+from factory.evidence.records import build_historical_record, write_historical_record
 from factory.evidence.reconcile import ReconcileKind, reconcile, repair_reconciliation
 from factory.orchestrator.journal import RunCheckpoint, RunJournal
 
@@ -22,7 +23,7 @@ def _repo(tmp_path):
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     (repo / "tasks").mkdir()
-    (repo / "tasks" / "T-001-example.md").write_text(
+    (repo / "tasks" / "T-001.md").write_text(
         "---\nid: T-001\ntitle: Example\nstatus: done\ndod:\n  - works\n---\nbody\n",
         encoding="utf-8",
     )
@@ -45,7 +46,7 @@ def _manifest(repo, run_id="run-1"):
         "result_commit": head,
         "outcome": "completed",
         "inputs": {
-            "task": {"path": "tasks/T-001-example.md", "sha256": "c" * 64},
+            "task": {"path": "tasks/T-001.md", "sha256": "c" * 64},
             "requirements": [],
             "factory_config_sha256": "d" * 64,
         },
@@ -66,12 +67,71 @@ def _commit_all(repo):
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
 
 
+def _head(repo) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _write_manual_record(repo) -> Path:
+    start = _head(repo)
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "recovered.py").write_text("RECOVERED = True\n", encoding="utf-8")
+    _commit_all(repo)
+    record = build_historical_record(
+        repo,
+        "T-001",
+        start,
+        _head(repo),
+        "human@example.invalid",
+        "Recovered completed work.",
+    )
+    return write_historical_record(repo / "evidence", record)
+
+
 def test_completed_task_without_manifest_is_never_given_inferred_provenance(tmp_path):
     repo = _repo(tmp_path)
     items = reconcile(repo)
     missing = next(item for item in items if item.kind is ReconcileKind.MISSING_EVIDENCE)
     assert missing.subject == "T-001"
     assert "no validated evidence" in missing.detail
+    assert missing.repairable is False
+    assert repair_reconciliation(repo, items, reason=None) == []
+    assert not (repo / "evidence").exists()
+
+
+def test_valid_manual_record_satisfies_missing_evidence_without_claiming_an_automated_run(tmp_path):
+    repo = _repo(tmp_path)
+    _write_manual_record(repo)
+
+    items = reconcile(repo)
+
+    assert not (repo / "evidence" / "runs").exists()
+    assert not any(
+        item.kind is ReconcileKind.MISSING_EVIDENCE and item.subject == "T-001" for item in items
+    )
+    assert not any("automated run" in item.detail for item in items)
+
+
+def test_invalid_or_stale_manual_record_is_reported_and_never_accepted_as_evidence(tmp_path):
+    repo = _repo(tmp_path)
+    _write_manual_record(repo)
+    task = repo / "tasks" / "T-001.md"
+    task.write_text(task.read_text(encoding="utf-8") + "\nstale record trigger\n", encoding="utf-8")
+    _commit_all(repo)
+
+    items = reconcile(repo)
+
+    diagnostic = next(
+        item
+        for item in items
+        if item.kind is ReconcileKind.MISSING_EVIDENCE and item.source == "evidence/records"
+    )
+    assert "invalid historical record" in diagnostic.detail
+    assert diagnostic.repairable is False
+    assert any(
+        item.kind is ReconcileKind.MISSING_EVIDENCE and item.subject == "T-001" for item in items
+    )
 
 
 def test_manifest_inventory_reports_missing_blob_and_is_deterministically_sorted(tmp_path):
@@ -91,7 +151,7 @@ def test_changed_recorded_file_reports_stale_validation(tmp_path):
             "name": "task:T-001",
             "kind": "file",
             "digest": "sha256:" + "0" * 64,
-            "source": "tasks/T-001-example.md",
+            "source": "tasks/T-001.md",
         }
     ]
     write_run_manifest(repo / "evidence", manifest)
@@ -264,7 +324,7 @@ def test_repair_refuses_interrupted_run_without_reason(tmp_path, capsys):
 
 def test_gate_ignores_warnings_unless_strict(tmp_path, capsys):
     repo = _repo(tmp_path)
-    task = repo / "tasks" / "T-001-example.md"
+    task = repo / "tasks" / "T-001.md"
     task.write_text(task.read_text(encoding="utf-8").replace("status: done", "status: todo"), encoding="utf-8")
     _commit_all(repo)
     (repo / "unexpected.txt").write_text("external", encoding="utf-8")
@@ -277,7 +337,7 @@ def test_gate_ignores_warnings_unless_strict(tmp_path, capsys):
 
 def test_reconcile_cli_returns_zero_for_clean_todo_repository(tmp_path, capsys):
     repo = _repo(tmp_path)
-    task = repo / "tasks" / "T-001-example.md"
+    task = repo / "tasks" / "T-001.md"
     task.write_text(task.read_text(encoding="utf-8").replace("status: done", "status: todo"), encoding="utf-8")
     _commit_all(repo)
     assert main(["reconcile", "--repo", str(repo), "--json"]) == 0

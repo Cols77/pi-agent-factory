@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,36 @@ from factory.evidence.cli import main
 from factory.evidence.manifests import write_run_manifest
 
 pytestmark = pytest.mark.unit
+
+
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, check=True
+    )
+    return completed.stdout.strip()
+
+
+def _historical_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    _git(repo, "config", "user.name", "Evidence CLI Test")
+    (repo / "tasks").mkdir()
+    (repo / "tasks" / "T-058.md").write_text(
+        "---\nid: T-058\nstatus: done\n---\n\n# Recovered task\n", encoding="utf-8"
+    )
+    (repo / "src").mkdir()
+    (repo / "src" / "example.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    start = _git(repo, "rev-parse", "HEAD")
+
+    (repo / "src" / "example.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (repo / "src" / "added.py").write_text("ADDED = True\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "completed work")
+    return repo, start, _git(repo, "rev-parse", "HEAD")
 
 
 def manifest(run_id: str = "run-1", task_id: str = "T-001", ended: str = "2026-08-07T12:01:00Z") -> dict:
@@ -82,3 +114,36 @@ def test_missing_run_is_nonzero_and_stdout_stays_clean(tmp_path, capsys):
 def test_run_id_cannot_escape_evidence_directory(tmp_path, capsys):
     assert main(["run", "../../secret", "--repo", str(tmp_path), "--json"]) == 2
     assert "invalid run id" in capsys.readouterr().err
+
+
+def test_record_cli_writes_manual_provenance_and_emits_stdout_only_json(tmp_path, capsys):
+    repo, start, result = _historical_repo(tmp_path)
+
+    assert main([
+        "record", "T-058", "--repo", str(repo), "--start", start, "--result", result,
+        "--recorded-by", "human@example.invalid", "--reason", "Recovered completed work.", "--json",
+    ]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert captured.err == ""
+    assert payload["record_id"] == f"manual-T-058-{result[:12]}"
+    assert payload["task_id"] == "T-058"
+    assert payload["changed_files"] == ["src/added.py", "src/example.py"]
+    assert payload["path"] == f"evidence/records/manual-T-058-{result[:12]}.json"
+    assert not Path(payload["path"]).is_absolute()
+    assert list((repo / "evidence" / "records").glob("*.json")) == [repo / payload["path"]]
+
+
+def test_record_cli_rejects_invalid_input_without_creating_a_record(tmp_path, capsys):
+    repo, start, _ = _historical_repo(tmp_path)
+
+    assert main([
+        "record", "T-058", "--repo", str(repo), "--start", start, "--result", "not-a-commit",
+        "--recorded-by", "human@example.invalid", "--reason", "Recovered completed work.", "--json",
+    ]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not record historical evidence" in captured.err
+    assert not list((repo / "evidence" / "records").glob("*.json"))

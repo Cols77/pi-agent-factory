@@ -9,6 +9,7 @@ from pathlib import Path
 
 from factory.evidence.artifacts import LocalArtifactStore
 from factory.evidence.manifests import load_run_manifest, write_run_manifest
+from factory.evidence.records import list_historical_records
 from factory.freshness.fingerprint import fingerprint_file
 from factory.kb.index import build_index, build_index_payload
 from factory.orchestrator.journal import RunJournal
@@ -453,10 +454,28 @@ def repair_reconciliation(
 
 def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem]:
     evidence_runs = repo_root / "evidence" / "runs"
+    evidence_dir = repo_root / "evidence"
     store = LocalArtifactStore(repo_root / ".factory" / "artifacts" / "objects")
     items: list[ReconcileItem] = []
     manifests: list[dict] = []
     manifests_by_task: dict[str, list[dict]] = {}
+    manual_records_by_task: dict[str, list[dict]] = {}
+
+    try:
+        manual_records = list_historical_records(repo_root, evidence_dir)
+    except ValueError as exc:
+        items.append(
+            ReconcileItem(
+                ReconcileKind.MISSING_EVIDENCE,
+                "historical-records",
+                f"invalid historical record: {exc}",
+                False,
+                "evidence/records",
+            )
+        )
+    else:
+        for record in manual_records:
+            manual_records_by_task.setdefault(record["task_id"], []).append(record)
 
     for path in sorted(evidence_runs.glob("*.json")):
         try:
@@ -480,12 +499,16 @@ def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem
     for task in load_tasks(repo_root / "tasks"):
         if task_id is not None and task.id != task_id:
             continue
-        if task.status == "done" and not manifests_by_task.get(task.id):
+        if (
+            task.status == "done"
+            and not manifests_by_task.get(task.id)
+            and not manual_records_by_task.get(task.id)
+        ):
             items.append(
                 ReconcileItem(
                     ReconcileKind.MISSING_EVIDENCE,
                     task.id,
-                    "completed task has no validated evidence manifest",
+                    "completed task has no validated evidence manifest or manual record",
                     False,
                     task.path.relative_to(repo_root).as_posix(),
                 )

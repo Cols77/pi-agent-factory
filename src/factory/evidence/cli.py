@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from factory.evidence.manifests import list_run_manifests, load_run_manifest
+from factory.evidence.records import build_historical_record, write_historical_record
 from factory.evidence.reconcile import (
     blocks_evidence_gate,
     reconcile,
@@ -29,6 +30,15 @@ def _parser() -> argparse.ArgumentParser:
     task.add_argument("task_id")
     task.add_argument("--repo", default=".")
     task.add_argument("--json", action="store_true")
+
+    record = sub.add_parser("record")
+    record.add_argument("task_id")
+    record.add_argument("--repo", default=".")
+    record.add_argument("--start", required=True)
+    record.add_argument("--result", required=True)
+    record.add_argument("--recorded-by", required=True)
+    record.add_argument("--reason", required=True)
+    record.add_argument("--json", action="store_true")
 
     listing = sub.add_parser("list")
     listing.add_argument("--repo", default=".")
@@ -88,6 +98,33 @@ def main(argv: list[str] | None = None) -> int:
             pending = bool(items) if args.strict else any(blocks_evidence_gate(item) for item in items)
             return 1 if pending else 0
         return 1 if items else 0
+
+    if args.command == "record":
+        try:
+            record = build_historical_record(
+                repo,
+                args.task_id,
+                args.start,
+                args.result,
+                args.recorded_by,
+                args.reason,
+            )
+            path = write_historical_record(evidence_dir, record)
+            relative_path = path.relative_to(repo).as_posix()
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"could not record historical evidence: {exc}", file=sys.stderr)
+            return 2
+        payload = {
+            "record_id": record["record_id"],
+            "task_id": record["task_id"],
+            "changed_files": record["changed_files"],
+            "path": relative_path,
+        }
+        if args.json:
+            print(json.dumps(payload))
+        else:
+            print(f"{payload['record_id']}  {payload['task_id']}  {payload['path']}")
+        return 0
 
     if args.command == "run":
         if not _RUN_ID.fullmatch(args.run_id):
