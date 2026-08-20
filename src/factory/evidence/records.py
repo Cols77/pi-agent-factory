@@ -249,7 +249,8 @@ def list_historical_records(
         return []
 
     records: list[dict] = []
-    for path in sorted(records_dir.glob("*.json")):
+    pattern = f"manual-{task_id}-*.json" if task_id is not None else "*.json"
+    for path in sorted(records_dir.glob(pattern)):
         try:
             record = load_historical_record(repo_root, path)
         except ValueError as exc:

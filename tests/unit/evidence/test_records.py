@@ -245,10 +245,41 @@ def test_list_returns_newest_first_and_does_not_ignore_malformed_records(repo: G
         old["record_id"],
     ]
 
-    malformed = evidence_dir / "records" / "bad-record.json"
+    malformed = evidence_dir / "records" / "manual-T-058-bad-record.json"
     malformed.write_text("not json", encoding="utf-8")
     with pytest.raises(ValueError, match="bad-record.json"):
         list_historical_records(repo.root, evidence_dir, "T-058")
+
+
+def test_list_task_query_ignores_stale_record_for_another_task(repo: GitRepo) -> None:
+    evidence_dir = repo.root / "evidence"
+    (repo.root / "tasks" / "T-001.md").write_text("# First task\n", encoding="utf-8")
+    (repo.root / "tasks" / "T-002.md").write_text("# Second task\n", encoding="utf-8")
+    start = _commit(repo.root, "add scoped tasks")
+
+    (repo.root / "src" / "factory" / "scoped.py").write_text("SCOPED = True\n", encoding="utf-8")
+    result = _commit(repo.root, "complete scoped tasks")
+    first = build_historical_record(
+        repo.root,
+        "T-001",
+        start,
+        result,
+        "human@example.invalid",
+        "Recovered first task.",
+    )
+    second = build_historical_record(
+        repo.root,
+        "T-002",
+        start,
+        result,
+        "human@example.invalid",
+        "Recovered second task.",
+    )
+    write_historical_record(evidence_dir, first)
+    write_historical_record(evidence_dir, second)
+    (repo.root / "tasks" / "T-002.md").write_text("# Changed second task\n", encoding="utf-8")
+
+    assert list_historical_records(repo.root, evidence_dir, "T-001") == [first]
 
 
 def test_persisted_record_excludes_run_claim_fields_and_is_create_once(repo: GitRepo) -> None:

@@ -89,6 +89,30 @@ def _write_manual_record(repo) -> Path:
     return write_historical_record(repo / "evidence", record)
 
 
+def _write_scoped_manual_records(repo) -> None:
+    (repo / "tasks" / "T-002.md").write_text(
+        "---\nid: T-002\ntitle: Second\nstatus: done\ndod:\n  - works\n---\nbody\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo)
+    start = _head(repo)
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "first.py").write_text("FIRST = True\n", encoding="utf-8")
+    (repo / "src" / "second.py").write_text("SECOND = True\n", encoding="utf-8")
+    _commit_all(repo)
+    result = _head(repo)
+    for task_id, reason in (("T-001", "Recovered first task."), ("T-002", "Recovered second task.")):
+        write_historical_record(
+            repo / "evidence",
+            build_historical_record(
+                repo, task_id, start, result, "human@example.invalid", reason
+            ),
+        )
+    task = repo / "tasks" / "T-002.md"
+    task.write_text(task.read_text(encoding="utf-8") + "\nstale record trigger\n", encoding="utf-8")
+    _commit_all(repo)
+
+
 def test_completed_task_without_manifest_is_never_given_inferred_provenance(tmp_path):
     repo = _repo(tmp_path)
     items = reconcile(repo)
@@ -132,6 +156,29 @@ def test_invalid_or_stale_manual_record_is_reported_and_never_accepted_as_eviden
     assert any(
         item.kind is ReconcileKind.MISSING_EVIDENCE and item.subject == "T-001" for item in items
     )
+
+
+def test_reconcile_task_scope_preserves_valid_manual_evidence_and_reports_stale_peer(tmp_path):
+    repo = _repo(tmp_path)
+    _write_scoped_manual_records(repo)
+
+    first_items = reconcile(repo, "T-001")
+    assert not (repo / "evidence" / "runs").exists()
+    assert not any(
+        item.kind is ReconcileKind.MISSING_EVIDENCE and item.subject == "T-001"
+        for item in first_items
+    )
+    assert not any("automated run" in item.detail for item in first_items)
+
+    second_items = reconcile(repo, "T-002")
+    diagnostic = next(
+        item
+        for item in second_items
+        if item.kind is ReconcileKind.MISSING_EVIDENCE and item.source == "evidence/records"
+    )
+    assert diagnostic.subject == "T-002"
+    assert "invalid historical record" in diagnostic.detail
+    assert diagnostic.repairable is False
 
 
 def test_manifest_inventory_reports_missing_blob_and_is_deterministically_sorted(tmp_path):

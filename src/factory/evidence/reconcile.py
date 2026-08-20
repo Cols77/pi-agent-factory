@@ -460,22 +460,27 @@ def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem
     manifests: list[dict] = []
     manifests_by_task: dict[str, list[dict]] = {}
     manual_records_by_task: dict[str, list[dict]] = {}
+    tasks = [
+        task
+        for task in load_tasks(repo_root / "tasks")
+        if task_id is None or task.id == task_id
+    ]
 
-    try:
-        manual_records = list_historical_records(repo_root, evidence_dir)
-    except ValueError as exc:
-        items.append(
-            ReconcileItem(
-                ReconcileKind.MISSING_EVIDENCE,
-                "historical-records",
-                f"invalid historical record: {exc}",
-                False,
-                "evidence/records",
+    for task in tasks:
+        try:
+            manual_records_by_task[task.id] = list_historical_records(
+                repo_root, evidence_dir, task.id
             )
-        )
-    else:
-        for record in manual_records:
-            manual_records_by_task.setdefault(record["task_id"], []).append(record)
+        except ValueError as exc:
+            items.append(
+                ReconcileItem(
+                    ReconcileKind.MISSING_EVIDENCE,
+                    task.id,
+                    f"invalid historical record: {exc}",
+                    False,
+                    "evidence/records",
+                )
+            )
 
     for path in sorted(evidence_runs.glob("*.json")):
         try:
@@ -496,9 +501,7 @@ def reconcile(repo_root: Path, task_id: str | None = None) -> list[ReconcileItem
         manifests.append(manifest)
         manifests_by_task.setdefault(manifest["task_id"], []).append(manifest)
 
-    for task in load_tasks(repo_root / "tasks"):
-        if task_id is not None and task.id != task_id:
-            continue
+    for task in tasks:
         if (
             task.status == "done"
             and not manifests_by_task.get(task.id)
