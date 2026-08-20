@@ -26,14 +26,10 @@ def _schema(envelope: _Envelope) -> int:
     return 1
 
 
-def _diagnostics(envelope: _Envelope) -> list[dict[str, str]]:
-    return [diagnostic.to_dict() for diagnostic in envelope.diagnostics]
-
-
 def _artifact_dicts(envelope: _Envelope) -> list[dict[str, object]]:
     if isinstance(envelope, ObservationEnvelope):
         return [artifact.to_dict() for artifact in envelope.artifacts]
-    return [deepcopy(artifact) for artifact in envelope.raw_artifacts]
+    return envelope.to_dict()["raw_artifacts"]
 
 
 def _base(
@@ -42,15 +38,22 @@ def _base(
     *,
     truncated: bool,
     redacted: bool,
+    redactions: tuple[str, ...] = (),
 ) -> _Projection:
+    source_id, source_id_redacted = _redact_value(envelope.id, redactions)
+    freshness_value, freshness_redacted = _redact_value(freshness, redactions)
+    diagnostic_rows, diagnostics_redacted = _diagnostic_rows(envelope, redactions)
     return {
-        "source_id": envelope.id,
+        "source_id": source_id,
         "schema": _schema(envelope),
-        "freshness": deepcopy(freshness),
+        "freshness": freshness_value,
         "truncated": truncated,
-        "redacted": redacted,
+        "redacted": redacted
+        or source_id_redacted
+        or freshness_redacted
+        or diagnostics_redacted,
         "outcome": envelope.outcome,
-        "diagnostics": _diagnostics(envelope),
+        "diagnostics": diagnostic_rows,
         "invalid": envelope.outcome == "invalid",
     }
 
@@ -325,7 +328,13 @@ def agent_compact(
         declared_redactions,
     )
     text, truncated = _fit_text(full_text, max_chars)
-    result = _base(envelope, freshness, truncated=truncated, redacted=redacted)
+    result = _base(
+        envelope,
+        freshness,
+        truncated=truncated,
+        redacted=redacted,
+        redactions=declared_redactions,
+    )
     result["diagnostics"] = diagnostic_rows
     result["text"] = text
     return result

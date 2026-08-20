@@ -17,8 +17,7 @@ FRESHNESS = {"state": "fresh", "checked_at": "2026-08-20T10:31:00Z"}
 def valid_envelope() -> ObservationEnvelope:
     envelope = ObservationEnvelope.from_dict(observation_payload())
     assert isinstance(envelope, ObservationEnvelope)
-    envelope.validate_for_gate(registry())
-    return envelope
+    return envelope.validate_for_gate(registry())
 
 
 def test_machine_projection_contains_full_envelope_and_provenance_metadata() -> None:
@@ -115,10 +114,38 @@ def test_agent_compact_redacts_only_declared_sensitive_values() -> None:
     assert "secret-like content remains" in projected["text"]
 
 
+def test_agent_compact_redacts_sensitive_base_fields_and_diagnostics() -> None:
+    sensitive_source_id = "sensitive-source-id"
+    sensitive_freshness = "sensitive-freshness"
+    payload = observation_payload()
+    payload["id"] = sensitive_source_id
+    payload["diagnostics"] = [
+        {"code": "SENSITIVE_CONTEXT", "summary": sensitive_freshness},
+    ]
+    envelope = ObservationEnvelope.from_dict(payload)
+    freshness = {"state": sensitive_freshness, "checked_at": "2026-08-20T10:31:00Z"}
+
+    projected = agent_compact(
+        envelope,
+        freshness,
+        500,
+        redactions=(sensitive_source_id, sensitive_freshness),
+    )
+
+    assert projected["redacted"] is True
+    assert projected["source_id"] == "[REDACTED]"
+    assert projected["freshness"]["state"] == "[REDACTED]"
+    assert projected["diagnostics"] == [
+        {"code": "SENSITIVE_CONTEXT", "summary": "[REDACTED]"},
+    ]
+    assert sensitive_source_id not in str(projected)
+    assert sensitive_freshness not in str(projected)
+
+
 @pytest.mark.parametrize("outcome", ["invalid", "unknown"])
 def test_every_projection_preserves_invalidity_outcome_and_diagnostic_codes(outcome: str) -> None:
     envelope = ObservationEnvelope.from_dict(observation_payload(outcome=outcome))
-    envelope.validate_for_gate(registry())
+    envelope = envelope.validate_for_gate(registry())
 
     projections = [
         machine(envelope, FRESHNESS),
