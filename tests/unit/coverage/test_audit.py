@@ -1,12 +1,23 @@
 # tests/unit/coverage/test_audit.py
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from factory.coverage.audit import (
     SrState,
     classify,
     validate_verdict,
+)
+from factory.coverage.cli import cmd_audit
+from tests.unit.coverage.test_scope import (
+    _feat_file,
+    _manifest,
+    _req_file,
+    _task_file,
+    _write_historical_record,
 )
 
 pytestmark = pytest.mark.unit
@@ -37,6 +48,16 @@ def _overlap(ok: bool = True) -> dict:
     }
 
 
+def _done_task(root: Path, task_id: str, sr_id: str) -> None:
+    task_path = _task_file(root, task_id, [sr_id])
+    task_path.write_text(
+        task_path.read_text(encoding="utf-8").replace(
+            "satisfies:", "status: done\nsatisfies:"
+        ),
+        encoding="utf-8",
+    )
+
+
 def _verdict(ok: bool = True) -> dict:
     return {
         "sr_id": "SR-001",
@@ -48,6 +69,74 @@ def _verdict(ok: bool = True) -> dict:
         "checked": ["preempt path in priority_filter.py"],
         "assumed": ["fixture represents the sim scenario"],
         "verify": [],
+    }
+
+
+def test_cmd_audit_reports_missing_evidence_for_done_navigator_tasks(tmp_path: Path) -> None:
+    _feat_file(tmp_path, "FEAT-NAV-017", ["SR-NAV-001"])
+    _req_file(tmp_path, "SR-NAV-001")
+    _done_task(tmp_path, "T-058", "SR-NAV-001")
+    _done_task(tmp_path, "T-067", "SR-NAV-001")
+
+    result = cmd_audit(tmp_path, "FEAT-NAV-017", run_id="audit-test")
+
+    assert result["overlaps"]["SR-NAV-001"] == {
+        "ok": False,
+        "reason": "missing evidence for tasks",
+        "missing_task_ids": ["T-058", "T-067"],
+    }
+    assert result["srs"]["SR-NAV-001"]["tasks"] == [
+        {
+            "task_id": "T-058",
+            "changed_files": [],
+            "manifests": [],
+            "record_paths": [],
+            "evidence_state": "missing",
+        },
+        {
+            "task_id": "T-067",
+            "changed_files": [],
+            "manifests": [],
+            "record_paths": [],
+            "evidence_state": "missing",
+        },
+    ]
+
+
+def test_cmd_audit_uses_approved_historical_record_for_navigator_overlap(tmp_path: Path) -> None:
+    _write_historical_record(tmp_path, "T-058", "src/factory/navigator.py")
+    test_path = tmp_path / "tests" / "test_SR-001.py"
+    test_path.parent.mkdir()
+    test_path.write_text(
+        "from factory.navigator import navigate\n\n\ndef test_navigate() -> None:\n    assert navigate()\n",
+        encoding="utf-8",
+    )
+
+    result = cmd_audit(tmp_path, "FEAT-001", run_id="audit-test")
+
+    overlap = result["overlaps"]["SR-001"]
+    assert overlap["ok"] is True
+    assert overlap["overlap"] == ("src/factory/navigator.py",)
+    assert overlap.get("reason") != "no changed files from tasks"
+
+
+def test_cmd_audit_reports_recorded_empty_evidence_for_done_task(tmp_path: Path) -> None:
+    _feat_file(tmp_path, "FEAT-NAV-017", ["SR-NAV-001"])
+    _req_file(tmp_path, "SR-NAV-001")
+    _done_task(tmp_path, "T-058", "SR-NAV-001")
+    manifest_path = tmp_path / "evidence" / "runs" / "RUN-001.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(_manifest(task_id="T-058", changed_files=[])),
+        encoding="utf-8",
+    )
+
+    result = cmd_audit(tmp_path, "FEAT-NAV-017", run_id="audit-test")
+
+    assert result["overlaps"]["SR-NAV-001"] == {
+        "ok": False,
+        "reason": "recorded evidence has no changed files",
+        "empty_task_ids": ["T-058"],
     }
 
 
