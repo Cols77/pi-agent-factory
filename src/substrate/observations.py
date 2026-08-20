@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any, Literal, Self
@@ -36,12 +35,24 @@ def _mapping(value: object, field_name: str) -> Mapping[str, Any]:
     return value
 
 
-def _deep_freeze(value: object) -> object:
+def _deep_freeze(value: object, field_path: str) -> object:
+    if type(value) in (type(None), bool, int, float, str):
+        return value
     if isinstance(value, Mapping):
-        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+        frozen: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{field_path} has a non-string JSON key")
+            frozen[key] = _deep_freeze(item, f"{field_path}.{key}")
+        return MappingProxyType(frozen)
     if isinstance(value, (list, tuple)):
-        return tuple(_deep_freeze(item) for item in value)
-    return deepcopy(value)
+        return tuple(
+            _deep_freeze(item, f"{field_path}[{index}]")
+            for index, item in enumerate(value)
+        )
+    raise TypeError(
+        f"{field_path} contains unsupported JSON value type {type(value).__name__}"
+    )
 
 
 def _deep_thaw(value: object) -> object:
@@ -49,7 +60,7 @@ def _deep_thaw(value: object) -> object:
         return {key: _deep_thaw(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_deep_thaw(item) for item in value]
-    return deepcopy(value)
+    return value
 
 
 def _reject_unknown_fields(data: Mapping[str, Any], allowed: set[str], field_name: str) -> None:
@@ -196,9 +207,9 @@ class ObservationEnvelope:
     artifacts: tuple[ArtifactRef, ...]
     _gate_eligible: bool = field(
         default=False,
+        init=False,
         repr=False,
         compare=False,
-        kw_only=True,
     )
 
     def __post_init__(self) -> None:
@@ -220,7 +231,7 @@ class ObservationEnvelope:
 
         object.__setattr__(self, "outcome", _outcome(self.outcome))
         facts = _facts(self.facts)
-        object.__setattr__(self, "facts", _deep_freeze(facts))
+        object.__setattr__(self, "facts", _deep_freeze(facts, "facts"))
 
         diagnostic_values = tuple(self.diagnostics)
         if any(not isinstance(item, Diagnostic) for item in diagnostic_values):
@@ -296,10 +307,25 @@ class ObservationEnvelope:
         if not isinstance(registry, PayloadRegistry):
             raise TypeError("registry must be a PayloadRegistry")
         registry.validate(self.facts)
-        return replace(
-            self,
-            _gate_eligible=self.outcome in {"pass", "fail"},
+        validated = type(self)(
+            schema=self.schema,
+            id=self.id,
+            kind=self.kind,
+            producer=self.producer,
+            observed_at=self.observed_at,
+            scope_refs=self.scope_refs,
+            inputs=self.inputs,
+            outcome=self.outcome,
+            facts=self.facts,
+            diagnostics=self.diagnostics,
+            artifacts=self.artifacts,
         )
+        object.__setattr__(
+            validated,
+            "_gate_eligible",
+            self.outcome in {"pass", "fail"},
+        )
+        return validated
 
     @property
     def gate_eligible(self) -> bool:
@@ -348,7 +374,10 @@ class RejectedObservation:
         object.__setattr__(
             self,
             "raw_artifacts",
-            tuple(_deep_freeze(item) for item in self.raw_artifacts),
+            tuple(
+                _deep_freeze(item, f"raw_artifacts[{index}]")
+                for index, item in enumerate(self.raw_artifacts)
+            ),
         )
 
     @classmethod

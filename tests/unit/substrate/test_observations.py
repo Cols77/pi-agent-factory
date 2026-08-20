@@ -20,6 +20,11 @@ HASH = "sha256:" + "a" * 64
 OTHER_HASH = "sha256:" + "b" * 64
 
 
+class MutableFactsValue:
+    def __init__(self) -> None:
+        self.value = "mutable"
+
+
 def artifact_payload(ref: str = "artifact:evidence:test-run") -> dict[str, object]:
     return {
         "schema": 1,
@@ -81,6 +86,27 @@ def test_valid_envelope_round_trips_and_is_gate_eligible_after_explicit_validati
     assert envelope.gate_eligible is True
 
 
+def test_gate_eligibility_is_not_a_public_constructor_parameter() -> None:
+    envelope = ObservationEnvelope.from_dict(observation_payload())
+    assert isinstance(envelope, ObservationEnvelope)
+
+    with pytest.raises(TypeError, match="_gate_eligible"):
+        ObservationEnvelope(
+            schema=envelope.schema,
+            id=envelope.id,
+            kind=envelope.kind,
+            producer=envelope.producer,
+            observed_at=envelope.observed_at,
+            scope_refs=envelope.scope_refs,
+            inputs=envelope.inputs,
+            outcome=envelope.outcome,
+            facts=envelope.facts,
+            diagnostics=envelope.diagnostics,
+            artifacts=envelope.artifacts,
+            _gate_eligible=True,
+        )
+
+
 def test_validate_for_gate_returns_a_new_immutable_validated_envelope() -> None:
     envelope = ObservationEnvelope.from_dict(observation_payload())
 
@@ -91,6 +117,8 @@ def test_validate_for_gate_returns_a_new_immutable_validated_envelope() -> None:
     assert validated.gate_eligible is True
     with pytest.raises(FrozenInstanceError):
         validated.outcome = "fail"  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        validated._gate_eligible = False  # type: ignore[misc]
 
 
 def test_validated_facts_are_deeply_immutable_and_to_dict_thaws_fresh_values() -> None:
@@ -115,11 +143,60 @@ def test_validated_facts_are_deeply_immutable_and_to_dict_thaws_fresh_values() -
         nested["items"].append("not allowed")  # type: ignore[union-attr]
 
     rendered = validated.to_dict()
+    second_rendered = validated.to_dict()
     assert isinstance(rendered["facts"], dict)
     assert isinstance(rendered["facts"]["nested"], dict)
     assert isinstance(rendered["facts"]["nested"]["items"], list)
+    assert rendered["facts"] is not second_rendered["facts"]
+    assert rendered["facts"]["nested"] is not second_rendered["facts"]["nested"]
     rendered["facts"]["nested"]["items"].append("only in the copy")
     assert validated.facts["nested"]["items"] == ("unchanged",)
+    assert second_rendered["facts"]["nested"]["items"] == ["unchanged"]
+
+
+@pytest.mark.parametrize(
+    "unsupported",
+    [
+        {"nested"},
+        bytearray(b"nested"),
+        MutableFactsValue(),
+    ],
+)
+def test_unsupported_nested_facts_values_are_rejected_with_a_field_path(
+    unsupported: object,
+) -> None:
+    payload = observation_payload(
+        facts={
+            "schema": "test-run/v1",
+            "unsupported": unsupported,
+        }
+    )
+
+    with pytest.raises(TypeError, match=r"facts\.unsupported"):
+        ObservationEnvelope.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "unsupported",
+    [
+        {"nested"},
+        bytearray(b"nested"),
+        MutableFactsValue(),
+    ],
+)
+def test_unsupported_nested_raw_artifact_values_are_rejected_with_a_field_path(
+    unsupported: object,
+) -> None:
+    with pytest.raises(TypeError, match=r"raw_artifacts\[0\]\.unsupported"):
+        RejectedObservation(
+            id="obs:pytest-adapter:run-001",
+            kind="test-run",
+            producer=ProducerRef("pytest-adapter", 1, "pytest-8"),
+            observed_at="2026-08-20T10:30:00Z",
+            outcome="invalid",
+            diagnostics=(),
+            raw_artifacts=({"unsupported": unsupported},),
+        )
 
 
 def test_rejected_raw_artifacts_are_deeply_immutable_and_to_dict_thaws_fresh_values() -> None:
