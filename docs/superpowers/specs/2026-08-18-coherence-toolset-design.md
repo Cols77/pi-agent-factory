@@ -235,11 +235,13 @@ fixed precedence — interrupted run > failing gate > stale audit > proposed bac
 nothing pending — and render a menu. Selecting an entry launches the owning surface
 (a skill session, a CLI verb, mission control, or the browser).
 
-**With an argument.** Exactly one model call, constrained to an intent enum —
-`UNDERSTAND · VERIFY_CLAIM · CLOSE_GAPS · AUTHOR_REQUIREMENTS · BUILD · RECOVER ·
-TRIAGE · TEACH` — plus an optional scope ref extracted from the text. Code launches from
-there. The classification is always printed with an escape hatch ("not that? pick from the
-menu"), so a misclassification costs one keystroke and never a wrong write.
+**With an argument.** One deterministic local classification extracts an optional scope ref
+and scores the intent enum: UNDERSTAND, VERIFY_CLAIM, CLOSE_GAPS, AUTHOR_REQUIREMENTS,
+BUILD, RECOVER, TRIAGE, and TEACH. It launches a route only when one intent has a unique
+score above the fixed threshold; an absent, tied, or below-threshold score opens the menu
+instead. The classification is always printed with an escape hatch ("not that? pick from the
+menu"), so a misclassification costs one keystroke and never a wrong write. This has no model,
+credential, cost, or host-API dependency.
 
 ### 6.2 `coherence status`
 
@@ -507,3 +509,10 @@ amendment. Increment 1 gains the shared contracts and adapts the existing code-i
 as the first compiled resolver. Later increments add adapters and recipes only when their
 existing owners move. The detailed companion design is independently plannable so the
 original Coherence program is not converted into a flag-day migration.
+
+### 15.1 Amendment: deterministic intent routing
+
+The original direct model-call wording in §6.1 is superseded by a deterministic local router.
+It is deliberately conservative: ambiguous input opens the menu and has no write authority.
+This removes the unsupported Pi structured-completion dependency without weakening the
+classification visibility or escape hatch.

@@ -133,6 +133,27 @@ Expected: deterministic work lands regardless of classifier capability; classifi
 
 ## Review Amendments
 
+### Approved deterministic-router amendment
+
+This amendment supersedes Task 4 and all direct-Pi-classifier wording above. Create
+src/coherence/router.py with Intent, RouteMatch(intent, scope_ref, score), and
+route_text(text). Its versioned phrase-to-intent table has threshold 3: extract a valid
+scope ref, sum normalised phrase weights, and return a route only for one unique maximum
+at least 3. A tie, no match, or below-threshold score returns None.
+
+Add tests/unit/coherence/test_router.py covering each of the eight intents, scope extraction,
+normalised case/whitespace, a tie, no matching phrase, and a below-threshold score. Each None
+case must open the deterministic menu. coherence-command.ts prints a successful classification
+with its menu escape hatch and never calls newSession or any model API for routing.
+
+Run:
+
+    rtk proxy uv run python -m pytest tests/unit/coherence/test_router.py -q
+    rtk proxy npm test --prefix pi-ext/factory-watch -- coherence-command
+
+This removes the host-capability blocker: Increment 5 is complete when every input visibly
+routes or opens the menu without a model dependency.
+
 Focus is stored atomically in .pi/factory/session-context.json under a coherence_focus key, matching the existing session-policy owner; tests assert it is ignored/untracked. The classifier capability probe is a version-pinned integration fixture against the real Pi SDK export, not the local structural pi-types.ts subset.
 
 Until that fixture proves a direct schema-constrained one-response API, the original exact-one-intent acceptance criterion is externally blocked and Increment 5 cannot be marked complete. Deterministic no-argument routing, status, focus, explanation, and aliases remain independently shippable; argument routing returns the documented refusal.
