@@ -1,12 +1,19 @@
 import { describe, expect, test } from "vitest";
 import {
   createJsonlCollector,
+  createIdleKeeper,
+  deriveSubagentLabel,
+  probeFileHeartbeat,
   parseChildJsonl,
   renderChildOutcome,
   renderSubagentOutcome,
   spawnStreamedChild,
+  summarizeSubagentTask,
+  SUBAGENT_IDLE_GRACE_BREACHES,
   SUBAGENT_TIMEOUT_MS,
 } from "../src/subagent-tool.js";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const sessionEvent = (id = "ses-123") =>
   JSON.stringify({ type: "session", version: 3, id, cwd: "C:\\repo" });
@@ -332,5 +339,97 @@ describe("renderSubagentOutcome", () => {
   test("exit 0 with genuinely nothing reports empty output", () => {
     const msg = renderSubagentOutcome({ status: 0, signal: null, error: null, stdout: "", stderr: "" });
     expect(msg).toContain("(empty output)");
+  });
+});
+
+describe("liveness-aware idle keeper (T-029)", () => {
+  test("a silent child is killed only after grace consecutive breaches", () => {
+    // Fake clock: each call advances one full idle window.
+    let t = 0;
+    const now = () => t;
+    const k = createIdleKeeper({ idleMs: 300, graceBreaches: 3, now });
+    // Three silent windows (no probe -> no liveness) tripped the strike.
+    expect(k.onElapsed()).toBe("keep-running");
+    expect(k.onElapsed()).toBe("keep-running");
+    expect(k.onElapsed()).toBe("keep-running");
+    expect(k.onElapsed()).toBe("kill");
+  });
+
+  test("any reported output resets the breach count", () => {
+    let t = 0;
+    const now = () => t;
+    const k = createIdleKeeper({ idleMs: 300, graceBreaches: 2, now });
+    expect(k.onElapsed()).toBe("keep-running");
+    k.noteLive(); // a tool-call / line arrived: alive again
+    expect(k.breaches()).toBe(0);
+    expect(k.onElapsed()).toBe("keep-running"); // window 1 after reset: b=1
+    expect(k.onElapsed()).toBe("keep-running"); // window 2 after reset: b=2 <= grace
+    expect(k.onElapsed()).toBe("kill"); // window 3 after reset: b=3 > grace=2
+  });
+
+  test("a file-write heartbeat probe keeps a silent child alive (plan authoring)", () => {
+    let t = 0;
+    const now = () => t;
+    let lastProbeSince = -1;
+    const k = createIdleKeeper({
+      idleMs: 300,
+      graceBreaches: 2,
+      now,
+      // Simulates the deliverable-dir mtime probe reporting fresh writes.
+      probe: (since: number) => {
+        lastProbeSince = since;
+        return true; // files keep landing -> alive
+      },
+    });
+    // Many silent windows: never trips idle because the probe stays live.
+    for (let i = 0; i < 50; i++) {
+      expect(k.onElapsed()).toBe("keep-running");
+    }
+    expect(k.breaches()).toBe(0);
+  });
+
+  test("the file-heartbeat probe sees fresh writes under watch dirs", () => {
+    const dir = mkdtempSync("pif-pulse-");
+    const sub = join(dir, "plans");
+    mkdirSync(sub, { recursive: true });
+    // Future watermark: nothing is newer than it, so no heartbeat yet.
+    expect(probeFileHeartbeat([sub], Date.now() + 60_000)).toBe(false);
+    writeFileSync(join(sub, "plan.md"), "# plan - updated", "utf-8");
+    // Past watermark: the fresh write is newer -> heartbeat alive.
+    expect(probeFileHeartbeat([sub], Date.now() - 60_000)).toBe(true);
+    // Future watermark again: no write after it -> quiet again.
+    expect(probeFileHeartbeat([sub], Date.now() + 60_000)).toBe(false);
+  });
+});
+
+describe("subagent label + task summary (T-029 follow-up)", () => {
+  test("derives a role label from task keywords", () => {
+    expect(deriveSubagentLabel("Research how the runner resolves the lock")).toBe("researcher");
+    expect(deriveSubagentLabel("Implement the process-tree kill in pi_backend")).toBe("dev");
+    expect(deriveSubagentLabel("Review the diff for the coverage command")).toBe("reviewer");
+    expect(deriveSubagentLabel("Draft the design doc for the new API")).toBe("docs");
+  });
+
+  test("an explicit fallback label wins over the derived one", () => {
+    expect(deriveSubagentLabel("Implement the fix", "refactoring")).toBe("refactoring");
+    expect(deriveSubagentLabel("", "dev")).toBe("dev");
+  });
+
+  test("unmatched or blank tasks fall back to worker", () => {
+    expect(deriveSubagentLabel("")).toBe("worker");
+    expect(deriveSubagentLabel("do the thing")).toBe("worker");
+  });
+
+  test("summarize collapses whitespace and truncates to the width", () => {
+    expect(summarizeSubagentTask("one\n  two   three\nfour", 100)).toBe("one two three four");
+    const long = "x".repeat(300);
+    const s = summarizeSubagentTask(long, 50);
+    expect(s.length).toBeLessThanOrEqual(50);
+    expect(s.endsWith("…")).toBe(true);
+  });
+
+  test("summarize clamps a non-positive width to empty", () => {
+    expect(summarizeSubagentTask("anything", 0)).toBe("");
+    expect(summarizeSubagentTask("anything", -1)).toBe("");
   });
 });
