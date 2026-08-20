@@ -8,6 +8,13 @@
 
 **Tech Stack:** Python 3.11+, dataclasses and enums, JSON Schema, pathlib/json, subprocess Git through the existing Git abstraction, pytest.
 
+## Execution Coordination
+
+- This plan is the serial programme entry point: complete it before compatibility shims or package migrations change the evidence/trace callers.
+- Task 1 record-contract tests and Task 5 temporary-register fixture tests may be prepared in parallel, but neither changes production call sites.
+- Tasks 2–4 are serial because reconciliation depends on the record contract, scope depends on reconciliation/read APIs, and audit/prompt output depends on typed scope state.
+- Task 5 may be implemented after Task 1 but its repository file and final trace check are merged only after Task 4 has retained audit truthfulness.
+
 ## Invariants
 
 - A missing run manifest is not equivalent to a run manifest whose changed-files list is empty.
@@ -328,3 +335,7 @@ Expected: no whitespace errors and no staged or unintended files.
 - This implements original increment 0 unchanged in intent: evidence-first audit, an explicit recovery path, and a repository requirement-register bootstrap.
 - The only design addition is the manual record's narrow authority boundary. It avoids abusing the rich run-manifest schema to manufacture historical test or validation provenance.
 - It deliberately does not auto-resolve stale or missing historical evidence; that remains provenance-blocked under the later freshness architecture.
+
+## Review Amendment
+
+Before deriving changed files, build_historical_record must run git merge-base --is-ancestor start_commit result_commit and refuse a non-ancestor range. write_historical_record is create-once: an existing record_id with byte-equivalent canonical JSON is idempotent; a different existing record raises ValueError and is never replaced.
