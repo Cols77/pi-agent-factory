@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any, Literal, Self
@@ -34,6 +34,22 @@ def _mapping(value: object, field_name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{field_name} must be an object")
     return value
+
+
+def _deep_freeze(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in value)
+    return deepcopy(value)
+
+
+def _deep_thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _deep_thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_deep_thaw(item) for item in value]
+    return deepcopy(value)
 
 
 def _reject_unknown_fields(data: Mapping[str, Any], allowed: set[str], field_name: str) -> None:
@@ -178,7 +194,12 @@ class ObservationEnvelope:
     facts: Mapping[str, object]
     diagnostics: tuple[Diagnostic, ...]
     artifacts: tuple[ArtifactRef, ...]
-    _gate_eligible: bool = field(default=False, init=False, repr=False, compare=False)
+    _gate_eligible: bool = field(
+        default=False,
+        repr=False,
+        compare=False,
+        kw_only=True,
+    )
 
     def __post_init__(self) -> None:
         _schema(self.schema)
@@ -199,11 +220,7 @@ class ObservationEnvelope:
 
         object.__setattr__(self, "outcome", _outcome(self.outcome))
         facts = _facts(self.facts)
-        object.__setattr__(
-            self,
-            "facts",
-            MappingProxyType(dict(deepcopy(facts))),
-        )
+        object.__setattr__(self, "facts", _deep_freeze(facts))
 
         diagnostic_values = tuple(self.diagnostics)
         if any(not isinstance(item, Diagnostic) for item in diagnostic_values):
@@ -271,23 +288,17 @@ class ObservationEnvelope:
             return envelope
 
         try:
-            envelope.validate_for_gate(registry)
+            return envelope.validate_for_gate(registry)
         except ValueError as exc:
             return RejectedObservation.from_envelope(envelope, str(exc))
-        return envelope
 
-    def validate_for_gate(self, registry: PayloadRegistry) -> None:
+    def validate_for_gate(self, registry: PayloadRegistry) -> Self:
         if not isinstance(registry, PayloadRegistry):
             raise TypeError("registry must be a PayloadRegistry")
-        try:
-            registry.validate(self.facts)
-        except Exception:
-            object.__setattr__(self, "_gate_eligible", False)
-            raise
-        object.__setattr__(
+        registry.validate(self.facts)
+        return replace(
             self,
-            "_gate_eligible",
-            self.outcome in {"pass", "fail"},
+            _gate_eligible=self.outcome in {"pass", "fail"},
         )
 
     @property
@@ -304,7 +315,7 @@ class ObservationEnvelope:
             "scope_refs": list(self.scope_refs),
             "inputs": [item.to_dict() for item in self.inputs],
             "outcome": self.outcome,
-            "facts": deepcopy(dict(self.facts)),
+            "facts": _deep_thaw(self.facts),
             "diagnostics": [item.to_dict() for item in self.diagnostics],
             "artifacts": [item.to_dict() for item in self.artifacts],
         }
@@ -320,7 +331,7 @@ class RejectedObservation:
     observed_at: str
     outcome: Literal["invalid"]
     diagnostics: tuple[Diagnostic, ...]
-    raw_artifacts: tuple[dict[str, object], ...]
+    raw_artifacts: tuple[Mapping[str, object], ...]
 
     def __post_init__(self) -> None:
         _nonblank(self.id, "id")
@@ -337,7 +348,7 @@ class RejectedObservation:
         object.__setattr__(
             self,
             "raw_artifacts",
-            tuple(deepcopy(item) for item in self.raw_artifacts),
+            tuple(_deep_freeze(item) for item in self.raw_artifacts),
         )
 
     @classmethod
@@ -359,9 +370,10 @@ class RejectedObservation:
     def gate_eligible(self) -> bool:
         return False
 
-    def validate_for_gate(self, registry: PayloadRegistry) -> None:
+    def validate_for_gate(self, registry: PayloadRegistry) -> Self:
         if not isinstance(registry, PayloadRegistry):
             raise TypeError("registry must be a PayloadRegistry")
+        return self
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -371,5 +383,5 @@ class RejectedObservation:
             "observed_at": self.observed_at,
             "outcome": self.outcome,
             "diagnostics": [item.to_dict() for item in self.diagnostics],
-            "raw_artifacts": deepcopy(list(self.raw_artifacts)),
+            "raw_artifacts": _deep_thaw(self.raw_artifacts),
         }

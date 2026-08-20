@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -75,9 +76,72 @@ def test_valid_envelope_round_trips_and_is_gate_eligible_after_explicit_validati
     assert envelope.artifacts[0] == ArtifactRef.from_dict(artifact_payload())
     assert envelope.to_dict() == observation_payload()
 
-    envelope.validate_for_gate(registry())
+    envelope = envelope.validate_for_gate(registry())
 
     assert envelope.gate_eligible is True
+
+
+def test_validate_for_gate_returns_a_new_immutable_validated_envelope() -> None:
+    envelope = ObservationEnvelope.from_dict(observation_payload())
+
+    validated = envelope.validate_for_gate(registry())
+
+    assert validated is not envelope
+    assert envelope.gate_eligible is False
+    assert validated.gate_eligible is True
+    with pytest.raises(FrozenInstanceError):
+        validated.outcome = "fail"  # type: ignore[misc]
+
+
+def test_validated_facts_are_deeply_immutable_and_to_dict_thaws_fresh_values() -> None:
+    envelope = ObservationEnvelope.from_dict(
+        observation_payload(
+            facts={
+                "schema": "test-run/v1",
+                "passed": 41,
+                "failed": 0,
+                "nested": {"items": ["unchanged"]},
+            }
+        )
+    )
+    validated = envelope.validate_for_gate(registry())
+    nested = validated.facts["nested"]
+
+    with pytest.raises(TypeError):
+        validated.facts["passed"] = 0  # type: ignore[index]
+    with pytest.raises(TypeError):
+        nested["value"] = "not allowed"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        nested["items"].append("not allowed")  # type: ignore[union-attr]
+
+    rendered = validated.to_dict()
+    assert isinstance(rendered["facts"], dict)
+    assert isinstance(rendered["facts"]["nested"], dict)
+    assert isinstance(rendered["facts"]["nested"]["items"], list)
+    rendered["facts"]["nested"]["items"].append("only in the copy")
+    assert validated.facts["nested"]["items"] == ("unchanged",)
+
+
+def test_rejected_raw_artifacts_are_deeply_immutable_and_to_dict_thaws_fresh_values() -> None:
+    rejected = ObservationEnvelope.from_dict(
+        observation_payload(),
+        registry=PayloadRegistry({
+            "test-run/v1": lambda facts: (_ for _ in ()).throw(ValueError("bad payload")),
+        }),
+    )
+    assert isinstance(rejected, RejectedObservation)
+
+    with pytest.raises(TypeError):
+        rejected.raw_artifacts[0]["location"] = "not allowed"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        rejected.raw_artifacts[0]["scope_refs"].append("not allowed")  # type: ignore[union-attr]
+
+    rendered = rejected.to_dict()
+    assert isinstance(rendered["raw_artifacts"], list)
+    assert isinstance(rendered["raw_artifacts"][0], dict)
+    assert isinstance(rendered["raw_artifacts"][0]["scope_refs"], list)
+    rendered["raw_artifacts"][0]["scope_refs"].append("only in the copy")
+    assert rejected.raw_artifacts[0]["scope_refs"] == ("scope:project",)
 
 
 def test_facts_schema_must_be_a_string() -> None:
@@ -93,7 +157,7 @@ def test_unknown_facts_schema_is_rejected_by_explicit_gate_validation() -> None:
     )
 
     with pytest.raises(ValueError, match="unknown facts schema"):
-        envelope.validate_for_gate(registry())
+        envelope = envelope.validate_for_gate(registry())
 
     assert envelope.gate_eligible is False
 
@@ -110,7 +174,7 @@ def test_registered_facts_validator_rejection_is_retained_as_invalid_observation
     assert rejected.outcome == "invalid"
     assert rejected.gate_eligible is False
     assert rejected.diagnostics[0].code == "FACTS_VALIDATION_REJECTED"
-    assert rejected.raw_artifacts == (artifact_payload(),)
+    assert rejected.to_dict()["raw_artifacts"] == [artifact_payload()]
 
 
 def test_unknown_facts_schema_with_explicit_registry_is_retained_as_invalid_observation() -> None:
@@ -126,13 +190,13 @@ def test_unknown_facts_schema_with_explicit_registry_is_retained_as_invalid_obse
     assert rejected.gate_eligible is False
     assert rejected.diagnostics[0].code == "FACTS_VALIDATION_REJECTED"
     assert "test-run/v9" in rejected.diagnostics[0].summary
-    assert rejected.raw_artifacts == (artifact_payload(),)
+    assert rejected.to_dict()["raw_artifacts"] == [artifact_payload()]
 
 
 @pytest.mark.parametrize("outcome", ["invalid", "unknown"])
 def test_invalid_and_unknown_outcomes_are_preserved_and_never_gate_eligible(outcome: str) -> None:
     envelope = ObservationEnvelope.from_dict(observation_payload(outcome=outcome))
-    envelope.validate_for_gate(registry())
+    envelope = envelope.validate_for_gate(registry())
 
     assert envelope.outcome == outcome
     assert envelope.gate_eligible is False
