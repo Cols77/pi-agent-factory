@@ -113,6 +113,22 @@ def test_registered_facts_validator_rejection_is_retained_as_invalid_observation
     assert rejected.raw_artifacts == (artifact_payload(),)
 
 
+def test_unknown_facts_schema_with_explicit_registry_is_retained_as_invalid_observation() -> None:
+    rejected = ObservationEnvelope.from_dict(
+        observation_payload(
+            facts={"schema": "test-run/v9", "passed": 41, "failed": 0},
+        ),
+        registry=registry(),
+    )
+
+    assert isinstance(rejected, RejectedObservation)
+    assert rejected.outcome == "invalid"
+    assert rejected.gate_eligible is False
+    assert rejected.diagnostics[0].code == "FACTS_VALIDATION_REJECTED"
+    assert "test-run/v9" in rejected.diagnostics[0].summary
+    assert rejected.raw_artifacts == (artifact_payload(),)
+
+
 @pytest.mark.parametrize("outcome", ["invalid", "unknown"])
 def test_invalid_and_unknown_outcomes_are_preserved_and_never_gate_eligible(outcome: str) -> None:
     envelope = ObservationEnvelope.from_dict(observation_payload(outcome=outcome))
@@ -187,4 +203,3 @@ def test_diagnostic_is_a_structured_value_with_only_declared_fields() -> None:
         "code": "ASSERTION_FAILED",
         "summary": "one assertion failed",
     }
-

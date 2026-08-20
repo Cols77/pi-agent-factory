@@ -272,7 +272,7 @@ class ObservationEnvelope:
 
         try:
             envelope.validate_for_gate(registry)
-        except FactsValidationError as exc:
+        except ValueError as exc:
             return RejectedObservation.from_envelope(envelope, str(exc))
         return envelope
 
