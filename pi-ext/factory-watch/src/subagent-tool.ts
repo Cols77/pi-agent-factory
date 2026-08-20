@@ -754,19 +754,18 @@ export function summarizeSubagentTask(task: string, maxChars: number = SUBAGENT_
 export async function executeSubagent(
   task: string,
   ctx: ToolCtx,
-  deps: {
+  deps: Partial<{
     build: typeof buildSubagentInvocation;
     resolveRoot: typeof resolveProjectRoot;
     /** Optional short role label, e.g. "researcher" / "dev" (default: derived). */
     label?: string | null;
-  } = {
-    build: buildSubagentInvocation,
-    resolveRoot: resolveProjectRoot,
-  },
+  }> = {},
 ): Promise<{ content: { type: "text"; text: string }[]; details: null }> {
-  const { root } = deps.resolveRoot(ctx.cwd);
+  const build = deps.build ?? buildSubagentInvocation;
+  const resolveRoot = deps.resolveRoot ?? resolveProjectRoot;
+  const { root } = resolveRoot(ctx.cwd);
   const depth = Number(process.env[RECURSE_GUARD_ENV] ?? "0") || 0;
-  const invocation = deps.build({
+  const invocation = build({
     root,
     task,
     provider: ctx.model?.provider,
