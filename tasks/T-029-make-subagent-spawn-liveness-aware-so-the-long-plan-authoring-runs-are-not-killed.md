@@ -7,7 +7,6 @@ dod:
   text-authoring runs.'
 - All steps in this task complete; tests/gates pass; committed
 id: T-029
-source_plan: docs/superpowers/plans/2026-08-20-subagent-liveness-aware-timeouts.md
 status: todo
 title: Make subagent spawn liveness-aware so long plan-authoring runs are not killed
 ---
@@ -29,7 +28,8 @@ file but *before* returning its structured result. The work survives; the
 completion signal does not — the harness treats the run as failed.
 
 Refs: `src/factory/orchestrator/pi_backend.py` `_drain_lines` +
-`run_pi_command` timeout handling.
+`run_pi_command` timeout handling. When this task is scheduled, it gets its own
+implementation plan (source_plan) under docs/superpowers/plans/.
 
 ## What "liveness-aware" means here
 
