@@ -5,57 +5,81 @@ dod:
 - 'The idle/timeout contract distinguishes "quiet because thinking hard and
   about to deliver" from "stalled"; no false-positive kills on long
   text-authoring runs.'
-- All steps in this task complete; tests/gates pass; committed
+- 'Process-tree termination: a timed-out/cancelled child is killed as a whole
+  tree (SIGTERM -> grace -> SIGKILL, verified), so grandchildren/descendants do
+  not leak after a kill.'
+- 'Transient spawn retry: a failed launcher spawn (pi ENOENT/one-off) is retried
+  with bounded backoff before being reported as a spawn failure.'
+- 'Output hard-cap: the streaming consumer enforces a total stdout/stderr
+  ceiling (and bounded per-line retention) so a pathological child cannot flood
+  memory or disk.'
+- 'Tests/gates pass (backend/grill for python, vitest for pi-ext) and changes
+  committed.'
 id: T-029
 status: todo
-title: Make subagent spawn liveness-aware so long plan-authoring runs are not killed
+title: Harden subagent/pi_backend spawn lifecycle: liveness-aware idle, process-tree kill, transient retry, output cap
 ---
 
-- Modify: `src/factory/orchestrator/pi_backend.py`
-- Test: `src/factory/orchestrator/test_pi_backend.py` (or nearest existing backend test)
+## Scope
+
+- Python orchestrator: `src/factory/orchestrator/pi_backend.py` (+ `test_pi_backend.py`)
+- TypeScript extension sibling: `pi-ext/factory-watch/src/subagent-tool.ts` (+ its
+  vitest). The **liveness-aware idle on the TS side landed earlier** (this session):
+  `createIdleKeeper` + `probeFileHeartbeat` + deliverable-dir heartbeat in
+  `executeSubagent`. Treat that as the **reference implementation** to port to the
+  python side; it is NOT left to redo on TS.
 
 ## Background
 
 Dispatching four plan-authoring subagents (all four wrote their 30–55K plan
 files successfully) reported three as *failed/timeouts*, even though the
-deliverables landed on disk. Root cause: `_drain_lines` treats "no stdout line
-for N seconds" as a stall (`idle` timeout, default `FACTORY_AGENT_IDLE_TIMEOUT_S`
-= 300 s) and "no total completion within wall-clock" as runaway (`total`,
-`FACTORY_AGENT_TOTAL_TIMEOUT_S` = 1200 s). A child that spends tens of minutes
-authoring a large text deliverable is legitimately quiet at the end (long
-generate-then-write burst), so it trips the idle/total kill *after* writing its
-file but *before* returning its structured result. The work survives; the
-completion signal does not — the harness treats the run as failed.
+deliverables landed on disk.
 
-Refs: `src/factory/orchestrator/pi_backend.py` `_drain_lines` +
-`run_pi_command` timeout handling. When this task is scheduled, it gets its own
-implementation plan (source_plan) under docs/superpowers/plans/.
+Root cause 1 (liveness): `_drain_lines` treats "no stdout line for N seconds"
+as a stall (`idle`, default `FACTORY_AGENT_IDLE_TIMEOUT_S` = 300 s) and "no total
+completion within wall-clock" as runaway (`total`, 1200 s). A child that spends
+tens of minutes authoring a large text deliverable is legitimately quiet at the
+end (long generate-then-write burst), so it trips the kill *after* writing its
+file but *before* returning its structured result. The work survives; the
+completion signal does not. Reference rationale from mature OSS (pi-subagents /
+pi-background-tasks): idle must exceed the longest plausible *single turn*, and
+a "strike count" + file-activity signal distinguishes quiet-but-productive from
+stalled.
+
+The remaining items are the sibling hardening:
+1. **Process-tree termination** — kill the whole child tree (SIGTERM → grace →
+   SIGKILL, poll until descendant group is gone) so grandchild processes do not
+   leak after an idle/total kill or a cancelled dispatch. POSIX-focus; keep a
+   safe fallback on Windows.
+2. **Transient spawn retry** — retry the `pi` launcher spawn with bounded backoff
+   on clear-once failures (missing bin, one-off race) before reporting
+   `subagent spawn failed`; do not retry genuine stalls.
+3. **Output hard-cap** — a total stdout/stderr ceiling on the streaming consumer
+   (on top of our bounded per-line retention) so a pathological or runaway child
+   cannot flood memory/disk unboundedly.
+
+Alignment: the behaviour duplication with `grill.py`'s agent lock/timeout is in
+scope to align or call the shared helper.
 
 ## What "liveness-aware" means here
 
 The fix must not weaken the guard that a genuinely stalled agent cannot hang the
-pipeline forever (the 38 MB runaway that motivated the timeout). Rather, a
-*productive* child — one whose stdout shows it is mid-generation, or whose
-working directory shows its target files being written — must count as alive.
-Minimum honest options a plan-author session could take:
-
-- Treat "newly-written or modified files under a configured target/watch dir
-  (the plan's own output path or the repo's tasks/docs/…) since the last idle
-  tick" as a heartbeat that resets the idle bound.
-- Only trip the idle kill after N consecutive idle breaches (a grace multiplier),
-  so a single quiet think-then-write burst does not kill a working child.
-- For plan-authoring (or any text-heavy) spawns, surface a live
-  "still working" marker (progress heartbeat) so the idle detector never
-  trips during a long generation.
-
-Pick and implement the option that keeps a genuinely-stalled child bounded
-(same total ceiling) while letting a productive-but-quiet child finish. The
-behaviour duplication with `grill.py`'s agent lock/timeout is in scope to align
-or call the shared helper.
+pipeline forever (the 38 MB runaway that motivated the timeout). A *productive*
+child — one whose stdout shows it is mid-generation, or whose working directory
+shows its target files being written — must count as alive. The TS reference
+does this with a strike-count grace (default 4 silent windows) plus a
+file-heartbeat probe over the deliverable dirs (docs/plans/tasks/requirements),
+resetting the strike on any output line, stderr byte, or fresh file write. The
+same contract, plus items 1–3 above, must hold on `pi_backend.py`.
 
 ## Acceptance
 
-- A stubbed/livelihood test reproduces the old failure: a child that writes its
+- A stubbed/liveness test reproduces the old failure: a child that writes its
   target file and then stays quiet is *not* killed during the idle window.
 - A genuine-stall still trips the idle/timeout kill (regression guard).
-- Existing backend/grill tests still pass; ruff/pyright clean.
+- Killing a child that spawned grandchildren leaves no live descendant
+  (process-tree assertion, POSIX).
+- A failed transient spawn is retried (bounded backoff) but a true stall is not.
+- A pathological stream is capped at the configured stdout/stderr ceiling while
+  still returning the extracted answer.
+- Existing backend/grill tests still pass; ruff/pyright clean; TS vitest green.
