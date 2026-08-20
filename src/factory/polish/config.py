@@ -7,6 +7,7 @@ from factory.config import FactoryConfig, GateStep, UnknownTypeError, load_confi
 from factory.polish.devserver import DevServerPlayground
 from factory.polish.playground import Playground
 from factory.polish.reference import ScenarioReplayPlayground
+from factory.polish.sim_live import SimLivePlayground
 from factory.validation.harness import Harness
 from factory.validation.playwright_harness import PlaywrightE2EHarness
 from factory.validation.sim_harness import SimTestbenchHarness
@@ -14,6 +15,7 @@ from factory.validation.sim_harness import SimTestbenchHarness
 PLAYGROUND_TYPES: dict[str, Callable[[dict, Path], Playground]] = {
     "dev-server": DevServerPlayground.from_config,
     "scenario-replay": ScenarioReplayPlayground.from_config,
+    "sim-live": SimLivePlayground.from_config,
 }
 HARNESS_TYPES: dict[str, Callable[[dict, Path], Harness]] = {
     "sim-testbench": SimTestbenchHarness.from_config,
