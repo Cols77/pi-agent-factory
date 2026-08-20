@@ -8,6 +8,13 @@
 
 **Tech Stack:** Python 3.11+, dataclasses/enums/protocols, JSON-compatible mappings, hashlib/pathlib, existing factory freshness and code-index implementation, pytest, Ruff, Pyright.
 
+## Execution Coordination
+
+- Prerequisite: Increment 0 is merged and its evidence semantics are stable.
+- Tasks 2 artifact/snapshot contracts and 3 observation/projection contracts are parallel after Task 1 establishes the substrate package/import-shim convention.
+- Freshness recipe/guard work is serial after Task 1 because it relocates the existing primitives; the codemap resolver adapter is serial after the guard contract.
+- Increment 1B waits for this plan; do not begin broad substrate moves against an unstable ArtifactRef, ObservationEnvelope, or resolver interface.
+
 ## Scope and Authority Boundaries
 
 - This is an interface foundation, not a giant event store and not an RTK-style raw-text capture replacement.
@@ -361,3 +368,9 @@ Create no compatibility shims for document validators, ledger, pi backend/skills
 - Code navigation is covered concretely through the existing code index and SnapshotRef; planning/spec/requirement artifacts are intentionally contract-ready but not auto-mutated.
 - The plan preserves existing fingerprints, code-index persistence and fallbacks, evidence provenance boundaries, and coverage import analysis.
 - Broad substrate extraction is deliberately deferred because current document validation and orchestrator modules still import factory-owned dependencies. Moving them mechanically would create the dependency inversion the architecture is intended to eliminate.
+
+## Review Amendments
+
+Task 2 is a prerequisite for Task 3: ProducerRef and SnapshotInputRef are defined in artifacts.py before ObservationEnvelope imports them. A payload that fails its named validator is retained as RejectedObservation(id, kind, producer, observed_at, outcome="invalid", diagnostics, raw_artifacts), which is renderable only with explicit invalid metadata and is never gate-eligible. A valid ObservationEnvelope with outcome invalid is also gate-ineligible but remains projectable; no rejected/invalid value is converted to pass.
+
+FreshnessRecipe compilation owns both registries. Add Fingerprinter protocol, FingerprinterRegistry, and compile-time rejection for an unknown fingerprinter; guarded_read obtains its dependency function from compiled.fingerprinters[recipe.fingerprinter], not a caller-supplied substitute. The artifacts/observations streams may prepare tests in parallel, but production Task 3 begins only after Task 2.
