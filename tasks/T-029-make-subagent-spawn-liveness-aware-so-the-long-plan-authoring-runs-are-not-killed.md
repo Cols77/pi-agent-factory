@@ -1,23 +1,34 @@
 ---
 dod:
-- 'Subagent/pi_backend spawn is liveness-aware: a child that writes its target
-  file (or otherwise progresses) is not killed by the idle timeout.'
-- 'The idle/timeout contract distinguishes "quiet because thinking hard and
-  about to deliver" from "stalled"; no false-positive kills on long
-  text-authoring runs.'
-- 'Process-tree termination: a timed-out/cancelled child is killed as a whole
-  tree (SIGTERM -> grace -> SIGKILL, verified), so grandchildren/descendants do
-  not leak after a kill.'
-- 'Transient spawn retry: a failed launcher spawn (pi ENOENT/one-off) is retried
-  with bounded backoff before being reported as a spawn failure.'
-- 'Output hard-cap: the streaming consumer enforces a total stdout/stderr
-  ceiling (and bounded per-line retention) so a pathological child cannot flood
-  memory or disk.'
-- 'Tests/gates pass (backend/grill for python, vitest for pi-ext) and changes
-  committed.'
+- 'Subagent/pi_backend spawn is liveness-aware: a child that writes its target file
+  (or otherwise progresses) is not killed by the idle timeout.'
+- The idle/timeout contract distinguishes "quiet because thinking hard and about to
+  deliver" from "stalled"; no false-positive kills on long text-authoring runs.
+- 'Process-tree termination: a timed-out/cancelled child is killed as a whole tree
+  (SIGTERM -> grace -> SIGKILL, verified), so grandchildren/descendants do not leak
+  after a kill.'
+- 'Transient spawn retry: a failed launcher spawn (pi ENOENT/one-off) is retried with
+  bounded backoff before being reported as a spawn failure.'
+- 'Output hard-cap: the streaming consumer enforces a total stdout/stderr ceiling
+  (and bounded per-line retention) so a pathological child cannot flood memory or
+  disk.'
+- Tests/gates pass (backend/grill for python, vitest for pi-ext) and changes committed.
 id: T-029
-status: todo
-title: Harden subagent/pi_backend spawn lifecycle: liveness-aware idle, process-tree kill, transient retry, output cap
+status: done
+title: 'Harden subagent/pi_backend spawn lifecycle: liveness-aware idle, process-tree
+  kill, transient retry, output cap'
+trace_exempt: true
+trace_exempt_reason: 'T-029 is exempt from both open gaps. (1) task_no_sr: no
+  requirement node governs this hardening task -- the repo-wide task->SR
+  linkage is 0/22 (no SRs exist to satisfy), and T-029 is a
+  resilience/hardening task executed directly from its own brief. (2)
+  task_no_plan: the original plan ref
+  (docs/superpowers/plans/2026-08-20-subagent-liveness-aware-timeouts.md) was
+  dropped as dangling in commit 0f40d87 because that plan file was never
+  created; the task note says it ''gets its own implementation plan when
+  scheduled'' -- none was ever authored, and the task was executed directly
+  from its own brief (the task file IS the spec), so there is no plan file to
+  link.'
 ---
 
 ## Scope
