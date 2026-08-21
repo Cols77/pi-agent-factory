@@ -444,6 +444,33 @@ def test_invalid_replacement_is_not_current() -> None:
     assert not result.current
 
 
+def test_self_referential_replacement_is_invalid() -> None:
+    candidate = make_snapshot(fingerprint="old")
+    recipe = make_recipe()
+    replacement = make_snapshot(ref=candidate.ref, fingerprint="new")
+    object.__setattr__(replacement, "supersedes", candidate.ref)
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "new"
+
+    def resolver(recipe: FreshnessRecipe, snapshot: SnapshotRef) -> SnapshotRef:
+        return replacement
+
+    result = guarded_read(
+        GuardSession(),
+        make_compiled(recipe, fingerprinter, resolver),
+        recipe,
+        candidate,
+        [],
+    )
+
+    assert result.snapshot is None
+    assert result.failure == ResolutionFailure(
+        code="invalid_replacement",
+        reason="replacement kind or supersedes lineage is invalid",
+    )
+
+
 def test_stale_replacement_is_not_current() -> None:
     candidate = make_snapshot(fingerprint="old")
     recipe = make_recipe()

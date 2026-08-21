@@ -89,6 +89,7 @@ def _replacement_failure(
     if (
         not isinstance(replacement, SnapshotRef)
         or replacement.kind != recipe.output_kind
+        or replacement.ref == candidate.ref
         or replacement.supersedes != candidate.ref
     ):
         return ResolutionFailure(
