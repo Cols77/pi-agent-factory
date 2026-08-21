@@ -118,3 +118,71 @@ def test_abandonment_is_idempotent_only_for_the_same_reason(tmp_path):
 def test_abandonment_requires_a_reason(tmp_path):
     with pytest.raises(ValueError, match="must not be blank"):
         abandon_run(tmp_path, "  ")
+
+
+def test_tracked_diff_match_with_untracked_drift_is_resumable_with_warning(tmp_path):
+    """KB-0004: factory scratch churn used to flip the full fingerprint into a
+    hard CONFLICT. When HEAD matches and the tracked diff still matches, an
+    untracked drift is a warning, not a refusal."""
+    fake = FakeGitOps(head="a" * 40)
+    fake.fingerprint = "changed-full"
+    fake.tracked_fp = "t" * 64
+    fake.untracked = {"new.bin": "u1"}
+    fake.sidecar = {"new.bin": "u0"}
+    cp = checkpoint(tracked_fingerprint="t" * 64, patch_path="checkpoint.patch")
+
+    result = assess_recovery(tmp_path, cp, fake)
+
+    assert result.state is RecoveryState.RESUMABLE
+    assert "resume" in result.actions
+    assert any("tracked diff still matches" in reason for reason in result.reasons)
+    assert any("untracked files changed" in reason for reason in result.reasons)
+
+
+def test_tracked_diff_match_without_untracked_drift_is_resumable(tmp_path):
+    fake = FakeGitOps(head="a" * 40)
+    fake.fingerprint = "changed-full"
+    fake.tracked_fp = "t" * 64
+    fake.untracked = {}
+    fake.sidecar = {}
+    cp = checkpoint(tracked_fingerprint="t" * 64, patch_path="checkpoint.patch")
+
+    result = assess_recovery(tmp_path, cp, fake)
+
+    assert result.state is RecoveryState.RESUMABLE
+    assert not any("untracked files changed" in reason for reason in result.reasons)
+
+
+def test_old_checkpoint_without_tracked_fingerprint_falls_back_to_patch_bytes(tmp_path):
+    """Schema v1 checkpoints predate tracked_fingerprint; the tracked-diff
+    comparison must fall back to byte-equality with the saved patch."""
+    patch = tmp_path / "checkpoint.patch"
+    patch.write_bytes(b"recorded-diff")
+    fake = FakeGitOps(head="a" * 40)
+    fake.fingerprint = "changed-full"
+    fake.worktree_diff_result = b"recorded-diff"
+    cp = checkpoint(patch_path="checkpoint.patch")  # no tracked_fingerprint
+
+    result = assess_recovery(tmp_path, cp, fake)
+
+    assert result.state is RecoveryState.RESUMABLE
+
+
+def test_old_checkpoint_with_diverged_tracked_diff_is_conflict(tmp_path):
+    patch = tmp_path / "checkpoint.patch"
+    patch.write_bytes(b"recorded-diff")
+
+    class Diverged(FakeGitOps):
+        def check_patch(self, repo_root, path):
+            return False  # patch does not apply against the diverged tree
+
+    fake = Diverged(head="a" * 40)
+    fake.fingerprint = "changed-full"
+    fake.worktree_diff_result = b"different-diff"
+    cp = checkpoint(patch_path="checkpoint.patch")
+
+    result = assess_recovery(tmp_path, cp, fake)
+
+    assert result.state is RecoveryState.CONFLICT
+    assert "restart" in result.actions
+    assert "preserve-external-edits" in result.actions

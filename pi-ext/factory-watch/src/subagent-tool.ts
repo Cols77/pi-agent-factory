@@ -27,7 +27,7 @@
 // opaque "(no stderr)".
 
 import { Type } from "typebox";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -40,12 +40,37 @@ import { agentExtensionPath } from "./factory-path.js";
 export const MAX_SUBAGENT_DEPTH = 1;
 export const RECURSE_GUARD_ENV = "PI_FACTORY_SUBAGENT_DEPTH";
 
+// Label + task summary surfaced with the subagent result so the parent (and
+// anyone reading the transcript) can see at a glance which child did what and
+// on which prompt -- without opening the child's session. The label is a short
+// role-ish noun ("researcher", "dev", "reviewer", "docs", "worker") derived from
+// the task text or given explicitly; the summary is a single-line truncation of
+// the task packet.
+export const SUBAGENT_TASK_SUMMARY_MAX = 240;
+
 // Timeout budgets for a child pi run, mirroring pi_backend.py's defaults:
 // idle = max silence between consecutive output lines (a true stall), total =
 // whole-run budget. Both are enforced by killing the child, like the Python
 // launcher's _drain_lines + proc.kill().
 export const SUBAGENT_IDLE_TIMEOUT_MS = 300_000; // 5 min
-export const SUBAGENT_TIMEOUT_MS = 600_000; // 10 min total
+
+// Liveness-aware idle (pulls the same contract pi-subagents / pi-background-tasks
+// use): the idle budget is a wall-clock silence window AND a strike count. A
+// child that is mid-generation or mid-file-write must not be killed simply
+// because it produced no stdout line for one window -- a single slow model turn
+// or a long generate-then-write burst is legitimately silent (reference
+// rationale: pi-background-tasks FUSION_CHILD_IDLE_TIMEOUT_MS is 35 min for
+// this reason). We keep a short idle window but withstand a small number of
+// consecutive breach windows and, when liveness dirs are configured, treat any
+// file write under them as a heartbeat that resets the live counter.
+export const SUBAGENT_IDLE_GRACE_BREACHES = 2;
+export const SUBAGENT_LIVENESS_DEPTH = 4; // depth of the file-heartbeat probe
+// 20 min total -- mirrors pi_backend.py's FACTORY_AGENT_TOTAL_TIMEOUT_S=1200.
+// Kept larger than idle×grace (2×5 min = 10 min of permitted silence) so a
+// genuine stall is caught by the idle bound (reachable) rather than always
+// running up to the total runaway ceiling, and so a long plan-authoring burst
+// is not cut off mid-deliverable.
+export const SUBAGENT_TIMEOUT_MS = 1_200_000; // 20 min total
 
 // DEFENSIVE ONLY: spawnSync/spawn-level ENOBUFS cannot occur for us anymore
 // because stdout is streamed (see spawnStreamedChild); the classification
@@ -58,7 +83,7 @@ export const SUBAGENT_MAX_BUFFER = 128 * 1024 * 1024;
 export const MAX_ANSWER_CHARS = 1_000_000;
 export const MAX_EVENT_LINE_CHARS = 10 * 1024 * 1024;
 
-interface ToolCtx {
+export interface ToolCtx {
   cwd: string;
   model?: { provider: string; id: string };
 }
@@ -118,6 +143,8 @@ export function buildSubagentInvocation(input: {
   provider?: string;
   model?: string;
   currentDepth?: number;
+  /** Pre-rendered "available factory tools" line, injected by the glue layer. */
+  toolsSummary?: string;
 }): {
   cmd: string[];
   env: Record<string, string>;
@@ -129,10 +156,14 @@ export function buildSubagentInvocation(input: {
   // Write the concise task packet to a temp @file (not the parent transcript).
   const packetDir = mkdtempSync(join(tmpdir(), "pi-subagent-"));
   const packetFile = join(packetDir, "packet.md");
+  const toolsBlock = input.toolsSummary
+    ? `\n\nAVAILABLE FACTORY TOOLS\n${input.toolsSummary}\n`
+    : `\nRoot AGENTS.md (loaded with context files) lists the factory tools available to you. `;
   writeFileSync(
     packetFile,
     `You are a bounded subagent in project ${input.root}.\n\n` +
-      `TASK\n${input.task}\n\n` +
+      `TASK\n${input.task}\n` +
+      toolsBlock +
       "Return a concise, structured answer. Do NOT spawn a subagent; do not modify project-level config. ",
     "utf-8",
   );
@@ -328,12 +359,118 @@ export interface StreamedChildRun {
   killedFor: StreamKillReason;
 }
 
+// ---------------------------------------------------------------------------
+// Liveness-aware idle keeper (pure, injectable for tests)
+// ---------------------------------------------------------------------------
+//
+// Distinguishes "quiet because thinking hard / writing" from "stalled". A live
+// keeper starts with a breach count of zero; any progress you report (an output
+// line, or a file-heartbeat from the liveness probe) resets it. Each full idle
+// window with no progress increments it, and only after graceBreaches windows
+// does the caller kill. This lets a productive-but-quiet child finish (T-029)
+// while a genuinely stalled one still hits the hammer.
+
+export type IdleDisposition = "keep-running" | "kill";
+
+export interface IdleKeeperOptions {
+  /** Wall-clock idle window (ms) = one breach. */
+  idleMs: number;
+  /** Consecutive silent windows permitted before a kill. */
+  graceBreaches?: number;
+  /**
+   * Optional file-write liveness probe. Called at each window boundary; return
+   * true when the child's deliverables are still being written (resets breach).
+   */
+  probe?: (sinceMs: number) => boolean;
+  /** Injectable clock (tests). Defaults to Date.now(). */
+  now?: () => number;
+}
+
+export interface IdleKeeper {
+  /** Reset the breach count + record liveness (call on any child output). */
+  noteLive(): void;
+  /**
+   * A full idle window elapsed. Resets the breach when the probe reports
+   * file-progress; otherwise increments breaches and says whether to kill.
+   */
+  onElapsed(): IdleDisposition;
+  /** Current breach count (observable for tests). */
+  breaches(): number;
+}
+
+export function createIdleKeeper(opts: IdleKeeperOptions): IdleKeeper {
+  const grace = opts.graceBreaches ?? SUBAGENT_IDLE_GRACE_BREACHES;
+  let breaches = 0;
+  let since = (opts.now ?? Date.now)();
+  const nowMs = (): number => (opts.now ?? Date.now)();
+  const noteLive = () => {
+    breaches = 0;
+    since = nowMs();
+  };
+  const onElapsed = (): IdleDisposition => {
+    const t = nowMs();
+    if (opts.probe && opts.probe(since)) {
+      // File-heartbeat: the child is still writing deliverables.
+      breaches = 0;
+      since = t;
+      return "keep-running";
+    }
+    breaches += 1;
+    // Kill once MORE than `grace` silent windows have elapsed (grace windows are
+    // permitted; the breach count is the incident count, so it must exceed grace).
+    if (breaches > Math.max(1, grace)) return "kill";
+    return "keep-running"; // one more silent window is allowed
+  };
+  return { noteLive, onElapsed, breaches: () => breaches };
+}
+
+// Best-effort file-write heartbeat: true when any file under any of `dirs` has a
+// modification time newer than `sinceMs`. Early-returns as soon as one is found
+// so an actively-writing child is cheap to detect; depth-bounded to stay cheap.
+export function probeFileHeartbeat(
+  dirs: string[],
+  sinceMs: number,
+  maxDepth = SUBAGENT_LIVENESS_DEPTH,
+): boolean {
+  if (!dirs || dirs.length === 0) return false;
+  return dirs.some((dir) => probeDir(dir, sinceMs, maxDepth));
+}
+
+function probeDir(dir: string, sinceMs: number, depth: number): boolean {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false; // missing/unreadable dir -> no signal
+  }
+  for (const name of entries) {
+    if (name.startsWith(".")) continue;
+    const p = join(dir, name);
+    try {
+      const st = statSync(p);
+      if (st.mtimeMs > sinceMs) return true;
+      if (st.isDirectory() && depth > 0 && probeDir(p, sinceMs, depth - 1)) return true;
+    } catch {
+      /* transient stat race -> try next */
+    }
+  }
+  return false;
+}
+
 export interface StreamSpawnOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   shell: boolean;
   totalTimeoutMs?: number;
   idleTimeoutMs?: number;
+  /** Liveness-aware idle: consecutive silent windows before a kill (default 4). */
+  idleGraceBreaches?: number;
+  /**
+   * Optional directories to probe for file-write heartbeats; any write newer
+   * than the last probe keeps a silent child alive (never trips idle on a long
+   * plan-authoring burst).
+   */
+  livenessDirs?: string[];
   tailChars?: number;
   stderrCapChars?: number;
 }
@@ -379,18 +516,42 @@ export function spawnStreamedChild(
     let idleTimer: NodeJS.Timeout | null = null;
     let totalTimer: NodeJS.Timeout | null = null;
 
+    // Liveness-aware idle: each silent window is a probation increment, cleared
+    // by any child output or (when livenessDirs are configured) any file write
+    // under them. Only the grace-breach budget yields an idle kill; the total
+    // budget stays the hard runaway ceiling.
+    const idle = createIdleKeeper({
+      idleMs,
+      graceBreaches: opts.idleGraceBreaches,
+      probe: opts.livenessDirs?.length
+        ? (since) => probeFileHeartbeat(opts.livenessDirs!, since)
+        : undefined,
+    });
+
+    const killChild = () => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+    };
+
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        if (!settled) {
+        if (settled) return;
+        if (idle.onElapsed() === "kill") {
           killedFor = "idle";
-          try {
-            child.kill();
-          } catch {
-            /* already gone */
-          }
+          killChild();
+        } else {
+          armIdle();
         }
       }, idleMs);
+    };
+
+    const reportLive = () => {
+      idle.noteLive();
+      armIdle();
     };
 
     const finish = () => {
@@ -412,11 +573,7 @@ export function spawnStreamedChild(
     totalTimer = setTimeout(() => {
       if (!settled) {
         killedFor = "total";
-        try {
-          child.kill();
-        } catch {
-          /* already gone */
-        }
+        killChild();
       }
     }, totalMs);
     armIdle();
@@ -427,7 +584,7 @@ export function spawnStreamedChild(
       finish();
     });
     child.stdout?.on("data", (chunk: string) => {
-      armIdle();
+      reportLive();
       outBuf += chunk;
       // A pathological single line must not grow the buffer unboundedly.
       if (outBuf.length > MAX_EVENT_LINE_CHARS) outBuf = outBuf.slice(-MAX_EVENT_LINE_CHARS);
@@ -440,6 +597,7 @@ export function spawnStreamedChild(
       }
     });
     child.stderr?.on("data", (chunk: string) => {
+      reportLive();
       stderrTail = (stderrTail + chunk).slice(-stderrCap);
     });
     child.on("close", (code, sig) => {
@@ -547,6 +705,47 @@ export function renderSubagentOutcome(proc: SubagentProc): string {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Subagent label + task summary (so a result names which child did what).
+// A short, role-ish noun keeps the transcript legible without forcing the
+// caller to hand over a label every time.
+// ---------------------------------------------------------------------------
+
+const SUBAGENT_LABEL_RULES: [RegExp, string][] = [
+  [/\b(doc|documentation|design doc|changelog|readme)\b/i, "docs"],
+  [/\b(research|read|summari[sz]e|investigat|spike)\b/i, "researcher"],
+  [/\b(implement|build|write|code|dev|fix|port|refactor|add)\b/i, "dev"],
+  [/\b(review|audit|inspect|verify)\b/i, "reviewer"],
+  [/\b(test|unit test|vitest|pytest)\b/i, "tester"],
+];
+
+/**
+ * Pick a short role label for a subagent task. An explicit `fallback` (from
+ * the caller) wins; otherwise the first keyword rule that matches the task
+ * text decides (e.g. "implement..." -> "dev", "review..." -> "reviewer").
+ * Pure and deterministic so it can be unit-tested.
+ */
+export function deriveSubagentLabel(task: string, fallback: string | null = null): string {
+  const trimmed = task.trim();
+  if (fallback && fallback.trim() !== "") return fallback.trim();
+  if (trimmed === "") return "worker";
+  for (const [pattern, label] of SUBAGENT_LABEL_RULES) {
+    if (pattern.test(trimmed)) return label;
+  }
+  return "worker";
+}
+
+/**
+ * Collapse a task packet into one legible line, truncated to a bounded width
+ * so a transcript line does not balloon. Pure and deterministic.
+ */
+export function summarizeSubagentTask(task: string, maxChars: number = SUBAGENT_TASK_SUMMARY_MAX): string {
+  const flat = task.replace(/\s+/g, " ").trim();
+  if (maxChars <= 0) return "";
+  if (flat.length <= maxChars) return flat;
+  return `${flat.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
 /**
  * Delegates a bounded sub-task to a dedicated child pi process. Returns the
  * child's final answer (streamed + extracted from its JSONL event stream) or
@@ -555,17 +754,18 @@ export function renderSubagentOutcome(proc: SubagentProc): string {
 export async function executeSubagent(
   task: string,
   ctx: ToolCtx,
-  deps: {
+  deps: Partial<{
     build: typeof buildSubagentInvocation;
     resolveRoot: typeof resolveProjectRoot;
-  } = {
-    build: buildSubagentInvocation,
-    resolveRoot: resolveProjectRoot,
-  },
+    /** Optional short role label, e.g. "researcher" / "dev" (default: derived). */
+    label?: string | null;
+  }> = {},
 ): Promise<{ content: { type: "text"; text: string }[]; details: null }> {
-  const { root } = deps.resolveRoot(ctx.cwd);
+  const build = deps.build ?? buildSubagentInvocation;
+  const resolveRoot = deps.resolveRoot ?? resolveProjectRoot;
+  const { root } = resolveRoot(ctx.cwd);
   const depth = Number(process.env[RECURSE_GUARD_ENV] ?? "0") || 0;
-  const invocation = deps.build({
+  const invocation = build({
     root,
     task,
     provider: ctx.model?.provider,
@@ -584,8 +784,22 @@ export async function executeSubagent(
     cwd: root, // project root: same AGENTS.md / bootstrap as the parent
     env: invocation.env,
     shell: plan.shell,
+    // Liveness-aware idle: a long plan-authoring run writes these dirs while
+    // staying silent on stdout, so watch them as a written-heartbeat. Any file
+    // write under docs/plans/tasks/requirements resets the idle breach and the
+    // child is never killed mid-deliverable (T-029). Missing dirs are ignored.
+    livenessDirs: [
+      join(root, "docs"),
+      join(root, "plans"),
+      join(root, "tasks"),
+      join(root, "requirements"),
+      join(root, ".pi"),
+    ],
   });
-  return taskResult(renderChildOutcome(run));
+  const label = deriveSubagentLabel(task, deps.label);
+  const summary = summarizeSubagentTask(task);
+  const body = renderChildOutcome(run);
+  return taskResult(`subagent[${label}] — ${summary}\n\n${body}`);
 }
 
 export const subagentTool = {
@@ -608,10 +822,13 @@ export const subagentTool = {
     task: Type.String({
       description: "The concise, self-contained task packet for the child. Include success criteria and the exact deliverable.",
     }),
+    name: Type.Optional(Type.String({
+      description: "Optional short role label shown with the result, e.g. 'researcher' or 'dev'. Defaults to a label derived from the task text.",
+    })),
   }),
   async execute(
     _callId: string,
-    params: { task: string },
+    params: { task: string; name?: string },
     _signal: AbortSignal | undefined,
     _onUpdate: unknown,
     ctx: ToolCtx,
@@ -619,6 +836,8 @@ export const subagentTool = {
     if (!params.task || params.task.trim() === "") {
       return taskResult("subagent needs a non-empty task packet; nothing was dispatched.");
     }
-    return executeSubagent(params.task, ctx);
+    return executeSubagent(params.task, ctx, {
+      label: params.name ?? null,
+    });
   },
 };

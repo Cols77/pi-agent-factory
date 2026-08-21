@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -305,8 +306,14 @@ def test_ensure_factory_ignores_is_additive_and_idempotent(tmp_path):
     assert ensure_factory_ignores(tmp_path) is True
     text = gitignore.read_text(encoding="utf-8")
     assert text.startswith(".venv/\n"), "existing entries must be preserved verbatim"
-    for prefix in ("sessions/.factory-runs/", "sessions/.factory-transcripts/", ".factory/artifacts/"):
-        assert prefix in text
+    for line in (
+        "sessions/.factory-runs/",
+        "sessions/.factory-transcripts/",
+        ".factory/",
+        "sessions/latest.md",
+        "sessions/.factory-*",
+    ):
+        assert line in text
 
     # Second call is a no-op: no duplicate block, no rewrite.
     assert ensure_factory_ignores(tmp_path) is False
@@ -350,6 +357,223 @@ def _commit_file(repo, name, text):
     (repo / name).write_text(text, encoding="utf-8")
     subprocess.run(["git", "add", name], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", f"add {name}"], cwd=repo, check=True)
+
+
+def _track_scratch(repo):
+    """Track the factory's own scratch files, the way a real target repo does."""
+    for name in ("sessions/latest.md", "sessions/.factory-status.json"):
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("v0\n", encoding="utf-8")
+        _commit_file(repo, name, "v0\n")
+
+
+def test_fingerprint_ignores_factory_scratch_tracked_churn(tmp_path):
+    """KB-0004: the worktree fingerprint must not flip on the factory's own
+    mid-run rewrites of tracked scratch files (sessions/latest.md,
+    sessions/.factory-*.json), which used to send resume into CONFLICT even
+    though HEAD and the real work matched the checkpoint."""
+    repo = _init_repo(tmp_path)
+    _track_scratch(repo)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    baseline = ops.worktree_fingerprint(repo, start)
+
+    (repo / "sessions" / "latest.md").write_text("factory rewrite\n", encoding="utf-8")
+    (repo / "sessions" / ".factory-status.json").write_text("{\"state\":\"running\"}\n", encoding="utf-8")
+    (repo / "sessions" / ".factory-review-surface.json").write_text("{}\n", encoding="utf-8")
+
+    assert ops.worktree_fingerprint(repo, start) == baseline
+    assert ops.tracked_fingerprint(repo, start) == ops.worktree_fingerprint(
+        repo, start, include_untracked=False
+    )
+
+    # Real work must still flip it.
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    assert ops.worktree_fingerprint(repo, start) != baseline
+
+
+def test_fingerprint_untracked_churn_flips_only_full_not_tracked(tmp_path):
+    """Resume tolerance: a new untracked file flips the full fingerprint but not
+    the tracked-only fingerprint, so a checkpoint whose tracked state matches
+    can still be classified resumable."""
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    tracked = ops.tracked_fingerprint(repo, start)
+    full = ops.worktree_fingerprint(repo, start)
+
+    (repo / "unrelated.bin").write_bytes(b"\x00\x01")
+
+    assert ops.tracked_fingerprint(repo, start) == tracked
+    assert ops.worktree_fingerprint(repo, start) != full
+
+
+def test_write_patch_excludes_tracked_scratch_from_patch_bytes(tmp_path):
+    repo = _init_repo(tmp_path)
+    _track_scratch(repo)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "sessions" / "latest.md").write_text("factory rewrite\n", encoding="utf-8")
+    patch = repo / "sessions" / "checkpoint.patch"
+
+    ops.write_patch(repo, start, patch)
+    raw = patch.read_bytes()
+
+    assert b"+two" in raw
+    assert b"latest.md" not in raw, "tracked scratch churn leaked into the patch"
+
+
+def test_commit_all_never_commits_factory_scratch_tracked_writes(tmp_path):
+    """A run's commit must not carry the factory's own writes to tracked
+    scratch files under the task's message."""
+    repo = _init_repo(tmp_path)
+    _track_scratch(repo)
+    ops = SubprocessGitOps()
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    (repo / "sessions" / "latest.md").write_text("factory rewrite\n", encoding="utf-8")
+
+    assert ops.commit_all(repo, "T-999: agent work") is True
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=repo, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert "a.txt" in committed
+    assert "sessions/latest.md" not in committed, f"committed factory scratch: {committed}"
+    assert "sessions/.factory-status.json" not in committed
+
+
+def test_commit_all_raises_commit_all_error_on_invalid_path_refusal(tmp_path):
+    """KB-0004: an `invalid path 'nul'`-style staging failure must surface as a
+    run-blocking CommitAllError with remediation, not a silent
+    "completing without a commit" -- the failure mode that let a broken tree
+    keep producing checkpoints nobody noticed were uncommitted."""
+    from factory.orchestrator.git_ops import CommitAllError
+    from unittest.mock import patch
+
+    repo = _init_repo(tmp_path)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    ops = SubprocessGitOps()
+
+    def fake_run(args, **kwargs):
+        if args[:2] == ["git", "add"]:
+            raise subprocess.CalledProcessError(
+                128, args, output=b"", stderr=b"error: invalid path 'nul'\nfatal: adding files failed"
+            )
+        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+    with patch("factory.orchestrator.git_ops.subprocess.run", side_effect=fake_run):
+        with pytest.raises(CommitAllError, match="refused to stage"):
+            ops.commit_all(repo, "T-999: agent work")
+
+
+def test_commit_all_raises_when_reserved_name_file_present(tmp_path):
+    """A reserved-name path is detected even when git's stderr is empty (the
+    Windows `nul` device-interception case is not reliably reported; on Windows
+    the file cannot even physically exist -- git's readdir reports it as a
+    phantom and `git add` refuses it)."""
+    from factory.orchestrator.git_ops import CommitAllError
+
+    repo = _init_repo(tmp_path)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    ops = SubprocessGitOps()
+
+    def fake_run(args, **kwargs):
+        if args[:2] == ["git", "add"]:
+            raise subprocess.CalledProcessError(128, args)
+        if args[:2] == ["git", "ls-files"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"nul\x00", stderr=b"")
+        if args[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"!! nul\x00", stderr=b"")
+        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+    from unittest.mock import patch
+
+    with patch("factory.orchestrator.git_ops.subprocess.run", side_effect=fake_run):
+        with pytest.raises(CommitAllError, match="refused to stage"):
+            ops.commit_all(repo, "T-999: agent work")
+
+
+def test_untracked_snapshot_and_sidecar_round_trip(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "new.bin").write_bytes(b"\x00\x01\x02")
+    (repo / "scratch.log").write_bytes(b"s")
+    subprocess.run(["git", "check-ignore"], cwd=repo, capture_output=True)  # no-op
+    repo.joinpath(".gitignore").write_text("scratch.log\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "ignore"], cwd=repo, check=True)
+
+    snapshot = ops.untracked_snapshot(repo)
+    assert snapshot == {"new.bin": hashlib.sha256(b"\x00\x01\x02").hexdigest()}
+
+    patch = repo / "checkpoint.patch"
+    ops.write_patch(repo, start, patch)
+    assert ops.read_untracked_sidecar(patch) == snapshot
+
+
+def test_read_untracked_sidecar_tolerates_old_sidecar_without_sha256(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    patch = repo / "checkpoint.patch"
+    patch.write_bytes(b"")
+    patch.with_suffix(".patch.untracked.json").write_text(
+        json.dumps({"files": [{"path": "new.bin", "data": "AAEC", "mode": 420}]}),
+        encoding="utf-8",
+    )
+    assert ops.read_untracked_sidecar(patch) == {
+        "new.bin": hashlib.sha256(b"\x00\x01\x02").hexdigest()
+    }
+
+
+def test_write_patch_skips_untracked_files_over_size_cap(tmp_path):
+    from factory.orchestrator.git_ops import MAX_SIDECAR_FILE_BYTES
+
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "giant.bin").write_bytes(b"\x00" * (MAX_SIDECAR_FILE_BYTES + 1))
+    (repo / "small.bin").write_bytes(b"\x00\x01")
+    patch = repo / "checkpoint.patch"
+
+    ops.write_patch(repo, start, patch)
+    sidecar = json.loads(
+        patch.with_suffix(".patch.untracked.json").read_text(encoding="utf-8")
+    )
+    by_path = {item["path"]: item for item in sidecar["files"]}
+    assert by_path["giant.bin"]["skipped"] is True
+    assert by_path["giant.bin"]["reason"] == "too_large"
+    assert "data" not in by_path["giant.bin"]
+    assert by_path["small.bin"]["data"] == base64.b64encode(b"\x00\x01").decode("ascii")
+
+
+def test_restore_patch_ignores_skipped_untracked_entries(tmp_path):
+    repo = _init_repo(tmp_path)
+    ops = SubprocessGitOps()
+    start = ops.head_commit(repo)
+    (repo / "a.txt").write_text("two\n", encoding="utf-8")
+    patch = repo / "checkpoint.patch"
+    ops.write_patch(repo, start, patch)  # real, applicable patch
+    patch.with_suffix(".patch.untracked.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": "giant.bin", "size": 999, "skipped": True, "reason": "too_large"},
+                    {"path": "small.bin", "data": "AAEC", "mode": 420},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "reset", "--hard", start], cwd=repo, check=True)
+    (repo / "small.bin").write_bytes(b"\x00\x01\x02")
+
+    ops.restore_patch(repo, patch)  # must not crash on the skipped entry
+    assert (repo / "a.txt").read_text(encoding="utf-8") == "two\n"
+    assert (repo / "small.bin").read_bytes() == b"\x00\x01\x02"
+    assert not (repo / "giant.bin").exists()
 
 
 def test_commit_all_leaves_untouched_preexisting_edits_alone(tmp_path):

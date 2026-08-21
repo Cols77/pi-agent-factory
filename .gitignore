@@ -52,3 +52,6 @@ sessions/*
 # Playwright MCP + vitest runtime caches/logs (browser capture, results)
 .playwright-mcp/
 .vite/
+
+# Per-run requirement coverage review artifacts (regenerable)
+coverage-reviews/

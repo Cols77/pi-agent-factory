@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -89,3 +90,38 @@ def test_corrupt_checkpoint_is_not_silently_ignored(tmp_path):
     journal.checkpoint_path.write_text("not-json", encoding="utf-8")
     with pytest.raises(ValueError, match="corrupt run checkpoint"):
         journal.latest()
+
+
+def test_old_schema_checkpoint_without_tracked_fingerprint_loads_with_default(tmp_path):
+    """KB-0004: checkpoints written before tracked_fingerprint existed must still
+    load, so resume can fall back to the saved patch for the tracked-diff check.
+    Unknown newer keys are dropped; missing defaulted fields are filled in."""
+    journal = RunJournal(tmp_path)
+    old = {
+        "schema_version": 1,
+        "run_id": "run-1",
+        "task_id": "T-001",
+        "node": "review",
+        "attempt": 2,
+        "remaining": {"dev": 1},
+        "start_commit": "a" * 40,
+        "head_commit": "a" * 40,
+        "worktree_fingerprint": "b" * 64,
+        "patch_path": "checkpoints/000003.patch",
+        "completed": [],
+        "agent_sessions": {},
+        "pending_human_round": None,
+        "artifacts": [],
+        "interruption": "process_exit",
+        # A future field that does not exist yet -- must be tolerated.
+        "future_field": {"x": 1},
+    }
+    journal.checkpoint_path.write_text(json.dumps(old), encoding="utf-8")
+
+    loaded = journal.latest()
+
+    assert loaded.run_id == "run-1"
+    assert loaded.node == "review"
+    assert loaded.tracked_fingerprint is None
+    assert loaded.patch_path == "checkpoints/000003.patch"
+    assert not hasattr(loaded, "future_field")

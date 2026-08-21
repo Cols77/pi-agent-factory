@@ -55,6 +55,9 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.REVIEW: ["requesting-code-review", "verification-before-completion", "coding-principles"],
     AgentRole.SESSION_REVIEW: ["session-report"],
     AgentRole.SYNTHESIS: ["polish"],
+    # The per-SR semantic audit child (coverage-review). The skill defines the
+    # verdict protocol; the packet carries the evidence.
+    AgentRole.COVERAGE_AUDIT: ["requirement-traceability-audit"],
 }
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
@@ -71,9 +74,22 @@ ROLE_SCOPE: dict[AgentRole, Scope] = {
     # Synthesis only converts the human's feedback text into findings JSON. It
     # writes nothing and runs nothing -- the orchestrator routes the findings.
     AgentRole.SYNTHESIS: Scope(allow=[], bash="deny"),
+    # Read-only audit: reads the injected packet + project files, writes nothing
+    # (the verdict returns via stdout JSON; the runner validates and records it).
+    AgentRole.COVERAGE_AUDIT: Scope(allow=[], bash="deny"),
 }
 
 ROLE_PROMPTS: dict[AgentRole, str] = {
+    # The coverage runner passes its own packet as the prompt; this entry is the
+    # role contract used by compose_prompt callers that need a stable header.
+    AgentRole.COVERAGE_AUDIT: (
+        "You audit one requirement against its implementation and binding test. "
+        "You are read-only: bash is disabled for your role, and you may not "
+        "write or modify any file. "
+        "Emit ONLY a fenced ```json block matching the verdict schema: "
+        "sr_id, implemented, honest, confidence, margin, reasoning, checked, "
+        "assumed, verify."
+    ),
     AgentRole.CONTEXT_GATHERER: (
         "You verify that spec, plan, prior session, and this task are coherent and "
         "that context is complete. Emit ONLY a context manifest as a fenced ```json block "

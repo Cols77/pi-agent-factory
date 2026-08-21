@@ -4,12 +4,15 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
+from typing import TypeVar
 
 from factory.orchestrator.roles import ROLE_SCOPE
 from factory.orchestrator.types import AgentResult, AgentRole, InterruptionReason
@@ -28,6 +31,234 @@ _JSON_START = "```json"
 # bound.
 _DEFAULT_IDLE_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_IDLE_TIMEOUT_S", "300"))
 _DEFAULT_TOTAL_TIMEOUT_S = float(os.environ.get("FACTORY_AGENT_TOTAL_TIMEOUT_S", "1200"))
+
+# Liveness-aware idle (T-029): a silent subprocess is not immediately killed. A
+# quiet-but-working agent (long plan-authoring burst, model "thinking", a child
+# writing deliverables while saying nothing) must not be mistaken for a stalled
+# one. A live keeper counts consecutive silent idle windows; output lines and a
+# file-write heartbeat reset that count, and only after *more than* the grace
+# budget of silent windows does an idle kill fire. Grace is kept below the
+# total/idle ratio so a genuine stall is killed by the idle bound (reachable)
+# rather than always running up to the total runaway ceiling. Mirrors the TS
+# SUBAGENT_IDLE_GRACE_BREACHES / SUBAGENT_TIMEOUT_MS in
+# pi-ext/factory-watch/src/subagent-tool.ts.
+_IDLE_GRACE_BREACHES = 2
+# Depth of the file-heartbeat probe (bounds recursion to stay cheap).
+_LIVENESS_DEPTH = 4
+# Deliverable directories probed for a fresh write; a file written under any of
+# these since the last live signal keeps a silent child alive. Missing dirs are
+# simply ignored by the probe.
+_DEFAULT_LIVENESS_DIRS = ("docs", "plans", "tasks", "requirements", ".pi")
+
+# Process-tree teardown (PART-2a of T-029): once a kill fires, the child gets
+# SIGTERM first and its process group is given up to _KILL_GRACE_TOTAL_S to
+# exit (grace-polled every _KILL_GRACE_STEP_S) before an escalated SIGKILL.
+# Kept small so teardown itself is never the hang it exists to break.
+_KILL_GRACE_STEP_S = 0.25
+_KILL_GRACE_TOTAL_S = 2.0
+# Bounded post-SIGKILL poll: after the grace budget, escalation polls the
+# group at most this many steps so an unreapable/zombie group cannot spin
+# teardown forever (T-029: teardown must never be the hang it exists to break).
+_KILL_POLL_BUDGET = 8
+# Resolved with a fallback because SIGKILL purely/SIGTERM are not defined on
+# Windows; the tree-kill path is POSIX-only, but the module must still import
+# there. getattr (not direct access) keeps pyright's Windows stubs quiet.
+_SIG_TERM = getattr(signal, "SIGTERM", 15)
+_SIG_KILL = getattr(signal, "SIGKILL", 9)
+
+# Transient spawn retry (PART-2b of T-029): a launch that fails to START the
+# process at all (missing `pi` bin / FileNotFoundError-ENOENT, or a one-off race)
+# is retried a bounded number of times with a small backoff before the spawn is
+# reported as failed. NEVER retried: a child that started and then stalled or
+# timed out -- that failure is a timeout kill handled by _on_timeout and must
+# stay one-shot. Overridable via env for ops tuning.
+_SPAWN_RETRIES = int(os.environ.get("FACTORY_AGENT_SPAWN_RETRIES", "2"))
+_SPAWN_BACKOFF_S = float(os.environ.get("FACTORY_AGENT_SPAWN_BACKOFF_S", "0.25"))
+
+# Output hard-cap (PART-2b of T-029): a pathological child streaming output
+# unboundedly must not be allowed to flood memory. Two ceilings coexist:
+#   _MAX_OUTPUT_TOTAL_CHARS     - the whole run's cumulative stdout ceiling.
+#                                 Exceeding it marks the run as truncated (a
+#                                 short note is attached to the returned raw).
+#   _MAX_OUTPUT_RETAINED_CHARS - a rolling window that keeps only the TAIL of
+#                                 the stream (the final manifest-bearing segment
+#                                 must survive so parse_pi_json still reads the
+#                                 last ```json block). A non-positive value
+#                                 disables its bound, mirroring the timeouts.
+_MAX_OUTPUT_TOTAL_CHARS = int(
+    os.environ.get("FACTORY_AGENT_OUTPUT_TOTAL_CAP_CHARS", "2000000")
+)
+_MAX_OUTPUT_RETAINED_CHARS = int(
+    os.environ.get("FACTORY_AGENT_OUTPUT_RETAINED_CAP_CHARS", "1000000")
+)
+# A single pathological event line must never be retained whole, or it defeats
+# both the total and retained caps (mirrors the TS MAX_EVENT_LINE_CHARS guard:
+# an overlong line is truncated to this width, keeping the tail so a trailing
+# manifest-bearing fragment survives).
+_MAX_OUTPUT_LINE_CAP_CHARS = int(
+    os.environ.get("FACTORY_AGENT_OUTPUT_LINE_CAP_CHARS", "100000")
+)
+
+
+_T = TypeVar("_T")
+
+
+def _retry_launch(
+    factory: Callable[[], _T],
+    *,
+    retries: int = _SPAWN_RETRIES,
+    delay: float = _SPAWN_BACKOFF_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> _T:
+    """Run *factory* (a Popen launcher) up to *retries*+1 times, sleeping
+    *delay* between failures, returning the first success. Only launch
+    failures -- ``OSError`` raised by the call itself, i.e. the process never
+    started -- are retried. After the budget is exhausted the last error is
+    re-raised so the caller reports a genuinely-failed spawn; a process that
+    started is never relaunched by this helper (the retry budget is exactly
+    *retries* follow-ups to an initial attempt, never more).
+    """
+    last_error: OSError | None = None
+    for attempt in range(max(0, retries) + 1):
+        try:
+            return factory()
+        except OSError as error:
+            last_error = error
+            if attempt < retries:
+                sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+def _retain_line_capped(
+    retained: list[str],
+    retained_chars: int,
+    limit: int,
+    line: str,
+    line_cap: int = _MAX_OUTPUT_LINE_CAP_CHARS,
+) -> int:
+    """Append *line* to the rolling retention tail, dropping the OLDEST lines
+    once total retained chars exceed *limit*.
+
+    Two guards keep a pathological child from flooding memory:
+      - a single oversized *line* (over *line_cap*) is truncated to its tail and
+        kept with a marker, so one giant event cannot be retained whole and
+        multiplied across the cumulative counters;
+      - the rolling window drops the OLDEST full lines once aggregate retained
+        chars exceed *limit*, always keeping the newest line (the final
+        manifest-bearing segment must survive for parse_pi_json).
+    A non-positive *limit* disables dropping (unbounded). Returns the updated
+    retained-chars count.
+    """
+    if line_cap > 0 and len(line) > line_cap:
+        retained.append("<snip>" + line[-line_cap:])
+        retained_chars += line_cap + len("<snip>")
+    else:
+        retained.append(line)
+        retained_chars += len(line)
+    if limit > 0:
+        while retained_chars > limit and len(retained) > 1:
+            dropped = retained.pop(0)
+            retained_chars -= len(dropped)
+    return retained_chars
+
+
+def _output_truncated_note(total_chars: int) -> str:
+    """Short one-line note attached when a run's cumulative stdout exceeds the
+    hard cap (so the retained tail is not mistaken for the whole stream)."""
+    return (
+        "pi_backend: subprocess output truncated at the hard cap "
+        f"({_MAX_OUTPUT_TOTAL_CHARS} total chars; emitted {total_chars}). "
+        f"Keeping only the trailing {_MAX_OUTPUT_RETAINED_CHARS} chars as "
+        "raw."
+    )
+
+
+class _IdleKeeper:
+    """Pure strike/breach keeper over consecutive silent idle windows.
+
+    Mirrors the TS contract of ``createIdleKeeper``: ``note_live()`` resets the
+    breach count; ``on_elapsed(probe_result)`` resets it when a liveness probe
+    reports fresh file progress, otherwise increments, and only returns
+    "kill" once the breach count *exceeds* the grace budget. The caller owns
+    the idle-window cadence; this class owns no timer. The clock is injectable
+    (default ``time.monotonic``) for deterministic tests.
+    """
+
+    def __init__(
+        self,
+        grace: int = _IDLE_GRACE_BREACHES,
+        *,
+        now: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._grace = max(1, grace)
+        self._now = now
+        self._breaches = 0
+        self._since = now()
+
+    def note_live(self) -> None:
+        """Record liveness (any child output); reset the breach count."""
+        self._breaches = 0
+        self._since = self._now()
+
+    def on_elapsed(self, probe_result: bool = False) -> str:
+        """A full idle window elapsed. Returns "keep-running" or "kill"."""
+        t = self._now()
+        if probe_result:
+            # File-heartbeat: the child is still writing deliverables.
+            self._breaches = 0
+            self._since = t
+            return "keep-running"
+        self._breaches += 1
+        # Kill once MORE than grace silent windows have elapsed (grace windows
+        # are permitted; the breach count is the incident count, so it must
+        # exceed grace).
+        if self._breaches > self._grace:
+            return "kill"
+        return "keep-running"
+
+    @property
+    def breaches(self) -> int:
+        return self._breaches
+
+    @property
+    def since(self) -> float:
+        return self._since
+
+
+def _probe_dir(directory: str, since_seconds: float, depth: int) -> bool:
+    """Best-effort mtime probe over one directory tree (depth-bounded)."""
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return False  # missing/unreadable dir -> no signal
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        try:
+            st = entry.stat()
+        except OSError:
+            continue  # transient stat race -> try next
+        if st.st_mtime > since_seconds:
+            return True
+        if entry.is_dir() and depth > 0 and _probe_dir(entry.path, since_seconds, depth - 1):
+            return True
+    return False
+
+
+def _probe_file_heartbeat(
+    dirs: Iterable[str],
+    since_seconds: float,
+    max_depth: int = _LIVENESS_DEPTH,
+) -> bool:
+    """True when any file under any of *dirs* has an mtime newer than
+    *since_seconds* (a fresh deliverable write). Early-returns on first hit and
+    ignores missing dirs; mirrors ``probeFileHeartbeat`` in subagent-tool.ts.
+    """
+    for directory in dirs:
+        if directory and _probe_dir(directory, since_seconds, max_depth):
+            return True
+    return False
 
 # Recursion prevention for the subagent chain. A child pi process that could in
 # turn spawn its own agents is a resource leak; the factory runs a fixed
@@ -102,20 +333,47 @@ def _drain_lines(
     on_timeout: Callable[[str], None],
     *,
     now: Callable[[], float] = time.monotonic,
+    idle_grace: int = _IDLE_GRACE_BREACHES,
+    liveness_root: str | os.PathLike[str] | None = None,
+    liveness_dirs: Iterable[str] = _DEFAULT_LIVENESS_DIRS,
+    liveness_probe: Callable[[float], object] | None = None,
+    wall_clock: Callable[[], float] = time.time,
 ) -> Iterator[str]:
     """Yield lines from *stream*, enforcing two bounds so a stalled or runaway
     agent can't hang the orchestrator forever:
 
-      - idle_timeout: max seconds allowed between consecutive lines (a true
-        stall -- the process is alive but producing nothing).
+      - idle_timeout: max seconds between consecutive lines; a silent window
+        only grades as a probation incident (see *idle_grace*), so a
+        quiet-but-writing child is not killed immediately.
       - total_timeout: max total wall-clock seconds regardless of output (a
         runaway loop that keeps streaming, the observed failure mode).
 
-    On the first breach, ``on_timeout(reason)`` is called once with "idle" or
-    "total" and iteration stops. A daemon reader thread decouples the blocking
-    pipe read from the timeout wait (Windows cannot ``select()`` on pipes). A
-    non-positive timeout disables that particular bound.
+    The idle bound is liveness-aware (T-029): output lines and a fresh
+    deliverable-file write (probed under *liveness_root* + *liveness_dirs*, or a
+    fully injected ``liveness_probe``) reset the breach counter; only when it
+    exceeds *idle_grace* consecutive silent windows does ``on_timeout("idle")``
+    fire. The total bound is untouched and still kills a runaway. On timeout,
+    ``on_timeout(reason)`` is called once with "idle" or "total" and iteration
+    stops. A daemon reader thread decouples the blocking pipe read from the
+    timeout wait (Windows cannot ``select()`` on pipes). A non-positive timeout
+    disables that particular bound.
     """
+    keeper = _IdleKeeper(grace=idle_grace, now=now)
+    # Watermark in the file-mtime clock domain (usually wall-clock): advanced
+    # every time the child emits output so a deliverable written after that
+    # counts as an alive signal. Kept separate from ``keeper.since`` (which uses
+    # the injectable *now* clock) so a real filesystem probe still compares
+    # against genuine mtimes.
+    probe_since = wall_clock()
+
+    def _probe(since: float) -> bool:
+        if liveness_probe is not None:
+            return bool(liveness_probe(since))
+        if liveness_root is None:
+            return False
+        watch = [os.fspath(Path(liveness_root) / name) for name in liveness_dirs]
+        return _probe_file_heartbeat(watch, since)
+
     q: queue.Queue = queue.Queue()
     sentinel = object()
 
@@ -141,11 +399,25 @@ def _drain_lines(
         try:
             item = q.get(timeout=wait)
         except queue.Empty:
-            # Woke without a line: attribute the breach to whichever bound tripped.
-            on_timeout("total" if total is not None and (now() - start) >= total else "idle")
-            return
+            # A silent window elapsed. The total bound is the hard runaway
+            # ceiling; a silent window alone never kills. Idle is
+            # liveness-aware: a fresh file write resets the breach, and only
+            # once the grace budget of silent windows is exceeded does an idle
+            # kill fire.
+            if total is not None and (now() - start) >= total:
+                on_timeout("total")
+                return
+            heartbeat = _probe(probe_since)
+            if keeper.on_elapsed(heartbeat) == "kill":
+                on_timeout("idle")
+                return
+            if heartbeat:
+                probe_since = wall_clock()
+            continue
         if item is sentinel:
             return
+        keeper.note_live()
+        probe_since = wall_clock()
         yield item
 
 
@@ -337,6 +609,122 @@ def _build_command(
     return cmd
 
 
+def _pid_is_alive(pid: int) -> bool:
+    """POSIX liveness probe: os.kill(pid, 0) delivers no signal but raises if
+    the pid is gone. Any error (missing, no-permission) reads as dead/unreachable.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    except OSError:
+        return False
+    return True
+
+
+def _child_reaped(proc: object) -> bool:
+    """True only once the O/S has *reaped* the direct child (its pid is no
+    longer a live zombie). ``proc.poll()`` reaps a finished direct child on
+    POSIX, so a non-None returncode means the leader is gone. This matters
+    because ``os.kill(pid, 0)`` on a zombie SUCCEEDS -- a reaped-unaware alive
+    probe would spin forever after a TERM/SIGKILL, turning teardown into the
+    exact hang T-029 exists to break.
+    """
+    poll = getattr(proc, "poll", None)
+    if callable(poll):
+        try:
+            return poll() is not None
+        except (OSError, ValueError):
+            return False
+    return False
+
+
+def _kill_process_tree(
+    proc: object,
+    *,
+    grace_step: float = _KILL_GRACE_STEP_S,
+    grace_total: float = _KILL_GRACE_TOTAL_S,
+    sleep: Callable[[float], None] = time.sleep,
+    alive: Callable[[int], bool] | None = None,
+    killpg: Callable[[int, int], None] | None = None,
+    poll_budget: int = _KILL_POLL_BUDGET,
+) -> None:
+    """Kill *proc*'s ENTIRE subprocess tree, not just the direct child.
+
+    A child pi may spawn grandchildren (shell, other tools) that outlive a
+    single direct ``proc.kill()``, leaking processes. On POSIX the child is
+    launched as a process-group leader (start_new_session=True in PiAgentBackend
+    .run), so the whole tree shares the group id == child pid: send SIGTERM to
+    the group, give it *grace_total* to exit (probed every *grace_step*), then
+    escalate to SIGKILL and poll (bounded by *poll_budget*) until the group is
+    gone. Windows has no killpg semantics, so it falls back to direct
+    ``proc.kill()``.
+
+    Every teardown knob (sleep, alive probe, group kill) is injectable so the
+    helper is unit-testable without real processes. An OSError from any cull
+    step is swallowed -- a failed teardown must never break the run -- mirroring
+    the prior ``try: proc.kill() except OSError: pass`` semantics. The default
+    ``alive`` probe reaps the leader first (``_child_reaped``), and the post-
+    SIGKILL poll is bounded, so a zombie leader cannot spin teardown forever
+    (T-029: teardown must never itself be the hang it exists to break).
+    """
+    raw_pid = getattr(proc, "pid", None)
+    try:
+        pid = int(raw_pid) if raw_pid is not None else 0
+    except (TypeError, ValueError):
+        pid = 0
+    kill = getattr(proc, "kill", None)
+    # The leader is the direct child on this host, so the default exit probe
+    # reaps it first (a zombie leader reads as dead) and only then falls back
+    # to the group-liveness probe. An explicitly injected ``alive`` wins.
+    if alive is None:
+
+        def _alive_reaped(pid: int) -> bool:
+            # True ONLY while the process is genuinely running: the child has
+            # NOT been reaped (proc.poll() is None -> not a zombie) AND the pid
+            # is still reachable. This is the boolean the callers consume as
+            # "still alive" -- do not invert it (a reaped child or a dead pid
+            # must read as dead, or the SIGKILL escalation never fires).
+            return not _child_reaped(proc) and _pid_is_alive(pid)
+
+        alive = _alive_reaped
+    try:
+        if pid <= 0 or sys.platform != "posix":
+            # No usable group (no leader pid), or a platform without killpg:
+            # best-effort direct kill.
+            if callable(kill):
+                kill()
+            return
+        group_kill = killpg if killpg is not None else os.killpg
+        # POSIX: signal the whole group. TERM raises if the group never
+        # existed (already exited) -- nothing left to cull.
+        try:
+            group_kill(pid, _SIG_TERM)
+        except (ProcessLookupError, OSError):
+            return
+        elapsed = 0.0
+        while elapsed < grace_total and alive(pid):
+            sleep(grace_step)
+            elapsed += grace_step
+        if alive(pid):
+            # Still alive after the TERM grace budget: escalate to a hard kill,
+            # then poll (bounded) until the group is actually gone.
+            try:
+                group_kill(pid, _SIG_KILL)
+            except (ProcessLookupError, OSError):
+                pass
+            for _ in range(poll_budget):
+                if not alive(pid):
+                    return
+                sleep(grace_step)
+    except OSError:
+        # A stale/dead group or transient cull failure: never let teardown
+        # raise back into the orchestrator's timeout/run path.
+        pass
+
+
 class PiAgentBackend:
     def __init__(
         self,
@@ -346,6 +734,10 @@ class PiAgentBackend:
         model: str | None = None,
         idle_timeout_s: float = _DEFAULT_IDLE_TIMEOUT_S,
         total_timeout_s: float = _DEFAULT_TOTAL_TIMEOUT_S,
+        idle_grace: int = _IDLE_GRACE_BREACHES,
+        liveness_root: Path | None = None,
+        liveness_dirs: Iterable[str] = _DEFAULT_LIVENESS_DIRS,
+        liveness_probe: Callable[[float], object] | None = None,
     ) -> None:
         self._repo_root = repo_root
         self._extension_path = extension_path
@@ -353,6 +745,14 @@ class PiAgentBackend:
         self._model = model
         self._idle_timeout_s = idle_timeout_s
         self._total_timeout_s = total_timeout_s
+        self._idle_grace = max(1, idle_grace)
+        # Liveness-aware idle: deliverables written under these dirs reset the
+        # silent-window breach, so a quiet-but-writing child isn't killed mid-
+        # deliverable (T-029). Default root is the repo_root; None disables the
+        # file probe (a fault-injected liveness_probe opts out of it too).
+        self._liveness_root = repo_root if liveness_root is None else liveness_root
+        self._liveness_dirs = tuple(liveness_dirs)
+        self._liveness_probe = liveness_probe
 
     def run(
         self,
@@ -404,35 +804,76 @@ class PiAgentBackend:
                 prompt, self._extension_path, self._provider, self._model,
                 prompt_file=prompt_file,
             )
-            # stdin=DEVNULL: without this, Pi's CLI blocks forever in its own
+            # stdin=DEVNULL: without it, Pi's CLI blocks forever in its own
             # readPipedStdin() waiting for stdin EOF whenever this process
             # inherits a long-lived open pipe (e.g. launchInteractiveReview's
             # human-review handshake keeps the orchestrator's own stdin open).
-            proc = subprocess.Popen(
-                cmd, cwd=self._repo_root, env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace",
-            )
-            lines: list[str] = []
+            # On POSIX the child is additionally launched as a process-group
+            # leader (start_new_session=True) so a tree-kill can kill the
+            # whole group (grandchildren included), not just this pid. Windows
+            # has no group semantics, so Popen is left default there.
+            #
+            # The launch itself is wrapped in a bounded transient retry
+            # (PART-2b of T-029): only a failure to START the process (Popen
+            # raising, e.g. a missing `pi` bin) is retried; a child that started
+            # and then stalled/timed out is a kill on the *other* path and must
+            # never be relaunched here.
+            def _launch() -> subprocess.Popen[str]:
+                if sys.platform != "posix":
+                    return subprocess.Popen(
+                        cmd, cwd=self._repo_root, env=env,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, encoding="utf-8", errors="replace",
+                    )
+                return subprocess.Popen(
+                    cmd, cwd=self._repo_root, env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace",
+                    start_new_session=True,
+                )
+
+            proc = _retry_launch(_launch, retries=_SPAWN_RETRIES, delay=_SPAWN_BACKOFF_S)
             assert proc.stdout is not None
             captured_session_id: str | None = None
             timed_out_reason: str | None = None
+            # Output caps (PART-2b): retain only a bounded rolling TAIL of the
+            # stream so a flooding child can't blow up memory, and count the
+            # cumulative chars so an over-budget run is flagged as truncated.
+            retained_lines: list[str] = []
+            retained_chars = 0
+            total_output_chars = 0
 
             def _on_timeout(reason: str) -> None:
                 nonlocal timed_out_reason
                 timed_out_reason = reason
-                # Kill the runaway/stalled agent so proc.wait() returns and the
-                # run can end (and release its lock) instead of hanging forever.
+                # Kill the runaway/stalled agent AND its whole process tree
+                # (grandchild shells/tools) so proc.wait() returns once the
+                # direct child exits and the run can end (and release its
+                # lock) instead of hanging forever -- and so teardown doesn't
+                # leak descendants.
                 try:
-                    proc.kill()
+                    _kill_process_tree(proc)
                 except OSError:
                     pass
 
             for line in _drain_lines(
-                proc.stdout, self._idle_timeout_s, self._total_timeout_s, _on_timeout
+                proc.stdout,
+                self._idle_timeout_s,
+                self._total_timeout_s,
+                _on_timeout,
+                idle_grace=self._idle_grace,
+                liveness_root=self._liveness_root,
+                liveness_dirs=self._liveness_dirs,
+                liveness_probe=self._liveness_probe,
             ):
-                lines.append(line)
+                total_output_chars += len(line)
+                retained_chars = _retain_line_capped(
+                    retained_lines, retained_chars,
+                    _MAX_OUTPUT_RETAINED_CHARS,
+                    line,
+                )
                 # Capture the pi session id as soon as it is emitted so
                 # callers can surface it (e.g. to the dashboard) while the
                 # agent is still running, not only after it exits.
@@ -447,7 +888,14 @@ class PiAgentBackend:
                     if snippet:
                         on_snippet(snippet[-200:])
             proc.wait()
-            stdout = "".join(lines)
+            stdout = "".join(retained_lines)
+            # If the whole run's output exceeded the hard total cap, mark it so
+            # the retained tail is not mistaken for the full stream. Prepending
+            # the note (before the tail) leaves parsing anchored on the LAST
+            # ```json block and leaves the ok/interruption classification
+            # untouched.
+            if _MAX_OUTPUT_TOTAL_CHARS > 0 and total_output_chars > _MAX_OUTPUT_TOTAL_CHARS:
+                stdout = _output_truncated_note(total_output_chars) + "\n" + stdout
         finally:
             if prompt_file is not None:
                 try:

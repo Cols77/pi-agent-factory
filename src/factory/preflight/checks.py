@@ -312,6 +312,44 @@ def run_preflight(
                 _issue("trace_model_invalid", FreshnessSeverity.INTEGRITY, task.id, str(exc), "trace")
             )
 
+    # Evidence manifests must be readable before a new run starts (KB-0004:
+    # finalize crashed on a schema-version skew with "schema_version: 2 was
+    # expected"). A legacy v1 (or version-less) manifest is migrated by the
+    # loader; anything that still fails validation is surfaced here with the
+    # file's location and remediation instead of failing mid-run.
+    try:
+        from factory.evidence.manifests import load_run_manifest
+
+        evidence_runs = repo_root / "evidence" / "runs"
+        if evidence_runs.is_dir():
+            paths = sorted(evidence_runs.glob("*.json")) + sorted(
+                evidence_runs.glob("*/manifest.json")
+            )
+            for path in paths:
+                try:
+                    load_run_manifest(path)
+                except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    issues.append(
+                        _issue(
+                            "evidence_manifest_invalid",
+                            FreshnessSeverity.INTEGRITY,
+                            path.name,
+                            f"evidence manifest {path.name} is invalid: {exc}; repair it "
+                            "or delete it so the run can be re-finalized",
+                            "evidence",
+                        )
+                    )
+    except (OSError, TypeError, ValueError) as exc:
+        issues.append(
+            _issue(
+                "evidence_scan_failed",
+                FreshnessSeverity.INTEGRITY,
+                task_id or "evidence",
+                str(exc),
+                "evidence",
+            )
+        )
+
     # Completion-specific evidence policy is deliberately not guessed here.
     if phase is PreflightPhase.COMPLETE:
         pass

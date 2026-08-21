@@ -11,6 +11,9 @@ class AgentRole(str, Enum):
     REVIEW = "review"
     SESSION_REVIEW = "session-review"
     SYNTHESIS = "synthesis"
+    # Read-only per-SR semantic audit child for the coverage-review workflow
+    # (factory.coverage.runner). Scope: read-only, no bash; emits a JSON verdict.
+    COVERAGE_AUDIT = "coverage-audit"
 
 
 class InterruptionReason(str, Enum):
