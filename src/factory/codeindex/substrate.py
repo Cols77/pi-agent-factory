@@ -9,11 +9,11 @@ from numbers import Real
 from pathlib import Path
 from typing import cast
 
-from factory.codeindex.build import discover_source_files, fingerprint_for
-from factory.codeindex.model import CodeIndex
-from factory.codeindex.sigs import extract_signatures, preferred_engine
-from factory.codeindex.store import ensure_fresh, load_latest
 from substrate.artifacts import ProducerRef, SnapshotInputRef, SnapshotRef
+from substrate.codemap.build import discover_source_files, fingerprint_for
+from substrate.codemap.model import CodeIndex
+from substrate.codemap.sigs import extract_signatures, preferred_engine
+from substrate.codemap.store import ensure_fresh, load_latest
 from substrate.freshness.fingerprint import fingerprint_value
 from substrate.freshness.recipes import (
     FingerprinterRegistry,
