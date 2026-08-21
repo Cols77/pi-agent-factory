@@ -19,6 +19,16 @@ This file covers two things:
      the fixtures that matter: a source change rebuilds, a parser-engine
      change rebuilds, a matching fingerprint/engine reuses the stored index,
      and an empty source set returns the same empty CodeIndex result.
+
+Task 2 adds a third section, sharing this file's name because the plan's own
+Task 2 Step 3 test command names this exact path: the structured import-edge
+layer, substrate.codemap.imports (ImportEdge/ImportClosure/build_import_
+closure), alongside the relocated compute_overlap/OverlapResult/
+transitive_imports (moved verbatim from factory.coverage.imports, which is
+now itself a warn-and-re-export shim, matching the pattern above). See
+tests/unit/coverage/test_imports.py for the original, still-passing
+compute_overlap/transitive_imports behavioral tests exercised through the
+shim.
 """
 from __future__ import annotations
 
@@ -28,6 +38,15 @@ import warnings
 from pathlib import Path
 
 import pytest
+
+from substrate.codemap.imports import (
+    ImportClosure,
+    ImportEdge,
+    OverlapResult,
+    _load_edges,
+    build_import_closure,
+    compute_overlap,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -241,3 +260,230 @@ def test_render_index_slice_matches_old_and_new(tmp_path):
     new_index = new.build_index(new_root, files=files)
 
     assert old.render_index_slice(old_index, files) == new.render_index_slice(new_index, files)
+
+
+# -- 3. Structured import-edge layer (substrate.codemap.imports), Task 2. ---
+
+
+def _import_tree(root: Path) -> None:
+    """Same shape as tests/unit/coverage/test_imports.py's _tree fixture, so
+    the parity assertions below compare like for like."""
+    (root / "src").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "src" / "drone").mkdir()
+    (root / "src" / "drone" / "__init__.py").write_text("")
+    (root / "src" / "drone" / "priority_filter.py").write_text(
+        "def preempt():\n    return True\n"
+    )
+    (root / "tests" / "test_preempt.py").write_text(
+        "from drone.priority_filter import preempt\n\ndef test_preempt():\n"
+        "    assert preempt()\n"
+    )
+
+
+def _norm(p: Path) -> str:
+    return p.as_posix().lstrip("./")
+
+
+def _closure_overlap(root: Path, selection: str, changed_files: list[str]) -> tuple[str, ...]:
+    """Convert a structured ImportClosure into the same shape as
+    OverlapResult.overlap, for parity-checking against compute_overlap.
+    build_import_closure includes the root itself in `files`;
+    compute_overlap/transitive_imports never do, so the root is excluded
+    before intersecting with changed_files."""
+    if "::" in selection:
+        selection = selection.split("::", 1)[0]
+    closure = build_import_closure(root, [selection])
+    changed = {_norm(Path(c)) for c in changed_files}
+    reached = set(closure.files) - {selection}
+    return tuple(sorted(reached & changed))
+
+
+# -- 3a. build_import_closure: resolved / unresolved / unsupported status. --
+
+
+def test_build_import_closure_resolved_includes_roots_and_reached(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("import b\n")
+    (tmp_path / "src" / "b.py").write_text("X = 1\n")
+
+    result = build_import_closure(tmp_path, ["src/a.py"])
+
+    assert result.status == "resolved"
+    assert result.files == ("src/a.py", "src/b.py")
+    assert result.diagnostics == ()
+
+
+def test_build_import_closure_missing_root_is_unresolved_selection_missing(tmp_path: Path) -> None:
+    result = build_import_closure(tmp_path, ["src/does_not_exist.py"])
+
+    assert result.status == "unresolved"
+    assert result.files == ()
+    assert result.diagnostics == ("selection missing: src/does_not_exist.py",)
+
+
+def test_build_import_closure_missing_import_fixture_is_unresolved(tmp_path: Path) -> None:
+    # A genuinely external, unresolvable import -- e.g. a third-party package
+    # not vendored into the project.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("import numpy\n")
+
+    result = build_import_closure(tmp_path, ["src/a.py"])
+
+    assert result.status == "unresolved"
+    assert result.files == ("src/a.py",)
+    assert any("numpy" in d for d in result.diagnostics)
+
+
+def test_build_import_closure_renamed_binding_fixture_is_unresolved(tmp_path: Path) -> None:
+    # An internal project import left pointing at a module that was since
+    # renamed -- a dangling reference, distinct from a missing external
+    # package, but resolution-wise it is the same "unresolved" outcome.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "new_name.py").write_text("VALUE = 1\n")
+    (tmp_path / "src" / "a.py").write_text("from src.old_name import VALUE\n")
+
+    result = build_import_closure(tmp_path, ["src/a.py"])
+
+    assert result.status == "unresolved"
+    assert any("old_name" in d for d in result.diagnostics)
+    assert "src/new_name.py" not in result.files  # nothing links to it
+
+
+def test_build_import_closure_non_python_root_is_unsupported(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "widget.ts").write_text("import {x} from './y';\n")
+
+    result = build_import_closure(tmp_path, ["src/widget.ts"])
+
+    # Not "resolved" and not folded into "unresolved" -- a parser existing
+    # elsewhere in the codebase (tree-sitter, for signatures) must not make
+    # this layer claim a transitive closure it never walked.
+    assert result.status == "unsupported"
+    assert result.files == ("src/widget.ts",)
+    assert any("unsupported source type" in d for d in result.diagnostics)
+
+
+def test_build_import_closure_unsupported_root_takes_precedence_over_missing(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "widget.ts").write_text("export const x = 1;\n")
+
+    result = build_import_closure(tmp_path, ["src/widget.ts", "src/does_not_exist.py"])
+
+    assert result.status == "unsupported"
+    assert "selection missing: src/does_not_exist.py" in result.diagnostics
+    assert "unsupported source type: src/widget.ts" in result.diagnostics
+
+
+# -- 3b. compute_overlap: relocated, but the diagnostic split is unchanged. -
+
+
+def test_compute_overlap_distinguishes_selection_missing_from_no_overlap(tmp_path: Path) -> None:
+    _import_tree(tmp_path)
+
+    missing = compute_overlap(
+        tmp_path, "tests/does_not_exist.py", ["src/drone/priority_filter.py"]
+    )
+    assert missing.test_source is None  # the selection itself doesn't resolve
+
+    no_overlap = compute_overlap(tmp_path, "tests/test_preempt.py", ["unrelated/file.py"])
+    assert no_overlap.test_source is not None  # the selection resolved fine...
+    assert no_overlap.overlap == ()  # ...it just doesn't touch the changed files
+    assert not no_overlap.ok
+    assert not missing.ok
+
+
+# -- 3c. Parity: the new structured layer must not change old overlap answers.
+
+
+@pytest.mark.parametrize(
+    "selection,changed_files",
+    [
+        ("tests/test_preempt.py", ["src/drone/priority_filter.py"]),
+        ("tests/test_preempt.py::test_preempt", ["src/drone/priority_filter.py"]),
+        ("tests/test_preempt.py", ["src/drone/priority_filter.py", "tests/test_preempt.py"]),
+        ("tests/test_preempt.py", ["unrelated/file.py"]),
+    ],
+)
+def test_converted_codemap_overlap_matches_factory_coverage_imports_exactly(
+    tmp_path: Path, selection: str, changed_files: list[str]
+) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from factory.coverage.imports import compute_overlap as legacy_compute_overlap
+
+    _import_tree(tmp_path)
+    legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    converted = _closure_overlap(tmp_path, selection, changed_files)
+
+    assert converted == legacy.overlap
+
+
+# -- 3d. Edge storage: beside the fingerprinted index, with a tolerant reader.
+
+
+def test_build_import_closure_persists_edges_beside_fingerprinted_index(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("import b\n")
+    (tmp_path / "src" / "b.py").write_text("X = 1\n")
+
+    result = build_import_closure(tmp_path, ["src/a.py"])
+
+    index_dir = tmp_path / ".factory" / "code-index"
+    assert (index_dir / "imports-latest.json").exists()
+    edge_files = list(index_dir.glob("*.imports.json"))
+    assert len(edge_files) == 1
+
+    loaded = _load_edges(tmp_path, list(result.files))
+    assert loaded is not None
+    assert any(e.source == "src/a.py" and e.target == "src/b.py" for e in loaded)
+
+
+def test_load_edges_is_backward_compatible_with_pre_edge_index_dirs(tmp_path: Path) -> None:
+    # Simulate an index directory written before edge storage existed: the
+    # code-index dir exists (from substrate.codemap.build/store) but has no
+    # *.imports.json sibling yet.
+    index_dir = tmp_path / ".factory" / "code-index"
+    index_dir.mkdir(parents=True)
+    (index_dir / "latest.json").write_text("{}", encoding="utf-8")
+
+    loaded = _load_edges(tmp_path, ["src/a.py", "src/b.py"])
+    assert loaded is None  # missing edges file -> the reader tolerates it
+
+    # build_import_closure still works fine in that same, pre-existing dir.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("import b\n")
+    (tmp_path / "src" / "b.py").write_text("X = 1\n")
+    result = build_import_closure(tmp_path, ["src/a.py"])
+
+    assert result.status == "resolved"
+    assert result.files == ("src/a.py", "src/b.py")
+
+
+# -- 3e. factory.coverage.imports is now a warn-and-re-export shim. ---------
+
+
+def test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        _import_fresh("factory.coverage.imports")
+
+    deprecation = _deprecations(caught)
+    assert len(deprecation) == 1
+    assert str(deprecation[0].message) == (
+        "factory.coverage.imports is deprecated; import substrate.codemap.imports"
+    )
+
+
+def test_factory_coverage_imports_reexports_edge_and_overlap_types() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        shim = _import_fresh("factory.coverage.imports")
+
+    assert shim.OverlapResult is OverlapResult
+    assert shim.ImportEdge is ImportEdge
+    assert shim.ImportClosure is ImportClosure
+    assert shim.build_import_closure is build_import_closure
+    assert shim.compute_overlap is compute_overlap
