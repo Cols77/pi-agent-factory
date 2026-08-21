@@ -13,20 +13,21 @@ pytestmark = pytest.mark.unit
 @contextmanager
 def _isolated_legacy_import(module_name: str):
     prefixes = ("factory.requirements", "coherence.register")
+    names_to_track = set()
+    for name in (module_name, *prefixes):
+        parts = name.split(".")
+        names_to_track.update(".".join(parts[:index]) for index in range(1, len(parts) + 1))
+
     original_modules = {
         name: module
         for name, module in sys.modules.items()
-        if any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes)
+        if name in names_to_track
+        or any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes)
     }
     original_attributes = {}
-    names_to_track = set(original_modules) | {
-        module_name,
-        *(prefix.rpartition(".")[0] for prefix in prefixes),
-        *prefixes,
-    }
     for name in names_to_track:
         parent_name, _, child_name = name.rpartition(".")
-        parent = original_modules.get(parent_name)
+        parent = sys.modules.get(parent_name)
         if parent is not None:
             original_attributes[(parent, child_name)] = (
                 child_name in vars(parent),
@@ -38,7 +39,9 @@ def _isolated_legacy_import(module_name: str):
         yield
     finally:
         for name in list(sys.modules):
-            if any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes):
+            if name in names_to_track or any(
+                name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes
+            ):
                 sys.modules.pop(name, None)
         sys.modules.update(original_modules)
         for (parent, child_name), (had_attribute, original_attribute) in original_attributes.items():
