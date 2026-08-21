@@ -153,7 +153,9 @@ def test_code_map_fingerprinter_includes_parser_engine(tmp_path, monkeypatch):
     assert stdlib_fingerprint != tree_sitter_fingerprint
 
 
-def test_token_capped_discovered_file_makes_latest_stale_and_resolves(tmp_path):
+def test_token_capped_discovered_file_candidate_is_current_after_resolution(
+    tmp_path, monkeypatch
+):
     root = _tree(tmp_path)
     capped = root / "src" / "oversized.py"
     _write_token_capped_source(capped)
@@ -162,7 +164,20 @@ def test_token_capped_discovered_file_makes_latest_stale_and_resolves(tmp_path):
     assert "src/oversized.py" not in persisted.files
     candidate = codeindex_substrate.load_code_map_candidate(root)
     inputs, compiled = _guarded(root)
+    (root / "src" / "mod.py").write_text(
+        '"""Changed."""\n\ndef beta(value):\n    return value + 1\n',
+        encoding="utf-8",
+    )
 
+    calls = 0
+    original_ensure_fresh = codeindex_substrate.ensure_fresh
+
+    def counting_ensure_fresh(repo_root: Path, files: list[str] | None = None):
+        nonlocal calls
+        calls += 1
+        return original_ensure_fresh(repo_root, files=files)
+
+    monkeypatch.setattr(codeindex_substrate, "ensure_fresh", counting_ensure_fresh)
     result = guarded_read(
         GuardSession(),
         compiled,
@@ -176,9 +191,28 @@ def test_token_capped_discovered_file_makes_latest_stale_and_resolves(tmp_path):
     assert result.snapshot is not None
     assert result.snapshot.fingerprint == result.stale.actual_fingerprint
     assert result.snapshot.supersedes == candidate.ref
+    assert calls == 1
     refreshed = load_latest(root)
     assert refreshed is not None
     assert "src/oversized.py" not in refreshed.files
+
+    fresh_candidate = codeindex_substrate.load_code_map_candidate(root)
+
+    def unexpected_ensure_fresh(repo_root: Path, files: list[str] | None = None):
+        raise AssertionError("a fresh candidate must not resolve")
+
+    monkeypatch.setattr(codeindex_substrate, "ensure_fresh", unexpected_ensure_fresh)
+    fresh_result = guarded_read(
+        GuardSession(),
+        compiled,
+        codeindex_substrate.CODEMAP_RECIPE,
+        fresh_candidate,
+        [inputs],
+    )
+
+    assert fresh_result.current
+    assert fresh_result.snapshot is fresh_candidate
+    assert fresh_result.stale is None
 
 
 def test_engine_fingerprint_matches_persisted_engine_for_mixed_source_set(

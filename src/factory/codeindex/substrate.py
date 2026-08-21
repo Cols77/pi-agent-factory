@@ -155,17 +155,18 @@ def load_code_map_candidate(
 ) -> SnapshotRef:
     """Load the latest stored index as a metadata-only snapshot candidate."""
 
+    context = code_map_inputs(repo_root, files)
+    source_files = _source_files(context)
     latest = load_latest(repo_root)
     if latest is not None:
-        return _snapshot_from_index(latest)
+        return _snapshot_from_index(latest, source_files=source_files)
 
-    context = code_map_inputs(repo_root, files)
-    if not _source_files(context):
+    if not source_files:
         return _snapshot_from_index(
             CodeIndex(engine=preferred_engine(), generated_at=_now_str(), fingerprint="no-files")
         )
 
-    engine = _engine_for_files(repo_root, _source_files(context))
+    engine = _engine_for_files(repo_root, source_files)
     return SnapshotRef(
         schema=1,
         kind="code-map",
