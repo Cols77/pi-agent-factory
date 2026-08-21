@@ -197,3 +197,121 @@ def test_factory_config_load_config_and_require_gates_do_not_warn(tmp_path):
     from substrate.config import GateStep as SubstrateGateStep
 
     assert cfg.gates == {"unit": [SubstrateGateStep(cmd="pytest -q")]}
+
+
+def test_factory_orchestrator_skills_warns_once_and_matches_substrate(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        old = _import_fresh("factory.orchestrator.skills")
+
+    assert len(caught) == 1
+    assert caught[0].category is DeprecationWarning
+    assert str(caught[0].message) == (
+        "factory.orchestrator.skills is deprecated; import substrate.agents.skills "
+        "and substrate.paths"
+    )
+
+    from substrate.agents.skills import load_skill_block as new_load_skill_block
+    from substrate.paths import factory_skills_dir as new_factory_skills_dir
+
+    assert old.load_skill_block is new_load_skill_block
+    assert old.factory_skills_dir is new_factory_skills_dir
+
+    (tmp_path / "s").mkdir()
+    (tmp_path / "s" / "SKILL.md").write_text("---\nname: s\n---\n\nbody\n", encoding="utf-8")
+    assert old.load_skill_block(tmp_path, "s") == new_load_skill_block(tmp_path, "s")
+
+
+def test_factory_orchestrator_pi_backend_warns_once_and_delegates_to_substrate(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        old = _import_fresh("factory.orchestrator.pi_backend")
+
+    assert len(caught) == 1
+    assert caught[0].category is DeprecationWarning
+    assert str(caught[0].message) == (
+        "factory.orchestrator.pi_backend is deprecated; import substrate.agents.backend "
+        "and compose scope_for from factory.orchestrator.roles.ROLE_SCOPE"
+    )
+
+    from substrate.agents.model import AgentResult as SubstrateAgentResult
+    from substrate.agents.model import InterruptionReason as SubstrateInterruptionReason
+
+    assert old.AgentResult is SubstrateAgentResult
+    assert old.InterruptionReason is SubstrateInterruptionReason
+    # Pure functions are re-exported unchanged (not copies), so behavior is
+    # byte-identical regardless of which module a caller imports it from.
+    from substrate.agents.backend import parse_pi_json as new_parse_pi_json
+
+    assert old.parse_pi_json is new_parse_pi_json
+
+
+def test_factory_orchestrator_types_agent_result_and_interruption_reason_warn(tmp_path):
+    # AgentResult/InterruptionReason moved to substrate.agents.model; the four
+    # domain/pipeline types below (AgentRole, NodeOutcome, NodeEvent, TaskResult)
+    # did NOT move and must stay completely silent -- this module is the
+    # "mixed" shim case (permanent surface + two deprecated re-exports), not a
+    # whole-module warn like factory.paths.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        types_module = _import_fresh("factory.orchestrator.types")
+        types_module.AgentRole.DEV
+        types_module.NodeOutcome.PASS
+        types_module.NodeEvent(node="dev", result="pass")
+        types_module.TaskResult(
+            task_id="T-1", title="t", outcome="completed", iterations=1,
+            events=[], dod_met=True,
+        )
+
+    assert caught == []  # the permanent surface never warns
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        agent_result_cls = types_module.AgentResult
+        interruption_cls = types_module.InterruptionReason
+
+    deprecation = [item for item in caught if item.category is DeprecationWarning]
+    assert len(deprecation) == 2
+    assert str(deprecation[0].message) == (
+        "factory.orchestrator.types.AgentResult is deprecated; import substrate.agents.model.AgentResult"
+    )
+    assert str(deprecation[1].message) == (
+        "factory.orchestrator.types.InterruptionReason is deprecated; "
+        "import substrate.agents.model.InterruptionReason"
+    )
+
+    from substrate.agents.model import AgentResult as SubstrateAgentResult
+    from substrate.agents.model import InterruptionReason as SubstrateInterruptionReason
+
+    assert agent_result_cls is SubstrateAgentResult
+    assert interruption_cls is SubstrateInterruptionReason
+
+
+def test_factory_evidence_manifests_write_stays_silent_read_functions_warn(tmp_path):
+    # write_run_manifest is retained permanently (not deprecated); only the two
+    # read functions moved to substrate.evidence.read -- the same "mixed
+    # module" shape as factory.orchestrator.types above.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        manifests_module = _import_fresh("factory.evidence.manifests")
+        write_run_manifest = manifests_module.write_run_manifest
+
+    assert caught == []
+    assert callable(write_run_manifest)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        load_run_manifest = manifests_module.load_run_manifest
+        list_run_manifests = manifests_module.list_run_manifests
+        schema_version = manifests_module.MANIFEST_SCHEMA_VERSION
+
+    deprecation = [item for item in caught if item.category is DeprecationWarning]
+    assert len(deprecation) == 3
+
+    from substrate.evidence.model import MANIFEST_SCHEMA_VERSION as new_schema_version
+    from substrate.evidence.read import list_run_manifests as new_list_run_manifests
+    from substrate.evidence.read import load_run_manifest as new_load_run_manifest
+
+    assert load_run_manifest is new_load_run_manifest
+    assert list_run_manifests is new_list_run_manifests
+    assert schema_version == new_schema_version

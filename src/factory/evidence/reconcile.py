@@ -8,12 +8,13 @@ from enum import Enum
 from pathlib import Path
 
 from factory.evidence.artifacts import LocalArtifactStore
-from factory.evidence.manifests import load_run_manifest, write_run_manifest
+from factory.evidence.manifests import write_run_manifest
 from factory.evidence.records import list_historical_records
 from factory.freshness.fingerprint import fingerprint_file
 from factory.kb.index import build_index, build_index_payload
 from factory.orchestrator.journal import RunJournal
 from factory.orchestrator.recovery import abandon_run
+from substrate.evidence.read import load_run_manifest
 from substrate.ledger.tasks import load_tasks
 
 
