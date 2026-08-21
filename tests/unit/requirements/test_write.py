@@ -8,6 +8,7 @@ from factory.requirements.write import (
     write_binding,
     write_deferral,
 )
+from coherence.register.write import write_proposed_requirement
 
 pytestmark = pytest.mark.unit
 
@@ -39,6 +40,31 @@ def test_write_binding_stamps_a_current_checksum(tmp_path):
     assert req.binding.harness == "sim-testbench"
     assert req.binding.metric == "resume_rate"
     assert is_checksum_current(req), "a freshly written binding is never stale"
+
+
+def test_write_proposed_requirement_owns_id_and_exact_proposed_document(tmp_path):
+    path = write_proposed_requirement(
+        tmp_path / "requirements",
+        source="docs/superpowers/specs/a.md",
+        title="Zone clear resumes patrol",
+        statement="When the zone clears, the system shall resume patrol.",
+        domain="behavioral",
+    )
+
+    assert path.name == "SR-001.md"
+    assert path.read_text(encoding="utf-8") == (
+        "---\n"
+        "domain: behavioral\n"
+        "id: SR-001\n"
+        "source: docs/superpowers/specs/a.md\n"
+        "statement: When the zone clears, the system shall resume patrol.\n"
+        "title: Zone clear resumes patrol\n"
+        "upstream: []\n"
+        "---\n"
+        "\n"
+        "\n"
+        "## Rationale"
+    )
 
 
 def test_write_binding_accepts_no_harness(tmp_path):

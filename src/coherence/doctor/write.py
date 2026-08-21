@@ -6,8 +6,7 @@ from pathlib import Path
 import frontmatter
 
 from coherence.doctor.context import gather_context
-from coherence.register.cli import _next_id
-from coherence.register.write import write_binding
+import coherence.register.write as register_write
 
 _TASK_ID_RE = re.compile(r"T-(\d+)")
 
@@ -18,21 +17,13 @@ def mint(
     """Write an accepted candidate as a proposed requirement."""
     if not (project_root / source).is_file():
         raise ValueError(f"no such source: {source}")
-    requirements_dir = project_root / "requirements"
-    requirements_dir.mkdir(parents=True, exist_ok=True)
-    req_id = _next_id(requirements_dir)
-    post = frontmatter.Post(
-        "\n## Rationale\n",
-        id=req_id,
+    return register_write.write_proposed_requirement(
+        project_root / "requirements",
+        source=source,
         title=title,
         statement=statement,
         domain=domain,
-        upstream=[],
-        source=source,
     )
-    path = requirements_dir / f"{req_id}.md"
-    path.write_text(frontmatter.dumps(post), encoding="utf-8")
-    return path
 
 
 def promote(
@@ -49,7 +40,7 @@ def promote(
     path = project_root / "requirements" / f"{req_id}.md"
     if not path.is_file():
         raise ValueError(f"no such requirement: {req_id}")
-    write_binding(
+    register_write.write_binding(
         path,
         experiment=experiment,
         metric=metric,
@@ -87,4 +78,3 @@ def emit_task(
 
 
 __all__ = ["emit_task", "mint", "promote"]
-

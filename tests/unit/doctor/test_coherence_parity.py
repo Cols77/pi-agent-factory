@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ast
-import importlib
+import importlib.util
 import io
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -10,6 +10,14 @@ import frontmatter
 import pytest
 
 from coherence.register.register import is_checksum_current, parse_requirement
+from coherence.doctor import cli as coherence_cli
+
+_REFERENCE_SPEC = importlib.util.spec_from_file_location(
+    "legacy_doctor_reference", Path(__file__).with_name("legacy_doctor_reference.py")
+)
+assert _REFERENCE_SPEC is not None and _REFERENCE_SPEC.loader is not None
+legacy_doctor_reference = importlib.util.module_from_spec(_REFERENCE_SPEC)
+_REFERENCE_SPEC.loader.exec_module(legacy_doctor_reference)
 
 pytestmark = pytest.mark.unit
 
@@ -24,16 +32,10 @@ def _repo(root: Path) -> Path:
     return root
 
 
-def _capture(module_name: str, argv: list[str]) -> tuple[str, int]:
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        if module_name.startswith("coherence.doctor"):
-            pytest.fail(f"canonical doctor is not available: {exc}")
-        raise
+def _capture(main, argv: list[str]) -> tuple[str, int]:
     output = io.StringIO()
     with redirect_stdout(output):
-        code = module.main(argv)
+        code = main(argv)
     return output.getvalue(), code
 
 
@@ -41,18 +43,18 @@ def _run_pair(tmp_path: Path, argv: list[str]) -> tuple[tuple[str, int], tuple[s
     factory_root = _repo(tmp_path / "factory")
     coherence_root = _repo(tmp_path / "coherence")
     command = [*argv, "--project-root"]
-    factory_result = _capture("factory.doctor.cli", [*command, str(factory_root)])
-    coherence_result = _capture("coherence.doctor.cli", [*command, str(coherence_root)])
-    return factory_result, coherence_result, factory_root, coherence_root
+    legacy_result = _capture(legacy_doctor_reference.main, [*command, str(factory_root)])
+    coherence_result = _capture(coherence_cli.main, [*command, str(coherence_root)])
+    return legacy_result, coherence_result, factory_root, coherence_root
 
 
 def _assert_parity(
-    factory: tuple[str, int], coherence: tuple[str, int], factory_root: Path, coherence_root: Path
+    legacy: tuple[str, int], coherence: tuple[str, int], legacy_root: Path, coherence_root: Path
 ) -> None:
-    factory_output = factory[0].replace(str(factory_root), "<project-root>")
+    legacy_output = legacy[0].replace(str(legacy_root), "<project-root>")
     coherence_output = coherence[0].replace(str(coherence_root), "<project-root>")
-    assert coherence[1] == factory[1]
-    assert coherence_output == factory_output
+    assert coherence[1] == legacy[1]
+    assert coherence_output == legacy_output
 
 
 def test_context_stdout_and_exit_code_match_factory(tmp_path: Path):
@@ -85,7 +87,7 @@ def test_mint_preserves_proposed_requirement_content_and_effects(tmp_path: Path)
 
 
 def test_promote_preserves_stdout_exit_and_explicit_binding_writer_effects(tmp_path: Path):
-    factory_root = _repo(tmp_path / "factory")
+    legacy_root = _repo(tmp_path / "factory")
     coherence_root = _repo(tmp_path / "coherence")
     mint_argv = [
         "mint",
@@ -96,8 +98,8 @@ def test_promote_preserves_stdout_exit_and_explicit_binding_writer_effects(tmp_p
         "--statement",
         "s",
     ]
-    _capture("factory.doctor.cli", [*mint_argv, "--project-root", str(factory_root)])
-    _capture("coherence.doctor.cli", [*mint_argv, "--project-root", str(coherence_root)])
+    _capture(legacy_doctor_reference.main, [*mint_argv, "--project-root", str(legacy_root)])
+    _capture(coherence_cli.main, [*mint_argv, "--project-root", str(coherence_root)])
 
     promote_argv = [
         "promote",
@@ -115,15 +117,17 @@ def test_promote_preserves_stdout_exit_and_explicit_binding_writer_effects(tmp_p
         "--window-json",
         '{"after_event": "zone_clear", "within_s": 5}',
     ]
-    factory = _capture("factory.doctor.cli", [*promote_argv, "--project-root", str(factory_root)])
+    legacy = _capture(
+        legacy_doctor_reference.main, [*promote_argv, "--project-root", str(legacy_root)]
+    )
     coherence = _capture(
-        "coherence.doctor.cli", [*promote_argv, "--project-root", str(coherence_root)]
+        coherence_cli.main, [*promote_argv, "--project-root", str(coherence_root)]
     )
 
-    _assert_parity(factory, coherence, factory_root, coherence_root)
-    factory_path = factory_root / "requirements" / "SR-001.md"
+    _assert_parity(legacy, coherence, legacy_root, coherence_root)
+    legacy_path = legacy_root / "requirements" / "SR-001.md"
     coherence_path = coherence_root / "requirements" / "SR-001.md"
-    assert coherence_path.read_bytes() == factory_path.read_bytes()
+    assert coherence_path.read_bytes() == legacy_path.read_bytes()
     promoted = parse_requirement(coherence_path)
     assert promoted.binding is not None
     assert promoted.binding.trials == 20
@@ -143,8 +147,8 @@ def test_task_preserves_stdout_exit_and_explicit_task_writer_effects(tmp_path: P
         "--statement",
         "s",
     ]
-    _capture("factory.doctor.cli", [*mint_argv, "--project-root", str(factory_root)])
-    _capture("coherence.doctor.cli", [*mint_argv, "--project-root", str(coherence_root)])
+    _capture(legacy_doctor_reference.main, [*mint_argv, "--project-root", str(factory_root)])
+    _capture(coherence_cli.main, [*mint_argv, "--project-root", str(coherence_root)])
 
     task_argv = [
         "task",
@@ -159,12 +163,12 @@ def test_task_preserves_stdout_exit_and_explicit_task_writer_effects(tmp_path: P
         "--body",
         "Add the scorer to src/validation/scorers.py.",
     ]
-    factory = _capture("factory.doctor.cli", [*task_argv, "--project-root", str(factory_root)])
+    legacy = _capture(legacy_doctor_reference.main, [*task_argv, "--project-root", str(factory_root)])
     coherence = _capture(
-        "coherence.doctor.cli", [*task_argv, "--project-root", str(coherence_root)]
+        coherence_cli.main, [*task_argv, "--project-root", str(coherence_root)]
     )
 
-    _assert_parity(factory, coherence, factory_root, coherence_root)
+    _assert_parity(legacy, coherence, factory_root, coherence_root)
     factory_path = factory_root / "tasks" / "T-001.md"
     coherence_path = coherence_root / "tasks" / "T-001.md"
     assert coherence_path.read_bytes() == factory_path.read_bytes()

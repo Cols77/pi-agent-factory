@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import io
 import json
 import shutil
@@ -11,7 +12,13 @@ import pytest
 
 from factory.requirements import cli as factory_cli
 from coherence.register import cli as coherence_cli
-from tests.unit.requirements import legacy_cli_reference
+
+_REFERENCE_SPEC = importlib.util.spec_from_file_location(
+    "legacy_cli_reference", Path(__file__).with_name("legacy_cli_reference.py")
+)
+assert _REFERENCE_SPEC is not None and _REFERENCE_SPEC.loader is not None
+legacy_cli_reference = importlib.util.module_from_spec(_REFERENCE_SPEC)
+_REFERENCE_SPEC.loader.exec_module(legacy_cli_reference)
 
 pytestmark = pytest.mark.unit
 

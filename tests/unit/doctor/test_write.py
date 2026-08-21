@@ -1,4 +1,6 @@
 import pytest
+from coherence.doctor import write as doctor_write
+from coherence.register import write as register_write
 from factory.doctor.write import mint
 from factory.requirements.register import parse_requirement
 
@@ -41,3 +43,31 @@ def test_mint_refuses_a_source_that_does_not_exist(tmp_path):
     with pytest.raises(ValueError, match="no such source"):
         mint(_repo(tmp_path), "docs/superpowers/specs/missing.md", "t", "s", "behavioral")
     assert not (tmp_path / "requirements").exists()
+
+
+def test_mint_delegates_to_the_public_register_writer(monkeypatch, tmp_path):
+    repo = _repo(tmp_path)
+    expected_path = tmp_path / "requirements" / "SR-009.md"
+    calls = {}
+
+    def fake_writer(requirements_dir, **kwargs):
+        calls["requirements_dir"] = requirements_dir
+        calls.update(kwargs)
+        return expected_path
+
+    monkeypatch.setattr(register_write, "write_proposed_requirement", fake_writer)
+
+    assert doctor_write.mint(
+        repo,
+        source="docs/superpowers/specs/a.md",
+        title="Zone clear resumes patrol",
+        statement="When the zone clears, the system shall resume patrol.",
+        domain="behavioral",
+    ) == expected_path
+    assert calls == {
+        "requirements_dir": tmp_path / "requirements",
+        "source": "docs/superpowers/specs/a.md",
+        "title": "Zone clear resumes patrol",
+        "statement": "When the zone clears, the system shall resume patrol.",
+        "domain": "behavioral",
+    }

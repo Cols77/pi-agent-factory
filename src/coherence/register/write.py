@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 import frontmatter
 
@@ -14,6 +15,43 @@ class ReasonRequiredError(ValueError):
 
 class UnboundRequirementError(ValueError):
     """A reaffirmation was attempted against a requirement that has no binding."""
+
+
+_ID_RE = re.compile(r"SR-(\d+)")
+
+
+def _next_requirement_id(requirements_dir: Path) -> str:
+    numbers = [
+        int(match.group(1))
+        for path in requirements_dir.glob("SR-*.md")
+        if (match := _ID_RE.search(path.name))
+    ]
+    return f"SR-{(max(numbers) + 1) if numbers else 1:03d}"
+
+
+def write_proposed_requirement(
+    requirements_dir: Path,
+    *,
+    source: str,
+    title: str,
+    statement: str,
+    domain: str,
+) -> Path:
+    """Write a proposed requirement and return its allocated path."""
+    requirements_dir.mkdir(parents=True, exist_ok=True)
+    req_id = _next_requirement_id(requirements_dir)
+    post = frontmatter.Post(
+        "\n## Rationale\n",
+        id=req_id,
+        title=title,
+        statement=statement,
+        domain=domain,
+        upstream=[],
+        source=source,
+    )
+    path = requirements_dir / f"{req_id}.md"
+    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+    return path
 
 
 def _require_reason(reason: str) -> str:
@@ -83,4 +121,5 @@ __all__ = [
     "stamp_checksum",
     "write_binding",
     "write_deferral",
+    "write_proposed_requirement",
 ]
