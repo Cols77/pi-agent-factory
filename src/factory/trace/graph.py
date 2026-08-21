@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from factory.system import adr as adr_module
 from factory.trace.gaps import Gap, find_gaps
 from factory.trace.health import Health, compute_health
 from factory.trace.model import Edge, Node, extract_edges, load_nodes
 from factory.trace.validation_status import SrStatus, load_validation
+from substrate.documents.adr import load_adrs
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class Graph:
 def _adr_nodes(root: Path) -> list[Node]:
     return [
         Node(id=adr_id, kind="adr", title=doc.title or doc.path.name, path=doc.path)
-        for adr_id, doc in sorted(adr_module.load_adrs(root).items())
+        for adr_id, doc in sorted(load_adrs(root).items())
     ]
 
 

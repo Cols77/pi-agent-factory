@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Literal
-
-from factory.goals.schema import Goal
+from typing import Iterable, Literal, Protocol
 
 SrState = Literal["passed", "failed", "error", "never_validated"]
+
+
+class HasState(Protocol):
+    state: str
 
 REPORT_RELPATH = ("validation", "validation-report.json")
 
@@ -67,7 +69,9 @@ def load_validation(root: Path) -> dict[str, SrStatus]:
 GoalValidation = Literal["VALIDATED", "REGRESSED", "VERIFICATION_PENDING", "VERIFICATION_STALE"]
 
 
-def requirement_validation(goals: Iterable[Goal], *, stale: bool = False) -> GoalValidation | None:
+def requirement_validation(
+    goals: Iterable[HasState], *, stale: bool = False
+) -> GoalValidation | None:
     """Derive a requirement's D5 goal-aware status from its goal states.
 
     Pure and derived -- never stored (spec §28). Rules, in priority order:
