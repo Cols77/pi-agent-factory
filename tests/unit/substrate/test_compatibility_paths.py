@@ -315,3 +315,34 @@ def test_factory_evidence_manifests_write_stays_silent_read_functions_warn(tmp_p
     assert load_run_manifest is new_load_run_manifest
     assert list_run_manifests is new_list_run_manifests
     assert schema_version == new_schema_version
+
+
+def test_factory_evidence_manifests_migrate_manifest_warns_and_matches_substrate():
+    # migrate_manifest moved to substrate.evidence.model along with
+    # load_run_manifest/list_run_manifests/MANIFEST_SCHEMA_VERSION above; it
+    # must be reachable from the old import path too (one-release compat).
+    legacy_manifest = {
+        "schema_version": 1,
+        "task_id": "T-1",
+        "run_id": "run-1",
+        "inputs": {
+            "task": {"path": "tasks/T-1.md", "sha256": "a" * 64},
+        },
+    }
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        manifests_module = _import_fresh("factory.evidence.manifests")
+        migrated = manifests_module.migrate_manifest(legacy_manifest)
+
+    deprecation = [item for item in caught if item.category is DeprecationWarning]
+    assert len(deprecation) == 1
+    assert str(deprecation[0].message) == (
+        "factory.evidence.manifests.migrate_manifest is deprecated; "
+        "import substrate.evidence.model.migrate_manifest"
+    )
+
+    from substrate.evidence.model import migrate_manifest as new_migrate_manifest
+
+    assert manifests_module.migrate_manifest is new_migrate_manifest
+    assert migrated == new_migrate_manifest(legacy_manifest)

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     # runtime access still goes through __getattr__ below, which is what
     # emits the deprecation warning.
     from substrate.evidence.model import MANIFEST_SCHEMA_VERSION as MANIFEST_SCHEMA_VERSION
+    from substrate.evidence.model import migrate_manifest as migrate_manifest
     from substrate.evidence.read import list_run_manifests as list_run_manifests
     from substrate.evidence.read import load_run_manifest as load_run_manifest
 
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 __all__ = ["write_run_manifest"]
 _REEXPORT_TARGETS = {
     "MANIFEST_SCHEMA_VERSION": "substrate.evidence.model",
+    "migrate_manifest": "substrate.evidence.model",
     "load_run_manifest": "substrate.evidence.read",
     "list_run_manifests": "substrate.evidence.read",
 }
