@@ -9,6 +9,19 @@ from factory.trace.write import set_deferred, set_exempt
 pytestmark = pytest.mark.unit
 
 
+_PROPOSED_SR = """---
+id: SR-001
+title: "Explicit lifecycle traceability"
+statement: "Where corresponding artifacts exist, the factory shall support navigation across system requirement, feature/design decision, implementation, validation definition, experiment/simulation run, metric, evidence, and current validation state through explicit declared relations."
+domain: behavioral
+upstream: []
+source: "docs/superpowers/plans/engineering-context/00-high-level-requirements.md#HLR-02"
+---
+
+Source: docs/superpowers/plans/engineering-context/00-high-level-requirements.md#HLR-02.
+"""
+
+
 def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -67,6 +80,17 @@ def test_deferring_passes_the_gate_but_is_reported_as_a_warning(tmp_path):
 
 def test_empty_repo_passes(tmp_path):
     assert cmd_check(tmp_path)[1] == 0
+
+
+def test_proposed_requirement_is_visible_to_trace_check(tmp_path):
+    _write(tmp_path / "requirements" / "SR-001.md", _PROPOSED_SR)
+
+    text, code = cmd_check(tmp_path)
+
+    assert code == 1
+    assert "SR-001" in text
+    assert "sr_proposed" in text
+    assert "0 pending" not in text
 
 
 def test_main_check_propagates_the_exit_code(tmp_path, capsys):
