@@ -7,6 +7,7 @@ from factory.polish.bridge import PolishBridge
 from factory.polish.cli import (
     build_orchestrator,
     cmd_list,
+    cmd_list_json,
     cmd_run,
     main,
     run_polish_serve,
@@ -37,6 +38,21 @@ def _project(tmp_path):
 def test_cmd_list(tmp_path):
     _project(tmp_path)
     assert cmd_list(tmp_path) == "ref:shark_warning"
+
+
+def test_cmd_list_json_groups_usecases_by_playground(tmp_path):
+    _project(tmp_path)  # single playground "ref" -> usecase shark_warning
+    assert json.loads(cmd_list_json(tmp_path)) == [
+        {"playground": "ref", "usecases": ["shark_warning"]}
+    ]
+
+
+def test_main_list_json_exit_code_and_shape(tmp_path, capsys):
+    _project(tmp_path)
+    rc = main(["list", "--json", "--project-root", str(tmp_path)])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == [{"playground": "ref", "usecases": ["shark_warning"]}]
 
 
 def test_cmd_run_creates_tickets(tmp_path):

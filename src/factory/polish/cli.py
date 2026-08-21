@@ -26,6 +26,32 @@ def cmd_list(project_root: Path) -> str:
     return "\n".join(lines) if lines else "no playgrounds/usecases"
 
 
+def cmd_list_json(project_root: Path) -> str:
+    """Return the playgrounds and their usecases as a JSON string.
+
+    Purpose: give the interactive polish picker (and anything else) structured
+    playground -> usecases data to render selection menus from. The TS
+    extension consumes this to offer a playground then a usecase menu when a
+    polish session is started without an explicit <playground>:<usecase>.
+
+    Args:
+        project_root: the product repo root whose .factory config declares the
+            playgrounds.
+
+    Returns:
+        A JSON array of objects, one per playground: ``[{"playground":
+        "name", "usecases": ["a", "b"]}, ...]``.
+
+    Raises:
+        None.
+    """
+    groups = [
+        {"playground": name, "usecases": pg.list_usecases()}
+        for name, pg in load_config(project_root).playgrounds.items()
+    ]
+    return json.dumps(groups)
+
+
 def cmd_run(
     project_root: Path,
     playground_name: str,
@@ -185,7 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument("--project-root", default=Path("."), type=Path)
     common.add_argument("--tasks-dir", default=None, type=Path)
 
-    sub.add_parser("list", parents=[common])
+    p_list = sub.add_parser("list", parents=[common])
+    p_list.add_argument("--json", action="store_true")
     p_run = sub.add_parser("run", parents=[common])
     p_run.add_argument("--playground", required=True)
     p_run.add_argument("--usecase", required=True)
@@ -205,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tasks_dir = args.tasks_dir or (args.project_root / "tasks")
     if args.cmd == "list":
-        print(cmd_list(args.project_root))
+        print(cmd_list_json(args.project_root) if args.json else cmd_list(args.project_root))
     elif args.cmd == "run":
         paths = cmd_run(args.project_root, args.playground, args.usecase, args.from_json, tasks_dir)
         print("\n".join(str(p) for p in paths))
