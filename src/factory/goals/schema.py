@@ -19,7 +19,7 @@ from typing import Any
 import frontmatter
 
 from factory.goals.lifecycle import GoalState
-from factory.validation.schema_validator import SCHEMA_DIR, validate
+from substrate.validators.schema import SCHEMA_DIR, validate
 
 _SCHEMA = SCHEMA_DIR / "goal.schema.json"
 

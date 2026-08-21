@@ -41,7 +41,7 @@ from factory.memory.failure_record import (
     parse_failure,
 )
 from factory.system import queries as system_queries
-from factory.validation.schema_validator import SCHEMA_DIR, validate
+from substrate.validators.schema import SCHEMA_DIR, validate
 
 _SCHEMA = SCHEMA_DIR / "failure.schema.json"
 

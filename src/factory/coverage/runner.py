@@ -18,9 +18,9 @@ from factory.coverage.cli import cmd_audit, cmd_consolidate
 from factory.coverage.report import render_human_summary
 from factory.coverage.scope import resolve_feature_scope
 from factory.orchestrator.pi_backend import PiAgentBackend
-from factory.orchestrator.skills import load_skill_block
 from factory.orchestrator.types import AgentRole
-from factory.paths import factory_skills_dir, scope_guard_extension
+from substrate.agents.skills import load_skill_block
+from substrate.paths import factory_skills_dir, scope_guard_extension
 
 STATUS_FILENAME = "status.json"
 DECISIONS_FILENAME = "decisions.json"
@@ -50,6 +50,27 @@ def _sr_needs_subagent(sr_data: dict) -> bool:
     return len(sr_data.get("tasks", [])) > 0
 
 
+def _evidence_summary(tasks: list[dict]) -> str:
+    summaries: list[str] = []
+    for task in tasks:
+        task_id = task.get("task_id", "?")
+        if task.get("evidence_state") == "missing":
+            summaries.append(f"{task_id}: evidence missing")
+            continue
+        sources: list[str] = []
+        if task.get("manifests"):
+            sources.append("run manifest")
+        if task.get("record_paths"):
+            sources.append("historical record")
+        changed_files = task.get("changed_files", [])
+        if changed_files:
+            sources.append(f"changed files: {', '.join(changed_files)}")
+        elif task.get("evidence_state") == "empty":
+            sources.append("no changed files")
+        summaries.append(f"{task_id}: {', '.join(sources) or 'evidence unavailable'}")
+    return "; ".join(summaries) or "(no linked tasks)"
+
+
 def compose_audit_prompt(feat: str, sr_id: str, sr_data: dict, overlap: dict | None) -> str:
     """Build the full prompt for a per-SR audit child: role header, skill
     block, and the injected evidence packet."""
@@ -57,14 +78,20 @@ def compose_audit_prompt(feat: str, sr_id: str, sr_data: dict, overlap: dict | N
     for t in sr_data.get("tasks", []):
         changed_files.extend(t.get("changed_files", []))
     olap = overlap or {}
+    overlap_detail = {
+        key: value
+        for key, value in olap.items()
+        if key not in {"reason", "missing_task_ids", "empty_task_ids"}
+    }
     packet = (
         f"Statement: {sr_data.get('statement', '?')}\n"
         f"Binding: {sr_data.get('binding', '?')}\n"
         f"Checksum state: {sr_data.get('checksum_state', '?')}\n"
         f"Measurement: {json.dumps(sr_data.get('measurement')) if sr_data.get('measurement') else '(none)'}\n"
         f"Changed files: {', '.join(changed_files) or '(none)'}\n"
+        f"Evidence: {_evidence_summary(sr_data.get('tasks', []))}\n"
         f"Import-graph overlap: {'OK' if olap.get('ok') else 'FAIL'}\n"
-        f"Overlap detail: {json.dumps(olap, default=str)}\n"
+        f"Overlap detail: {json.dumps(overlap_detail, default=str)}\n"
     )
     lines: list[str] = []
     lines.append(f"# Role: {AgentRole.COVERAGE_AUDIT.value}")

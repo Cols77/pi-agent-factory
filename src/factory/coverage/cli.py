@@ -13,7 +13,7 @@ from factory.coverage.audit import classify, validate_verdict
 from factory.coverage.gate import run_gate
 from factory.coverage.imports import compute_overlap
 from factory.coverage.report import render_human_summary
-from factory.coverage.scope import resolve_feature_scope
+from factory.coverage.scope import EvidenceState, resolve_feature_scope
 
 
 _COVERAGE_REVIEWS = "coverage-reviews"
@@ -40,12 +40,32 @@ def cmd_audit(root: Path, feat: str, run_id: str | None = None) -> dict:
         experiment = sr.binding.get("experiment", "")
         if not experiment:
             continue
+        missing_task_ids = [
+            task.task_id
+            for task in sr.tasks
+            if task.evidence_state is EvidenceState.missing
+        ]
+        if missing_task_ids:
+            overlaps[sr_id] = {
+                "ok": False,
+                "reason": "missing evidence for tasks",
+                "missing_task_ids": missing_task_ids,
+            }
+            continue
         changed_files: list[str] = []
         for task in sr.tasks:
             changed_files.extend(task.changed_files)
         changed_files = list(set(changed_files))
         if not changed_files:
-            overlaps[sr_id] = {"ok": False, "reason": "no changed files from tasks"}
+            overlaps[sr_id] = {
+                "ok": False,
+                "reason": "recorded evidence has no changed files",
+                "empty_task_ids": [
+                    task.task_id
+                    for task in sr.tasks
+                    if task.evidence_state is EvidenceState.empty
+                ],
+            }
         else:
             overlaps[sr_id] = asdict(compute_overlap(root, experiment, changed_files))
 
@@ -67,7 +87,13 @@ def cmd_audit(root: Path, feat: str, run_id: str | None = None) -> dict:
                 "binding": sr.binding,
                 "checksum_state": sr.checksum_state,
                 "tasks": [
-                    {"task_id": t.task_id, "changed_files": list(t.changed_files)}
+                    {
+                        "task_id": t.task_id,
+                        "changed_files": list(t.changed_files),
+                        "manifests": list(t.manifests),
+                        "record_paths": list(t.record_paths),
+                        "evidence_state": t.evidence_state.value,
+                    }
                     for t in sr.tasks
                 ],
                 "measurement": sr.measurement,

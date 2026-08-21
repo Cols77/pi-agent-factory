@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from factory.evidence.types import Connector, EvidenceContext
-from factory.validation.schema_validator import validate_against
+from substrate.validators.schema import validate_against
 
 
 class Registry:

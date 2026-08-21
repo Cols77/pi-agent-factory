@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import frontmatter
-from jsonschema import Draft202012Validator
+
+from substrate.validators.schema import SCHEMA_DIR, validate
 
 
-_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "adr.schema.json"
+_SCHEMA = SCHEMA_DIR / "adr.schema.json"
 _ADR_DIR_PARTS = ("docs", "adr")
 
 
@@ -20,7 +20,7 @@ class DuplicateAdrIdError(ValueError):
 
 @dataclass(frozen=True)
 class AdrDocument:
-    """One parsed ADR. Absent fields remain ``None``."""
+    """One parsed ADR. Absent fields are ``None``."""
 
     path: Path
     id: str | None = None
@@ -32,6 +32,7 @@ class AdrDocument:
 
 
 def _sections_of(body: str) -> list[tuple[str, str]]:
+    """Split a body into ``(## heading, prose)`` pairs in file order."""
     sections: list[tuple[str, str]] = []
     heading: str | None = None
     buffer: list[str] = []
@@ -48,21 +49,8 @@ def _sections_of(body: str) -> list[tuple[str, str]]:
     return sections
 
 
-def _validate(meta: dict) -> list[str]:
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(
-        schema,
-        format_checker=Draft202012Validator.FORMAT_CHECKER,
-    )
-    errors = sorted(validator.iter_errors(meta), key=lambda error: list(error.path))
-    return [
-        f"{'/'.join(str(part) for part in error.path) or '<root>'}: {error.message}"
-        for error in errors
-    ]
-
-
 def parse_adr(path: Path) -> AdrDocument:
-    """Parse one ADR without raising for document-local errors."""
+    """Parse one ADR file; document-local failures degrade to schema errors."""
     try:
         post = frontmatter.load(str(path))
     except (OSError, ValueError) as exc:
@@ -84,7 +72,7 @@ def parse_adr(path: Path) -> AdrDocument:
         status=meta.get("status"),
         superseded_by=meta.get("superseded_by"),
         sections=sections,
-        schema_errors=_validate(meta),
+        schema_errors=validate(meta, _SCHEMA),
     )
 
 
@@ -93,7 +81,7 @@ def adr_dir(repo_root: Path) -> Path:
 
 
 def load_adrs(repo_root: Path) -> dict[str, AdrDocument]:
-    """Load ADRs keyed by their declared identity."""
+    """Load ADRs keyed by declared identity, rejecting duplicate identities."""
     directory = adr_dir(repo_root)
     if not directory.is_dir():
         return {}

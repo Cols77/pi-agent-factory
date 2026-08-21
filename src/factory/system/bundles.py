@@ -26,7 +26,7 @@ from factory.system.models import (
     SystemClaim,
     SystemScopeRef,
 )
-from factory.validation.schema_validator import SCHEMA_DIR, validate
+from substrate.validators.schema import SCHEMA_DIR, validate
 
 if TYPE_CHECKING:
     from factory.system.coverage import ArtifactLookup

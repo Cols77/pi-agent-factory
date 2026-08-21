@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator.types import TaskResult
-from factory.validation.session_validator import validate_session
+from substrate.validators.session import validate_session
 
 
 def _now() -> str:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from factory.codeindex import (
@@ -103,7 +105,7 @@ def test_ensure_fresh_rebuilds_only_when_code_changed(tmp_path):
 
 def test_preferred_engine_reports_available_extractor():
     assert preferred_engine() in ("tree-sitter", "stdlib-ast")
-    if _tree_sitter_available():
+    if _tree_sitter_available(Path("probe.py"), "def probe():\n    pass\n"):
         assert preferred_engine() == "tree-sitter"
     else:
         assert preferred_engine() == "stdlib-ast"
@@ -121,7 +123,7 @@ def test_ensure_fresh_upgrades_engine_when_available(tmp_path):
     fresh = ensure_fresh(root, files=files)
     assert fresh.fingerprint == stored.fingerprint  # code did not change
     assert fresh.engine == preferred_engine()
-    if _tree_sitter_available():
+    if _tree_sitter_available(Path("probe.py"), "def probe():\n    pass\n"):
         assert fresh.engine == "tree-sitter"  # stdlib -> tree-sitter upgrade
 
 
@@ -155,20 +157,31 @@ def test_cli_writes_latest(tmp_path):
     assert (root / ".factory" / "code-index" / "latest.json").exists()
 
 
-def _tree_sitter_available() -> bool:
+def test_tree_sitter_availability_is_language_specific(monkeypatch):
+    import sys
     from pathlib import Path
 
+    def fake_extract_signatures(path: Path, source: str):
+        engines = {".py": "tree-sitter", ".ts": "stdlib-ast"}
+        return engines[path.suffix], []
+
+    monkeypatch.setattr(sys.modules[__name__], "extract_signatures", fake_extract_signatures)
+
+    assert _tree_sitter_available(Path("probe.py"), "def probe():\n    pass\n")
+    assert _tree_sitter_available(Path("probe.ts"), "export function probe() {}\n") is False
+
+
+def _tree_sitter_available(path: Path, source: str) -> bool:
     try:
-        _, sigs = extract_signatures(
-            Path("probe.py"), "def probe():\n    pass\n"
-        )
+        engine, _ = extract_signatures(path, source)
     except Exception:
         return False
-    return True
+    return engine == "tree-sitter"
 
 
 @pytest.mark.skipif(
-    not _tree_sitter_available(), reason="tree-sitter optional accelerator not installed"
+    not _tree_sitter_available(Path("probe.py"), "def probe():\n    pass\n"),
+    reason="tree-sitter optional accelerator not installed",
 )
 def test_tree_sitter_engages_and_classifies_python_methods(tmp_path):
     """When the per-language tree-sitter grammars are present, extraction is
@@ -190,7 +203,8 @@ def test_tree_sitter_engages_and_classifies_python_methods(tmp_path):
 
 
 @pytest.mark.skipif(
-    not _tree_sitter_available(), reason="tree-sitter optional accelerator not installed"
+    not _tree_sitter_available(Path("probe.ts"), "export function probe() {}\n"),
+    reason="tree-sitter optional accelerator not installed",
 )
 def test_tree_sitter_classifies_typescript_declarations(tmp_path):
     """TS/JS declarations (function_declaration, class_declaration,

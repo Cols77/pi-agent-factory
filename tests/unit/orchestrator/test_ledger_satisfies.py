@@ -1,5 +1,6 @@
 import pytest
 from factory.orchestrator.ledger import load_tasks
+from substrate.ledger.tasks import load_tasks as substrate_load_tasks
 
 pytestmark = pytest.mark.unit
 
@@ -24,3 +25,10 @@ def test_satisfies_list(tmp_path):
 def test_satisfies_scalar_wrapped(tmp_path):
     _write(tmp_path, "T-003.md", extra="satisfies: SR-001\n")
     assert load_tasks(tmp_path)[0].satisfies == ["SR-001"]
+
+
+def test_satisfies_parity_with_substrate_ledger_tasks(tmp_path):
+    _write(tmp_path, "T-001.md")
+    _write(tmp_path, "T-002.md", extra="satisfies:\n  - SR-001\n  - SR-002\n")
+    _write(tmp_path, "T-003.md", extra="satisfies: SR-001\n")
+    assert load_tasks(tmp_path) == substrate_load_tasks(tmp_path)

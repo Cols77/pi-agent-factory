@@ -6,7 +6,7 @@ a cited source file. This module never rewords recorded text, and it never
 invokes a language model -- synthesis here is deterministic template
 assembly over data `factory.system.queries` (brief/matrix/timeline) and the
 canonical loaders (`factory.requirements.register`, `factory.system.bundles`,
-`factory.orchestrator.ledger`) already computed. A span is only ever emitted
+`substrate.ledger.tasks`) already computed. A span is only ever emitted
 after `_verbatim_span` independently re-reads the cited file and confirms
 the candidate text is a literal substring of it -- the guide can never
 assert a quote it has not just verified.
@@ -60,7 +60,6 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.system.models import (
     ClaimClass,
@@ -83,6 +82,7 @@ from factory.system.queries import (
     query_matrix,
     query_timeline,
 )
+from substrate.ledger import tasks as ledger
 
 EXPORTED_GUIDE_ARTIFACT_MARKER = "system_guide_export"
 

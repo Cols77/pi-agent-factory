@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from factory.validation.kb_validator import parse_entry, validate_entry
+from substrate.validators.kb import parse_entry, validate_entry
 
 
 def build_index_payload(kb_dir: Path) -> dict:

@@ -1,3 +1,1 @@
-"""Neutral document parsers shared by assurance capabilities."""
-
-from __future__ import annotations
+"""Neutral structured-document parsing shared across factory capabilities."""
