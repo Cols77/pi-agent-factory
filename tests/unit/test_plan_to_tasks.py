@@ -3,6 +3,9 @@ from pathlib import Path
 import frontmatter
 import pytest
 from factory.orchestrator.plan_to_tasks import NoTasksFoundError, parse_plan_tasks, run
+from substrate.ledger.plans import NoTasksFoundError as SubstrateNoTasksFoundError
+from substrate.ledger.plans import parse_plan_tasks as substrate_parse_plan_tasks
+from substrate.ledger.plans import run as substrate_run
 
 pytestmark = pytest.mark.unit
 
@@ -189,3 +192,44 @@ def test_files_block_and_produces_survive_masking():
     tasks = parse_plan_tasks(PLAN_WITH_FENCED_FIXTURE)
     assert "Create: `src/a.py`" in tasks[0].files_block
     assert tasks[0].produces == ["`do_a() -> None`."]
+
+
+# --- Parity: factory.orchestrator.plan_to_tasks (deprecated shim) vs
+# substrate.ledger.plans (the real implementation the shim re-exports). ---
+
+
+def test_no_tasks_found_error_is_the_same_class_the_shim_re_exports():
+    assert NoTasksFoundError is SubstrateNoTasksFoundError
+
+
+def test_parse_plan_tasks_parity_with_substrate():
+    for text in (PLAN_TWO_TASKS, PLAN_NO_TASKS, PLAN_TASK_WITHOUT_PRODUCES, PLAN_WITH_FENCED_FIXTURE):
+        assert parse_plan_tasks(text) == substrate_parse_plan_tasks(text)
+
+
+def test_no_tasks_found_error_text_matches_between_old_and_new(tmp_path):
+    plan_path = _write_plan(tmp_path, "2026-07-20-empty.md", PLAN_NO_TASKS)
+
+    with pytest.raises(NoTasksFoundError) as old_exc:
+        run(plan_path, tmp_path)
+    with pytest.raises(SubstrateNoTasksFoundError) as new_exc:
+        substrate_run(plan_path, tmp_path)
+
+    assert str(old_exc.value) == str(new_exc.value)
+
+
+def test_run_parity_with_substrate_creates_identical_task_files(tmp_path):
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    old_plan = _write_plan(old_root, "2026-07-20-feature.md", PLAN_TWO_TASKS)
+    new_plan = _write_plan(new_root, "2026-07-20-feature.md", PLAN_TWO_TASKS)
+
+    old_created = run(old_plan, old_root)
+    new_created = substrate_run(new_plan, new_root)
+    assert old_created == new_created == ["T-001", "T-002"]
+
+    for task_id, filename in zip(old_created, ("T-001-first-component.md", "T-002-second-component.md")):
+        old_post = frontmatter.load(str(old_root / "tasks" / filename))
+        new_post = frontmatter.load(str(new_root / "tasks" / filename))
+        assert old_post.metadata == new_post.metadata
+        assert old_post.content == new_post.content

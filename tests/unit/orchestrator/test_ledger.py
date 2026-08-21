@@ -11,6 +11,9 @@ from factory.orchestrator.ledger import (
     next_todo,
     set_status,
 )
+from substrate.ledger.tasks import Task as SubstrateTask
+from substrate.ledger.tasks import load_tasks as substrate_load_tasks
+from substrate.ledger.tasks import set_status as substrate_set_status
 
 pytestmark = pytest.mark.unit
 
@@ -140,3 +143,47 @@ def test_non_integer_source_task_becomes_none(tmp_path):
     )
 
     assert load_tasks(tmp_path / "tasks")[0].source_task is None
+
+
+# --- Parity: factory.orchestrator.ledger (deprecated shim) vs
+# substrate.ledger.tasks (the real implementation the shim re-exports). ---
+
+
+def test_substrate_ledger_tasks_is_the_same_class_the_shim_re_exports():
+    # The shim re-exports the substrate class object directly (no parallel
+    # redefinition) -- so an old Task and a "new" Task are literally the
+    # same type, not merely structurally equal.
+    assert Task is SubstrateTask
+
+
+def test_load_tasks_parity_with_substrate(tmp_path):
+    _write(tmp_path, "T-002-b.md", status="done")
+    _write(tmp_path, "T-001-a.md", status="todo")
+    assert load_tasks(tmp_path) == substrate_load_tasks(tmp_path)
+
+
+def test_load_tasks_parity_with_substrate_including_satisfies_and_source_fields(tmp_path):
+    _write_task(
+        tmp_path / "tasks",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n- d\n"
+        "satisfies:\n  - SR-001\nsource_plan: docs/superpowers/plans/p.md\nsource_task: 3\n---\nbody\n",
+    )
+    old = load_tasks(tmp_path / "tasks")
+    new = substrate_load_tasks(tmp_path / "tasks")
+    assert old == new
+    assert old[0].satisfies == new[0].satisfies == ["SR-001"]
+
+
+def test_status_write_parity_between_old_and_new_set_status(tmp_path):
+    _write(tmp_path, "T-001-a.md")
+    task_via_old = load_tasks(tmp_path)[0]
+    set_status(task_via_old, "done")
+    reread_via_old = load_tasks(tmp_path)[0]
+    reread_via_new = substrate_load_tasks(tmp_path)[0]
+    assert reread_via_old == reread_via_new == task_via_old
+
+    _write(tmp_path, "T-002-b.md")
+    task_via_new = substrate_load_tasks(tmp_path)[1]
+    substrate_set_status(task_via_new, "done")
+    assert load_tasks(tmp_path)[1].status == "done"
+    assert substrate_load_tasks(tmp_path)[1] == load_tasks(tmp_path)[1]

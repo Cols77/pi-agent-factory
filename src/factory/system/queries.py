@@ -7,7 +7,7 @@ owns:
   member parsing; Task 1's job);
 - `factory.requirements.register` for SR content and binding, via the
   existing `SR-*.md` glob register (never a hardcoded path);
-- `factory.orchestrator.ledger` for task implementation status (the task
+- `substrate.ledger.tasks` for task implementation status (the task
   ledger, never plan checkbox state -- design SS3.4) and, for the timeline,
   the `satisfies` link from task to SR;
 - `factory.trace.validation_status` for validation report outcomes and
@@ -38,7 +38,6 @@ from factory.evidence import manifests as evidence_manifests
 from factory.goals import registry as goal_registry
 from factory.memory import conflict as memory_conflict
 from factory.memory import durable as durable_memory
-from factory.orchestrator import ledger
 from factory.requirements import register
 from factory.requirements.register import Requirement
 from factory.simulation import evidence as sim_evidence
@@ -75,6 +74,7 @@ from factory.system.vcycle import VCycleSlice
 from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
+from substrate.ledger import tasks as ledger
 
 _SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric", "goal")
 
@@ -1382,7 +1382,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 #     (confirmed by reading `factory/validation/report.py` and
 #     `validation_status.py`) -- there is nothing recorded to order by, so
 #     no `validated` timeline event is ever synthesized from them.
-#   - The task ledger (`factory.orchestrator.ledger.Task`) carries no
+#   - The task ledger (`substrate.ledger.tasks.Task`) carries no
 #     timestamp either, and its `todo/done/rejected/escalated` vocabulary has
 #     no non-arbitrary mapping onto `TimelineAction` (the same reasoning
 #     keeps `MatrixStatus` from absorbing task/decision vocabularies).

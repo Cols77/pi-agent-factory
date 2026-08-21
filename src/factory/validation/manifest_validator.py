@@ -10,7 +10,7 @@ from factory.evidence.types import EvidenceContext
 from substrate.validators.manifest import validate_manifest_document
 
 if TYPE_CHECKING:
-    from factory.orchestrator.ledger import Task
+    from substrate.ledger.tasks import Task
 
 warnings.warn(
     "factory.validation.manifest_validator is deprecated; import substrate.validators.manifest",

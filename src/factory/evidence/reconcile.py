@@ -13,8 +13,8 @@ from factory.evidence.records import list_historical_records
 from factory.freshness.fingerprint import fingerprint_file
 from factory.kb.index import build_index, build_index_payload
 from factory.orchestrator.journal import RunJournal
-from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.recovery import abandon_run
+from substrate.ledger.tasks import load_tasks
 
 
 class ReconcileKind(str, Enum):

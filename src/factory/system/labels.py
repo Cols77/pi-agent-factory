@@ -15,12 +15,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 from factory.evidence import manifests as evidence_manifests_module
-from factory.orchestrator import ledger as ledger_module
 from factory.requirements import register as register_module
 from factory.system import adr as adr_module
 from factory.system import bundles as bundles_module
 from factory.system._claims import evidence_dir as _evidence_dir
 from factory.trace import model as trace_model
+from substrate.ledger import tasks as ledger_module
 
 # Kinds whose identity is the file, not a symbol: their canonical ref uses
 # the repo-relative POSIX path instead of the bare id. Every other kind
@@ -224,7 +224,7 @@ def build_labels(root: Path) -> dict:
             if satisfies:
                 relations["satisfies"] = satisfies
             if task.source_plan:
-                # `Task.source_plan` (ledger.py:23) is recorded as the bare
+                # `Task.source_plan` (substrate/ledger/tasks.py:23) is recorded as the bare
                 # repo-relative path, with no `plan:` prefix -- unlike
                 # `satisfies`'s bare SR ids, which are already aliased keys.
                 # Prefixing it is not parsing a ref (there is nothing to

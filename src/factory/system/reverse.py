@@ -13,7 +13,7 @@ existing loader; nothing here infers a hop that was not recorded:
   evidence -- a manifest's `implementation.changed_files` is the sole,
   recorded basis for "this run touched this file" (never reconstructed from
   git, never a directory listing);
-- `factory.orchestrator.ledger` for the task record a matched run's
+- `substrate.ledger.tasks` for the task record a matched run's
   `task_id` names, and that task's own `satisfies` frontmatter -- the same
   field `factory.trace.model.extract_edges` reads to build the task's
   `satisfies` trace edge (see `story._requirements_for_task`'s comment; the
@@ -42,7 +42,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from factory.evidence import manifests as evidence_manifests
-from factory.orchestrator import ledger
 from factory.system._claims import (
     evidence_dir as _evidence_dir,
     fresh as _fresh,
@@ -60,6 +59,7 @@ from factory.system.models import (
 )
 from factory.system.queries import ScopeKindError, ScopeNotFoundError
 from factory.system.refs import sr_ref_from_trace_id
+from substrate.ledger import tasks as ledger
 
 
 def _resolve_scope_file(repo_root: Path, scope: SystemScopeRef) -> Path:

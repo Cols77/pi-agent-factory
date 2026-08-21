@@ -5,7 +5,7 @@ task, see how it was implemented).
 Composes existing loaders; never re-parses an artifact a loader already
 owns:
 
-- `factory.orchestrator.ledger` for the task record itself -- status,
+- `substrate.ledger.tasks` for the task record itself -- status,
   title, and the `satisfies` list its own frontmatter carries (the same
   field `factory.trace.model.extract_edges` reads to build a task's
   `satisfies` trace edge, so reading it through the ledger here is not a
@@ -35,8 +35,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from factory.evidence import manifests as evidence_manifests
-from factory.orchestrator import ledger
-from factory.orchestrator.plan_to_tasks import parse_plan_tasks
 from factory.system import sessions
 from factory.system._claims import (
     evidence_dir as _evidence_dir,
@@ -56,6 +54,8 @@ from factory.system.models import (
 )
 from factory.system.queries import ScopeKindError, ScopeNotFoundError
 from factory.system.refs import sr_ref_from_trace_id
+from substrate.ledger import tasks as ledger
+from substrate.ledger.plans import parse_plan_tasks
 
 
 def _task_id_from_scope(scope: SystemScopeRef) -> str:
@@ -224,7 +224,7 @@ def query_story(repo_root: Path, scope: SystemScopeRef) -> dict:
     Returns `{"scope": {...}, "task": {...}, "runs": [...],
     "requirements": [...], "degraded": bool, "degraded_reasons": [...]}`.
     Raises `ScopeNotFoundError` for a task id that does not resolve through
-    `factory.orchestrator.ledger.get_task`, and `ScopeKindError` for any
+    `substrate.ledger.tasks.get_task`, and `ScopeKindError` for any
     scope kind other than `task`.
     """
     task_id = _task_id_from_scope(scope)

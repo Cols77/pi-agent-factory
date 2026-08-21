@@ -111,3 +111,89 @@ def test_factory_validation_session_validator_warns_once_and_matches_substrate()
     bad_record = {**record, "tasks": [{**record["tasks"][0], "dod": {"met": False}}]}
     assert old.validate_session(bad_record) == new.validate_session(bad_record)
     assert old.validate_session(bad_record) != []
+
+
+def _write_task(tasks_dir, name, status="todo"):
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / name).write_text(
+        f"---\nid: {name[:-3]}\ntitle: t\nstatus: {status}\ndod:\n  - x\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_factory_orchestrator_ledger_warns_once_and_matches_substrate(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        old = _import_fresh("factory.orchestrator.ledger")
+
+    assert len(caught) == 1
+    assert caught[0].category is DeprecationWarning
+    assert str(caught[0].message) == (
+        "factory.orchestrator.ledger is deprecated; import substrate.ledger.tasks"
+    )
+
+    new = importlib.import_module("substrate.ledger.tasks")
+    assert old.Task is new.Task
+
+    tasks_dir = tmp_path / "tasks"
+    _write_task(tasks_dir, "T-001-a.md")
+    old_tasks = old.load_tasks(tasks_dir)
+    new_tasks = new.load_tasks(tasks_dir)
+    assert old_tasks == new_tasks
+    assert old.get_task(old_tasks, "T-001") == new.get_task(new_tasks, "T-001")
+    assert old.format_task_board(old_tasks) == new.format_task_board(new_tasks)
+
+
+def test_factory_orchestrator_plan_to_tasks_warns_once_and_matches_substrate(tmp_path):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        old = _import_fresh("factory.orchestrator.plan_to_tasks")
+
+    assert len(caught) == 1
+    assert caught[0].category is DeprecationWarning
+    assert str(caught[0].message) == (
+        "factory.orchestrator.plan_to_tasks is deprecated; import substrate.ledger.plans"
+    )
+
+    new = importlib.import_module("substrate.ledger.plans")
+    assert old.NoTasksFoundError is new.NoTasksFoundError
+
+    text = "# no sections here\n"
+    assert old.parse_plan_tasks(text) == new.parse_plan_tasks(text) == []
+
+    plan_dir = tmp_path / "docs" / "superpowers" / "plans"
+    plan_dir.mkdir(parents=True)
+    plan_path = plan_dir / "p.md"
+    plan_path.write_text(
+        "### Task 1: A\n\n**Files:**\n- Create: `a.py`\n\n**Interfaces:**\n- Produces: `f()`.\n",
+        encoding="utf-8",
+    )
+    old_created = old.run(plan_path, tmp_path)
+    assert old_created == ["T-001"]
+    assert new.run(plan_path, tmp_path) == []  # already parsed -- idempotent
+
+
+def test_factory_config_load_config_and_require_gates_do_not_warn(tmp_path):
+    # factory.config is the composition adapter, not a moved module -- its
+    # public behaviour is unchanged, so importing/calling it must stay silent.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        cfg_module = _import_fresh("factory.config")
+
+    assert caught == []
+
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        'gates:\n  unit:\n    - { cmd: "pytest -q" }\n', encoding="utf-8"
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        cfg = cfg_module.load_config(tmp_path)
+        cfg_module.require_gates(cfg, tmp_path)
+
+    assert caught == []
+
+    from substrate.config import GateStep as SubstrateGateStep
+
+    assert cfg.gates == {"unit": [SubstrateGateStep(cmd="pytest -q")]}

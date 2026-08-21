@@ -13,10 +13,10 @@ from factory.freshness.fingerprint import (
     fingerprint_tool,
 )
 from factory.orchestrator.git_ops import GitOps
-from factory.orchestrator.ledger import Task
 from factory.orchestrator.types import TaskResult
 from factory.requirements.register import load_register
 from factory.trace.graph import build_graph
+from substrate.ledger.tasks import Task
 
 
 def _digest(data: bytes) -> str:
