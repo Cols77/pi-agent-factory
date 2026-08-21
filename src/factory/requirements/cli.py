@@ -7,7 +7,7 @@ from pathlib import Path
 
 import frontmatter
 
-from factory.evidence.manifests import list_run_manifests
+from substrate.evidence.read import list_run_manifests
 from factory.freshness.model import GATE_FAILING_SEVERITIES, FreshnessSeverity
 from factory.requirements.closure import ClosureFinding, RequirementState, classify
 from factory.requirements.register import (

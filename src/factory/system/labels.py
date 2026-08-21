@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
-from factory.evidence import manifests as evidence_manifests_module
+from substrate.evidence import read as evidence_manifests_module
 from factory.requirements import register as register_module
 from factory.system import adr as adr_module
 from factory.system import bundles as bundles_module

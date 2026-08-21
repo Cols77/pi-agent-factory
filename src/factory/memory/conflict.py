@@ -41,7 +41,7 @@ import re
 from pathlib import Path
 
 from factory.delta import git_ops
-from factory.evidence import manifests as evidence_manifests
+from substrate.evidence import read as evidence_manifests
 from factory.freshness.fingerprint import fingerprint_file
 from factory.memory.durable import _run_ref_detected
 from factory.memory.durable import query_memory as _durable_query_memory

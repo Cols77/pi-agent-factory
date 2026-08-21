@@ -34,7 +34,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from factory.evidence import manifests as evidence_manifests
+from substrate.evidence import read as evidence_manifests
 from factory.goals import registry as goal_registry
 from factory.memory import conflict as memory_conflict
 from factory.memory import durable as durable_memory

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from factory.evidence import manifests as evidence_manifests
+from substrate.evidence import read as evidence_manifests
 from factory.system._claims import (
     evidence_dir as _evidence_dir,
     fresh as _fresh,

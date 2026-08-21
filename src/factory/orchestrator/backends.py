@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Protocol
 
 from factory.config import GateStep
-from factory.orchestrator.types import AgentResult, AgentRole
+from factory.orchestrator.types import AgentRole
+from substrate.agents.model import AgentResult
 
 
 class AgentBackend(Protocol):

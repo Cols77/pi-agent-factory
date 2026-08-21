@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from factory.evidence import manifests as evidence_manifests
+from substrate.evidence import read as evidence_manifests
 from factory.goals import registry as goal_registry
 from factory.goals.lifecycle import TERMINAL_GOAL_STATES
 from factory.goals.schema import Goal

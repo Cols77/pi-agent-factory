@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from factory.evidence.manifests import list_run_manifests
+from substrate.evidence.read import list_run_manifests
 from factory.evidence.records import list_historical_records
 from factory.requirements.register import is_checksum_current, load_register
 from factory.trace.graph import build_graph

@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from factory.validation.schema_validator import SCHEMA_DIR, validate
+from substrate.validators.schema import SCHEMA_DIR, validate
 
 
 HISTORICAL_RECORD_SCHEMA_VERSION = 1

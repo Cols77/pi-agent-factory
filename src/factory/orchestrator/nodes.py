@@ -14,15 +14,14 @@ from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
 from factory.orchestrator.types import (
-    AgentResult,
     AgentRole,
-    InterruptionReason,
     NodeEvent,
     NodeOutcome,
 )
 from factory.validation.manifest_validator import validate_manifest
 from factory.validation.pipeline import validate_task_requirements
 from factory.validation.report import write_validation_report
+from substrate.agents.model import AgentResult, InterruptionReason
 
 
 def _note_backend_failure(extra: dict, result: AgentResult) -> dict:

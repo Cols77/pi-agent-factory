@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from factory.evidence.manifests import list_run_manifests, load_run_manifest
+from substrate.evidence.read import list_run_manifests, load_run_manifest
 from factory.evidence.records import build_historical_record, write_historical_record
 from factory.evidence.reconcile import (
     blocks_evidence_gate,

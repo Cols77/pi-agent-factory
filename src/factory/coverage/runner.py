@@ -18,9 +18,9 @@ from factory.coverage.cli import cmd_audit, cmd_consolidate
 from factory.coverage.report import render_human_summary
 from factory.coverage.scope import resolve_feature_scope
 from factory.orchestrator.pi_backend import PiAgentBackend
-from factory.orchestrator.skills import load_skill_block
 from factory.orchestrator.types import AgentRole
-from factory.paths import factory_skills_dir, scope_guard_extension
+from substrate.agents.skills import load_skill_block
+from substrate.paths import factory_skills_dir, scope_guard_extension
 
 STATUS_FILENAME = "status.json"
 DECISIONS_FILENAME = "decisions.json"
