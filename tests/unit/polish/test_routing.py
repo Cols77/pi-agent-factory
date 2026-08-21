@@ -38,3 +38,17 @@ def test_route_coexists_with_existing_task_ids(tmp_path):
     )
     path = route(Finding("uc", "d"), tasks)
     assert path.name == "T-042.md"
+
+
+def test_route_embeds_artifact_paths(tmp_path):
+    """A bug snapshot artifact path must survive into the routed task body."""
+    tasks = tmp_path / "tasks"
+    f = Finding(
+        usecase="scn_005",
+        description="drone veers at t=22",
+        artifacts=["scenarios/bugs/SCN-005-20260820_120000-drone-veers-at-t=22.yaml"],
+    )
+    path = route(f, tasks)
+    body = path.read_text(encoding="utf-8")
+    assert "## Artifacts" in body
+    assert "scenarios/bugs/SCN-005-20260820_120000-drone-veers-at-t=22.yaml" in body
