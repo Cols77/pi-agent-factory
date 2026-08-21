@@ -9,13 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from factory.requirements import cli as legacy_cli
-from factory.requirements.write import stamp_checksum
+from factory.requirements import cli as factory_cli
+from coherence.register import cli as coherence_cli
+from tests.unit.requirements import legacy_cli_reference
 
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).parents[3]
 REGISTER_ROOT = ROOT / "src" / "coherence" / "register"
+STATEMENT = legacy_cli_reference.STATEMENT
 
 
 def _write_requirement(root: Path, state: str) -> Path:
@@ -33,7 +35,7 @@ def _write_requirement(root: Path, state: str) -> Path:
         "---\n"
         "id: SR-001\n"
         f"title: {state} requirement\n"
-        "statement: When a shark is detected, the system shall warn the swimmer.\n"
+        f"statement: {STATEMENT}\n"
         "domain: behavioral\n"
         "upstream: []\n"
         f"{binding}"
@@ -43,7 +45,7 @@ def _write_requirement(root: Path, state: str) -> Path:
     path = requirements / "SR-001.md"
     path.write_text(document, encoding="utf-8")
     if state != "proposed":
-        stamp_checksum(path)
+        legacy_cli_reference.stamp_checksum(path)
     if state == "stale":
         path.write_text(
             path.read_text(encoding="utf-8").replace(
@@ -137,15 +139,18 @@ def test_coherence_register_matches_factory_register_for_every_command(
 ):
     root = tmp_path / "project"
     requirements = _write_requirement(root, state)
-    legacy = _capture(legacy_cli, argv_for(root, requirements))
+    legacy = _capture(legacy_cli_reference, argv_for(root, requirements))
 
     shutil.rmtree(root)
     requirements = _write_requirement(root, state)
-    from coherence.register import cli as coherence_cli
-
     canonical = _capture(coherence_cli, argv_for(root, requirements))
 
     assert canonical == legacy, f"{command} diverged for {state}"
+
+
+def test_factory_requirements_cli_forwards_to_canonical_cli():
+    assert factory_cli is coherence_cli
+    assert factory_cli.main is coherence_cli.main
 
 
 def _imports(path: Path) -> set[str]:
