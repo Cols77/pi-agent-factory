@@ -171,3 +171,11 @@ def test_unlink_cli_returns_two_and_preserves_bytes_on_missing_target(
 
     assert capsys.readouterr().out == f"error: {'unknown node: ' if expected == 'T-404' else 'relation not found: '}" + expected + "\n"
     assert path.read_bytes() == before
+
+
+def test_canonical_help_uses_coherence_trace_prog_name(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    assert exc_info.value.code == 0
+    assert "usage: coherence-trace" in capsys.readouterr().out

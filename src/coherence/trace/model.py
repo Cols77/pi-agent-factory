@@ -86,10 +86,7 @@ def _file_node(path: Path, kind: NodeKind) -> Node:
         # rather than raising (see its own contract comment above) -- this
         # fallback read must honour the same contract, not reopen the file
         # unguarded and crash the whole graph on one bad spec/plan.
-        try:
-            body = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            body = ""
+        body = _read_text_or_empty(path)
     meta = post.metadata if post is not None else {}
     exempt, deferred = _disposition(meta)
     return Node(
@@ -166,6 +163,13 @@ def as_str_list(value: object) -> list[str]:
     return []
 
 
+def _read_text_or_empty(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
     """Return declared V-cycle relationship edges without resolving their endpoints."""
     edges: list[Edge] = []
@@ -226,7 +230,7 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                 add(edge)
         elif node.kind == "plan":
             post = _load_post(node.path)
-            body = post.content if post is not None else node.path.read_text(encoding="utf-8")
+            body = post.content if post is not None else _read_text_or_empty(node.path)
             for filename in _SPEC_REF_RE.findall(body):
                 add(Edge(node.id, f"spec:{filename}", "spec_ref"))
 

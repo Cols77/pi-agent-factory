@@ -70,8 +70,8 @@ def _add_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project-root", default=Path("."), type=Path)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="factory-trace")
+def _parser(prog: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_status = sub.add_parser("status")
@@ -112,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
     _add_root(p_defer)
     p_defer.add_argument("node_id")
     p_defer.add_argument("--reason", required=True)
+
+    return parser
+
+
+def main(argv: list[str] | None = None, *, prog: str = "coherence-trace") -> int:
+    parser = _parser(prog)
 
     args = parser.parse_args(argv)
 
