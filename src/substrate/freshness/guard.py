@@ -48,7 +48,7 @@ class GuardSession:
 
     def __init__(self) -> None:
         self.observations: list[StalenessObservation] = []
-        self._attempt_cache: dict[tuple[str, str, str], GuardResult] = {}
+        self._attempt_cache: dict[tuple[FreshnessRecipe, str, str, str, str], GuardResult] = {}
 
 
 def _normalize_fingerprint(value: object) -> str:
@@ -113,7 +113,7 @@ def guarded_read(
 ) -> GuardResult:
     fingerprinter = compiled.fingerprinters[recipe.fingerprinter]
     actual_fingerprint = _normalize_fingerprint(fingerprinter(inputs))
-    cache_key = (recipe.output_kind, candidate.ref, actual_fingerprint)
+    cache_key = (recipe, candidate.kind, candidate.ref, candidate.fingerprint, actual_fingerprint)
     cached = session._attempt_cache.get(cache_key)
     if cached is not None:
         return cached

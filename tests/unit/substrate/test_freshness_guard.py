@@ -340,6 +340,55 @@ def test_repeated_failed_resolution_is_cached_by_exact_key() -> None:
     assert len(session.observations) == 1
 
 
+def test_attempt_cache_distinguishes_candidate_identity_and_recipe_routing() -> None:
+    stale_candidate = make_snapshot(ref="snapshot:shared", fingerprint="old")
+    current_candidate = make_snapshot(ref="snapshot:shared", fingerprint="actual")
+    wrong_kind_candidate = make_snapshot(
+        ref="snapshot:shared",
+        fingerprint="actual",
+        kind="wrong-kind",
+    )
+    derived_recipe = make_recipe()
+    blocked_recipe = make_recipe(ResolutionClass.repeatable_policy)
+    replacement = make_snapshot(
+        ref="snapshot:replacement",
+        fingerprint="actual",
+        supersedes=stale_candidate.ref,
+    )
+    resolver_calls: list[SnapshotRef] = []
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "actual"
+
+    def resolver(recipe: FreshnessRecipe, snapshot: SnapshotRef) -> SnapshotRef:
+        resolver_calls.append(snapshot)
+        return replacement
+
+    compiled = make_compiled(derived_recipe, fingerprinter, resolver)
+    session = GuardSession()
+
+    resolved = guarded_read(session, compiled, derived_recipe, stale_candidate, [])
+    current = guarded_read(session, compiled, derived_recipe, current_candidate, [])
+    wrong_kind = guarded_read(session, compiled, derived_recipe, wrong_kind_candidate, [])
+    blocked = guarded_read(session, compiled, blocked_recipe, stale_candidate, [])
+
+    assert resolved.snapshot is replacement
+    assert current == GuardResult(snapshot=current_candidate)
+    assert wrong_kind == GuardResult(
+        snapshot=None,
+        failure=ResolutionFailure(
+            code="candidate_kind_mismatch",
+            reason="candidate kind does not match recipe output kind",
+        ),
+    )
+    assert blocked.snapshot is None
+    assert blocked.failure is None
+    assert blocked.blocker is not None
+    assert blocked.blocker.resolution_class is ResolutionClass.repeatable_policy
+    assert resolver_calls == [stale_candidate]
+    assert len(session.observations) == 2
+
+
 @pytest.mark.parametrize(
     ("resolution_class", "action"),
     [
