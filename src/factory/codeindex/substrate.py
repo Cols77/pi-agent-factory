@@ -11,7 +11,7 @@ from typing import cast
 
 from factory.codeindex.build import discover_source_files, fingerprint_for
 from factory.codeindex.model import CodeIndex
-from factory.codeindex.sigs import preferred_engine
+from factory.codeindex.sigs import extract_signatures, preferred_engine
 from factory.codeindex.store import ensure_fresh, load_latest
 from substrate.artifacts import ProducerRef, SnapshotInputRef, SnapshotRef
 from substrate.freshness.fingerprint import fingerprint_value
@@ -73,11 +73,30 @@ def _source_files(context: CodeMapInputs) -> list[str]:
     return list(context.files) if context.files else discover_source_files(context.repo_root)
 
 
-def _snapshot_fingerprint(source_fingerprint: str, engine: str) -> str:
+def _snapshot_fingerprint(
+    source_fingerprint: str, engine: str, source_files: Sequence[str]
+) -> str:
     return fingerprint_value(
         "code-map-inputs",
-        {"parser-engine": engine, "source-set": source_fingerprint},
+        {
+            "parser-engine": engine,
+            "source-set": source_fingerprint,
+            "source-files": sorted(source_files),
+        },
     ).digest
+
+
+def _engine_for_files(repo_root: Path, files: Sequence[str]) -> str:
+    """Mirror build_index's persisted engine selection using its extractor."""
+
+    if not files:
+        return "stdlib-ast"
+    try:
+        source = (repo_root / files[0]).read_text(encoding="utf-8", errors="replace")
+        engine, _ = extract_signatures(Path(files[0]), source)
+        return engine
+    except OSError:
+        return "stdlib-ast"
 
 
 def code_map_fingerprinter(inputs: Sequence[object] | CodeMapInputs) -> str:
@@ -89,7 +108,8 @@ def code_map_fingerprinter(inputs: Sequence[object] | CodeMapInputs) -> str:
         return "no-files"
     return _snapshot_fingerprint(
         fingerprint_for(files, context.repo_root),
-        preferred_engine(),
+        _engine_for_files(context.repo_root, files),
+        files,
     )
 
 
@@ -107,11 +127,16 @@ def _snapshot_inputs(index: CodeIndex) -> tuple[SnapshotInputRef, ...]:
     )
 
 
-def _snapshot_from_index(index: CodeIndex, supersedes: str | None = None) -> SnapshotRef:
+def _snapshot_from_index(
+    index: CodeIndex,
+    supersedes: str | None = None,
+    source_files: Sequence[str] | None = None,
+) -> SnapshotRef:
+    files = tuple(index.files) if source_files is None else tuple(source_files)
     fingerprint = (
         "no-files"
         if index.fingerprint == "no-files"
-        else _snapshot_fingerprint(index.fingerprint, index.engine)
+        else _snapshot_fingerprint(index.fingerprint, index.engine, files)
     )
     return SnapshotRef(
         schema=1,
@@ -140,7 +165,7 @@ def load_code_map_candidate(
             CodeIndex(engine=preferred_engine(), generated_at=_now_str(), fingerprint="no-files")
         )
 
-    engine = preferred_engine()
+    engine = _engine_for_files(repo_root, _source_files(context))
     return SnapshotRef(
         schema=1,
         kind="code-map",
@@ -162,9 +187,11 @@ def resolve_code_map(context: CodeMapInputs, candidate: SnapshotRef) -> Snapshot
     """Resolve through the existing ensure_fresh store and return metadata only."""
 
     files = None if context.files is None else list(context.files)
+    source_files = _source_files(context)
     return _snapshot_from_index(
         ensure_fresh(context.repo_root, files=files),
         supersedes=candidate.ref,
+        source_files=source_files,
     )
 
 

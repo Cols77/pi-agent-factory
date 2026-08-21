@@ -26,6 +26,13 @@ def _tree(root: Path) -> Path:
     return root
 
 
+def _write_token_capped_source(path: Path) -> None:
+    path.write_text(
+        "def capped():\n    pass\n# " + ("x" * 200_001) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _guarded(root: Path, files: list[str] | None = None):
     fingerprinters = FingerprinterRegistry()
     resolvers = ResolverRegistry()
@@ -130,12 +137,79 @@ def test_code_map_fingerprinter_includes_parser_engine(tmp_path, monkeypatch):
     root = _tree(tmp_path)
     inputs = codeindex_substrate.code_map_inputs(root, files=["src/mod.py"])
 
-    monkeypatch.setattr(codeindex_substrate, "preferred_engine", lambda: "stdlib-ast")
+    monkeypatch.setattr(
+        codeindex_substrate,
+        "extract_signatures",
+        lambda path, source: ("stdlib-ast", []),
+    )
     stdlib_fingerprint = codeindex_substrate.code_map_fingerprinter(inputs)
-    monkeypatch.setattr(codeindex_substrate, "preferred_engine", lambda: "tree-sitter")
+    monkeypatch.setattr(
+        codeindex_substrate,
+        "extract_signatures",
+        lambda path, source: ("tree-sitter", []),
+    )
     tree_sitter_fingerprint = codeindex_substrate.code_map_fingerprinter(inputs)
 
     assert stdlib_fingerprint != tree_sitter_fingerprint
+
+
+def test_token_capped_discovered_file_makes_latest_stale_and_resolves(tmp_path):
+    root = _tree(tmp_path)
+    capped = root / "src" / "oversized.py"
+    _write_token_capped_source(capped)
+
+    persisted = ensure_fresh(root)
+    assert "src/oversized.py" not in persisted.files
+    candidate = codeindex_substrate.load_code_map_candidate(root)
+    inputs, compiled = _guarded(root)
+
+    result = guarded_read(
+        GuardSession(),
+        compiled,
+        codeindex_substrate.CODEMAP_RECIPE,
+        candidate,
+        [inputs],
+    )
+
+    assert result.current
+    assert result.stale is not None
+    assert result.snapshot is not None
+    assert result.snapshot.fingerprint == result.stale.actual_fingerprint
+    assert result.snapshot.supersedes == candidate.ref
+    refreshed = load_latest(root)
+    assert refreshed is not None
+    assert "src/oversized.py" not in refreshed.files
+
+
+def test_engine_fingerprint_matches_persisted_engine_for_mixed_source_set(
+    tmp_path, monkeypatch
+):
+    root = _tree(tmp_path)
+    (root / "src" / "notes.txt").write_text("not parsed\n", encoding="utf-8")
+    files = ["src/notes.txt", "src/mod.py"]
+    persisted = ensure_fresh(root, files=files)
+    assert persisted.engine == "stdlib-ast"
+    assert set(persisted.files) == set(files)
+
+    monkeypatch.setattr(codeindex_substrate, "preferred_engine", lambda: "tree-sitter")
+    candidate = codeindex_substrate.load_code_map_candidate(root, files=files)
+    inputs, compiled = _guarded(root, files=files)
+
+    def unexpected_ensure_fresh(repo_root: Path, files: list[str] | None = None):
+        raise AssertionError("matching persisted parser engine must not resolve")
+
+    monkeypatch.setattr(codeindex_substrate, "ensure_fresh", unexpected_ensure_fresh)
+    result = guarded_read(
+        GuardSession(),
+        compiled,
+        codeindex_substrate.CODEMAP_RECIPE,
+        candidate,
+        [inputs],
+    )
+
+    assert result.current
+    assert result.snapshot is candidate
+    assert result.stale is None
 
 
 def test_removed_sources_resolve_old_map_to_no_files_snapshot(tmp_path):
