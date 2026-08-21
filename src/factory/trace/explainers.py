@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import frontmatter
@@ -17,6 +17,12 @@ class Explainer:
     title: str
     explains: list[str]  # SR ids this explainer depicts (declared)
     fingerprints: dict[str, str]  # sr_id -> recorded content digest
+    # Inc 7 Task 5f: recorded digest of the implementation files the
+    # explanation depends on (relpath -> digest). Absent for older explainers.
+    code_fingerprints: dict[str, str] = field(default_factory=dict)
+    # Inc 7 Task 5b/5f: the diagram the explainer embeds (a diag: id), so a
+    # diagram change propagates to the explainer. Absent for older explainers.
+    dep_diagram: str | None = None
 
 
 def load_explainers(root: Path) -> list[Explainer]:
@@ -47,6 +53,13 @@ def load_explainers(root: Path) -> list[Explainer]:
         fingerprints: dict[str, str] = {}
         if isinstance(fp_raw, dict):
             fingerprints = {str(k): v for k, v in fp_raw.items() if isinstance(v, str)}
+        code_fp_raw = meta.get("code_fingerprint")
+        code_fingerprints: dict[str, str] = {}
+        if isinstance(code_fp_raw, dict):
+            code_fingerprints = {
+                str(k): v for k, v in code_fp_raw.items() if isinstance(v, str)
+            }
+        dep_diagram = meta.get("dep_diagram")
         out.append(
             Explainer(
                 id=path.name,
@@ -54,6 +67,8 @@ def load_explainers(root: Path) -> list[Explainer]:
                 title=str(meta.get("title", path.stem)),
                 explains=[s for s in explains if s],
                 fingerprints=fingerprints,
+                code_fingerprints=code_fingerprints,
+                dep_diagram=str(dep_diagram) if isinstance(dep_diagram, str) else None,
             )
         )
     return out

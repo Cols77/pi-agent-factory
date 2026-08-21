@@ -16,6 +16,7 @@ import { goalSection, refLine, renderGoal, goalStateClass, operatorSymbol, short
 import { rawStateClass, goalStateClass as validationGoalStateClass, refLine as validationRefLine, renderValidation, validationSection } from './system-validation-view.js';
 import { refLine as simRefLine, renderSim, resultClass, simSection } from './system-sim-view.js';
 import { renderDiagram } from './system-diagram-view.js';
+import { catchupRow, catchupRefLine, catchupSection, catchupTextList, metricRows, renderCatchup, renderCatchupComprehension, renderCatchupDiagram, renderCatchupFreshness } from './system-catchup-view.js';
 import {
   boundedList,
   closeOpenCard,
@@ -26,6 +27,7 @@ import {
   humaniseGroup,
   infoCard,
   nextStepBlock,
+  readinessCountsGloss,
   refCardFields,
   refChip,
   renderVocabularyPanel,
@@ -92,6 +94,7 @@ function clientSource(): string {
     ensureCardController,
     closeOpenCard,
     glossFor,
+    readinessCountsGloss,
     definitionTrigger,
     withGloss,
     vocabularyBadgeFor,
@@ -156,6 +159,15 @@ function clientSource(): string {
     simRefLine,
     renderSim,
     renderDiagram,
+    renderCatchup,
+    renderCatchupFreshness,
+    renderCatchupDiagram,
+    renderCatchupComprehension,
+    catchupRow,
+    metricRows,
+    catchupRefLine,
+    catchupTextList,
+    catchupSection,
   ]
     .map((fn) => fn.toString())
     .join('\n');
@@ -436,6 +448,13 @@ export function renderSystemPageHtml(): string {
   .feature-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; margin: 7px 0; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-sm); background: rgba(13, 26, 32, .72); color: var(--text); text-decoration: none; }
   .feature-row:hover { border-color: var(--line-strong); background: var(--surface-raised); }
   .feature-row > strong { min-width: 0; font: 650 16px/1.35 var(--font-display); overflow-wrap: anywhere; }
+  /* Fix round 2 (legibility inc2): the combined readiness-counts gloss is
+     appended as its own child of .feature-row (not nested inside the
+     auto-sized .readiness-counts column) specifically so it never
+     contributes to that column's max-content sizing -- see system-bootstrap.ts's
+     comment at the readinessCountsGloss call site for why. Spanning both
+     columns here gives it the full row width to wrap normally in. */
+  .feature-row > .readiness-counts-gloss { grid-column: 1 / -1; }
   .feature-readiness { justify-self: end; color: var(--stale); font: 650 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
   .feature-members { color: var(--text-muted); font-size: 12px; }
   .readiness-ready { border-left-color: var(--fresh); }
@@ -473,7 +492,6 @@ export function renderSystemPageHtml(): string {
      it will not shrink below its content width, reintroducing the per-element
      overflow Increment 1 fixed and failing Task 9's containment gate. */
   .ref-chip .chip-title { min-width: 0; overflow-wrap: anywhere; }
-  .matrix-subject .chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ref-chip:hover .chip-id, .ref-chip:focus-visible .chip-id { box-shadow: inset 0 -1px 0 var(--signal); }
   .gloss { margin-top: 2px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .info-trigger { padding: 0 2px; border: 0; background: none; color: var(--signal); font-size: 12px; cursor: pointer; }
@@ -655,6 +673,21 @@ export function renderSystemPageHtml(): string {
      style above -- higher specificity (two classes) wins regardless of
      declaration order. */
   .ref-chip.scope-open { color: inherit; font: inherit; text-decoration: none; }
+  /* Unbundled sidebar rows add .scope-item to that same chip (system-bootstrap.ts's
+     unbundled-group loop), so the element carries all three classes at once.
+     .ref-chip.scope-open above beats the bare .scope-item rule (one class)
+     on specificity alone -- one class can never outrank two, regardless of
+     order -- which is why .scope-item's base colour and font were lost.
+     .scope-item:hover / .scope-item.is-active are a different case: each is
+     two selectors, the same specificity as .ref-chip.scope-open, so THOSE
+     lose only because .ref-chip.scope-open is declared later. Either way,
+     the three-class selectors below outrank all of them without touching
+     or reordering any existing rule, so a bare .ref-chip.scope-open (an
+     inline citation chip, never also a sidebar row) keeps its Task 2
+     styling untouched. */
+  .scope-item.ref-chip.scope-open { color: var(--text-muted); font: 13px/1.45 var(--font-body); }
+  .scope-item.ref-chip.scope-open:hover, .scope-item.ref-chip.scope-open:focus-visible { color: var(--text); }
+  .scope-item.ref-chip.scope-open.is-active, .scope-item.ref-chip.scope-open[aria-current="page"] { color: var(--text); }
   @media (min-width: 1200px) {
     .workspace-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
     #scopeWorkspace.workspace-split { width: min(100%, 1380px); }
@@ -727,6 +760,7 @@ export function renderSystemPageHtml(): string {
             <button id="tabValidation" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelValidation" aria-label="Validation">Validation</button>
             <button id="tabSim" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelSim" aria-label="Simulation">Simulation</button>
             <button id="tabDiagram" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelDiagram" aria-label="Diagram">Diagram</button>
+            <button id="tabCatchup" class="tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="panelCatchup" aria-label="Catch me up">Catch me up</button>
           </div></nav>
           <p id="panelOrientation" class="panel-orientation"></p>
           <div id="panelBrief" class="panel" role="tabpanel" aria-labelledby="tabBrief"></div>
@@ -742,6 +776,7 @@ export function renderSystemPageHtml(): string {
           <div id="panelValidation" class="panel" role="tabpanel" aria-labelledby="tabValidation" hidden></div>
           <div id="panelSim" class="panel" role="tabpanel" aria-labelledby="tabSim" hidden></div>
           <div id="panelDiagram" class="panel" role="tabpanel" aria-labelledby="tabDiagram" hidden></div>
+          <div id="panelCatchup" class="panel" role="tabpanel" aria-labelledby="tabCatchup" hidden></div>
         </div>
       </section>
       <section id="vocabularyPanel" aria-labelledby="vocabularyTitle" hidden>

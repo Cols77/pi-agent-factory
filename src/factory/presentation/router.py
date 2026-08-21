@@ -86,6 +86,21 @@ def resolve_intent(
     if scope is not None and scope.kind in _BROWSER_KINDS + ("file", "diag"):
         return _resolve_scope(repo_root, artifact, focus, chosen)
 
+    if artifact.lower().startswith("catchup:"):
+        # Inc 7 Task 3: /catchup presents the deterministic delta through the
+        # SCC Catch-me-up view (a browser scope the docs server understands).
+        identifier = artifact[len("catchup:"):]
+        if not identifier:
+            return ResolvedIntent(artifact, focus, chosen, None, None, "catchup requires a feature id")
+        return ResolvedIntent(
+            artifact,
+            focus,
+            chosen,
+            "browser",
+            f"system?scope={artifact}",
+            "Catch-me-up view (Inc 7): deterministic 'since your last review' delta.",
+        )
+
     if artifact.startswith("RUN-") or artifact.lower().startswith("run:"):
         res = sim_module.resolve_sim(repo_root, artifact, focus)
         return ResolvedIntent(artifact, focus, chosen, "sim", res["target"], res["note"])

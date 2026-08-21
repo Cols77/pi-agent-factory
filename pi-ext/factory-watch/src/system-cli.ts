@@ -501,6 +501,39 @@ export function loadSystemValidation(cwd: string, scope: string): CliResult<Syst
   return runJsonCli<SystemValidation>(cwd, cmd.bin, cmd.args);
 }
 
+export interface SystemMetricChange {
+  metric: string;
+  from: number | null;
+  to: number | null;
+  regression: boolean | null;
+}
+
+export interface SystemContextDelta {
+  feature: string;
+  since_commit: string;
+  prs_merged: string[];
+  requirements_changed: string[];
+  adrs_added: string[];
+  scenarios_added: string[];
+  goals_reached: string[];
+  goals_regressed: string[];
+  metric_changes: SystemMetricChange[];
+  new_open_items: string[];
+}
+
+export interface SystemCatchup {
+  feature: string;
+  reviewed: boolean;
+  since_commit: string | null;
+  reviewed_at: string | null;
+  delta: SystemContextDelta | null;
+}
+
+export function loadSystemCatchup(cwd: string, feature: string): CliResult<SystemCatchup> {
+  const cmd = buildSystemCommand(["catchup", "--feature", feature, "--json"]);
+  return runJsonCli<SystemCatchup>(cwd, cmd.bin, cmd.args);
+}
+
 export interface SystemDiagram {
   id: string;
   title: string;

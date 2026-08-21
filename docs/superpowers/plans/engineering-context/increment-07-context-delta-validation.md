@@ -74,10 +74,10 @@ The domain/freshness architecture is independent of SP-B implementation details.
 def save_checkpoint(pi_dir: Path, cp: Checkpoint) -> None
 def load_checkpoint(pi_dir: Path, feature: str) -> Checkpoint | None   # missing = no review yet
 ```
-- [ ] **Step 1: Failing tests** — write→read round-trip (`.pi/checkpoints.json`); missing feature
+- [x] **Step 1: Failing tests** — write→read round-trip (`.pi/checkpoints.json`); missing feature
   returns `None` (legitimate, not an error); malformed file degrades rather than crashes.
-- [ ] **Step 2: Implement** minimal JSON store under `.pi/` (canonical-only, not evidence).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 2: Implement** minimal JSON store under `.pi/` (canonical-only, not evidence).
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 2: Delta computation
 
@@ -92,10 +92,10 @@ def load_checkpoint(pi_dir: Path, feature: str) -> Checkpoint | None   # missing
     new_open_items: list[str]
 def compute_delta(root, feature, since_commit) -> ContextDelta
 ```
-- [ ] **Step 1: Failing tests** — from a seeded git history + goals/history + sim runs, produce the
+- [x] **Step 1: Failing tests** — from a seeded git history + goals/history + sim runs, produce the
   spec §31 / §9.4 delta (`2 PRs merged, goal reached, metric 87%→95%, new concern false-reacquisition↑`).
   Assert metric regression is flagged.
-- [ ] **Step 2: Implement** — compose:
+- [x] **Step 2: Implement** — compose:
 ```python
 def compute_delta(root, feature, since_commit):
     return ContextDelta(
@@ -109,15 +109,15 @@ def compute_delta(root, feature, since_commit):
       new_open_items=open_questions_since(root, since_commit),
     )
 ```
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 3: `/catchup` + `query_catchup`
 
-- [ ] **Step 1:** `/catchup FEAT-NAV-017` loads the checkpoint, computes `compute_delta`, upgrades
+- [x] **Step 1:** `/catchup FEAT-NAV-017` loads the checkpoint, computes `compute_delta`, upgrades
   the checkpoint to HEAD, and (at REVIEW) presents via Inc 5/Inc 6 surfaces. Deterministic text block
   matching spec §31 wording.
-- [ ] **Step 2:** `query_catchup` exposes it in the claim/freshness plumbing for agent (Inc 4) use.
-- [ ] **Step 3:** render the delta as an additive **"Catch me up"** view in the SCC browser
+- [x] **Step 2:** `query_catchup` exposes it in the claim/freshness plumbing for agent (Inc 4) use.
+- [x] **Step 3:** render the delta as an additive **"Catch me up"** view in the SCC browser
   (system-page.ts, on top of SP-B/Inc 6), emulating the spec §31 / §9.4 block:
 
 ```
@@ -132,50 +132,50 @@ Metrics            reacquisition_rate 82% -> 91%
 
   It renders *computed* `ContextDelta` fields only (never an LLM summary of the past), via the
   existing claim/freshness render helpers. `system-page.ts` is edited additively, after Inc 6.
-- [ ] **Step 4:** TS vitest + `uv run python -m pytest -q` + lint green; commit.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 4:** TS vitest + `uv run python -m pytest -q` + lint green; commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 4: Goal-aware requirement status (additive, spec §28–§30)
 
-- [ ] **Step 1:** extend Inc 2 `requirement_validation` to emit:
+- [x] **Step 1:** extend Inc 2 `requirement_validation` to emit:
   - `VALIDATED` — all goals REACHED and code unchanged since latest evidence;
   - `VERIFICATION_STALE` — code affecting the requirement changed since latest evidence
     (reuse `freshness`/`reconcile` fingerprint);
   - `REGRESSED` — a formerly-REACHED goal is now below target;
   - `VERIFICATION_PENDING` — goals exist, none reached;
   - and keep v1 behaviour when the requirement has no goals.
-- [ ] **Step 2: Failing tests** — a goal goes REACHED→REGRESSED and the requirement status follows
+- [x] **Step 2: Failing tests** — a goal goes REACHED→REGRESSED and the requirement status follows
   (spec §29 "validated requirement whose goal regressed"); a code change after validation marks
   `VERIFICATION_STALE` (spec §30 example, `A→C`).
-- [ ] **Step 3:** full v1 suite green (the new states are additive, reported through the derived
+- [x] **Step 3:** full v1 suite green (the new states are additive, reported through the derived
   status only); commit.
 
 ## Task 5: Derived impaction probe + v-cycle health report (spec §29)
 
-- [ ] **Step 1: Failing tests** — detect `requirement without test`, `requirement without
+- [x] **Step 1: Failing tests** — detect `requirement without test`, `requirement without
   implementation`, `implementation without traceable requirement`, `goal without metric source`,
   `metric without experiment`, `simulation without commit`, stale evidence (already covered by Task 4),
   feature with failing verification.
-- [ ] **Step 2: Implement** `factory.system/health.py` `vcycle_health(root) -> list[Finding]` as a
+- [x] **Step 2: Implement** `factory.system/health.py` `vcycle_health(root) -> list[Finding]` as a
   pure query (reusing trace gaps + goals + simulation), exposed via a `health` subcommand and the Inc 6 surfaces.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 5b: Comprehension hook + delta diagram (D8 / D7)
 
 **Files:** `src/factory/commands/catchup.py` (extend), `src/factory/system/queries.py`
 (`query_catchup` renders `diag:` delta if present), `pi-ext/factory-watch` Catch-me-up view (extend).
 
-- [ ] **Step 1: Failing tests** — `/catchup FEAT-NAV-017` returns its deterministic `ContextDelta`
+- [x] **Step 1: Failing tests** — `/catchup FEAT-NAV-017` returns its deterministic `ContextDelta`
   (Task 2) unchanged, and additionally offers an **optional** "Verify my understanding" entry that
   invokes the installed `grill-understanding` + `visual-explainer` skills on the changed feature
   (D8). The delta itself stays deterministic — the comprehension step is an explicit, optional,
   risk-triggered side action, never auto-run and never a stored score.
-- [ ] **Step 2: Implement** — a `--verify-understanding` flag on `/catchup` (and a Catch-me-up
+- [x] **Step 2: Implement** — a `--verify-understanding` flag on `/catchup` (and a Catch-me-up
   view button) that starts the comprehension skill on the feature; where a `diag:` diagram of the
   feature exists (D7), the Catch-me-up / delta view embeds it so the delta is read against a
   picture (e.g. the changed V-cycle slice or the goal chart). Reuse `query_diagram` (Inc 1) +
   rendering from Inc 6.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
 
 ## Task 5c: General artifact dependency provenance
 
@@ -727,16 +727,23 @@ SR changes.
 
 ## Task 6: Optional rebuildable index
 
-- [ ] **Step 1:** measure. If `query_catchup`/`query_goal_history` on the real repo exceed a
+- [x] **Step 1:** measure. If `query_catchup`/`query_goal_history` on the real repo exceed a
   threshold, add a SQLite index under `.pi/` built by `factory index build` from canonical artifacts;
   deleting it and rebuilding reconstructs the same graph (AC-10). If fast enough, skip (record the decision).
-- [ ] **Step 2:** if built: `--rebuild` deterministic, indexed only for read queries; commit.
+
+  **Decision (2026-08-16, measured on `cool_physical_ai_project`):** SKIP. `query_catchup` 0.1 ms,
+  `query_goal` 2.7 ms, `query_metric_history` 36 ms, `query_vcycle` ~390 ms. The ~2.7 s of
+  `compute_delta` is dominated by the cold per-task story walk (subprocess git/evidence reads), not by
+  a repeated indexable lookup, and `/catchup` runs once per review with the checkpoint upgrading to
+  HEAD. The derived index stays an option (`factory index build`, rebuildable from canonical
+  artifacts per AC-10) if the repo grows.
+- [x] **Step 2:** if built: `--rebuild` deterministic, indexed only for read queries; commit. — n/a (skipped)
 
 ## Task 7: Review handoff
 
-- [ ] **Step 1:** reviewer sub-agent — compliance vs spec §28–§31, §9.4, AC-10 rebuildability,
+- [x] **Step 1:** reviewer sub-agent — compliance vs spec §28–§31, §9.4, AC-10 rebuildability,
   AC-07 regression, D3 additive rule; deterministic-delta rule (no LLM over the past).
-- [ ] **Step 2:** fix findings; update checkboxes.
+- [x] **Step 2:** fix findings; update checkboxes.
 
 ## Acceptance for Increment 7
 

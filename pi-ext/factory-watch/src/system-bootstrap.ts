@@ -28,6 +28,7 @@ declare const renderGoal: (el: HTMLElement, payload: any) => void;
 declare const renderValidation: (el: HTMLElement, payload: any) => void;
 declare const renderSim: (el: HTMLElement, payload: any) => void;
 declare const renderDiagram: (el: HTMLElement, payload: any, focus?: string | null) => void;
+declare const renderCatchup: (el: HTMLElement, payload: any) => void;
 declare const renderNotApplicable: (panelId: string, note: string) => void;
 // Task 7 (legibility inc2): wires REMEDIATION.states.traversal_not_applicable
 // at its one real call site below (resetScopeEvidence) -- declared here for
@@ -59,6 +60,12 @@ declare const withGloss: (el: HTMLElement, term: string) => HTMLElement;
 // only the third site (context rail, no click handler of its own) uses the
 // full withGloss precedent.
 declare const glossFor: (term: string) => HTMLElement | null;
+// IMPORTANT 5 fix round (legibility inc2): readiness_counts packs six
+// contract words (sr_total/bound/covered/current/deferred/validated) into
+// one rendered line at the same three sites; readinessCountsGloss follows
+// the glossFor precedent immediately above -- one plain, always-visible
+// `.gloss` line, safe to nest anywhere a plain glossFor() line already is.
+declare const readinessCountsGloss: (counts: any) => HTMLElement | null;
 declare const VOCABULARY: { terms: Record<string, any> };
 declare const PANELS_DATA: {
   version: number;
@@ -328,6 +335,8 @@ export async function systemBootstrap(): Promise<void> {
       const counts = document.createElement('span');
       counts.className = 'readiness-counts';
       counts.appendChild(document.createTextNode(countsText(bundle.readiness_counts)));
+      const countsGloss = readinessCountsGloss(bundle.readiness_counts);
+      if (countsGloss) counts.appendChild(countsGloss);
       row.appendChild(counts);
       readinessSection.appendChild(row);
       rail.appendChild(readinessSection);
@@ -439,6 +448,8 @@ export async function systemBootstrap(): Promise<void> {
         const counts = document.createElement('span');
         counts.className = 'readiness-counts';
         counts.appendChild(document.createTextNode(countsText(b.readiness_counts)));
+        const countsGloss = readinessCountsGloss(b.readiness_counts);
+        if (countsGloss) counts.appendChild(countsGloss);
         a.appendChild(counts);
         a.addEventListener('click', (clickEvent: Event) => {
           clickEvent.preventDefault();
@@ -582,7 +593,7 @@ export async function systemBootstrap(): Promise<void> {
     });
   }
 
-  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram'];
+  const TAB_ORDER = ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram', 'Catchup'];
   const TABS_BY_KIND: Record<string, string[]> = {
     bundle: ['Brief', 'Matrix', 'Timeline', 'Guide', 'Trace'],
     sr: ['Brief', 'Vcycle', 'Validation', 'Matrix', 'Timeline', 'Guide', 'Trace'],
@@ -592,6 +603,7 @@ export async function systemBootstrap(): Promise<void> {
     goal: ['Goal'],
     sim: ['Sim'],
     diag: ['Diagram'],
+    catchup: ['Catchup'],
   };
 
   function configureTabs(kind: string): void {
@@ -654,7 +666,7 @@ export async function systemBootstrap(): Promise<void> {
   // scope kind's default tab.
   function selectInitialTab(kindDefault: string, updateUrl = true): string {
     const hash = (location.hash || '').replace('#', '').toLowerCase();
-    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', diagram: 'Diagram', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
+    const names: Record<string, string> = { brief: 'Brief', feature: 'Feature', vcycle: 'Vcycle', goal: 'Goal', validation: 'Validation', sim: 'Sim', diagram: 'Diagram', catchup: 'Catchup', matrix: 'Matrix', timeline: 'Timeline', guide: 'Guide', story: 'Story', reverse: 'Reverse', trace: 'Trace' };
     const requested = names[hash];
     const requestedTab = requested ? document.getElementById('tab' + requested) as HTMLElement : null;
     const selected = requestedTab && !requestedTab.hidden ? requested! : kindDefault;
@@ -669,6 +681,7 @@ export async function systemBootstrap(): Promise<void> {
   (document.getElementById('tabValidation') as HTMLElement).onclick = () => showTab('Validation');
   (document.getElementById('tabSim') as HTMLElement).onclick = () => showTab('Sim');
   (document.getElementById('tabDiagram') as HTMLElement).onclick = () => showTab('Diagram');
+  (document.getElementById('tabCatchup') as HTMLElement).onclick = () => showTab('Catchup');
 
   // Inc 6 Task 6 (AC-02/AC-09): delegated SPA navigation for the widgets'
   // `a.scope-open` anchors. The anchor carries the exact scope ref and an
@@ -754,6 +767,7 @@ export async function systemBootstrap(): Promise<void> {
     if (kind === 'goal') return 'Goal';
     if (kind === 'sim') return 'Sim';
     if (kind === 'diag') return 'Diagram';
+    if (kind === 'catchup') return 'Catchup';
     if (kind === 'feat') return 'Feature';
     return 'Brief';
   }
@@ -1115,6 +1129,31 @@ export async function systemBootstrap(): Promise<void> {
     setLoading(false, true);
   }
 
+  async function loadCatchupScope(
+    scopeRef: string,
+    generation: number,
+    signal: AbortSignal,
+    updateUrl: boolean
+  ): Promise<void> {
+    // Inc 7 Task 3: catchup:FEAT-... scopes present the deterministic
+    // 'since your last review' delta on the Catch-me-up tab. The payload is
+    // query_catchup (read-only); the /catchup command owns checkpoint writes.
+    const feature = scopeRef.split(':', 2)[1] ?? scopeRef;
+    const res = await fetch('/api/system/catchup?feature=' + encodeURIComponent(feature), { signal });
+    if (!res.ok) throw new Error(await responseFailure(res));
+    const catchup = await res.json();
+    if (!isCurrentNavigation(generation, scopeRef)) return;
+    renderCatchup(document.getElementById('panelCatchup') as HTMLElement, catchup);
+    ['Brief', 'Matrix', 'Timeline', 'Guide', 'Story', 'Reverse', 'Trace', 'Feature', 'Vcycle', 'Goal', 'Validation', 'Sim', 'Diagram'].forEach(
+      (tab) => renderNotApplicable(
+        'panel' + tab, 'Not applicable for a catchup: scope. See the Catch me up tab.'
+      )
+    );
+    configureTabs('catchup');
+    selectInitialTab('Catchup', updateUrl);
+    setLoading(false, true);
+  }
+
   async function loadScope(scopeRef: string, pushHistory = true, updateUrl = true, intendedTab?: string): Promise<void> {
     invalidateHealth();
     const generation = ++navigationGeneration;
@@ -1151,6 +1190,10 @@ export async function systemBootstrap(): Promise<void> {
       }
       if (kind === 'diag') {
         await loadDiagramScope(scopeRef, generation, controller.signal, updateUrl);
+        return;
+      }
+      if (kind === 'catchup') {
+        await loadCatchupScope(scopeRef, generation, controller.signal, updateUrl);
         return;
       }
       await loadBundleScope(scopeRef, generation, controller.signal, updateUrl);
@@ -1212,19 +1255,6 @@ export async function systemBootstrap(): Promise<void> {
     }
   }
 
-  // Task 5 (legibility inc2): the definition's first sentence is the
-  // "Denominator: ..." clause every health-class entry opens with -- the
-  // plain-words rule for what the ratio's bottom number counts. Split on a
-  // period that is actually a sentence end (followed by whitespace then a
-  // capital letter/backtick, or by the string's end), not on every period --
-  // several definitions cite figures as "(e.g. 181)", and "e.g." would
-  // otherwise truncate the sentence mid-clause.
-  function firstSentence(text: string): string {
-    if (!text) return '';
-    const match = /^[\s\S]*?\.(?=\s+[A-Z`]|\s*$)/.exec(text);
-    return match ? match[0] : text;
-  }
-
   // Task 6 (SP-B): the landing page health summary + bundle list, rendered
   // straight from the composed `health` projection (factory.system health
   // --json). Python computed every number; this only renders it via text
@@ -1275,10 +1305,10 @@ export async function systemBootstrap(): Promise<void> {
       line.appendChild(label);
       line.appendChild(raw);
       line.appendChild(ratio);
-      if (term && term.definition) {
+      if (term && term.denominator_rule) {
         const rule = document.createElement('div');
         rule.className = 'health-metric-rule';
-        rule.appendChild(document.createTextNode(firstSentence(term.definition)));
+        rule.appendChild(document.createTextNode(term.denominator_rule));
         line.appendChild(rule);
       }
       metrics.appendChild(line);
@@ -1400,6 +1430,18 @@ export async function systemBootstrap(): Promise<void> {
       row.appendChild(readiness);
       row.appendChild(members);
       row.appendChild(counts);
+      // Fix round 2 (legibility inc2): `counts` is the grid's `auto`-sized
+      // column (`.feature-row { grid-template-columns: minmax(0, 1fr) auto }`).
+      // The combined gloss is one unbroken ~2400-char line -- appended INSIDE
+      // `counts` (as originally shipped) that becomes the `auto` track's
+      // max-content contribution, which the grid honours in full regardless
+      // of wrapping, so the `auto` track claims the row's entire width and
+      // the `minmax(0, 1fr)` title column is squeezed to 0. Appending it as
+      // its own child of `row` instead (grid-column: 1 / -1 below) takes it
+      // out of the auto column's sizing calculation entirely and gives it
+      // the full row width to wrap normally in.
+      const countsGloss = readinessCountsGloss(b.readiness_counts);
+      if (countsGloss) row.appendChild(countsGloss);
       // Task 8 fix round: readiness needs a gloss here too, but `row` IS the
       // clickable anchor (its own click listener navigates, right below) --
       // nesting withGloss's `.info-trigger` <button> inside it would put an

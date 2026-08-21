@@ -47,7 +47,7 @@ COVERAGE_REGISTRY: dict[str, tuple[str, ...]] = {
     ),
     "citation-kind": (
         "manifest", "task", "requirement", "validation", "review",
-        "decision", "trace", "bundle", "session",
+        "decision", "trace", "bundle", "session", "failure", "goal",
     ),
     "scope-kind": ("bundle", "sr", "task", "run", "manifest"),
     "run-source": ("session",),
@@ -495,6 +495,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Tasks linked to a plan",
         "gloss": "share of tasks with a resolving source_plan",
+        "denominator_rule": "Counts every task; satisfied when it names the plan it came from.",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
             "each. Satisfied: the task declares a `source_plan` edge at "
@@ -516,6 +517,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Tasks linked to a requirement",
         "gloss": "share of tasks that declare a satisfies edge",
+        "denominator_rule": "Counts every task; satisfied when it names at least one requirement it helps satisfy.",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
             "each (the same task also has a `task->plan` slot; they are "
@@ -531,6 +533,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Plans linked to a spec",
         "gloss": "share of plans that cite a spec_ref",
+        "denominator_rule": "Counts every plan; satisfied when it cites the spec it followed.",
         "definition": (
             "Denominator: every `plan` node in the trace graph, one slot "
             "each. Satisfied: the plan declares at least one `spec_ref` "
@@ -546,6 +549,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Requirements with a satisfying task",
         "gloss": "share of all SRs with a satisfying task",
+        "denominator_rule": "Counts every requirement, including ones not yet decided on; satisfied when a task claims to satisfy it.",
         "definition": (
             "Denominator: every `sr` node in the trace graph -- the full "
             "repo-wide count, including proposed SRs with no decided "
@@ -565,6 +569,7 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Requirements with a passing validation",
         "gloss": "share of non-proposed SRs with a fresh pass",
+        "denominator_rule": "Counts only requirements that have been decided on; satisfied when there's a passing validation that hasn't gone stale.",
         "definition": (
             "Denominator: every `sr` node in the trace graph MINUS every SR "
             "flagged `sr_proposed` (no decided binding yet) -- one expected "
@@ -799,7 +804,7 @@ VOCABULARY: dict[str, dict] = {
             "identifies the subject as the manifest record itself rather "
             "than the run's outcome."
         ),
-        "siblings": ["task", "requirement", "review", "decision", "trace", "bundle", "session"],
+        "siblings": ["task", "requirement", "review", "decision", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/_claims.py", "src/factory/system/story.py"],
     },
     "task": {
@@ -822,7 +827,7 @@ VOCABULARY: dict[str, dict] = {
         ),
         "siblings": [
             "manifest", "requirement", "validation", "review", "decision",
-            "trace", "bundle", "session", "sr", "run", "satisfies", "chain-complete",
+            "trace", "bundle", "session", "failure", "goal", "sr", "run", "satisfies", "chain-complete",
         ],
         "computed_by": [
             "src/factory/system/queries.py",
@@ -859,7 +864,7 @@ VOCABULARY: dict[str, dict] = {
             "requirement's statement, upstream, binding, and validation "
             "claims alike."
         ),
-        "siblings": ["manifest", "task", "review", "decision", "trace", "bundle", "session"],
+        "siblings": ["manifest", "task", "review", "decision", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py"],
     },
     "decision": {
@@ -875,8 +880,40 @@ VOCABULARY: dict[str, dict] = {
             "every review-decision timeline event in this repo (not "
             "`review`)."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "trace", "bundle", "session"],
+        "siblings": ["manifest", "task", "requirement", "review", "trace", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py"],
+    },
+    "failure": {
+        "term": "failure",
+        "group": "citation-kind",
+        "label": "failure record",
+        "gloss": "cites a failure record under docs/failures/",
+        "definition": (
+            "The cited path is a failure record, `docs/failures/FR-*.md`, "
+            "loaded through `factory.memory.failure_record` -- the durable "
+            "artifact that captures reproduction ref -> root cause -> "
+            "rejected hypotheses -> fix -> regression guard. Introduced by "
+            "Inc 8's durable-memory projection: a decision entry cites its "
+            "ADR, a failure record and each of its rejected hypotheses cite "
+            "the FR file itself (`factory.memory.durable`)."
+        ),
+        "siblings": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle", "session", "goal"],
+        "computed_by": ["src/factory/memory/durable.py"],
+    },
+    "goal": {
+        "term": "goal",
+        "group": "citation-kind",
+        "label": "goal",
+        "gloss": "cites a goal file under goals/",
+        "definition": (
+            "The cited path is a goal file under `goals/`, loaded through "
+            "`factory.goals.registry` -- the measurable engineering "
+            "contract (brief §5.3). Used by the durable-memory projection's "
+            "open-goal entries (`factory.memory.durable`) so an open goal's "
+            "entry carries a citation to the goal file that declares it."
+        ),
+        "siblings": ["manifest", "task", "requirement", "validation", "review", "decision", "trace", "bundle", "session", "failure"],
+        "computed_by": ["src/factory/memory/durable.py"],
     },
     "trace": {
         "term": "trace",
@@ -889,7 +926,7 @@ VOCABULARY: dict[str, dict] = {
             "resolved through the same loader the `factory.trace` command "
             "itself uses, never a second parser."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "bundle", "session"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "bundle", "session", "failure", "goal"],
         "computed_by": ["src/factory/system/queries.py", "src/factory/trace/model.py"],
     },
     "bundle": {
@@ -906,7 +943,7 @@ VOCABULARY: dict[str, dict] = {
             "exact member refs -- no status or rationale of its own; "
             "readiness and health are always computed over its members."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session", "sr"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "session", "failure", "goal", "sr"],
         "computed_by": ["src/factory/system/bundles.py", "src/factory/system/models.py"],
     },
     "session": {
@@ -923,7 +960,7 @@ VOCABULARY: dict[str, dict] = {
             "because no durable evidence manifest exists for it; "
             "`\"manifest\"` is the other, preferred source."
         ),
-        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "bundle"],
+        "siblings": ["manifest", "task", "requirement", "review", "decision", "trace", "bundle", "failure", "goal"],
         "computed_by": ["src/factory/system/sessions.py", "src/factory/system/story.py"],
     },
     # -----------------------------------------------------------------
@@ -1229,8 +1266,8 @@ PANELS: dict[str, dict] = {
         "what_it_shows": "Every claim this scope makes, with the evidence behind it.",
         "how_to_read": (
             "The badge says where the claim came from: copied from a file, "
-            "computed, written by an agent, or missing -- a claim can be "
-            "recorded as absent."
+            "computed, scaffold text wrapped around a verbatim quote, or "
+            "missing -- a claim can be recorded as absent."
         ),
     },
     "Matrix": {
@@ -1246,7 +1283,7 @@ PANELS: dict[str, dict] = {
     },
     "Timeline": {
         "label": "Timeline",
-        "what_it_shows": "Decisions recorded against this scope, in the order they happened.",
+        "what_it_shows": "Decisions recorded against this scope, in a deterministic recorded order.",
         "how_to_read": (
             "An actor of `not-recorded` means the record does not say who "
             "decided."
@@ -1300,7 +1337,9 @@ PANELS: dict[str, dict] = {
             "The raw state comes from the validation report alone; the "
             "goal-aware status beside it is judged separately: `REGRESSED` "
             "if any bound goal regressed, `VALIDATED` only if every bound "
-            "goal reached its target, otherwise `VERIFICATION_PENDING`."
+            "goal reached its target, `VERIFICATION_PENDING` if goals are "
+            "bound but neither, or `not recorded` when no goal is bound "
+            "to this requirement at all."
         ),
     },
     "Feature": {
@@ -1327,7 +1366,7 @@ PANELS: dict[str, dict] = {
     "Reverse": {
         "label": "Reverse",
         "what_it_shows": "Which requirement this file traces back to, and through which run.",
-        "how_to_read": "`stops_at` names the first hop that did not resolve.",
+        "how_to_read": "\"Stops at\" names the first hop that did not resolve.",
     },
     "Goal": {
         "label": "Goal",

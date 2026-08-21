@@ -80,49 +80,109 @@ never a transcript archive, never chat residue (brief §5.6).
 def load_failure(path) -> FailureRecord
 def load_failures(root) -> dict[str, FailureRecord]
 ```
-- [ ] **Step 1: Failing tests** — write→read round-trip of `docs/failures/FR-*.md`; a malformed
+- [x] **Step 1: Failing tests** — write→read round-trip of `docs/failures/FR-*.md`; a malformed
   record degrades to `scope_errors` (never crashes the set); a record whose `reproduced_by` run is
   missing is flagged (orphan) via `health`.
-- [ ] **Step 2: Implement** mirroring `adr.py`/`load_adrs`; add `failure.schema.json`
+- [x] **Step 2: Implement** mirroring `adr.py`/`load_adrs`; add `failure.schema.json`
   (id `^FR-[A-Z0-9-]+$`, required `root_cause`/`fix`; `rejected_hypotheses` optional, bounded length).
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
+  (committed by the interrupted session as 7a64334; re-verified green under this session)
 
 ## Task 2: Durable-memory projection
 
-- [ ] **Step 1: Failing tests** — `query_memory(root, scope)` returns, in one read: decisions
+- [x] **Step 1: Failing tests** — `query_memory(root, scope)` returns, in one read: decisions
   (from `adr:`), failure records, rejected hypotheses, open goals, and conflicts — all with
   provenance citations; it never re-states requirement/ADR/evidence prose it links.
-- [ ] **Step 2: Implement** `durable.py` composing existing loaders (`adr:`, failure records,
+- [x] **Step 2: Implement** `durable.py` composing existing loaders (`adr:`, failure records,
   goals, evidence manifests); render through the claim/freshness plumbing.
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
+  (commits b268fd7, d333ca2, 1ed4b01 — reviewed: spec COMPLIANT, quality APPROVED)
 
 ## Task 3: Conflict surfacing
 
-- [ ] **Step 1: Failing tests** — a memory note whose root cause contradicts current evidence/code
+- [x] **Step 1: Failing tests** — a memory note whose root cause contradicts current evidence/code
   fingerprints (reused `factory.freshness`) is surfaced as a `conflict` (both sides shown), never
   silently resolved; a note that agrees with evidence is not flagged.
-- [ ] **Step 2: Implement** `conflict.py`: compare a record's cited evidence/commit against current
+- [x] **Step 2: Implement** `conflict.py`: compare a record's cited evidence/commit against current
   state and, on mismatch, emit the pair (brief §5.6 "shows the conflict rather than choosing").
-- [ ] **Step 3:** full suite + lint + commit.
+- [x] **Step 3:** full suite + lint + commit.
+  (commit 67b658b — `query_conflicts` merges structural + fingerprint conflicts; kinds
+  `code-changed` / `commit-unreachable` / `run-superseded`; both sides shown, never resolved)
+
+  Reviewed: spec COMPLIANT; quality APPROVED (minor non-blocking follow-ups: memoize
+  `_current_digest` + run manifests per query, restrict run-ref scanning to run-ref fields).
 
 ## Task 4: `memory`/`failure` CLI + health orphans + optional Memory view
 
-- [ ] **Step 1:** `factory memory show/conflicts` and `factory failure add/list/show` subcommands
+- [x] **Step 1:** `factory memory show/conflicts` and `factory failure add/list/show` subcommands
   (additive). Extend `vcycle_health` (Inc 7) with `failure without run` / `rejected hypothesis
   without outcome` / `memory conflict` findings.
-- [ ] **Step 2:** optional additive "Memory" tab/view in `system-page.ts` (Inc 6 pattern) if it
+- [x] **Step 2:** optional additive "Memory" tab/view in `system-page.ts` (Inc 6 pattern) if it
   measures useful; otherwise expose via `eng_get_memory`-style query only. (D2: SCC browser sole
   human surface; no new surface outside it.)
-- [ ] **Step 3:** full suite + lint + commit.
+  **Decision: QUERY/CLI path chosen — no new `system-page.ts` tab.** The `memory`/`failure` CLI
+  (`factory memory show/conflicts`, `factory failure list/show/add`) plus the existing
+  `system.queries.query_memory`/`query_conflicts` (already exposed to agents; the D2 gate names
+  the SCC browser as the *sole human* surface and this work adds no browser surface) already make
+  durable memory fully queryable, and `vcycle_health` surfaces the three orphan/conflict finding
+  classes on the existing landing page (`query_health` -> `vcycle_findings`). A dedicated tab
+  would duplicate `query_memory`'s projection in the browser with no new measure, so it was
+  deliberately not added to keep the increment isolated and additive (low-risk path). If a later
+  increment needs a human Memory view it composes the same `query_memory` payload behind the Inc 6
+  pattern.
+- [x] **Step 3:** full suite + lint + commit.
+  (commit — `feat(memory): memory/failure CLI + health orphans (Inc 8, Task 4)`; unit gate
+  1617 passed / 1 skipped / 40 deselected, ruff clean)
+
+### Task 4 implementation notes (recorded for the reviewer)
+
+- **CLI surface** (`src/factory/memory/cli.py` + `__main__.py`, entry `python -m factory.memory`):
+  `memory show [scope]` / `memory conflicts [scope]` delegate to
+  `factory.system.queries.query_memory`/`query_conflicts` (scope default `all`, exact `feat:`/
+  `sr:`/`goal:`/`adr:`/`fr:` refs, ValueError -> exit 2); `failure list`/`show` load through
+  `factory.memory.failure_record.load_failures` (ordered by declared `FR-` id, never mtime);
+  `failure add` composes frontmatter through the existing `frontmatter` writer and validates the
+  whole meta dict against `failure.schema.json` (id `^FR-[A-Z0-9-]+$`, required `root_cause`/
+  `fix`, hypothesis triple) before writing — the parser is reused, never forked (D3).
+- **Health findings** (`src/factory/system/health.py`, additive): `FAILURE_NO_RUN` (warning,
+  `reproduced_by` absent/empty — a task ref still names a reproduction), `HYPOTHESIS_NO_OUTCOME`
+  (warning, a rejected hypothesis whose `evidence` ref is empty — only reachable in a degraded
+  record), `MEMORY_CONFLICT` (error, structural conflicts from `durable.query_memory(root, "all")`
+  anchored on a declared failure record, subject `fr:<id>`; ADR-supersession conflicts are ADR
+  concerns and are left out; fingerprint conflicts need a git baseline and stay queryable via
+  `factory memory conflicts` — health remains git-free; a duplicate-FR repo degrades by skipping
+  this finding class rather than inventing findings). All findings are derived, deterministic,
+  sorted by (code, subject), and composed from existing loaders.
+- **Test packaging fix:** `tests/unit/memory/test_cli.py` needed `tests/unit/memory/__init__.py`
+  (the `evidence` convention) so it imports as `memory.test_cli` instead of bare `test_cli`,
+  which collides with `tests/unit/goals/test_cli.py` under pytest prepend mode.
+- **No new `queries.py` function:** `failure show` composes `load_failures` directly; the plan's
+  `query_failure` row was not needed because the loader is the existing one and the CLI delegates
+  memory reads to the already-existing `queries.query_memory`/`query_conflicts`.
 
 ## Task 5: Seed the reference slice + review handoff
 
-- [ ] **Step 1:** in cool_physical_ai_project, author one real failure record for the reference
+- [x] **Step 1:** in cool_physical_ai_project, author one real failure record for the reference
   feature (e.g. the false-reacquisition regression seen in Inc 2/3 demo), linking the failing run
   + the ADR decision + a `kb/` entry, and a rejected-hypothesis note (brief §5.6).
-- [ ] **Step 2:** reviewer sub-agent — compliance vs brief §5.6 (durable ≠ archive; conflict shows
+  Committed c48762a on feature/scc-feature-spine: `docs/failures/FR-NAV-0001.md` links the real
+  failing run RUN-20260814-114859700 (SIM-047, result failed, false_reacquisition_rate 0.4) +
+  ADR-0001 (legacy Directive execution not authoritative) + new kb-0005 supplement; two rejected
+  hypotheses each with evidence. All citations verified to real artifacts; `load_failures`
+  scope_errors empty, no conflicts (run resolves).
+- [x] **Step 2:** reviewer sub-agent — compliance vs brief §5.6 (durable ≠ archive; conflict shows
   not chooses), D3 additive, and "no second source of truth". Fix findings as `T-###`.
-- [ ] **Step 3:** update checkboxes; note escalations.
+  Reviewer FOUND 1 finding (F-1, medium): the initial root-cause mechanism claim referenced a
+  code path that does not exist (no transition into REACQUIRING; the scorer's recorded semantics
+  is restart-at-waypoint-0 vs resume token). REWORDED both FR-NAV-0001 and kb-0005 to the
+  recorded MET-NAV-004 / scorers.py semantics — "recorded, never inferred" restored. Re-verified:
+  schema-valid, kb parses, no conflicts.
+- [x] **Step 3:** update checkboxes; note escalations.
+  Notes/escalations: (1) kb/index.json is gitignored in cool_physical_ai_project, so the kb-0005
+  index entry is local-only (the kb-0005 .md is committed); (2) FR-NAV-0001 is not placed in a
+  bundle — no bundle/coverage gate scans docs/failures (verified in the Inc 8 machinery), so this
+  is not an escalation; (3) pre-existing kb index gap (kb-0002/0003 absent from kb/index.json)
+  predates this task.
 
 ## Freshness/history integration
 

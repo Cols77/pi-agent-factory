@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from factory.goals.registry import load_goals
@@ -36,6 +37,7 @@ from factory.system.queries import (
     list_scopes,
     parse_scope_ref,
     query_brief,
+    query_catchup,
     query_diagram,
     query_feature_context,
     query_goal,
@@ -71,6 +73,10 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
 def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
     scope = parse_scope_ref(scope_raw)
     return query_vcycle(repo_root, scope)
+
+
+def cmd_catchup(repo_root: Path, feature: str) -> dict:
+    return query_catchup(repo_root, feature)
 
 
 def cmd_validation(repo_root: Path, scope_raw: str) -> dict:
@@ -232,6 +238,21 @@ def cmd_bundle_check(repo_root: Path, draft_raw: str) -> dict:
 def cmd_health(repo_root: Path, recency_source=None) -> dict:
     """The composed health projection: the single landing document."""
     return health_module.query_health(repo_root, recency_source=recency_source)
+
+
+def cmd_freshness(repo_root: Path) -> dict:
+    """Change-impact findings from the freshness engine (Inc 7 Task 5l)."""
+    return {"findings": [asdict(f) for f in health_module.freshness_health(repo_root)]}
+
+
+def _render_freshness(result: dict) -> str:
+    findings = result["findings"]
+    if not findings:
+        return "freshness: no findings"
+    lines = [f"freshness: {len(findings)} findings"]
+    for finding in findings:
+        lines.append(f"  [{finding['code']}] {finding['severity']} {finding['subject']}: {finding['detail']}")
+    return "\n".join(lines)
 
 
 def cmd_labels(repo_root: Path) -> dict:
@@ -449,6 +470,54 @@ def _render_present(result: dict) -> str:
     lines.append(f"  resolution: {result['resolution']}")
     if result.get("note"):
         lines.append(f"  note: {result['note']}")
+    return "\n".join(lines)
+
+
+def _render_catchup(result: dict) -> str:
+    """The spec §31 'since your last review' block, deterministic field order."""
+    lines = [f"catchup: {result['feature']}"]
+    if not result["reviewed"]:
+        lines.append("  no review recorded yet for this feature")
+        return "\n".join(lines)
+    delta = result["delta"]
+    since = (result.get("since_commit") or "")[:8]
+    lines.append(f"  since: {since} (reviewed {result.get('reviewed_at')})")
+    if not any(
+        delta[k]
+        for k in (
+            "prs_merged",
+            "requirements_changed",
+            "adrs_added",
+            "scenarios_added",
+            "goals_reached",
+            "goals_regressed",
+            "metric_changes",
+            "new_open_items",
+        )
+    ):
+        lines.append("  no changes since your last review")
+        return "\n".join(lines)
+    lines.append("Since your last review:")
+    for req in delta["requirements_changed"]:
+        lines.append(f"  requirements changed:  {req}")
+    for adr in delta["adrs_added"]:
+        lines.append(f"  design decisions:      {adr} added")
+    for pr in delta["prs_merged"]:
+        lines.append(f"  implementation:        {pr}")
+    for scenario in delta["scenarios_added"]:
+        lines.append(f"  new experiments:       {scenario}")
+    for goal in delta["goals_reached"]:
+        lines.append(f"  goals reached:         {goal}")
+    for goal in delta["goals_regressed"]:
+        lines.append(f"  goals regressed:       {goal}")
+    for metric in delta["metric_changes"]:
+        from_v = metric["from"]
+        to_v = metric["to"]
+        arrow = f"{from_v} -> {to_v}" if from_v is not None else f"{to_v} (no prior value)"
+        regression = " (REGRESSED)" if metric["regression"] else ""
+        lines.append(f"  metrics:               {metric['metric']} {arrow}{regression}")
+    for item in delta["new_open_items"]:
+        lines.append(f"  new open items:        {item}")
     return "\n".join(lines)
 
 
@@ -707,6 +776,9 @@ def main(argv: list[str] | None = None) -> int:
     p_validation = sub.add_parser("validation", parents=[common])
     p_validation.add_argument("--scope", required=True)
 
+    p_catchup = sub.add_parser("catchup", parents=[common])
+    p_catchup.add_argument("--feature", required=True)
+
     p_diagram = sub.add_parser("diagram", parents=[common])
     p_diagram.add_argument("diagram_id")
 
@@ -744,6 +816,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("scope", parents=[common])
 
     sub.add_parser("health", parents=[common])
+
+    sub.add_parser("freshness", parents=[common])
 
     sub.add_parser("labels", parents=[common])
 
@@ -810,6 +884,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "validation":
             result = cmd_validation(args.repo_root, args.scope)
             rendered = _render_validation(result)
+        elif args.cmd == "catchup":
+            result = cmd_catchup(args.repo_root, args.feature)
+            rendered = _render_catchup(result)
         elif args.cmd == "bundle":
             result = cmd_bundle_check(args.repo_root, args.draft)
             rendered = _render_bundle_check(result)
@@ -819,6 +896,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "health":
             result = cmd_health(args.repo_root)
             rendered = _render_health(result)
+        elif args.cmd == "freshness":
+            result = cmd_freshness(args.repo_root)
+            rendered = _render_freshness(result)
         elif args.cmd == "labels":
             result = cmd_labels(args.repo_root)
             rendered = _render_labels(result)

@@ -25,6 +25,13 @@ class TransitionError(ValueError):
     """A state transition the spec §13 table does not allow."""
 
 
+# Goal states that record a final outcome for the goal (spec §13): a goal
+# in either state has been evaluated and is no longer open. REACHED may
+# still re-enter EVALUATING on regression, but its outcome is recorded.
+# Durable-memory projections (Inc 8) use this to define "open goal".
+TERMINAL_GOAL_STATES: frozenset[GoalState] = frozenset({"REACHED", "NOT_REACHED"})
+
+
 _TRANSITIONS: dict[GoalState, set[GoalState]] = {
     # DECLARED -> ACTIVE is the only legal way to begin work.
     "DECLARED": {"ACTIVE"},
