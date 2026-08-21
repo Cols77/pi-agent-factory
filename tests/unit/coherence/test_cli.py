@@ -63,13 +63,11 @@ def test_doctor_context_dispatches_through_top_level_module(tmp_path: Path):
 
 
 @pytest.mark.parametrize("argv", [[], ["unknown", "--keep", "value"]])
-def test_missing_or_unknown_group_returns_two_and_lists_valid_groups(argv, capsys):
-    from coherence import cli
+def test_missing_or_unknown_group_module_entry_returns_two_and_lists_valid_groups(argv):
+    result = _run_coherence(*argv)
 
-    assert cli.main(argv) == 2
-
-    captured = capsys.readouterr()
-    output = captured.out + captured.err
+    assert result.returncode == 2
+    output = result.stdout + result.stderr
     assert "valid groups:" in output
     assert all(group in output for group in ("trace", "register", "doctor"))
 
