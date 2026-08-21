@@ -23,8 +23,10 @@ edge-case coverage, this file:
      ``factory.validation.manifest_validator`` has deep behavioral-parity
      coverage in ``tests/unit/substrate/test_validator_inversion.py`` and
      ``tests/unit/test_manifest_validator.py``, but nothing asserted that
-     importing it emits the expected single DeprecationWarning -- that
-     assertion is added here.
+     importing it stays silent -- it is a composition adapter (like
+     ``factory.config``), not a moved module: its only public symbol,
+     ``validate_manifest``, never moved to substrate, so it must never warn.
+     That assertion is added here.
   4. Covers the two "mixed" shims (permanent + moved surface,
      ``__getattr__``-based) -- ``factory.orchestrator.types`` and
      ``factory.evidence.manifests`` -- with their own parametrized,
@@ -76,10 +78,6 @@ WHOLE_MODULE_SHIMS = [
     (
         "factory.validation.session_validator",
         "factory.validation.session_validator is deprecated; import substrate.validators.session",
-    ),
-    (
-        "factory.validation.manifest_validator",
-        "factory.validation.manifest_validator is deprecated; import substrate.validators.manifest",
     ),
     (
         "factory.orchestrator.ledger",
@@ -234,11 +232,14 @@ def test_factory_validation_manifest_validator_representative_callable_delegates
     # validate_manifest_document), so "identical results" here means it still
     # produces the same verdict as the pure substrate function wired with
     # equivalent callables -- deep parity for every branch is already proven
-    # in tests/unit/substrate/test_validator_inversion.py; this just proves
-    # the deprecated old import path still works end to end.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    # in tests/unit/substrate/test_validator_inversion.py. Unlike a moved
+    # module, nothing public left this module (it's the composition adapter,
+    # same category as factory.config), so importing it must stay silent.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
         old = _import_fresh("factory.validation.manifest_validator")
+
+    assert caught == []
 
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "T-001.md").write_text("dod", encoding="utf-8")

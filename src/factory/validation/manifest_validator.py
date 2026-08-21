@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,12 +10,6 @@ from substrate.validators.manifest import validate_manifest_document
 
 if TYPE_CHECKING:
     from substrate.ledger.tasks import Task
-
-warnings.warn(
-    "factory.validation.manifest_validator is deprecated; import substrate.validators.manifest",
-    DeprecationWarning,
-    stacklevel=2,
-)
 
 
 def validate_manifest(

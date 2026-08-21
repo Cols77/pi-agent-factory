@@ -6,7 +6,7 @@ from pathlib import Path
 
 from factory.evidence.artifacts import ArtifactStore
 from factory.evidence.finalize import finalize_run_evidence
-from factory.evidence.manifests import load_run_manifest, write_run_manifest
+from factory.evidence.manifests import write_run_manifest
 from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
@@ -41,7 +41,8 @@ from factory.orchestrator.session import build_record, write_session
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
 from factory.preflight.checks import run_completion_preflight
-from factory.validation.kb_validator import parse_entry
+from substrate.evidence.read import load_run_manifest
+from substrate.validators.kb import parse_entry
 
 
 def _load_kb_entries(kb_dir: Path, ids: list[str]) -> list[dict]:

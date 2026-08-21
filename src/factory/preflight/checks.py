@@ -318,7 +318,7 @@ def run_preflight(
     # loader; anything that still fails validation is surfaced here with the
     # file's location and remediation instead of failing mid-run.
     try:
-        from factory.evidence.manifests import load_run_manifest
+        from substrate.evidence.read import load_run_manifest
 
         evidence_runs = repo_root / "evidence" / "runs"
         if evidence_runs.is_dir():
