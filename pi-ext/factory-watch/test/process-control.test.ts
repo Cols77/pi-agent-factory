@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildListCommand,
   buildListJsonCommand,
+  buildPolishListCommand,
   buildRunCommand,
   buildSystemNavigatorUrl,
   buildWindowsKillArgs,
@@ -62,6 +63,16 @@ describe("buildListJsonCommand", () => {
     const cmd = buildListJsonCommand();
     expect(cmd.bin).toBe("uv");
     expect(cmd.args).toEqual(["run", "python", "-m", "factory.orchestrator", "list", "--json"]);
+  });
+});
+
+describe("buildPolishListCommand", () => {
+  test("builds the polish list --json invocation", () => {
+    const cmd = buildPolishListCommand();
+    expect(cmd.bin).toBe("uv");
+    expect(cmd.args).toEqual([
+      "run", "python", "-m", "factory.polish", "list", "--json",
+    ]);
   });
 });
 

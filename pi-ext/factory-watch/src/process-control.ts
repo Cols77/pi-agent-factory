@@ -37,6 +37,13 @@ export function buildListJsonCommand(): Command {
   };
 }
 
+export function buildPolishListCommand(): Command {
+  return {
+    bin: "uv",
+    args: ["run", "python", "-m", "factory.polish", "list", "--json"],
+  };
+}
+
 export function buildWindowsKillArgs(pid: number): string[] {
   return ["/PID", String(pid), "/T", "/F"];
 }

@@ -8,6 +8,7 @@ import { isPidAlive, parseLock } from "./lock-status.js";
 import {
   buildListCommand,
   buildListJsonCommand,
+  buildPolishListCommand,
   buildRunCommand,
   buildSystemNavigatorUrl,
   buildWindowsKillArgs,
@@ -38,6 +39,11 @@ import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
 import type { TaskSummary } from "./task-picker.js";
+import {
+  parsePolishGroupList,
+  polishPlaygroundLabel,
+  parsePlaygroundIdFromLabel,
+} from "./polish-picker.js";
 import { listDocs } from "./doc-lister.js";
 import { formatTaskHeader, parseTaskFrontmatter } from "./task-header.js";
 import { ScrollableMarkdown } from "./scrollable-markdown.js";
@@ -407,6 +413,43 @@ const POLISH_POLL_MS = 200;
 export function parsePolishTarget(args: string): { playground: string; usecase: string } | null {
   const m = /^(\S+):(\S+)$/.exec(args.trim());
   return m ? { playground: m[1]!, usecase: m[2]! } : null;
+}
+
+// Offer the same two-step selection menu `/factory-run` provides for tickets,
+// but for a polish session: first the playground, then one of its usecases.
+// Returns null when the operator cancels, the list is empty, or the CLI fails.
+async function pickPolishTarget(
+  ctx: ExtCommandCtx,
+): Promise<{ playground: string; usecase: string } | null> {
+  const cmd = buildPolishListCommand();
+  const result = spawnSync(cmd.bin, cmd.args, { cwd: ctx.cwd, encoding: "utf-8" });
+  if (result.status !== 0) {
+    ctx.ui.notify(`polish list failed: ${result.stderr || "unknown error"}`, "error");
+    return null;
+  }
+  const playgrounds = parsePolishGroupList(result.stdout);
+  if (playgrounds === null) {
+    ctx.ui.notify("polish list returned malformed data", "error");
+    return null;
+  }
+  if (playgrounds.length === 0) {
+    ctx.ui.notify("no polish playgrounds/usecases", "info");
+    return null;
+  }
+  const pgLabel = await ctx.ui.select(
+    "Polish which playground?",
+    playgrounds.map(polishPlaygroundLabel),
+  );
+  if (pgLabel === undefined) return null;
+  const pgId = parsePlaygroundIdFromLabel(pgLabel);
+  const pg = pgId === null ? undefined : playgrounds.find((p) => p.playground === pgId);
+  if (pg === undefined || pg.usecases.length === 0) {
+    ctx.ui.notify("that playground has no usecases", "info");
+    return null;
+  }
+  const usecase = await ctx.ui.select(`Which usecase on ${pg.playground}?`, pg.usecases);
+  if (usecase === undefined) return null;
+  return { playground: pg.playground, usecase };
 }
 
 /** Read the bridge state file, returning it only when the publisher's seq advanced. */
@@ -870,12 +913,15 @@ export default function factoryWatch(pi: PiApi): void {
   pi.registerCommand("polish", {
     description: "Run a factory polish session (deterministic orchestrator + control panel)",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const target = parsePolishTarget(args);
-      if (!target) {
-        ctx.ui.notify("usage: /polish <playground>:<usecase>", "error");
+      const trimmed = args.trim();
+      const target = trimmed ? parsePolishTarget(trimmed) : null;
+      if (trimmed && !target) {
+        ctx.ui.notify("usage: /polish <playground>:<usecase> (or /polish to pick from a menu)", "error");
         return;
       }
-      await runPolishSession(ctx, target);
+      const resolved = target ?? (await pickPolishTarget(ctx));
+      if (!resolved) return;
+      await runPolishSession(ctx, resolved);
     },
   });
 
