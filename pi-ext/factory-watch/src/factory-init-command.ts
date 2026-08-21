@@ -9,6 +9,9 @@ import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
+  alignBootstrapTools,
+  readToolsSignature,
+  toolsSignature,
   BLOCK_END,
   BLOCK_START,
   DEFAULT_CONFIG_DIR,
@@ -19,7 +22,9 @@ import {
   type CheckResult,
   type InitResult,
 } from "./factory-init.js";
+import { factoryToolsCatalog, formatToolCatalog } from "./tool-catalog.js";
 import { subagentTool } from "./subagent-tool.js";
+import { executeSubagent, buildSubagentInvocation, type ToolCtx as SubagentToolCtx } from "./subagent-tool.js";
 import {
   composeCodeContextMessage,
   factoryIndexCandidates,
@@ -128,7 +133,7 @@ export function registerFactoryInit(pi: PiApi): void {
       // isProjectTrusted(), so no second manual gate is layered on top.
 
       const mode = check ? "check" : refresh ? "refresh" : "init";
-      const result = runFactoryInit({ root, mode, configDir: DEFAULT_CONFIG_DIR });
+      const result = runFactoryInit({ root, mode, configDir: DEFAULT_CONFIG_DIR, tools: factoryToolsCatalog() });
 
       // Seed the session-context policy (which streams inject into every future
       // session) on the plain-init path when none exists yet. Kept entirely in
@@ -216,8 +221,11 @@ export function registerFactoryInit(pi: PiApi): void {
       if (reason !== undefined && reason !== "startup") return;
       const { root } = resolveProjectRoot(ctx.cwd);
       buildCodeIndex(root, true);
+      // Cheap tool-surface auto-alignment: keep the AGENTS.md managed block in
+      // lockstep with the live factory tool catalog without a full /factory-init.
+      alignBootstrapTools(root, factoryToolsCatalog(), DEFAULT_CONFIG_DIR);
     } catch {
-      // never take the session down over an index refresh
+      // never take the session down over an index refresh or tools alignment
     }
   });
 
@@ -226,7 +234,29 @@ export function registerFactoryInit(pi: PiApi): void {
 }
 
 export function registerFactoryInitTools(pi: Pick<PiApi, "registerTool">): void {
-  pi.registerTool(subagentTool);
+  // Wrap the stock subagent tool so delegated children inherit an explicit
+  // "available factory tools" surface (the glue layer owns the tool-catalog
+  // import, so subagent-tool.ts stays free of it and no import cycle appears).
+  pi.registerTool({
+    ...subagentTool,
+    async execute(callId: string, params: { task: string }, signal: AbortSignal | undefined, onUpdate: unknown, ctx: SubagentToolCtx) {
+      const task = (params?.task ?? "").trim();
+      if (task === "") {
+        return {
+          content: [{ type: "text", text: "subagent needs a non-empty task packet; nothing was dispatched." }],
+          details: null,
+        };
+      }
+      return executeSubagent(task, ctx, {
+        build: (input) =>
+          buildSubagentInvocation({
+            ...input,
+            toolsSummary: formatToolCatalog(factoryToolsCatalog()),
+          }),
+        resolveRoot: resolveProjectRoot,
+      });
+    },
+  });
 }
 
 function renderDoctor(check: CheckResult): string[] {
@@ -249,8 +279,19 @@ function renderDoctor(check: CheckResult): string[] {
   lines.push(
     `  context file:         AGENTS.md ${check.blockPresent ? "present on disk" : "absent on disk"}; Pi loads it natively so no duplicate injection is performed`,
   );
+  lines.push(
+    `  tools aligned:        ${toolsAlignmentLabel(check.root)}`,
+  );
   lines.push(check.ok ? "  summary: OK" : "  summary: STALE or missing artifacts");
   return lines;
+}
+
+function toolsAlignmentLabel(root: string): string {
+  const live = toolsSignature(factoryToolsCatalog());
+  const recorded = readToolsSignature(root, DEFAULT_CONFIG_DIR);
+  return recorded === live
+    ? "yes -- AGENTS.md tool line matches the live extension"
+    : "STALE -- will auto-heal on next session start; run /factory-init --refresh to resync profile+commands now";
 }
 
 function subagentMetadataPresent(): boolean {

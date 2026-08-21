@@ -1,1 +1,6 @@
 node_modules/
+
+# Scratch roots the pi harness (and a since-fixed relative-mkdtemp test bug)
+# create directly in this directory when run with cwd=pi-ext/factory-watch.
+pif-root-*/
+pif-pulse-*/

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-13T01:18:03.854Z",
+  "generated_at": "2026-08-15T06:12:02.064Z",
   "project_root": "C:\\coding\\pi-agent-factory",
   "project": {
     "name": "pi-agent-factory",
@@ -115,7 +115,7 @@
     "C:\\coding\\pi-agent-factory\\README.md": "b33206436ca09839",
     "C:\\coding\\pi-agent-factory\\docs\\superpowers\\plans\\engineering-context\\00-program-architecture.md": "98457a1a40993141",
     "C:\\coding\\pi-agent-factory\\pi-ext\\factory-watch\\package.json": "7a3ddd42e37f4f1f",
-    "C:\\coding\\pi-agent-factory\\pyproject.toml": "2040d28586a3bce0"
+    "C:\\coding\\pi-agent-factory\\pyproject.toml": "b68c0a432fcf3c72"
   },
   "_source_files": [
     "C:\\coding\\pi-agent-factory\\.factory\\factory.yaml",

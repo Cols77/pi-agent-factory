@@ -755,18 +755,24 @@ export async function executeSubagent(
   task: string,
   ctx: ToolCtx,
   deps: {
-    build: typeof buildSubagentInvocation;
-    resolveRoot: typeof resolveProjectRoot;
+    build?: typeof buildSubagentInvocation;
+    resolveRoot?: typeof resolveProjectRoot;
     /** Optional short role label, e.g. "researcher" / "dev" (default: derived). */
     label?: string | null;
-  } = {
-    build: buildSubagentInvocation,
-    resolveRoot: resolveProjectRoot,
-  },
+  } = {},
 ): Promise<{ content: { type: "text"; text: string }[]; details: null }> {
-  const { root } = deps.resolveRoot(ctx.cwd);
+  // Partial deps objects (as passed by wrapping call sites) merge over the
+  // defaults, so a caller that overrides only `build` still gets a wired
+  // `resolveRoot` instead of `undefined` (previously: deps.resolveRoot is
+  // not a function).
+  const resolvedDeps = {
+    build: deps.build ?? buildSubagentInvocation,
+    resolveRoot: deps.resolveRoot ?? resolveProjectRoot,
+    label: deps.label ?? null,
+  };
+  const { root } = resolvedDeps.resolveRoot(ctx.cwd);
   const depth = Number(process.env[RECURSE_GUARD_ENV] ?? "0") || 0;
-  const invocation = deps.build({
+  const invocation = resolvedDeps.build({
     root,
     task,
     provider: ctx.model?.provider,
@@ -797,7 +803,7 @@ export async function executeSubagent(
       join(root, ".pi"),
     ],
   });
-  const label = deriveSubagentLabel(task, deps.label);
+  const label = deriveSubagentLabel(task, resolvedDeps.label);
   const summary = summarizeSubagentTask(task);
   const body = renderChildOutcome(run);
   return taskResult(`subagent[${label}] — ${summary}\n\n${body}`);

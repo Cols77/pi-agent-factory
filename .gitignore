@@ -48,6 +48,10 @@ sessions/*
 # above stays tracked: it is the durable /factory-init discovery+profile config.
 .pi/factory/session-context.json
 .pi/factory/session-memory.json
+# The tools-signature sidecar /factory-init writes next to the profile. It is a
+# derived checksum of the live extension's tool catalog, regenerated on every
+# session start (alignBootstrapTools) -- not durable config, so it stays local.
+.pi/factory/tools.json
 
 # Playwright MCP + vitest runtime caches/logs (browser capture, results)
 .playwright-mcp/

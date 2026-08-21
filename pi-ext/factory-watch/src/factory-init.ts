@@ -473,7 +473,19 @@ export function buildProfile(root: string, evidence: Evidence, now: string): Pro
 // Managed AGENTS.md block
 // ---------------------------------------------------------------------------
 
-const blockMarkdown = (profile: ProjectProfile): string =>
+function renderFactoryTools(tools: readonly { name: string; family: string }[]): string {
+  const byFamily = new Map<string, string[]>();
+  for (const t of tools) {
+    const list = byFamily.get(t.family) ?? [];
+    list.push(t.name);
+    byFamily.set(t.family, list);
+  }
+  return Array.from(byFamily.entries())
+    .map(([family, names]) => `${family} (${names.join(", ")})`)
+    .join("; ");
+}
+
+const blockMarkdown = (profile: ProjectProfile, tools?: readonly { name: string; family: string }[]): string =>
   [
     ...(profile.project.purpose ? [profile.project.purpose] : []),
     ...(profile.components.length
@@ -500,6 +512,7 @@ const blockMarkdown = (profile: ProjectProfile): string =>
         "."
       : "",
     ...profile.invariants.map((i) => "Rule: " + i.text),
+    ...(tools && tools.length ? ["Factory tools: " + renderFactoryTools(tools)] : []),
     // Pointers, deliberately terse: the full profile is on disk, not in every prompt.
     ...(profile.docs.requirements
       ? [
@@ -514,11 +527,14 @@ const blockMarkdown = (profile: ProjectProfile): string =>
     .filter(Boolean)
     .join("\n\n");
 
-export function buildManagedBlock(profile: ProjectProfile): string {
+export function buildManagedBlock(
+  profile: ProjectProfile,
+  tools?: readonly { name: string; family: string }[],
+): string {
   return [
     BLOCK_START,
     "# Project (factory bootstrap)",
-    blockMarkdown(profile),
+    blockMarkdown(profile, tools),
     BLOCK_END,
   ].join("\n");
 }
@@ -651,6 +667,15 @@ export interface FactoryInitOptions {
   mode: "init" | "refresh" | "check";
   configDir?: string;
   now?: string;
+  /**
+   * Available factory tools, derived from what the extension registers. When
+   * provided, /factory-init weaves a "Factory tools:" line into the AGENTS.md
+   * managed block so the agent's system prompt reflects the current tool
+   * surface. Kept generic here to avoid a circular import with the catalog
+   * module; the command glue passes the real catalog. Optional for backward
+   * compatibility (tests that call runFactoryInit without it stay unchanged).
+   */
+  tools?: readonly { name: string; family: string }[];
 }
 
 export function profilePath(root: string, configDir = DEFAULT_CONFIG_DIR): string {
@@ -720,7 +745,7 @@ export function runFactoryInit(opts: FactoryInitOptions): InitResult {
 
   const evidence = collectEvidence(root);
   const profile = buildProfile(root, evidence, now);
-  const newBlock = buildManagedBlock(profile);
+  const newBlock = buildManagedBlock(profile, opts.tools);
 
   const profilePresent = existsSync(pPath);
   let existingProfile: ProjectProfile | null = null;
@@ -824,4 +849,96 @@ export function formatCheck(c: CheckResult): string {
   }
   lines.push(c.ok ? "OK" : "STALE -- run /factory-init --refresh");
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Cheap tool-surface alignment (auto-heal on session start)
+// ---------------------------------------------------------------------------
+//
+// The AGENTS.md managed block can drift from the extension's live tool surface
+// whenever the extension evolves independently (e.g. a new eng_*/system_*/trace_*
+// tool is added to a builder). Full /factory-init is heavyweight (collects
+// evidence, hashes files, builds the code index), so we do NOT run it on every
+// session. Instead this is a cheap, deterministic, idempotent alignment: derive
+// the tool signature, compare it to a tiny sidecar (```.pi/factory/tools.json```),
+// and when they differ re-weave just the managed-block tools line from the
+// already-stored profile. Session start calls this best-effort, exactly like the
+// existing code-index fingerprint refresh.
+//
+// Writing happens only when content actually changed (replaceManagedBlock +
+// safeTile signature), so repeated calls are no-ops. The write is safe even when
+// the profile came from an earlier schema: buildManagedBlock reads the profile
+// on disk and only the tools line is added/kept.
+
+/** Deterministic signature of a tool catalog: sorted stable entries. */
+export function toolsSignature(
+  entries: readonly { name: string; family: string }[],
+): string {
+  const keys = new Set(entries.map((e) => `${e.family}\u0000${e.name}`));
+  return [...keys].sort().join("\n");
+}
+
+export function toolsStatePath(root: string, configDir = DEFAULT_CONFIG_DIR): string {
+  return join(root, configDir, "factory", "tools.json");
+}
+
+export function readToolsSignature(root: string, configDir = DEFAULT_CONFIG_DIR): string | null {
+  try {
+    const raw = readFileSync(toolsStatePath(root, configDir), "utf-8");
+    const state = JSON.parse(raw) as { signature?: string };
+    return typeof state.signature === "string" ? state.signature : null;
+  } catch {
+    return null; // absent or unreadable -> treated as never-aligned
+  }
+}
+
+export interface AlignToolsResult {
+  /** True when a stale sidecar or block was detected (and fixed). */
+  changed: boolean;
+  /** True when the managed-block tools line was rewritten. */
+  blockChanged: boolean;
+}
+
+/**
+ * Cheap alignment. Returns false when the bootstrap is not yet initialised
+ * (no stored profile) so callers know there is nothing to align.
+ */
+export function alignBootstrapTools(
+  root: string,
+  entries: readonly { name: string; family: string }[],
+  configDir = DEFAULT_CONFIG_DIR,
+  now = new Date().toISOString(),
+): AlignToolsResult {
+  const sig = toolsSignature(entries);
+  const recorded = readToolsSignature(root, configDir);
+  const storedChanged = recorded !== sig;
+  let blockChanged = false;
+
+  // Only touch the block when the bootstrap is initialized (profile present) so
+  // a raw repo without /factory-init is not half-created by a session hook.
+  const pPath = profilePath(root, configDir);
+  if (existsSync(pPath)) {
+    try {
+      const profile = JSON.parse(readFileSync(pPath, "utf-8")) as ProjectProfile;
+      const agentsPath = join(root, "AGENTS.md");
+      if (existsSync(agentsPath)) {
+        const newBlock = buildManagedBlock(profile, entries);
+        const replaced = replaceManagedBlock(readFileSync(agentsPath, "utf-8"), newBlock);
+        if (replaced.replaced) {
+          atomicWrite(agentsPath, replaced.content);
+          blockChanged = true;
+        }
+      }
+    } catch {
+      // non-fatal: never take the session down over a bootstrap alignment
+    }
+  } else {
+    // No profile yet -> nothing to align. Also avoid marking tools state.
+    return { changed: false, blockChanged: false };
+  }
+
+  if (storedChanged) {
+    atomicWrite(toolsStatePath(root, configDir), JSON.stringify({ signature: sig, generated_at: now }, null, 2) + "\n");
+  }
+  return { changed: storedChanged || blockChanged, blockChanged };
 }

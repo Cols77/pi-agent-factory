@@ -20,6 +20,8 @@ import {
   runFactoryCheck,
   runFactoryInit,
   atomicWrite,
+  alignBootstrapTools,
+  DEFAULT_CONFIG_DIR,
 } from "../src/factory-init.js";
 import {
   MAX_SUBAGENT_DEPTH,
@@ -337,6 +339,66 @@ test("managed block regeneration is deterministic (survives reconstruction/compa
     agents.lastIndexOf(BLOCK_END),
   );
   expect(buildManagedBlock(a.profile)).toBe(`${BLOCK_START}${body}${BLOCK_END}`);
+});
+
+test("tool-surface alignment rewrites the block and sidecar exactly once", () => {
+  const root = makeDir();
+  writeSampleRepo(root);
+  const tools = [{ name: "subagent", family: "delegation" }];
+  runFactoryInit({ root, mode: "init", tools });
+  // First align: writes the tools sidecar + block line.
+  const first = alignBootstrapTools(root, tools, DEFAULT_CONFIG_DIR, "2026-01-01T00:00:00Z");
+  expect(first.changed).toBe(true);
+  const before = readFileSync(join(root, "AGENTS.md"), "utf-8");
+  expect(before).toContain("Factory tools: delegation (subagent)");
+  // Second align: same signature -> pure no-op (idempotent).
+  const second = alignBootstrapTools(root, tools, DEFAULT_CONFIG_DIR, "2026-01-01T00:00:01Z");
+  expect(second.changed).toBe(false);
+  expect(readFileSync(join(root, "AGENTS.md"), "utf-8")).toBe(before);
+  // A new tool added upstream is picked up and healed.
+  const grown = [...tools, { name: "trace_next", family: "trace" }];
+  const third = alignBootstrapTools(root, grown, DEFAULT_CONFIG_DIR, "2026-01-02T00:00:00Z");
+  expect(third.changed).toBe(true);
+  expect(readFileSync(join(root, "AGENTS.md"), "utf-8")).toContain("trace (trace_next)");
+  // No profile -> no half-created bootstrap.
+  const bare = makeDir();
+  const unaligned = alignBootstrapTools(bare, tools, DEFAULT_CONFIG_DIR);
+  expect(unaligned.changed).toBe(false);
+});
+
+test("subagent packet can carry an explicit factory tool surface", () => {
+  const root = makeDir();
+  const inv = buildSubagentInvocation({
+    root,
+    task: "review the diff",
+    currentDepth: 0,
+    toolsSummary: "delegation (subagent); trace (trace_next)",
+  });
+  expect(inv).not.toBeNull();
+  const packet = readFileSync(inv!.packetFile!, "utf-8");
+  expect(packet).toContain("AVAILABLE FACTORY TOOLS");
+  expect(packet).toContain("trace (trace_next)");
+});
+
+test("managed block includes the available factory tools when provided", () => {
+  const root = makeDir();
+  writeSampleRepo(root);
+  const tools = [
+    { name: "subagent", family: "delegation" },
+    { name: "trace_next", family: "trace" },
+    { name: "eng_get_vcycle", family: "engineering-context" },
+    { name: "system_context", family: "system-navigator" },
+  ];
+  const r = runFactoryInit({ root, mode: "init", tools });
+  const agents = readFileSync(join(root, "AGENTS.md"), "utf-8");
+  expect(agents).toContain("Factory tools:");
+  expect(agents).toContain("delegation (subagent)");
+  expect(agents).toContain("trace (trace_next)");
+  expect(agents).toContain("engineering-context (eng_get_vcycle)");
+  expect(agents).toContain("system-navigator (system_context)");
+  // Without tools the block stays byte-identical to the pre-feature shape.
+  const plain = runFactoryInit({ root, mode: "refresh" });
+  expect(buildManagedBlock(plain.profile)).not.toContain("Factory tools:");
 });
 
 function buildSampleBlock(): string {

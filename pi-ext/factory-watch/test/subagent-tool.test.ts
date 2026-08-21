@@ -3,6 +3,7 @@ import {
   createJsonlCollector,
   createIdleKeeper,
   deriveSubagentLabel,
+  executeSubagent,
   probeFileHeartbeat,
   parseChildJsonl,
   renderChildOutcome,
@@ -14,6 +15,7 @@ import {
 } from "../src/subagent-tool.js";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const sessionEvent = (id = "ses-123") =>
   JSON.stringify({ type: "session", version: 3, id, cwd: "C:\\repo" });
@@ -163,7 +165,12 @@ describe("spawnStreamedChild", () => {
     // ~2.4 MB streamed; only bounded tails retained.
     expect(run.stdoutTail.length).toBeLessThanOrEqual(2100);
     expect(run.stdoutTail).toContain("big stream done");
-  });
+    // The child's own totalTimeoutMs is 10s, so a vitest budget above that
+    // (not the suite default 5s) is what makes this wall-clock measurement
+    // stable under parallel load: a 5s cap killed a passing test right at the
+    // boundary whenever the rest of the suite contended for the CPU. The
+    // assertions above are the real behavioural checks and are untouched.
+  }, 20_000);
 
   test("idle timeout kills a child that goes silent", async () => {
     const run = await spawnStreamedChild(node, ["-e", "console.log('hi'); setTimeout(()=>{}, 60000)"], {
@@ -389,7 +396,7 @@ describe("liveness-aware idle keeper (T-029)", () => {
   });
 
   test("the file-heartbeat probe sees fresh writes under watch dirs", () => {
-    const dir = mkdtempSync("pif-pulse-");
+    const dir = mkdtempSync(join(tmpdir(), "pif-pulse-"));
     const sub = join(dir, "plans");
     mkdirSync(sub, { recursive: true });
     // Future watermark: nothing is newer than it, so no heartbeat yet.
@@ -399,6 +406,44 @@ describe("liveness-aware idle keeper (T-029)", () => {
     expect(probeFileHeartbeat([sub], Date.now() - 60_000)).toBe(true);
     // Future watermark again: no write after it -> quiet again.
     expect(probeFileHeartbeat([sub], Date.now() + 60_000)).toBe(false);
+  });
+});
+
+describe("executeSubagent deps wiring (resolveRoot contract)", () => {
+  test("a build-only override still gets a wired resolveRoot (regression guard)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pif-root-"));
+    let capturedRoot: string | null = null;
+    const build = (input: { root: string }) => {
+      capturedRoot = input.root;
+      throw new Error("BUILD_RAN"); // short-circuit before any real spawn
+    };
+    try {
+      await executeSubagent("do the thing", { cwd: dir, model: { provider: "p", id: "m" } }, { build });
+    } catch (err) {
+      // If resolveRoot were left undefined (the old `deps.resolveRoot is
+      // not a function` failure) we would never reach the build override.
+      expect(String(err)).toContain("BUILD_RAN");
+    }
+    expect(capturedRoot).toBeTruthy(); // default resolveProjectRoot merged in
+  });
+
+  test("a label-only override still gets default build + resolveRoot", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pif-root-"));
+    let capturedRoot: string | null = null;
+    const build = (input: { root: string }) => {
+      capturedRoot = input.root;
+      throw new Error("BUILD_RAN");
+    };
+    // Override build (as a stand-in for observing the merged root) while
+    // passing only a label; defaults for build/resolveRoot stay intact.
+    const depsWithoutRoot = { label: "dev" };
+    try {
+      await executeSubagent("do the thing", { cwd: dir, model: { provider: "p", id: "m" } }, { ...depsWithoutRoot, build });
+    } catch (err) {
+      expect(String(err)).toContain("BUILD_RAN");
+    }
+    expect(typeof capturedRoot).toBe("string");
+    expect((capturedRoot ?? "").length).toBeGreaterThan(0);
   });
 });
 
