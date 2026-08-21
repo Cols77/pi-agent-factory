@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-from factory.validation.schema_validator import SCHEMA_DIR, validate
+import warnings
 
-_SCHEMA = SCHEMA_DIR / "session_record.schema.json"
+from substrate.validators.session import validate_session
 
+warnings.warn(
+    "factory.validation.session_validator is deprecated; import substrate.validators.session",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-def validate_session(record: dict) -> list[str]:
-    errors = validate(record, _SCHEMA)
-    if errors:
-        return errors
-
-    semantic: list[str] = []
-    for task in record.get("tasks", []):
-        if task.get("outcome") == "completed":
-            dod = task.get("dod") or {}
-            if dod.get("met") is not True:
-                semantic.append(f"task {task.get('task_id')}: completed but dod.met is not true")
-    return semantic
+__all__ = ["validate_session"]

@@ -1,25 +1,19 @@
 """Architecture decision records as structured artifacts.
 
-An ADR carries machine-readable identity in YAML frontmatter (validated
-against `adr.schema.json`) and prose in the body. Identity is the `id`,
-never the filename: bundle members and scope refs use `adr:ADR-0001`, which
-matches the `sr:SR-001` / `task:T-059` convention and survives a file being
-renamed for readability.
+`AdrDocument` and `parse_adr` now live in `substrate.documents.adr` (pure,
+neutral parsing) and are re-exported here unchanged -- this is an internal
+repoint, not a public API move, so no deprecation warning fires.
 
-Nothing here recovers identity from prose. A document without frontmatter
-has no id -- the parse reports that rather than guessing, which is the same
-discipline `factory.system.bundles` applies to an unresolvable member ref.
+`adr_dir`, `load_adrs`, and `DuplicateAdrIdError` stay here: they embed the
+`docs/adr` directory convention and are consumed only by factory-side
+callers (`factory.memory.durable`, `factory.system.queries`,
+`factory.system.labels`, `factory.system.coverage`, `factory.trace.graph`).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 
-import frontmatter
-
-from factory.validation.schema_validator import SCHEMA_DIR, validate
-
-_SCHEMA = SCHEMA_DIR / "adr.schema.json"
+from substrate.documents.adr import AdrDocument, parse_adr
 
 _ADR_DIR_PARTS = ("docs", "adr")
 
@@ -32,71 +26,6 @@ class DuplicateAdrIdError(ValueError):
     claim the id, every ref to it is meaningless and silently picking one
     would make bundle membership depend on directory iteration order.
     """
-
-
-@dataclass(frozen=True)
-class AdrDocument:
-    """One parsed ADR. Absent fields are `None`, never a substituted default."""
-
-    path: Path
-    id: str | None = None
-    title: str | None = None
-    status: str | None = None
-    superseded_by: str | None = None
-    sections: list[tuple[str, str]] = field(default_factory=list)
-    schema_errors: list[str] = field(default_factory=list)
-
-
-def _sections_of(body: str) -> list[tuple[str, str]]:
-    """Split a body into `(## heading, prose)` pairs, in file order.
-
-    Only `##` headings start a section. Text before the first one is
-    preamble and belongs to no section, so it is dropped from `sections`
-    rather than being attributed to a heading that did not introduce it.
-    """
-    sections: list[tuple[str, str]] = []
-    heading: str | None = None
-    buffer: list[str] = []
-    for line in body.splitlines():
-        if line.startswith("## "):
-            if heading is not None:
-                sections.append((heading, "\n".join(buffer).strip()))
-            heading = line[3:].strip()
-            buffer = []
-        elif heading is not None:
-            buffer.append(line)
-    if heading is not None:
-        sections.append((heading, "\n".join(buffer).strip()))
-    return sections
-
-
-def parse_adr(path: Path) -> AdrDocument:
-    """Parse one ADR file. Never raises: a bad document degrades itself."""
-    try:
-        post = frontmatter.load(str(path))
-    except (OSError, ValueError) as exc:
-        return AdrDocument(path=path, schema_errors=[f"{path}: unreadable ({exc})"])
-
-    meta = dict(post.metadata)
-    sections = _sections_of(post.content)
-
-    if not meta:
-        return AdrDocument(
-            path=path,
-            sections=sections,
-            schema_errors=[f"{path}: no frontmatter; an ADR must declare id, title and status"],
-        )
-
-    errors = validate(meta, _SCHEMA)
-    return AdrDocument(
-        path=path,
-        id=meta.get("id"),
-        title=meta.get("title"),
-        status=meta.get("status"),
-        superseded_by=meta.get("superseded_by"),
-        sections=sections,
-        schema_errors=errors,
-    )
 
 
 def adr_dir(repo_root: Path) -> Path:
@@ -125,3 +54,6 @@ def load_adrs(repo_root: Path) -> dict[str, AdrDocument]:
             )
         loaded[doc.id] = doc
     return loaded
+
+
+__all__ = ["AdrDocument", "parse_adr", "adr_dir", "load_adrs", "DuplicateAdrIdError"]
