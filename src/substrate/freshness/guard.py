@@ -118,6 +118,17 @@ def guarded_read(
     if cached is not None:
         return cached
 
+    if candidate.kind != recipe.output_kind:
+        result = GuardResult(
+            snapshot=None,
+            failure=ResolutionFailure(
+                code="candidate_kind_mismatch",
+                reason="candidate kind does not match recipe output kind",
+            ),
+        )
+        session._attempt_cache[cache_key] = result
+        return result
+
     expected = DependencyFingerprint(
         name=recipe.output_kind,
         kind="snapshot",

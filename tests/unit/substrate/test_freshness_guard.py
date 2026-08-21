@@ -99,6 +99,38 @@ def test_current_snapshot_returns_without_resolution() -> None:
     assert resolver_calls == []
 
 
+def test_candidate_kind_mismatch_is_failed_and_cached_before_routing() -> None:
+    candidate = make_snapshot(fingerprint="current", kind="wrong-kind")
+    recipe = make_recipe()
+    resolver_calls = 0
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "current"
+
+    def resolver(recipe: FreshnessRecipe, snapshot: SnapshotRef) -> SnapshotRef:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        raise AssertionError("candidate kind mismatches must not invoke the resolver")
+
+    compiled = make_compiled(recipe, fingerprinter, resolver)
+    session = GuardSession()
+    first = guarded_read(session, compiled, recipe, candidate, [])
+    second = guarded_read(session, compiled, recipe, candidate, [])
+
+    assert first is second
+    assert first == GuardResult(
+        snapshot=None,
+        failure=ResolutionFailure(
+            code="candidate_kind_mismatch",
+            reason="candidate kind does not match recipe output kind",
+        ),
+    )
+    assert not first.current
+    assert first.stale is None
+    assert resolver_calls == 0
+    assert session.observations == []
+
+
 @pytest.mark.parametrize(
     ("fingerprint_result", "expected"),
     [
