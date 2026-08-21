@@ -17,6 +17,7 @@ from factory.codeindex import (
 )
 from factory.codeindex.cli import main
 from factory.codeindex.build import profile_source_dirs
+from factory.codeindex.model import CodeIndex
 from factory.codeindex.sigs import extract_signatures, preferred_engine
 
 pytestmark = pytest.mark.unit
@@ -135,6 +136,12 @@ def test_ensure_fresh_reuses_when_engine_matches(tmp_path):
     assert second.fingerprint == first.fingerprint
     assert second.engine == first.engine
     assert second.generated_at == first.generated_at  # no rebuild happened
+
+
+def test_ensure_fresh_legacy_return_remains_code_index(tmp_path):
+    root = _tree(tmp_path)
+
+    assert isinstance(ensure_fresh(root, files=["src/mod.py"]), CodeIndex)
 
 
 def test_cli_ensure_writes_latest(tmp_path):
