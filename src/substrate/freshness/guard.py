@@ -111,7 +111,6 @@ def guarded_read(
     inputs: Sequence[object],
 ) -> GuardResult:
     fingerprinter = compiled.fingerprinters[recipe.fingerprinter]
-    resolver = compiled.resolvers[recipe.resolver]
     actual_fingerprint = _normalize_fingerprint(fingerprinter(inputs))
     cache_key = (recipe.output_kind, candidate.ref, actual_fingerprint)
     cached = session._attempt_cache.get(cache_key)
@@ -163,22 +162,33 @@ def guarded_read(
     if recipe.resolution_class is not ResolutionClass.derived_auto:
         result = GuardResult(snapshot=None, stale=observation, blocker=_blocker_for(recipe))
     else:
-        try:
-            replacement = resolver(recipe, candidate)
-        except Exception as exc:
-            reason = str(exc) or type(exc).__name__
+        resolver = compiled.resolvers.lookup(recipe.resolver)
+        if resolver is None:
             result = GuardResult(
                 snapshot=None,
                 stale=observation,
-                failure=ResolutionFailure(code="resolver_failed", reason=reason),
+                failure=ResolutionFailure(
+                    code="resolver_missing",
+                    reason=f"resolver is not registered: {recipe.resolver}",
+                ),
             )
         else:
-            failure = _replacement_failure(replacement, recipe, candidate, actual_fingerprint)
-            if failure is not None:
-                result = GuardResult(snapshot=None, stale=observation, failure=failure)
+            try:
+                replacement = resolver(recipe, candidate)
+            except Exception as exc:
+                reason = str(exc) or type(exc).__name__
+                result = GuardResult(
+                    snapshot=None,
+                    stale=observation,
+                    failure=ResolutionFailure(code="resolver_failed", reason=reason),
+                )
             else:
-                assert isinstance(replacement, SnapshotRef)
-                result = GuardResult(snapshot=replacement, stale=observation)
+                failure = _replacement_failure(replacement, recipe, candidate, actual_fingerprint)
+                if failure is not None:
+                    result = GuardResult(snapshot=None, stale=observation, failure=failure)
+                else:
+                    assert isinstance(replacement, SnapshotRef)
+                    result = GuardResult(snapshot=replacement, stale=observation)
 
     session._attempt_cache[cache_key] = result
     return result

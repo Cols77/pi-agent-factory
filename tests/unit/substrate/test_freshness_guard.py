@@ -16,9 +16,11 @@ from substrate.freshness.guard import (
 from substrate.freshness.model import DependencyFingerprint
 from substrate.freshness.recipes import (
     CompiledRecipes,
+    FingerprinterRegistry,
     FreshnessLimits,
     FreshnessRecipe,
     ResolutionClass,
+    ResolverRegistry,
     compile_recipes,
 )
 
@@ -49,6 +51,18 @@ def make_compiled(
         [recipe],
         fingerprinters={recipe.fingerprinter: fingerprinter},
         resolvers={recipe.resolver: resolver},
+    )
+
+
+def make_compiled_without_resolver(
+    recipe: FreshnessRecipe,
+    fingerprinter: Callable[[list[object]], object],
+) -> CompiledRecipes:
+    return CompiledRecipes(
+        recipes=(recipe,),
+        order=(recipe.output_kind,),
+        fingerprinters=FingerprinterRegistry({recipe.fingerprinter: fingerprinter}),
+        resolvers=ResolverRegistry(),
     )
 
 
@@ -97,6 +111,50 @@ def test_current_snapshot_returns_without_resolution() -> None:
     assert result.blocker is None
     assert result.failure is None
     assert resolver_calls == []
+
+
+def test_current_snapshot_does_not_require_a_registered_resolver() -> None:
+    candidate = make_snapshot(fingerprint="current")
+    recipe = make_recipe()
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "current"
+
+    result = guarded_read(
+        GuardSession(),
+        make_compiled_without_resolver(recipe, fingerprinter),
+        recipe,
+        candidate,
+        [],
+    )
+
+    assert result == GuardResult(snapshot=candidate)
+    assert result.current
+
+
+def test_stale_derived_auto_with_missing_resolver_is_a_cached_failure() -> None:
+    candidate = make_snapshot(fingerprint="old")
+    recipe = make_recipe()
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "new"
+
+    session = GuardSession()
+    compiled = make_compiled_without_resolver(recipe, fingerprinter)
+    first = guarded_read(session, compiled, recipe, candidate, [])
+    second = guarded_read(session, compiled, recipe, candidate, [])
+
+    assert first is second
+    assert first == GuardResult(
+        snapshot=None,
+        stale=first.stale,
+        failure=ResolutionFailure(
+            code="resolver_missing",
+            reason="resolver is not registered: resolver/v1",
+        ),
+    )
+    assert not first.current
+    assert len(session.observations) == 1
 
 
 def test_candidate_kind_mismatch_is_failed_and_cached_before_routing() -> None:
@@ -321,6 +379,38 @@ def test_non_automatic_classes_block_without_resolver(
     assert result.blocker.reason
     assert result.stale is not None
     assert resolver_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("resolution_class", "action"),
+    [
+        (ResolutionClass.repeatable_policy, "policy-review"),
+        (ResolutionClass.authoritative_gate, "authoritative-writer"),
+        (ResolutionClass.provenance_blocked, "provenance-recovery"),
+    ],
+)
+def test_stale_blocked_classes_do_not_require_a_registered_resolver(
+    resolution_class: ResolutionClass, action: str
+) -> None:
+    candidate = make_snapshot(fingerprint="old")
+    recipe = make_recipe(resolution_class)
+
+    def fingerprinter(inputs: list[object]) -> str:
+        return "new"
+
+    result = guarded_read(
+        GuardSession(),
+        make_compiled_without_resolver(recipe, fingerprinter),
+        recipe,
+        candidate,
+        [],
+    )
+
+    assert result.snapshot is None
+    assert result.failure is None
+    assert result.blocker is not None
+    assert result.blocker.resolution_class is resolution_class
+    assert result.blocker.action == action
 
 
 def test_invalid_replacement_is_not_current() -> None:
