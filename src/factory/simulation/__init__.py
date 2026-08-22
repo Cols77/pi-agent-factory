@@ -1,5 +1,12 @@
-"""Simulation evidence: experiment/run registry and metric ingestion (Inc 3)."""
+from __future__ import annotations
 
-from factory.simulation.registry import Run, latest_run, load_runs, runs_for
+import warnings
 
-__all__ = ["Run", "latest_run", "load_runs", "runs_for"]
+warnings.warn(
+    "factory.simulation is deprecated; use coherence.simulation",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+from coherence.simulation import *  # noqa: F401,F403,E402
+
