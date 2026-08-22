@@ -377,7 +377,17 @@ def run_dev(
                 )
         detail = gates.run_detail("unit")
         if detail.returncode == 0:
-            extra = _note_backend_failure({"tests": "green"}, result)
+            extra: dict = {"tests": "green"}
+            if sig_history:
+                # A signature discovered on an earlier attempt within THIS call
+                # (e.g. attempt 1 failed with a ConnectionResetError, attempt 2
+                # passed) must not be dropped just because the node ultimately
+                # passed -- the runner's task-level signature_history still
+                # needs it to bias KB selection for the next validation/review
+                # cycle. Only the callee (here) knows what it saw; the caller
+                # only sees the final PASS/ESCALATE event.
+                extra["gate_signatures"] = list(sig_history)
+            extra = _note_backend_failure(extra, result)
             status.report(
                 task_id=task.id,
                 node="dev",

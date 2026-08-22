@@ -245,6 +245,42 @@ def test_dev_escalate_carries_gate_detail_and_signatures(tmp_path):
     assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
 
 
+def test_dev_pass_after_an_earlier_failed_attempt_still_carries_that_signature(tmp_path):
+    # Regression: a signature discovered on a self-resolving attempt (fails,
+    # then passes) inside ONE run_dev call must not be dropped just because
+    # the node ultimately returns PASS -- the runner's task-level
+    # signature_history needs it to bias the next validation/review cycle's
+    # KB selection.
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})]})
+    g = FakeGateRunner({
+        "unit": [
+            GateRun(
+                name="unit",
+                returncode=1,
+                output="E ConnectionResetError: connection reset by peer",
+                applicable=True,
+            ),
+            0,
+        ]
+    })
+    outcome, ev = run_dev(b, g, _task(), {"context": {"source_files": []}}, [], tmp_path, max_iters=2)
+    assert outcome == NodeOutcome.PASS
+    assert ev.attempts == 2
+    assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
+
+
+def test_dev_pass_on_first_attempt_carries_no_gate_signatures_key(tmp_path):
+    # No failure ever happened -- nothing to carry forward, and no fabricated
+    # empty-but-present key either.
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
+    g = FakeGateRunner({"unit": [0]})
+    outcome, ev = run_dev(b, g, _task(), {"context": {"source_files": []}}, [], tmp_path)
+    assert outcome == NodeOutcome.PASS
+    assert "gate_signatures" not in ev.extra
+
+
 def test_select_kb_is_called_fresh_each_attempt_with_growing_signature_history(tmp_path):
     write_skill_stubs(tmp_path)
     b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})]})

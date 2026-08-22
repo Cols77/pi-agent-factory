@@ -69,6 +69,10 @@ def _dev_prompts(backend: FakeAgentBackend) -> list[str]:
     return [prompt for role, prompt in backend.prompts if role is AgentRole.DEV]
 
 
+def _review_prompts(backend: FakeAgentBackend) -> list[str]:
+    return [prompt for role, prompt in backend.prompts if role is AgentRole.REVIEW]
+
+
 def test_failed_unit_gate_signature_reselects_kb_for_next_dev_attempt(tmp_path):
     """A unit gate failure whose output carries a canonical ConnectionResetError
     signature makes a signature-only (no file-glob) KB entry appear in the
@@ -165,6 +169,49 @@ def test_successful_gate_adds_no_signature_and_no_entry(tmp_path):
     dev_prompts = _dev_prompts(backend)
     assert len(dev_prompts) == 1
     assert "kb-0002" not in dev_prompts[0]
+
+
+def test_self_resolving_dev_failure_signature_still_reaches_the_review_prompt(tmp_path):
+    """Regression: a unit-gate failure that self-resolves within run_dev's OWN
+    retry loop (fails attempt 1, passes attempt 2 -- the dev node returns
+    PASS) must not vanish from the task-level signature_history just because
+    the node's final outcome was a pass. The runner folds run_dev's returned
+    event into signature_history regardless of outcome, so the SAME
+    ConnectionResetError signature must still bias KB selection for the next
+    node in this cycle (review), not just a hypothetical next dev attempt."""
+    repo = _repo(tmp_path)
+    _write_signature_only_kb_entry(repo)
+    task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
+
+    scripts = {
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest())],
+        AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})],
+        AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})],
+    }
+    gates = FakeGateRunner({
+        "unit": [
+            GateRun(
+                name="unit",
+                returncode=1,
+                output="E ConnectionResetError: connection reset by peer",
+                applicable=True,
+                commands=("python -m pytest -q",),
+            ),
+            0,  # passes on attempt 2 -- run_dev returns PASS, not ESCALATE
+        ],
+        "full": [0],
+    })
+    backend = FakeAgentBackend(scripts)
+
+    r = run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+
+    assert r.outcome == "completed"
+    dev_prompts = _dev_prompts(backend)
+    assert len(dev_prompts) == 2  # dev resolved the failure internally, no escalate
+    review_prompts = _review_prompts(backend)
+    assert len(review_prompts) == 1
+    assert "kb-0002" in review_prompts[0]
+    assert "Connection reset needs a retry with backoff" in review_prompts[0]
 
 
 def test_gate_never_executed_twice_to_obtain_output(tmp_path, monkeypatch):
