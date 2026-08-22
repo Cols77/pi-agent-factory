@@ -5,8 +5,8 @@ from pathlib import Path
 from factory.orchestrator.context_packet import render_packet
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.roles import ROLE_PROMPTS, ROLE_SKILLS
-from factory.orchestrator.skills import load_skill_block
 from factory.orchestrator.types import AgentRole, NodeEvent
+from substrate.agents.skills import load_skill_block
 
 
 def compose_prompt(

@@ -84,6 +84,14 @@ def test_duplicate_references_produce_one_edge(tmp_path):
     assert len([e for e in _edges(tmp_path) if e.kind == "spec_ref"]) == 1
 
 
+def test_malformed_plan_bytes_do_not_crash_edge_extraction(tmp_path):
+    plan = tmp_path / "docs" / "superpowers" / "plans" / "bad.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    plan.write_bytes(b"\xff\xfe\x00bad utf8")
+
+    assert _edges(tmp_path) == []
+
+
 def test_feature_vcycle_frontmatter_fields_produce_typed_edges(tmp_path):
     _write(
         tmp_path / "docs" / "features" / "FEAT-NAV-017.md",

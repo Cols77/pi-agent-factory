@@ -73,14 +73,65 @@ def test_compose_audit_prompt_includes_packet_and_skill() -> None:
         "statement": "shall do X",
         "binding": {"experiment": "tests/test_x.py"},
         "checksum_state": "current",
-        "tasks": [{"task_id": "T-001", "changed_files": ["src/x.py"]}],
+        "tasks": [
+            {
+                "task_id": "T-001",
+                "changed_files": ["src/x.py"],
+                "manifests": ["RUN-001"],
+                "record_paths": ["evidence/records/manual-T-001-proof.json"],
+                "evidence_state": "present",
+            }
+        ],
         "measurement": None,
     }
     prompt = compose_audit_prompt("FEAT-001", "SR-001", sr_data, {"ok": True})
     assert "SR-001" in prompt
     assert "requirement-traceability-audit" in prompt
     assert "src/x.py" in prompt
+    assert "Evidence: T-001: run manifest, historical record, changed files: src/x.py" in prompt
+    assert "RUN-001" not in prompt
+    assert "manual-T-001-proof.json" not in prompt
     assert "implemented" in prompt
+
+
+def test_compose_audit_prompt_describes_missing_evidence_without_raw_overlap_details() -> None:
+    sr_data = {
+        "statement": "shall do X",
+        "binding": {"experiment": "tests/test_x.py"},
+        "checksum_state": "current",
+        "tasks": [
+            {
+                "task_id": "T-058",
+                "changed_files": [],
+                "manifests": [],
+                "record_paths": [],
+                "evidence_state": "missing",
+            },
+            {
+                "task_id": "T-067",
+                "changed_files": [],
+                "manifests": [],
+                "record_paths": [],
+                "evidence_state": "missing",
+            },
+        ],
+        "measurement": None,
+    }
+
+    prompt = compose_audit_prompt(
+        "FEAT-NAV-017",
+        "SR-NAV-001",
+        sr_data,
+        {
+            "ok": False,
+            "reason": "missing evidence for tasks",
+            "missing_task_ids": ["T-058", "T-067"],
+        },
+    )
+
+    assert "Evidence: T-058: evidence missing; T-067: evidence missing" in prompt
+    assert "missing evidence for tasks" not in prompt
+    assert "missing_task_ids" not in prompt
 
 
 def test_run_pass_with_mocked_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

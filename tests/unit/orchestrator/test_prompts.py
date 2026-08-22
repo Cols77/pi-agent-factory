@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from factory.orchestrator import skills as skills_mod
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.types import AgentRole, NodeEvent
@@ -70,7 +69,14 @@ def test_compose_prompt_requires_every_vendored_skill_to_exist(tmp_path, monkeyp
     """A skill vendored NOWHERE is still a hard error, not a silent degradation."""
     empty_factory = tmp_path / "factory-skills"
     empty_factory.mkdir()
-    monkeypatch.setattr(skills_mod, "factory_skills_dir", lambda: empty_factory)
+    # compose_prompt -> factory.orchestrator.skills.load_skill_block is now a
+    # pure re-export of substrate.agents.skills.load_skill_block (Coherence
+    # Increment 1B, Task 3): the fallback lookup it performs at call time
+    # reads substrate.agents.skills' OWN `factory_skills_dir` binding, not
+    # skills_mod's re-exported copy -- patch it where it is actually consulted.
+    import substrate.agents.skills as substrate_skills_mod
+
+    monkeypatch.setattr(substrate_skills_mod, "factory_skills_dir", lambda: empty_factory)
     (tmp_path / ".pi" / "skills").mkdir(parents=True)  # empty -- nothing vendored
     with pytest.raises(FileNotFoundError):
         compose_prompt(AgentRole.REVIEW, TASK, skills_dir=tmp_path / ".pi" / "skills")

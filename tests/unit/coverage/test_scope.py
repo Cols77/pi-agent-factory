@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from factory.coverage.scope import (
+    EvidenceState,
     _latest_validation,
     resolve_feature_scope,
 )
+from factory.evidence.records import build_historical_record, write_historical_record
 
 pytestmark = pytest.mark.unit
 
@@ -104,6 +107,47 @@ Do the work.
     return p
 
 
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return completed.stdout.strip()
+
+
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _write_historical_record(root: Path, task_id: str, changed_file: str) -> Path:
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.invalid")
+    _git(root, "config", "user.name", "Coverage Scope Test")
+    _feat_file(root, "FEAT-001", ["SR-001"])
+    _req_file(root, "SR-001")
+    _task_file(root, task_id, ["SR-001"])
+    start = _commit(root, "add task")
+
+    path = root / changed_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("RECORDED = True\n", encoding="utf-8")
+    result = _commit(root, "complete task")
+    record = build_historical_record(
+        root,
+        task_id,
+        start,
+        result,
+        "human@example.invalid",
+        "Recover completed historical work.",
+    )
+    return write_historical_record(root / "evidence", record)
+
+
 def test_resolve_scope_empty_feature(tmp_path: Path) -> None:
     _feat_file(tmp_path, "FEAT-001", [])
     scope = resolve_feature_scope(tmp_path, "FEAT-001")
@@ -135,6 +179,69 @@ def test_resolve_scope_single_sr(tmp_path: Path) -> None:
     assert "src/drone/priority_filter.py" in sr.tasks[0].changed_files
     assert sr.measurement is not None
     assert sr.measurement["passed"] is True
+
+
+def test_resolve_scope_marks_tasks_without_evidence_as_missing(tmp_path: Path) -> None:
+    _feat_file(tmp_path, "FEAT-001", ["SR-058", "SR-067"])
+    _task_file(tmp_path, "T-058", ["SR-058"])
+    _task_file(tmp_path, "T-067", ["SR-067"])
+
+    scope = resolve_feature_scope(tmp_path, "FEAT-001")
+
+    for task_id in ("T-058", "T-067"):
+        task = scope.tasks[task_id]
+        assert task.evidence_state is EvidenceState.missing
+        assert task.changed_files == ()
+        assert task.manifests == ()
+        assert task.record_paths == ()
+
+
+def test_resolve_scope_marks_empty_manifest_evidence_as_empty(tmp_path: Path) -> None:
+    _feat_file(tmp_path, "FEAT-001", ["SR-001"])
+    _task_file(tmp_path, "T-058", ["SR-001"])
+    run_path = tmp_path / "evidence" / "runs" / "RUN-001.json"
+    run_path.parent.mkdir(parents=True)
+    run_path.write_text(json.dumps(_manifest(task_id="T-058", changed_files=[])), encoding="utf-8")
+
+    task = resolve_feature_scope(tmp_path, "FEAT-001").tasks["T-058"]
+
+    assert task.evidence_state is EvidenceState.empty
+    assert task.changed_files == ()
+    assert task.manifests == ("RUN-001",)
+    assert task.record_paths == ()
+
+
+def test_resolve_scope_includes_valid_historical_record_evidence(tmp_path: Path) -> None:
+    record_path = _write_historical_record(tmp_path, "T-058", "src/factory/historical.py")
+
+    task = resolve_feature_scope(tmp_path, "FEAT-001").tasks["T-058"]
+
+    assert task.evidence_state is EvidenceState.present
+    assert task.changed_files == ("src/factory/historical.py",)
+    assert task.manifests == ()
+    assert task.record_paths == (record_path.relative_to(tmp_path).as_posix(),)
+
+
+def test_resolve_scope_unions_manifest_and_historical_record_evidence(tmp_path: Path) -> None:
+    record_path = _write_historical_record(tmp_path, "T-058", "src/factory/historical.py")
+    run_path = tmp_path / "evidence" / "runs" / "RUN-001.json"
+    run_path.parent.mkdir(parents=True, exist_ok=True)
+    run_path.write_text(
+        json.dumps(
+            _manifest(
+                task_id="T-058",
+                changed_files=["src/factory/normal.py", "src/factory/historical.py"],
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    task = resolve_feature_scope(tmp_path, "FEAT-001").tasks["T-058"]
+
+    assert task.evidence_state is EvidenceState.present
+    assert task.changed_files == ("src/factory/historical.py", "src/factory/normal.py")
+    assert task.manifests == ("RUN-001",)
+    assert task.record_paths == (record_path.relative_to(tmp_path).as_posix(),)
 
 
 def test_completeness_declared_not_linked(tmp_path: Path) -> None:

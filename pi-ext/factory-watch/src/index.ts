@@ -1082,6 +1082,90 @@ export default function factoryWatch(pi: PiApi): void {
   };
   pi.registerCommand("system", systemCommand);
 
+  // /catchup <feat:FEAT-...>: deterministic 'since your last review' delta
+  // (Inc 7 Task 3). The Python command owns all state: it loads the recorded
+  // checkpoint, computes the delta from recorded sources only (git history,
+  // goal transition logs, sim runs), upgrades the checkpoint to HEAD, and
+  // returns the Inc 5 REVIEW presentation target. This handler only opens
+  // that target -- it never re-derives or narrates the delta itself.
+  pi.registerCommand("catchup", {
+    description: "Show the deterministic 'since your last review' delta for a feature (Catch-me-up view)",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const featureId = args.trim().replace(/^feat:/, "").split(/\s+/)[0];
+      if (!featureId) {
+        ctx.ui.notify("usage: /catchup <FEAT-...>", "error");
+        return;
+      }
+      const verify = /(--verify-understanding)/.test(args);
+      const result = spawnSync(
+        "uv",
+        [
+          "run",
+          "python",
+          "-m",
+          "factory.delta",
+          "catchup",
+          "--feature",
+          featureId,
+          "--repo",
+          ctx.cwd,
+          "--json",
+          ...(verify ? ["--verify-understanding"] : []),
+        ],
+        { cwd: ctx.cwd, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
+      );
+      const stderr = (result.stderr ?? "").trim();
+      if (result.status !== 0) {
+        ctx.ui.notify(`/catchup: ${stderr || "command failed"}`, "error");
+        return;
+      }
+      const stdout = (result.stdout ?? "").trim();
+      let payload: any;
+      try {
+        payload = JSON.parse(stdout);
+      } catch {
+        ctx.ui.notify(`/catchup: unexpected output\n${stdout.slice(0, 240)}`, "error");
+        return;
+      }
+      const delta = payload.delta;
+      if (payload.reviewed && delta) {
+        const changed =
+          (delta.prs_merged?.length ?? 0) +
+          (delta.requirements_changed?.length ?? 0) +
+          (delta.adrs_added?.length ?? 0) +
+          (delta.scenarios_added?.length ?? 0) +
+          (delta.goals_reached?.length ?? 0) +
+          (delta.goals_regressed?.length ?? 0) +
+          (delta.metric_changes?.length ?? 0) +
+          (delta.new_open_items?.length ?? 0);
+        const lines = [`since ${String(payload.since_commit ?? "").slice(0, 8)}:`];
+        if (!changed) lines.push("no changes since your last review");
+        else {
+          if (delta.requirements_changed?.length) lines.push(`requirements changed: ${delta.requirements_changed.join(", ")}`);
+          if (delta.adrs_added?.length) lines.push(`design decisions added: ${delta.adrs_added.join(", ")}`);
+          if (delta.prs_merged?.length) lines.push(`PRs merged: ${delta.prs_merged.length}`);
+          if (delta.goals_reached?.length) lines.push(`goals reached: ${delta.goals_reached.join(", ")}`);
+          if (delta.goals_regressed?.length) lines.push(`goals regressed: ${delta.goals_regressed.join(", ")}`);
+          delta.metric_changes?.forEach((m: any) => {
+            lines.push(`metric ${m.metric}: ${m.from ?? "—"} -> ${m.to}`);
+          });
+          if (delta.new_open_items?.length) lines.push(`new open items: ${delta.new_open_items.length}`);
+        }
+        ctx.ui.notify(`/catchup ${featureId}: ${lines.join(" | ")}`, "info");
+      } else {
+        ctx.ui.notify(`/catchup ${featureId}: no review recorded yet for this feature`, "info");
+      }
+      try {
+        const server = await ensureDocsServer(ctx.cwd);
+        const url = new URL("/system?scope=" + encodeURIComponent(`catchup:${featureId}`), server.url);
+        ctx.ui.notify(`Catch-me-up view open at ${url.toString()}`, "info");
+        openInBrowser(url.toString());
+      } catch (err) {
+        ctx.ui.notify(`/catchup: delta computed but the browser failed to open: ${String(err)}`, "error");
+      }
+    },
+  });
+
   // /task <feat:...>: thin workflow-start preamble (Inc 4, Task 4). Replays spec
   // §26 steps 1-4 by calling the read tools in order (feature context ->
   // requirements -> active goals -> affected design/code) and prints a compact

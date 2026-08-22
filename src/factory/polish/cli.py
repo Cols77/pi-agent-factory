@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from factory.orchestrator.pi_backend import PiAgentBackend
-from factory.paths import scope_guard_extension
+from substrate.paths import scope_guard_extension
 from factory.polish.bridge import PolishBridge
 from factory.polish.config import load_config
 from factory.polish.executor import SubprocessFactoryRunner, WorktreeIsolatedExecutor

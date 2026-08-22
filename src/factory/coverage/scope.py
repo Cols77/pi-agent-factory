@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
-from factory.evidence.manifests import list_run_manifests
+from substrate.evidence.read import list_run_manifests
+from factory.evidence.records import list_historical_records
 from factory.requirements.register import is_checksum_current, load_register
 from factory.trace.graph import build_graph
+
+
+class EvidenceState(str, Enum):
+    missing = "missing"
+    empty = "empty"
+    present = "present"
 
 
 @dataclass(frozen=True)
@@ -14,6 +22,8 @@ class TaskScope:
     task_id: str
     changed_files: tuple[str, ...]
     manifests: tuple[str, ...]
+    evidence_state: EvidenceState
+    record_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -158,15 +168,30 @@ def resolve_feature_scope(root: Path, feat: str) -> FeatureScope:
         task_id = edge.src
         if task_id not in tasks_by_id:
             manifests = list_run_manifests(root / "evidence", task_id=task_id)
+            records = list_historical_records(root, root / "evidence", task_id=task_id)
             changed: set[str] = set()
-            manifest_ids: list[str] = []
             for m in manifests:
                 changed.update(_changed_files_from_manifest(m))
-                manifest_ids.append(m.get("run_id", "?"))
+            for record in records:
+                changed.update(str(file) for file in record["changed_files"])
+            evidence_state = (
+                EvidenceState.missing
+                if not manifests and not records
+                else EvidenceState.present
+                if changed
+                else EvidenceState.empty
+            )
             tasks_by_id[task_id] = TaskScope(
                 task_id=task_id,
                 changed_files=tuple(sorted(changed)),
-                manifests=tuple(manifest_ids),
+                manifests=tuple(str(m.get("run_id", "?")) for m in manifests),
+                evidence_state=evidence_state,
+                record_paths=tuple(
+                    sorted(
+                        (Path("evidence") / "records" / f"{record['record_id']}.json").as_posix()
+                        for record in records
+                    )
+                ),
             )
         sr_to_tasks.setdefault(sr_id, []).append(tasks_by_id[task_id])
 

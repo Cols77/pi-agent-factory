@@ -352,14 +352,17 @@ REMEDIATION: dict[str, dict] = {
         "state": "no_traversal_step",
         "headline": "Traversal step not recorded",
         "what_it_means": (
-            "Nothing is linked to this requirement for this step of its "
-            "story yet -- it may have no tasks, no design decisions, or "
-            "no changed files recorded."
+            "Nothing is linked for this step of the story yet -- it may "
+            "have no tasks, no design decisions, or no changed files "
+            "recorded."
         ),
         "why_it_matters": (
             "Without every step recorded -- the tasks, the design "
             "decisions, and the files that changed -- the requirement's "
-            "story stops short at this point."
+            "story stops short at this point. The command below closes "
+            "gaps like this one at a time: it proposes which task or "
+            "plan to link and why, then waits for you to confirm before "
+            "it writes anything."
         ),
         "command": "/trace-fix {id}",
         "command_kind": "slash",
@@ -374,7 +377,8 @@ REMEDIATION: dict[str, dict] = {
             "system. Bundles are hand-authored, not generated: create "
             "`bundles/<id>.json` with `id`, `label`, and `members` (a "
             "list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and "
-            "optionally a `description` of at most 280 characters."
+            "optionally a `description` (one or two sentences stating "
+            "what the feature is -- there is no length cap)."
         ),
         "why_it_matters": (
             "Bundles are how this project is browsed, so until one "
@@ -401,8 +405,9 @@ REMEDIATION: dict[str, dict] = {
         "why_it_matters": (
             "Without a recorded description, the card that opens on "
             "hover or focus has nothing to show beyond the id and title. "
-            "For a bundle, add a `description` (<=280 characters) to its "
-            "hand-authored `bundles/<id>.json` by hand, then use the "
+            "For a bundle, add a `description` (one or two sentences "
+            "stating what the feature is -- there is no length cap) to "
+            "its hand-authored `bundles/<id>.json` by hand, then use the "
             "command below to check it -- the command validates a draft "
             "you edit yourself; it does not write the field for you. "
             "For a spec or plan, there is no CLI at all -- add the "

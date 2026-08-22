@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from factory.coverage.cli import (
     cmd_report,
     cmd_verdict,
 )
+from factory.evidence.records import build_historical_record, write_historical_record
 
 pytestmark = pytest.mark.unit
 
@@ -60,12 +62,129 @@ def _verdict_json() -> dict:
     }
 
 
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return completed.stdout.strip()
+
+
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
 def test_audit_writes_scope_json(tmp_path: Path) -> None:
     _feat_scope(tmp_path)
     result = cmd_audit(tmp_path, "FEAT-001", run_id="test-run")
     assert result["feature"] == "FEAT-001"
     assert "SR-001" in result["srs"]
     assert result["gate"] is None
+    assert result["srs"]["SR-001"]["tasks"] == [
+        {
+            "task_id": "T-001",
+            "changed_files": ["src/x.py"],
+            "manifests": ["RUN-001"],
+            "record_paths": [],
+            "evidence_state": "present",
+        }
+    ]
+
+
+def test_audit_reports_missing_evidence_for_all_linked_tasks(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-NAV-017.md").write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Navigator\nrequirements: [SR-NAV-001]\n---\n"
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-NAV-001.md").write_text(
+        "---\nid: SR-NAV-001\ntitle: Navigator\nstatement: shall navigate\ndomain: behavioral\n"
+        "binding:\n  harness: sim-testbench\n  experiment: tests/test_navigator.py\n"
+        "  metric: unit_pass_rate\n  trials: 1\n  assert: '== 1.0'\nchecksum: null\n---\n"
+    )
+    (tmp_path / "tasks").mkdir()
+    for task_id in ("T-058", "T-067"):
+        (tmp_path / "tasks" / f"{task_id}.md").write_text(
+            f"---\nid: {task_id}\ntitle: Navigator task\nstatus: done\nsatisfies: [SR-NAV-001]\n---\n"
+        )
+
+    result = cmd_audit(tmp_path, "FEAT-NAV-017", run_id="test-run")
+
+    assert result["srs"]["SR-NAV-001"]["tasks"] == [
+        {
+            "task_id": "T-058",
+            "changed_files": [],
+            "manifests": [],
+            "record_paths": [],
+            "evidence_state": "missing",
+        },
+        {
+            "task_id": "T-067",
+            "changed_files": [],
+            "manifests": [],
+            "record_paths": [],
+            "evidence_state": "missing",
+        },
+    ]
+    assert result["overlaps"]["SR-NAV-001"] == {
+        "ok": False,
+        "reason": "missing evidence for tasks",
+        "missing_task_ids": ["T-058", "T-067"],
+    }
+
+
+def test_audit_uses_historical_record_changed_files_for_overlap(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.invalid")
+    _git(tmp_path, "config", "user.name", "Coverage CLI Test")
+    _feat_scope(tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "from factory.navigator import navigate\n\n\ndef test_navigate() -> None:\n    assert navigate()\n",
+        encoding="utf-8",
+    )
+    start = _commit(tmp_path, "add feature scope")
+    navigator = tmp_path / "src" / "factory" / "navigator.py"
+    navigator.parent.mkdir(parents=True)
+    navigator.write_text("def navigate() -> bool:\n    return True\n", encoding="utf-8")
+    result_commit = _commit(tmp_path, "implement navigator")
+    record = build_historical_record(
+        tmp_path,
+        "T-001",
+        start,
+        result_commit,
+        "reviewer@example.invalid",
+        "Record approved historical implementation.",
+    )
+    write_historical_record(tmp_path / "evidence", record)
+
+    result = cmd_audit(tmp_path, "FEAT-001", run_id="test-run")
+
+    overlap = result["overlaps"]["SR-001"]
+    assert overlap["ok"] is True
+    assert overlap["overlap"] == ("src/factory/navigator.py",)
+    assert overlap.get("reason") != "no changed files from tasks"
+
+
+def test_audit_reports_recorded_empty_evidence(tmp_path: Path) -> None:
+    _feat_scope(tmp_path)
+    manifest_path = tmp_path / "evidence" / "runs" / "RUN-001.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["implementation"]["changed_files"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = cmd_audit(tmp_path, "FEAT-001", run_id="test-run")
+
+    assert result["overlaps"]["SR-001"] == {
+        "ok": False,
+        "reason": "recorded evidence has no changed files",
+        "empty_task_ids": ["T-001"],
+    }
 
 
 def test_verdict_validates_and_writes(tmp_path: Path) -> None:

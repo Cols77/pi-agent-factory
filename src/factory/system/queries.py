@@ -7,7 +7,7 @@ owns:
   member parsing; Task 1's job);
 - `factory.requirements.register` for SR content and binding, via the
   existing `SR-*.md` glob register (never a hardcoded path);
-- `factory.orchestrator.ledger` for task implementation status (the task
+- `substrate.ledger.tasks` for task implementation status (the task
   ledger, never plan checkbox state -- design SS3.4) and, for the timeline,
   the `satisfies` link from task to SR;
 - `factory.trace.validation_status` for validation report outcomes and
@@ -34,9 +34,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from factory.evidence import manifests as evidence_manifests
+from substrate.evidence import read as evidence_manifests
 from factory.goals import registry as goal_registry
-from factory.orchestrator import ledger
+from factory.memory import conflict as memory_conflict
+from factory.memory import durable as durable_memory
 from factory.requirements import register
 from factory.requirements.register import Requirement
 from factory.simulation import evidence as sim_evidence
@@ -73,6 +74,7 @@ from factory.system.vcycle import VCycleSlice
 from factory.trace import model as trace_model
 from factory.trace import validation_status
 from factory.trace.validation_status import SrStatus
+from substrate.ledger import tasks as ledger
 
 _SCOPE_KINDS = ("bundle", "sr", "task", "file", "adr", "diag", "feat", "metric", "goal")
 
@@ -407,6 +409,38 @@ def query_goal_evidence(repo_root: Path, goal_id: str) -> dict:
         "goal": goal_id,
         "runs": [_sim_run_payload(repo_root, run) for run in runs],
     }
+
+
+def query_memory(repo_root: Path, scope_ref: str) -> dict:
+    """One read of durable memory: decisions, failures, hypotheses, goals, conflicts.
+
+    Delegates to ``factory.memory.durable.query_memory`` (Inc 8 Task 2) so
+    the projection and this navigator share one implementation -- the
+    navigator never re-parses an artifact the durable module already loads.
+    The projection composes the existing loaders (`adr:`, failure records,
+    goals, evidence manifests) and renders every entry through the same
+    citation/freshness plumbing as the other queries: each decision, record,
+    hypothesis, goal and conflict carries a provenance citation and a
+    freshness state, and no entry re-states the requirement/ADR/evidence
+    prose it links.
+    """
+    return durable_memory.query_memory(repo_root, scope_ref)
+
+
+def query_conflicts(repo_root: Path, scope_ref: str) -> dict:
+    """One read of memory conflicts for a scope: structural + fingerprint.
+
+    Delegates to ``factory.memory.conflict.query_conflicts`` (Inc 8 Task 3)
+    so the fingerprint checks and the durable projection share one
+    implementation. Structural conflicts (a ``reproduced_by`` run no manifest
+    records, a ``superseded_by`` ADR nobody declares, from ``query_memory``)
+    are merged with fingerprint conflicts (a cited code file whose current
+    digest differs from the digest a cited run recorded, a cited commit no
+    longer reachable from HEAD, a cited run whose recorded evidence no longer
+    matches current state). Both sides are shown, never silently resolved
+    (brief §5.6).
+    """
+    return memory_conflict.query_conflicts(repo_root, scope_ref)
 
 
 @dataclass(frozen=True)
@@ -1348,7 +1382,7 @@ def query_matrix(repo_root: Path, scope: SystemScopeRef) -> dict:
 #     (confirmed by reading `factory/validation/report.py` and
 #     `validation_status.py`) -- there is nothing recorded to order by, so
 #     no `validated` timeline event is ever synthesized from them.
-#   - The task ledger (`factory.orchestrator.ledger.Task`) carries no
+#   - The task ledger (`substrate.ledger.tasks.Task`) carries no
 #     timestamp either, and its `todo/done/rejected/escalated` vocabulary has
 #     no non-arbitrary mapping onto `TimelineAction` (the same reasoning
 #     keeps `MatrixStatus` from absorbing task/decision vocabularies).
@@ -1817,6 +1851,20 @@ def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
     stale = status.stale if status is not None else False
     error = status.error if status is not None else None
 
+    # Inc 7 Task 4: derive VERIFICATION_STALE *live* -- the register checksum
+    # is the fingerprint that records whether the requirement's content changed
+    # since its last validation (spec §30 A→C). Recomputed now, not trusted
+    # from the report alone; a requirement with no register entry falls back to
+    # the report's recorded flag.
+    from factory.requirements import register as req_register
+
+    req = next(
+        (r for r in req_register.load_register(repo_root / "requirements") if r.id == req_id),
+        None,
+    )
+    if req is not None:
+        stale = not req_register.is_checksum_current(req)
+
     goals = goal_registry.load_goals(repo_root)
     edges = trace_model.extract_edges(repo_root, trace_model.load_nodes(repo_root))
     demonstrated: set[str] = {e.src for e in edges if e.kind == "demonstrates" and e.dst == req_id}
@@ -1824,7 +1872,7 @@ def query_validation(repo_root: Path, scope: SystemScopeRef) -> dict:
         (g for g in goals.values() if req_id in g.requirements or g.id in demonstrated),
         key=lambda g: g.id,
     )
-    goal_state = validation_status.requirement_validation(bound_goals)
+    goal_state = validation_status.requirement_validation(bound_goals, stale=stale)
     runs = sim_registry.runs_for(_evidence_dir(repo_root), requirement=req_id)
     metric_ids: set[str] = set()
     for goal in bound_goals:
@@ -1908,3 +1956,64 @@ def query_vcycle(repo_root: Path, scope: SystemScopeRef) -> dict:
         "vcycle": to_dict(slice_),
         "statuses": _vcycle_statuses(repo_root, slice_),
     }
+
+
+def query_catchup(repo_root: Path, feature: str) -> dict:
+    """Return the recorded 'since your last review' delta for one feature.
+
+    Read-only projection for the agent (Inc 4) and the SCC Catch-me-up view
+    (Inc 7 Task 3): the recorded checkpoint commit is loaded (never inferred),
+    the ``ContextDelta`` is computed deterministically from recorded sources,
+    and nothing is written -- checkpoint upgrades are the `/catchup` command's
+    job, not a query's.
+
+    ``reviewed: false`` means no checkpoint is recorded yet -- legitimate,
+    not an error (spec §31). Raises ``ScopeNotFoundError`` when the feature
+    cannot be resolved, and ``ValueError`` when the recorded checkpoint
+    commit no longer resolves.
+    """
+    from dataclasses import asdict
+
+    from factory.delta.checkpoint import load_checkpoint
+    from factory.delta.compute import compute_delta
+
+    pi_dir = repo_root / ".pi"
+    checkpoint = load_checkpoint(pi_dir, feature)
+    if checkpoint is None:
+        return {"feature": feature, "reviewed": False, "since_commit": None, "delta": None, "diagram": None}
+    try:
+        delta = compute_delta(repo_root, feature, checkpoint.commit)
+    except ValueError as exc:
+        if str(exc).startswith("feature not found"):
+            raise ScopeNotFoundError(str(exc)) from exc
+        raise
+    from factory.delta.freshness import apply_freshness
+
+    delta = apply_freshness(repo_root, delta)
+    return {
+        "feature": feature,
+        "reviewed": True,
+        "since_commit": checkpoint.commit,
+        "reviewed_at": checkpoint.reviewed_at,
+        "delta": asdict(delta),
+        "diagram": _feature_diagram(repo_root, feature),
+    }
+
+
+def _feature_diagram(repo_root: Path, feature: str) -> dict | None:
+    """The canonical D7 diagram of the feature, if one is declared (5b).
+    Reuses query_diagram -- the sole diagram-dispatch path -- so the D7
+    guards are shared, never forked. None when no diagram illustrates the
+    feature (legitimate, not an error).
+    """
+    from factory.trace import model as trace_model
+
+    nodes = trace_model.load_nodes(repo_root)
+    edges = trace_model.extract_edges(repo_root, nodes)
+    for edge in edges:
+        if edge.kind == "illustrates" and edge.dst == feature:
+            try:
+                return query_diagram(repo_root, edge.src)
+            except (ScopeNotFoundError, ValueError):
+                continue
+    return None

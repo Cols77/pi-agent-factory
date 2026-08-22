@@ -9,11 +9,13 @@ import {
   renderChildOutcome,
   renderSubagentOutcome,
   spawnStreamedChild,
+  subagentTool,
   summarizeSubagentTask,
   SUBAGENT_IDLE_GRACE_BREACHES,
   SUBAGENT_TIMEOUT_MS,
 } from "../src/subagent-tool.js";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -448,6 +450,38 @@ describe("executeSubagent deps wiring (resolveRoot contract)", () => {
 });
 
 describe("subagent label + task summary (T-029 follow-up)", () => {
+  test("the public tool accepts a label-only override while retaining default dependencies", async () => {
+    const fakePiDir = mkdtempSync(join(tmpdir(), "pif-subagent-tool-"));
+    const fakePi = join(fakePiDir, process.platform === "win32" ? "fake-pi.cmd" : "fake-pi");
+    const childEvent = JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "default dependencies used" }] },
+    });
+    if (process.platform === "win32") {
+      writeFileSync(fakePi, `@echo off\r\necho ${childEvent}\r\n`, "utf-8");
+    } else {
+      writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' '${childEvent}'\n`, "utf-8");
+      chmodSync(fakePi, 0o755);
+    }
+    const previousPi = process.env.PI_SUBAGENT_BIN;
+    process.env.PI_SUBAGENT_BIN = fakePi;
+    try {
+      const result = await subagentTool.execute(
+        "call-1",
+        { task: "review the defaults", name: "custom-reviewer" },
+        undefined,
+        undefined,
+        { cwd: process.cwd() },
+      );
+      expect(result.content[0]?.text).toContain("subagent[custom-reviewer]");
+      expect(result.content[0]?.text).toContain("default dependencies used");
+    } finally {
+      if (previousPi === undefined) delete process.env.PI_SUBAGENT_BIN;
+      else process.env.PI_SUBAGENT_BIN = previousPi;
+      rmSync(fakePiDir, { recursive: true, force: true });
+    }
+  });
+
   test("derives a role label from task keywords", () => {
     expect(deriveSubagentLabel("Research how the runner resolves the lock")).toBe("researcher");
     expect(deriveSubagentLabel("Implement the process-tree kill in pi_backend")).toBe("dev");

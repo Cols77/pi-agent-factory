@@ -129,6 +129,17 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         const metricCount = await page.$$eval(".health-metric", (els: Element[]) => els.length);
         if (metricCount === 0) record(vp.name, "landing", "no class metrics rendered");
 
+        // ---------------- Task 9: shape sentence on the landing ----------------
+        // "What is this project made of" -- a Python-composed sentence
+        // (payload.shape.sentence) rendered into #healthSummary .shape-sentence.
+        // Missing/empty means either shape.sentence was absent from the
+        // payload or renderHealthSummary's `if (shape && shape.sentence)`
+        // guard silently skipped it.
+        const shapeSentence = await page
+          .$eval(".shape-sentence", (el: Element) => (el.textContent || "").trim())
+          .catch(() => "");
+        if (!shapeSentence) record(vp.name, "shape-sentence", "no non-empty .shape-sentence rendered on landing", ".shape-sentence");
+
         // 3. Feature directory rows are readable anchors
         const rows = await page.$$eval(".feature-row", (els: Element[]) =>
           els.map((e: Element) => ({
@@ -206,6 +217,19 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         if (!tabs.includes("Brief") || !tabs.includes("Matrix") || !tabs.includes("Trace"))
           record(vp.name, "tabs", `bundle tabs missing; got [${tabs.join(", ")}]`, '[role="tab"]');
 
+        // ---------------- Task 9: orientation line present per tab ----------------
+        // showTab() writes payload.what_it_shows/how_to_read into
+        // #panelOrientation synchronously off PANELS_DATA (no network wait
+        // needed), for whichever tab is active. Every visible tab for this
+        // scope kind must produce non-empty text -- an unknown tab name or a
+        // PANELS_DATA entry missing its wording would leave the line blank.
+        const tabIds = await page.$$eval('[role="tab"]:not([hidden])', (els: Element[]) => els.map((e: Element) => e.id));
+        for (const tabId of tabIds) {
+          await page.click("#" + tabId);
+          const orientationText = await page.$eval("#panelOrientation", (el: Element) => (el.textContent || "").trim());
+          if (!orientationText) record(vp.name, "orientation", `#panelOrientation is empty after selecting #${tabId}`, "#panelOrientation");
+        }
+
         // ---------------- Panels + disclosures ----------------
         const panels = await page.$$eval('[role="tabpanel"]', (els: Element[]) => els.map((e: Element) => e.id));
         if (panels.every((p: string) => p !== "panelBrief" && p !== "panelMatrix")) record(vp.name, "panels", `expected Brief/Matrix panels; got [${panels.join(", ")}]`, '[role="tabpanel"]');
@@ -219,6 +243,30 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
         // above the old global default for headroom, not because matrix
         // itself was independently observed to be slow.
         await page.waitForSelector(".matrix-row", { timeout: 45_000 });
+
+        // ---------------- Task 9: no chip title visually truncated (1440x900) ----------------
+        // Fix wave (legibility inc2): .matrix-subject .chip-title used to be
+        // styled `overflow: hidden; text-overflow: ellipsis; white-space:
+        // nowrap`, truncating a long title silently with no visual cue
+        // beyond the browser render itself -- jsdom never lays out CSS and
+        // so never saw it. That rule is now deleted (.ref-chip .chip-title's
+        // overflow-wrap: anywhere applies instead, so a long title wraps),
+        // and this assertion is what pins the wrap-not-clip behaviour in a
+        // real browser. Checked only at the plan's reference desktop width.
+        if (vp.width === 1440 && vp.height === 900) {
+          const truncatedMatrix = await page.$$eval(".chip-title", (els: Element[]) =>
+            els
+              .filter((e: Element) => {
+                const h = e as HTMLElement;
+                return h.offsetParent !== null && h.scrollWidth > h.clientWidth + 1;
+              })
+              .map((e: Element) => (e.textContent || "").slice(0, 60)),
+          );
+          truncatedMatrix.forEach((text: string) => {
+            record(vp.name, "chip-title-truncation", `.chip-title "${text}" is visually truncated on Matrix (scrollWidth > clientWidth)`, ".chip-title");
+          });
+        }
+
         // ---------------- Trace spine ----------------
         await page.click("#tabTrace");
         // The trace spine is lazy-loaded; give it up to 30s to render before
@@ -271,6 +319,44 @@ describe.skipIf(!ENABLED)("system navigator browser validation", () => {
             }
           });
         });
+
+        // ---------------- Task 9: no chip title visually truncated (Trace, 1440x900) ----------------
+        if (vp.width === 1440 && vp.height === 900) {
+          const truncatedTrace = await page.$$eval(".chip-title", (els: Element[]) =>
+            els
+              .filter((e: Element) => {
+                const h = e as HTMLElement;
+                return h.offsetParent !== null && h.scrollWidth > h.clientWidth + 1;
+              })
+              .map((e: Element) => (e.textContent || "").slice(0, 60)),
+          );
+          truncatedTrace.forEach((text: string) => {
+            record(vp.name, "chip-title-truncation", `.chip-title "${text}" is visually truncated on Trace (scrollWidth > clientWidth)`, ".chip-title");
+          });
+        }
+
+        // ---------------- Task 9: anchor chips carry href + data-scope ----------------
+        // refChip() renders openable kinds (bundle/sr/task/file) as
+        // <a class="ref-chip scope-open"> with both href (the SPA link) and
+        // data-scope (read by the delegated a.scope-open click handler to
+        // call loadScope without a hard navigation). Either missing breaks
+        // navigation silently -- href-only degrades to a full reload,
+        // data-scope-only never becomes clickable as a link.
+        const anchorChips = await page.$$eval("a.ref-chip", (els: Element[]) =>
+          els.map((e: Element) => ({
+            href: (e as HTMLAnchorElement).getAttribute("href"),
+            dataScope: (e as HTMLElement).dataset.scope ?? null,
+            text: (e.textContent || "").slice(0, 60),
+          })),
+        );
+        if (anchorChips.length === 0) {
+          record(vp.name, "chip-links", "no a.ref-chip anchors found to verify href/data-scope", "a.ref-chip", "warning");
+        } else {
+          anchorChips.forEach((chip) => {
+            if (!chip.href) record(vp.name, "chip-links", `a.ref-chip "${chip.text}" is missing href`, "a.ref-chip");
+            if (!chip.dataScope) record(vp.name, "chip-links", `a.ref-chip "${chip.text}" is missing data-scope`, "a.ref-chip");
+          });
+        }
 
         // document.body.scrollWidth vs window.innerWidth -- distinct from the
         // documentElement check above (step 4); kept as its own assertion

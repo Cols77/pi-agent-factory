@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from factory.orchestrator.backends import GATE_NOT_APPLICABLE, AgentBackend, GateRunner
+from factory.orchestrator.backends import GATE_NOT_APPLICABLE, AgentBackend, GateRun, GateRunner
 from factory.orchestrator.continuation import build_continuation_context
 from factory.evidence.types import EvidenceContext
 from factory.orchestrator.ledger import Task
@@ -14,15 +14,15 @@ from factory.orchestrator.prompts import compose_prompt
 from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.transcripts import write_role_transcript
 from factory.orchestrator.types import (
-    AgentResult,
     AgentRole,
-    InterruptionReason,
     NodeEvent,
     NodeOutcome,
 )
 from factory.validation.manifest_validator import validate_manifest
 from factory.validation.pipeline import validate_task_requirements
 from factory.validation.report import write_validation_report
+from substrate.agents.model import AgentResult, InterruptionReason
+from substrate.kb.signatures import canonical_failure_signatures
 
 
 def _note_backend_failure(extra: dict, result: AgentResult) -> dict:
@@ -272,9 +272,24 @@ def run_dev(
     status: StatusReporter = NullStatusReporter(),
     events: list[NodeEvent] | None = None,
     packet: dict | None = None,
+    select_kb: Callable[[list[str], list[str]], list[dict]] | None = None,
+    signature_history: list[str] | None = None,
 ) -> tuple[NodeOutcome, NodeEvent]:
+    """`select_kb`, when given, reselects KB guidance before every dev attempt
+    from the failure signatures accumulated so far -- seeded from the caller's
+    `signature_history` (e.g. a prior cycle's failed sim/full gate) and
+    extended with this call's own unit-gate failures as attempts proceed, so a
+    unit failure on attempt N changes what attempt N+1's DEV prompt sees.
+    `signature_history` is read, never mutated -- the caller's list is safe to
+    reuse across calls. `kb_entries` is the static fallback used on every
+    attempt when `select_kb` is None, preserving every existing caller
+    unchanged.
+    """
     result: AgentResult | None = None
     captured_session_id: str | None = None
+    changed_files = list(manifest.get("context", {}).get("source_files", []))
+    sig_history: list[str] = list(signature_history) if signature_history else []
+    detail: GateRun | None = None
     for attempt in range(1, max_iters + 1):
         status.report(
             task_id=task.id,
@@ -307,11 +322,14 @@ def run_dev(
                 session_id=captured_session_id,
             )
 
+        current_kb_entries = (
+            select_kb(changed_files, sig_history) if select_kb is not None else kb_entries
+        )
         role_prompt = compose_prompt(
             AgentRole.DEV,
             task,
             manifest,
-            kb_entries,
+            current_kb_entries,
             feedback,
             skills_dir=repo_root / ".pi" / "skills",
             packet=packet,
@@ -357,8 +375,19 @@ def run_dev(
                     attempt * 10 + continuation,
                     result.raw,
                 )
-        if gates.run("unit") == 0:
-            extra = _note_backend_failure({"tests": "green"}, result)
+        detail = gates.run_detail("unit")
+        if detail.returncode == 0:
+            extra: dict = {"tests": "green"}
+            if sig_history:
+                # A signature discovered on an earlier attempt within THIS call
+                # (e.g. attempt 1 failed with a ConnectionResetError, attempt 2
+                # passed) must not be dropped just because the node ultimately
+                # passed -- the runner's task-level signature_history still
+                # needs it to bias KB selection for the next validation/review
+                # cycle. Only the callee (here) knows what it saw; the caller
+                # only sees the final PASS/ESCALATE event.
+                extra["gate_signatures"] = list(sig_history)
+            extra = _note_backend_failure(extra, result)
             status.report(
                 task_id=task.id,
                 node="dev",
@@ -370,6 +399,9 @@ def run_dev(
                 summary="changed files; unit tests pass",
             )
             return NodeOutcome.PASS, NodeEvent("dev", "pass", attempt, extra)
+        for sig in canonical_failure_signatures(detail.output):
+            if sig not in sig_history:
+                sig_history.append(sig)
         status.report(
             task_id=task.id,
             node="dev",
@@ -378,7 +410,10 @@ def run_dev(
             max_attempts=max_iters,
             handoff=f"unit tests failed, retry {attempt}/{max_iters}",
         )
-    extra = {"reason": "unit tests red"}
+    extra: dict = {"reason": "unit tests red"}
+    if detail is not None:
+        extra["gate_detail"] = detail.to_dict()
+        extra["gate_signatures"] = list(sig_history)
     if result is not None:
         extra = _note_backend_failure(extra, result)
     status.report(
@@ -412,8 +447,8 @@ def run_validation(
     )
     # GATE_NOT_APPLICABLE means the project provides no such suite -- skip it.
     # Only a gate that actually ran and failed fails the node.
-    sim_result = gates.run("sim")
-    if sim_result not in (0, GATE_NOT_APPLICABLE):
+    sim_detail = gates.run_detail("sim")
+    if sim_detail.returncode not in (0, GATE_NOT_APPLICABLE):
         status.report(
             task_id=task_id,
             node="validation",
@@ -422,7 +457,15 @@ def run_validation(
             max_attempts=1,
             handoff="sim tests failed",
         )
-        return NodeOutcome.FAIL, NodeEvent("validation", "fail")
+        return NodeOutcome.FAIL, NodeEvent(
+            "validation",
+            "fail",
+            1,
+            {
+                "gate_detail": sim_detail.to_dict(),
+                "gate_signatures": canonical_failure_signatures(sim_detail.output),
+            },
+        )
     if gates.run("integration") not in (0, GATE_NOT_APPLICABLE):
         status.report(
             task_id=task_id,
@@ -552,7 +595,8 @@ def run_review(
     dod_met = bool(out.get("dod_met"))
     confidence = out.get("confidence") if isinstance(out.get("confidence"), str) else None
     verify = out.get("verify") if isinstance(out.get("verify"), list) else []
-    gate = gates.run("full")
+    detail = gates.run_detail("full")
+    gate = detail.returncode
     if gate == 0 and dod_met and not findings:
         extra = _note_backend_failure({"confidence": confidence, "verify": verify}, result)
         status.report(
@@ -578,6 +622,9 @@ def run_review(
         },
         result,
     )
+    if gate not in (0, GATE_NOT_APPLICABLE):
+        extra["gate_detail"] = detail.to_dict()
+        extra["gate_signatures"] = canonical_failure_signatures(detail.output)
     status.report(
         task_id=task.id,
         node="review",

@@ -754,12 +754,12 @@ export function summarizeSubagentTask(task: string, maxChars: number = SUBAGENT_
 export async function executeSubagent(
   task: string,
   ctx: ToolCtx,
-  deps: {
-    build?: typeof buildSubagentInvocation;
-    resolveRoot?: typeof resolveProjectRoot;
+  deps: Partial<{
+    build: typeof buildSubagentInvocation;
+    resolveRoot: typeof resolveProjectRoot;
     /** Optional short role label, e.g. "researcher" / "dev" (default: derived). */
     label?: string | null;
-  } = {},
+  }> = {},
 ): Promise<{ content: { type: "text"; text: string }[]; details: null }> {
   // Partial deps objects (as passed by wrapping call sites) merge over the
   // defaults, so a caller that overrides only `build` still gets a wired

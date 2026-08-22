@@ -62,6 +62,12 @@ def test_every_shell_command_names_a_real_subparser():
         module = parts[parts.index("-m") + 1]
         sub = parts[parts.index("-m") + 2]
         # src layout: the package lives under src/, not at the repo root.
+        canonical_modules = {
+            "factory.trace": "coherence.trace",
+            "factory.requirements": "coherence.register",
+            "factory.doctor": "coherence.doctor",
+        }
+        module = canonical_modules.get(module, module)
         source = Path("src") / module.replace(".", "/") / "cli.py"
         text = source.read_text(encoding="utf-8")
         assert f'add_parser("{sub}"' in text, entry

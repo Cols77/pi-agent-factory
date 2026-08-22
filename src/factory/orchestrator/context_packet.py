@@ -10,16 +10,16 @@ from typing import TYPE_CHECKING
 from factory.orchestrator.deliverables import parse_deliverables
 
 if TYPE_CHECKING:
-    from factory.codeindex.model import CodeIndex
     from factory.orchestrator.ledger import Task
+    from substrate.codemap.model import CodeIndex
 
 try:
-    from factory.codeindex import file_signatures as _idx_file_signatures
-    from factory.codeindex import is_fresh as _idx_is_fresh
-    from factory.codeindex import load_latest as _idx_load_latest
+    from substrate.codemap import file_signatures as _idx_file_signatures
+    from substrate.codemap import is_fresh as _idx_is_fresh
+    from substrate.codemap import load_latest as _idx_load_latest
 
     _HAS_INDEX = True
-except Exception:  # pragma: no cover - defensive; codeindex should import
+except Exception:  # pragma: no cover - defensive; codemap should import
     _idx_file_signatures = None
     _idx_is_fresh = None
     _idx_load_latest = None

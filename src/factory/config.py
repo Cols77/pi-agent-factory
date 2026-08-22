@@ -6,26 +6,39 @@ from typing import Any
 
 import yaml
 
+from substrate.config import (
+    GateConfigError,
+    GateDeclarations,
+    GateStep,
+    load_gate_declarations,
+)
+from substrate.config import require_gates as _require_gate_declarations
+
+# GateConfigError, GateDeclarations, and GateStep are re-exported here rather
+# than only kept internally: factory.polish.config, factory.orchestrator.backends,
+# and existing tests import gate-config types from this module, and the split
+# with substrate.config (Task 2) is an internal-composition change, not a public
+# API move -- factory.config keeps its full surface, unchanged, on top of it.
+__all__ = [
+    "FactoryConfig",
+    "GateConfigError",
+    "GateDeclarations",
+    "GateStep",
+    "UnknownTypeError",
+    "load_config",
+    "require_gates",
+]
+
 
 class UnknownTypeError(ValueError):
     pass
-
-
-class GateConfigError(ValueError):
-    pass
-
-
-@dataclass(frozen=True)
-class GateStep:
-    cmd: str
-    cwd: str | None = None
 
 
 @dataclass
 class FactoryConfig:
     playgrounds: dict[str, Any]
     harnesses: dict[str, Any]
-    gates: dict[str, list[GateStep]]
+    gates: GateDeclarations
 
 
 def _build(types: dict, name: str, spec: dict, project_root: Path):
@@ -35,25 +48,6 @@ def _build(types: dict, name: str, spec: dict, project_root: Path):
     if ctor is None:
         raise UnknownTypeError(f"{name!r}: unknown type {type_name!r} (have {sorted(types)})")
     return ctor(spec, project_root)
-
-
-def _parse_gates(data: dict) -> dict[str, list[GateStep]]:
-    """Absent 'gates:' is {} -- NOT an error. Callers that require gates say so
-    themselves (see require_gates); load_config is used by polish and validation
-    on repos that declare only playgrounds."""
-    gates: dict[str, list[GateStep]] = {}
-    for name, steps in (data.get("gates") or {}).items():
-        if not isinstance(steps, list):
-            raise GateConfigError(
-                f"gate {name!r}: expected a list of steps, got {type(steps).__name__}"
-            )
-        parsed: list[GateStep] = []
-        for i, step in enumerate(steps):
-            if not isinstance(step, dict) or "cmd" not in step:
-                raise GateConfigError(f"gate {name!r} step {i}: each step needs a 'cmd'")
-            parsed.append(GateStep(cmd=str(step["cmd"]), cwd=step.get("cwd")))
-        gates[name] = parsed
-    return gates
 
 
 def load_config(project_root: Path) -> FactoryConfig:
@@ -74,20 +68,15 @@ def load_config(project_root: Path) -> FactoryConfig:
         n: _build(HARNESS_TYPES, n, s, project_root)
         for n, s in (data.get("harnesses") or {}).items()
     }
-    return FactoryConfig(playgrounds, harnesses, _parse_gates(data))
+    return FactoryConfig(playgrounds, harnesses, load_gate_declarations(data))
 
 
-def require_gates(cfg: FactoryConfig, project_root: Path) -> dict[str, list[GateStep]]:
+def require_gates(cfg: FactoryConfig, project_root: Path) -> GateDeclarations:
     """Gates for a project that must have them, else raise.
 
     'This project has no sim' and 'this project never said what to check' are
     different statements. An individual gate may be omitted -- it skips -- but a
     project with no gates at all would validate nothing while reporting green.
     """
-    if not cfg.gates:
-        raise GateConfigError(
-            f"{project_root / '.factory' / 'factory.yaml'} declares no gates. "
-            "Add a 'gates:' section naming what to run for unit/sim/integration/full; "
-            "an individual gate may be omitted and will be skipped."
-        )
-    return cfg.gates
+    context = str(project_root / ".factory" / "factory.yaml")
+    return _require_gate_declarations(cfg.gates, context)

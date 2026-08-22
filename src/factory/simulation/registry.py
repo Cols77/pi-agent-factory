@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from factory.evidence.manifests import list_run_manifests
+from substrate.evidence.read import list_run_manifests
 
 
 @dataclass(frozen=True)

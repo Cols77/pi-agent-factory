@@ -648,8 +648,13 @@ test("an absence uses the dashed rail, not the failure rail", () => {
     runs: [], requirements: [], degraded: false, degraded_reasons: [],
   });
   const empty = document.querySelector("#panelStory .presence-rail")!;
-  expect(empty.className).toContain("is-absent");
-  expect(empty.className).not.toContain("is-failure");
+  // Exact match, not .toContain: an absence renders exactly one className
+  // today ("empty presence-rail is-absent") -- there is no separate
+  // failure-rail class to distinguish from, so an exact-match assertion is
+  // the strongest real check available (a .not.toContain("is-failure")
+  // check here could never fail, since nothing in the renderer sets that
+  // class).
+  expect(empty.className).toBe("empty presence-rail is-absent");
 });
 
 test("renderBrief's empty state gets the dashed rail and no panel-level next step (M10: the rail owns it)", () => {

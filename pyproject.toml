@@ -11,6 +11,9 @@ dependencies = [
   "openai>=1.50",
 ]
 
+[project.scripts]
+coherence = "coherence.cli:main"
+
 [project.optional-dependencies]
 # Optional accelerator for the durable code index (item 2). The index fallback
 # (stdlib ast) works without these; install for multi-language tree-sitter

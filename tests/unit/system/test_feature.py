@@ -315,6 +315,93 @@ def test_query_validation_reports_regressed_and_never_validated(tmp_path):
     assert never["validation"]["raw_state"] == "never_validated"
     assert never["validation"]["goal_state"] is None
 
+
+def test_query_validation_live_staleness_reports_verification_stale(tmp_path):
+    """Inc 7 Task 4: after a requirement's content changes (A→C spec §30),
+    the live checksum recomputation in query_validation flips goal_state from
+    VALIDATED to VERIFICATION_STALE without re-running the validation pipeline."""
+    _feature_repo(tmp_path)
+
+    # Write SR-100 with a binding + matching checksum.
+    from factory.requirements.register import content_checksum, parse_requirement
+
+    sr_path = tmp_path / "requirements" / "SR-100.md"
+    sr_path.write_text(
+        "---\n"
+        "id: SR-100\n"
+        "title: Stale test\n"
+        "statement: The system shall connect.\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "binding:\n"
+        "  experiment: sim-001\n"
+        "  metric: pass_rate\n"
+        "  assert: '>= 0.9'\n"
+        "  trials: 1\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    req = parse_requirement(sr_path)
+    checksum = content_checksum(req)
+    # Rewrite with the checksum attached.
+    sr_path.write_text(
+        "---\n"
+        "id: SR-100\n"
+        "title: Stale test\n"
+        "statement: The system shall connect.\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "binding:\n"
+        "  experiment: sim-001\n"
+        "  metric: pass_rate\n"
+        "  assert: '>= 0.9'\n"
+        "  trials: 1\n"
+        f"checksum: {checksum}\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    write_validation_report(
+        tmp_path,
+        [{"id": "SR-100", "passed": True, "stale": False, "artifacts": []}],
+    )
+    _write(
+        tmp_path / "goals" / "GOAL-100.md",
+        "---\n"
+        "id: GOAL-100\n"
+        "title: Stale goal\n"
+        "demonstrates: [SR-100]\n"
+        "state: REACHED\n"
+        "---\n",
+    )
+
+    # Before change: checksum matches → VALIDATED.
+    result = query_validation(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-100"))
+    assert result["validation"]["goal_state"] == "VALIDATED"
+    assert result["validation"]["stale"] is False
+
+    # Change the statement (A→C). The checksum no longer matches.
+    sr_path.write_text(
+        "---\n"
+        "id: SR-100\n"
+        "title: Stale test\n"
+        "statement: The system shall REALLY connect.\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "binding:\n"
+        "  experiment: sim-001\n"
+        "  metric: pass_rate\n"
+        "  assert: '>= 0.9'\n"
+        "  trials: 1\n"
+        f"checksum: {checksum}\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    result = query_validation(tmp_path, SystemScopeRef(kind="sr", ref="sr:SR-100"))
+    assert result["validation"]["goal_state"] == "VERIFICATION_STALE"
+    assert result["validation"]["stale"] is True
+
     with pytest.raises(ScopeKindError):
         query_validation(tmp_path, SystemScopeRef(kind="feat", ref="feat:FEAT-CONTEXT-001"))
 
