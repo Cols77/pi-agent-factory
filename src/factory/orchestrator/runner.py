@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,7 +8,6 @@ from pathlib import Path
 from factory.evidence.artifacts import ArtifactStore
 from factory.evidence.finalize import finalize_run_evidence
 from factory.evidence.manifests import write_run_manifest
-from factory.kb.retrieval import list_kb_titles, select_entries
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import CommitAllError, GitOps, SubprocessGitOps, ensure_factory_ignores
@@ -42,6 +42,7 @@ from factory.orchestrator.status import NullStatusReporter, StatusReporter
 from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
 from factory.preflight.checks import run_completion_preflight
 from substrate.evidence.read import load_run_manifest
+from substrate.kb.retrieval import list_kb_titles, select_entries
 from substrate.validators.kb import parse_entry
 
 
@@ -55,6 +56,31 @@ def _load_kb_entries(kb_dir: Path, ids: list[str]) -> list[dict]:
         if str(entry.get("id")) in wanted:
             out.append(entry)
     return out
+
+
+def _make_kb_selector(kb_dir: Path) -> Callable[[list[str], list[str]], list[dict]]:
+    """Build the `select_kb(current_changed_files, signature_history) ->
+    list[dict]` selector injected into the dev/review nodes: reselects KB
+    guidance from touched files AND accumulated canonical failure signatures,
+    replacing the old one-time, signature-blind `select_entries(..., [])`
+    call made once before the run's retry loop even started."""
+
+    def select_kb(changed_files: list[str], signature_history: list[str]) -> list[dict]:
+        ids = select_entries(kb_dir, changed_files, signature_history)
+        return _load_kb_entries(kb_dir, ids)
+
+    return select_kb
+
+
+def _extend_signature_history(signature_history: list[str], event: NodeEvent) -> None:
+    """After a gate run, fold its canonical failure signatures (populated in
+    NodeEvent.extra by nodes.py's run_dev/run_validation/run_review from the
+    SAME GateRun already captured -- never a second execution) into the
+    task-level history, deduplicated and order-preserving, so the next
+    DEV/review attempt's `select_kb` call sees them."""
+    for sig in event.extra.get("gate_signatures", []):
+        if sig not in signature_history:
+            signature_history.append(sig)
 
 
 def _commit_message(task: Task) -> str:
@@ -219,8 +245,13 @@ def run_task(
     # on the next iteration -- a wrong "already done" self-corrects.
     already_done = c_outcome == NodeOutcome.ALREADY_DONE
 
-    kb_ids = select_entries(repo_root / "kb", manifest["context"].get("source_files", []), [])
-    kb_entries = _load_kb_entries(repo_root / "kb", kb_ids)
+    # KB guidance is reselected fresh before every DEV/review attempt from
+    # whatever failure signatures the gates run so far have produced --
+    # `signature_history` accumulates across the whole task (mutated below,
+    # after each dev/validation/review event), replacing the old one-time
+    # select_entries(..., []) call that never saw a failure signature at all.
+    select_kb = _make_kb_selector(repo_root / "kb")
+    signature_history: list[str] = []
 
     # Materialize the content-bearing context packet once the gatherer passes, so
     # Dev, Review and (via the persisted file) the grill all consume the gathered
@@ -306,7 +337,7 @@ def run_task(
                     gates,
                     task,
                     manifest,
-                    kb_entries,
+                    [],  # unused: select_kb reselects every attempt instead
                     repo_root,
                     max_dev_iters,
                     feedback,
@@ -314,8 +345,11 @@ def run_task(
                     status=status,
                     events=events,
                     packet=packet,
+                    select_kb=select_kb,
+                    signature_history=signature_history,
                 )
                 events.append(d_ev)
+                _extend_signature_history(signature_history, d_ev)
                 if execution is not None:
                     execution.record(
                         node="dev",
@@ -346,6 +380,7 @@ def run_task(
                 transcript_dir=transcript_dir,
             )
             events.append(v_ev)
+            _extend_signature_history(signature_history, v_ev)
             if execution is not None:
                 execution.record(
                     node="validation",
@@ -369,8 +404,7 @@ def run_task(
                 continue
 
             review_changed_files = git_ops.changed_files(repo_root, start_commit)
-            review_kb_ids = select_entries(repo_root / "kb", review_changed_files, [])
-            review_kb_entries = _load_kb_entries(repo_root / "kb", review_kb_ids)
+            review_kb_entries = select_kb(review_changed_files, signature_history)
 
             r_outcome, r_ev, review_findings = run_review(
                 backend,
@@ -384,6 +418,7 @@ def run_task(
                 packet=packet,
             )
             events.append(r_ev)
+            _extend_signature_history(signature_history, r_ev)
             if execution is not None:
                 execution.record(
                     node="review",

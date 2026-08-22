@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from factory.orchestrator.types import AgentRole, AgentResult, NodeOutcome
 from factory.orchestrator.ledger import Task
-from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner, GateRun
 from factory.orchestrator.nodes import run_context_gatherer, run_dev, _summarize_manifest
 from factory.orchestrator.status import FakeStatusReporter
 from ._skill_fixtures import write_skill_stubs
@@ -226,6 +226,105 @@ def test_dev_pass_reports_session_id_and_summary(tmp_path):
     assert pass_call["node_state"] == "pass"
     assert pass_call["session_id"] == "sess-dev-1"
     assert "unit tests pass" in pass_call["summary"]
+
+
+def test_dev_escalate_carries_gate_detail_and_signatures(tmp_path):
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}) for _ in range(2)]})
+    scripted = GateRun(
+        name="unit",
+        returncode=1,
+        output="E ConnectionResetError: connection reset by peer",
+        applicable=True,
+        commands=("python -m pytest -q",),
+    )
+    g = FakeGateRunner({"unit": [scripted, scripted]})
+    outcome, ev = run_dev(b, g, _task(), {"context": {"source_files": []}}, [], tmp_path, max_iters=2)
+    assert outcome == NodeOutcome.ESCALATE
+    assert ev.extra["gate_detail"] == scripted.to_dict()
+    assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
+
+
+def test_dev_pass_after_an_earlier_failed_attempt_still_carries_that_signature(tmp_path):
+    # Regression: a signature discovered on a self-resolving attempt (fails,
+    # then passes) inside ONE run_dev call must not be dropped just because
+    # the node ultimately returns PASS -- the runner's task-level
+    # signature_history needs it to bias the next validation/review cycle's
+    # KB selection.
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})]})
+    g = FakeGateRunner({
+        "unit": [
+            GateRun(
+                name="unit",
+                returncode=1,
+                output="E ConnectionResetError: connection reset by peer",
+                applicable=True,
+            ),
+            0,
+        ]
+    })
+    outcome, ev = run_dev(b, g, _task(), {"context": {"source_files": []}}, [], tmp_path, max_iters=2)
+    assert outcome == NodeOutcome.PASS
+    assert ev.attempts == 2
+    assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
+
+
+def test_dev_pass_on_first_attempt_carries_no_gate_signatures_key(tmp_path):
+    # No failure ever happened -- nothing to carry forward, and no fabricated
+    # empty-but-present key either.
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
+    g = FakeGateRunner({"unit": [0]})
+    outcome, ev = run_dev(b, g, _task(), {"context": {"source_files": []}}, [], tmp_path)
+    assert outcome == NodeOutcome.PASS
+    assert "gate_signatures" not in ev.extra
+
+
+def test_select_kb_is_called_fresh_each_attempt_with_growing_signature_history(tmp_path):
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {}), AgentResult(True, {})]})
+    gates = FakeGateRunner({
+        "unit": [
+            GateRun(name="unit", returncode=1, output="E TimeoutError: slow", applicable=True),
+            0,
+        ]
+    })
+    calls: list[tuple[list, list]] = []
+
+    def select_kb(files, signatures):
+        calls.append((list(files), list(signatures)))
+        return [{"id": "kb-x", "title": "t"}] if signatures else []
+
+    outcome, ev = run_dev(
+        b, gates, _task(), {"context": {"source_files": ["a.py"]}}, [], tmp_path,
+        max_iters=2, select_kb=select_kb,
+    )
+    assert outcome == NodeOutcome.PASS
+    assert ev.attempts == 2
+    assert calls[0] == (["a.py"], [])
+    assert calls[1] == (["a.py"], ["TimeoutError: slow"])
+    assert "kb-x" in b.prompts[1][1]
+    assert "kb-x" not in b.prompts[0][1]
+
+
+def test_select_kb_seeds_from_caller_signature_history_without_mutating_it(tmp_path):
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.DEV: [AgentResult(True, {})]})
+    gates = FakeGateRunner({"unit": [0]})
+    seen = []
+    caller_history = ["PriorError: from an earlier cycle"]
+
+    def select_kb(files, signatures):
+        seen.append(list(signatures))
+        return []
+
+    run_dev(
+        b, gates, _task(), {"context": {"source_files": []}}, [], tmp_path,
+        select_kb=select_kb, signature_history=caller_history,
+    )
+    assert seen == [["PriorError: from an earlier cycle"]]
+    assert caller_history == ["PriorError: from an earlier cycle"]  # not mutated
 
 
 def test_run_dev_writes_one_transcript_per_attempt(tmp_path):
