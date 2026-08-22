@@ -189,3 +189,44 @@ def test_validation_passes_when_a_gate_is_not_applicable():
 
 def test_validation_still_fails_on_a_gate_that_ran_and_failed():
     assert run_validation(FakeGateRunner({"sim": [1]}))[0] == NodeOutcome.FAIL
+
+
+def test_validation_fail_carries_gate_detail_and_canonical_signature():
+    from factory.orchestrator.backends import GateRun
+
+    scripted = GateRun(
+        name="sim",
+        returncode=1,
+        output="E ConnectionResetError: connection reset by peer",
+        applicable=True,
+        commands=("pytest tests/sim",),
+    )
+    outcome, ev = run_validation(FakeGateRunner({"sim": [scripted]}))
+    assert outcome == NodeOutcome.FAIL
+    assert ev.extra["gate_detail"] == scripted.to_dict()
+    assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
+
+
+def test_review_changes_carries_gate_detail_and_canonical_signature_on_red_gate(tmp_path):
+    from factory.orchestrator.backends import GateRun
+
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
+    scripted = GateRun(
+        name="full",
+        returncode=1,
+        output="E ConnectionResetError: connection reset by peer",
+        applicable=True,
+        commands=("pytest -q",),
+    )
+    _outcome, ev, _findings = run_review(b, FakeGateRunner({"full": [scripted]}), _task(), [], tmp_path)
+    assert ev.extra["gate_detail"] == scripted.to_dict()
+    assert ev.extra["gate_signatures"] == ["ConnectionResetError: connection reset by peer"]
+
+
+def test_review_pass_carries_no_gate_detail_key(tmp_path):
+    # Only a FAILED gate's output is worth extracting a signature from.
+    write_skill_stubs(tmp_path)
+    b = FakeAgentBackend({AgentRole.REVIEW: [AgentResult(True, {"dod_met": True, "findings": []})]})
+    _outcome, ev, _findings = run_review(b, FakeGateRunner({"full": [0]}), _task(), [], tmp_path)
+    assert "gate_detail" not in ev.extra

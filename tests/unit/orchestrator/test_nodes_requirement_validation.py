@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from factory.orchestrator.backends import GateRun
 from factory.orchestrator.nodes import run_validation
 from factory.orchestrator.types import NodeOutcome
 
@@ -10,6 +11,9 @@ pytestmark = pytest.mark.unit
 class _Gates:
     def run(self, name):
         return 0  # all gates green
+
+    def run_detail(self, name):
+        return GateRun(name=name, returncode=0, output="", applicable=True)
 
 
 def _f(t, kind, sharks=()):
