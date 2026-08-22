@@ -435,6 +435,12 @@ These are the holes the tool set does not reach, addressed in the last increment
 
 Increments 6–8 are cuttable without stranding earlier work.
 
+**Amended 2026-08-22 — progressive assurance; see §16.** Increments 0–3 above are shipped and
+unchanged. New increments 2B, 2C and 3B, and an increment 6B inserted after 6, add compiled
+obligations, typed lifecycle relationships, a nonconformance record type, a multidimensional
+health vector and CI. Increments 4, 5, 6, 7 and 8 above gain additional contents and gate
+criteria, detailed in the amendment; their numbers and original scope are unchanged.
+
 ## 12. Testing
 
 Each move increment is a refactor with a behavioural invariant: the existing unit suites
@@ -516,3 +522,25 @@ The original direct model-call wording in §6.1 is superseded by a deterministic
 It is deliberately conservative: ambiguous input opens the menu and has no write authority.
 This removes the unsupported Pi structured-completion dependency without weakening the
 classification visibility or escape hatch.
+
+## 16. Amendment record: progressive assurance
+
+This section records how the 2026-08-22 amendment changes §11's increment table. Full design in
+`2026-08-22-coherence-progressive-assurance-design.md`.
+
+| Original concept | Amendment | What still lands |
+|---|---|---|
+| Increments 0–3 are the only shipped ground truth | Verified against `main` directly (0, 1, 1B, 1C, 2, 3 all shipped); their plans are not reopened | The same shipped packages and behaviour; no rewritten history |
+| A requirement-validation "error" entry is a non-blocking warning (`factory.validation.pipeline`) | A task-owned SR landing in `error`/`invalid`/`interrupted`/`unknown` now blocks, per the invariant kernel's "an execution error cannot become pass" | Unrelated-SR setup gaps remain warnings, not hard failures |
+| `context_manifest.schema.json` allows an empty `checks` array | `checks` requires at least one proof obligation; `task_id` is cross-checked against actual dispatch | The existing normalize/strip-self-report discipline (agent `proven`/`pass` fields removed before validation) |
+| Bare `satisfies` list on tasks | Typed `justification` union (`satisfies\|corrects\|mitigates\|implements\|maintains\|explores`); existing `satisfies:` frontmatter reads as shorthand, no file migration needed | Existing register/trace semantics for `satisfies` bindings |
+| No defect/nonconformance record type | `NC-*` records, structurally parallel to `FR-*` failure records — own directory, loader, schema, never a `trace.model.NodeKind` | `FR-*`'s existing degrade-not-crash and health-surfacing pattern |
+| `health.percent`, one scalar | Eleven independently-applicable dimensions (§6.4 of the guide), each with its own obligation-backed denominator; existing `vcycle_findings`/`freshness_health` findings reclassify into their owning dimension rather than being re-derived | The underlying finding codes and their detection logic |
+| No CI workflow | `.github/workflows/ci.yml`, triggered independent of `/factory-run`, running every check backing a `blocking` compiled obligation | Today's gate commands (`pytest -m unit`, `ruff`, `pyright`, `npm test`) as the day-one obligation set |
+| `sr_stale` gaps detect drift but do not distinguish never-reviewed from reviewed-then-suspect | Governed edges gain a `proposed\|valid\|suspect\|invalid\|waived` validity state with source/target fingerprints; optional `product`/`high_assurance` intent baselines | The existing freshness/gap detection machinery — extended, not replaced |
+| "Dogfood one feature end-to-end" as an open request | Resolved as the same deliverable as the progressive-assurance thin vertical slice, run against `T-031` | One proof that the coherence spine composes, not a second bespoke exercise |
+
+Nothing from increments 0–8 as originally scoped is removed. Increments 0–3 are unchanged
+because they already shipped. Increments 4–8 keep their original contents and gain the
+additions in the table above. New increments 2B, 2C, 3B and 6B carry the delta that would
+otherwise have reopened increments 0–3.
