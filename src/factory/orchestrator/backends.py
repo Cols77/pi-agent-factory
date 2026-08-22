@@ -11,6 +11,7 @@ from typing import Protocol
 from factory.config import GateStep
 from factory.orchestrator.types import AgentRole
 from substrate.agents.model import AgentResult
+from substrate.kb.signatures import redact_secrets
 
 
 class AgentBackend(Protocol):
@@ -42,15 +43,37 @@ class GateRun:
     commands: tuple[str, ...] = ()
     log_path: Path | None = None
 
+    # Bound on the `output` text that reaches to_dict() -- and from there the
+    # durable session record (NodeEvent.extra["gate_detail"]). Real failing
+    # suites routinely produce tens to hundreds of KB of stdout+stderr; only
+    # the tail (where the actual failure/traceback lives) is worth keeping,
+    # and `events` accumulates this across every dev/validation/review cycle
+    # in a task.
+    _OUTPUT_DICT_MAX_CHARS = 8000
+    _TRUNCATION_MARKER = "…truncated…\n"
+
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "returncode": self.returncode,
-            "output": self.output,
+            "output": self._redacted_truncated_output(),
             "applicable": self.applicable,
             "commands": list(self.commands),
             "log_path": str(self.log_path) if self.log_path is not None else None,
         }
+
+    def _redacted_truncated_output(self) -> str:
+        """`output` as it may safely be persisted into a durable session
+        record: secrets redacted the same way KB signature extraction
+        redacts them (so a credential scrubbed from `gate_signatures` isn't
+        left intact one key over in `gate_detail`), then capped to a bounded
+        tail. `self.output` itself is left untouched -- it stays the full,
+        unredacted, in-memory text for any caller (e.g. signature
+        extraction) that needs it."""
+        text = redact_secrets(self.output)
+        if len(text) > self._OUTPUT_DICT_MAX_CHARS:
+            text = self._TRUNCATION_MARKER + text[-self._OUTPUT_DICT_MAX_CHARS:]
+        return text
 
 
 class GateRunner(Protocol):
@@ -229,6 +252,11 @@ class ConfigGateRunner:
 
     def _write_log(self, name: str, text: str) -> None:
         if self._log_dir is None:
+            # No log_dir configured -- echo to stdout so captured gate output
+            # (the same combined stdout+stderr text that would otherwise be
+            # written to <name>-gate.log) is still visible somewhere, rather
+            # than silently discarded.
+            print(text, end="")
             return
         self._log_dir.mkdir(parents=True, exist_ok=True)
         (self._log_dir / f"{name}-gate.log").write_text(text, encoding="utf-8")

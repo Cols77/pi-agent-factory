@@ -11,9 +11,9 @@ import frontmatter
 
 from factory.coverage.audit import classify, validate_verdict
 from factory.coverage.gate import run_gate
-from factory.coverage.imports import compute_overlap
 from factory.coverage.report import render_human_summary
 from factory.coverage.scope import EvidenceState, resolve_feature_scope
+from substrate.codemap.imports import compute_overlap
 
 
 _COVERAGE_REVIEWS = "coverage-reviews"

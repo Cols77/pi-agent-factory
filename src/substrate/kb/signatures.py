@@ -83,6 +83,14 @@ def _redact_secrets(text: str) -> str:
     return text
 
 
+# Public alias: other modules (e.g. factory.orchestrator.backends, redacting
+# GateRun.output before it is serialized into a durable session record) need
+# the same secret-redaction behavior applied to raw gate output, not just to
+# already-extracted signature lines. Reuse the implementation above rather
+# than duplicating the regex list.
+redact_secrets = _redact_secrets
+
+
 def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 

@@ -47,6 +47,43 @@ def test_gate_run_literal_shape_matches_the_spec():
     }
 
 
+def test_to_dict_redacts_secrets_from_output():
+    secret_line = "connect: postgres://svc_user:hunter2pass@db.internal:5432/prod"
+    detail = GateRun(
+        name="unit",
+        returncode=1,
+        output=f"E ConnectionError: could not connect\n{secret_line}\n",
+        applicable=True,
+    )
+    dumped = detail.to_dict()
+    assert "hunter2pass" not in dumped["output"]
+    assert "svc_user" not in dumped["output"]
+    # The in-memory attribute is left untouched -- only to_dict()'s output
+    # is redacted/truncated, since that's the one path that reaches the
+    # durable session record.
+    assert "hunter2pass" in detail.output
+
+
+def test_to_dict_truncates_output_to_a_bounded_tail():
+    # Well past the 8000-char bound, with a distinctive marker at the very
+    # end so we can prove the *tail* survives truncation, not the head.
+    body = "x" * 20_000
+    tail_marker = "END-OF-OUTPUT-MARKER"
+    detail = GateRun(
+        name="unit",
+        returncode=1,
+        output=body + tail_marker,
+        applicable=True,
+    )
+    dumped = detail.to_dict()
+    assert len(dumped["output"]) <= 8000 + len("…truncated…\n")
+    assert dumped["output"].endswith(tail_marker)
+    assert dumped["output"].startswith("…truncated…")
+    # Full text is still available on the GateRun itself, unredacted and
+    # untruncated -- it's only to_dict()'s serialized copy that is bounded.
+    assert len(detail.output) == len(body) + len(tail_marker)
+
+
 def test_run_still_returns_the_bare_int_for_a_pass(tmp_path):
     runner = ConfigGateRunner(tmp_path, {"unit": [_ok("one")]}, log_dir=tmp_path / "logs")
     assert runner.run("unit") == 0
@@ -78,13 +115,16 @@ def test_run_detail_captures_output_and_writes_the_same_log_text(tmp_path):
     assert detail.log_path == log_dir / "unit-gate.log"
 
 
-def test_run_detail_echoes_captured_output_when_no_log_is_configured(tmp_path):
+def test_run_detail_echoes_captured_output_when_no_log_is_configured(tmp_path, capsys):
     runner = ConfigGateRunner(tmp_path, {"unit": [_fail(1, "kaboom")]})
     detail = runner.run_detail("unit")
     assert detail.returncode == 1
     assert "kaboom" in detail.output  # captured even though nothing was written to disk
     assert detail.log_path is None
     assert not (tmp_path / "unit-gate.log").exists()
+    captured = capsys.readouterr()
+    assert "kaboom" in captured.out
+    assert captured.out == detail.output  # same combined text that would have been logged
 
 
 def test_run_detail_records_every_command_run(tmp_path):
