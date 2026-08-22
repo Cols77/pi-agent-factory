@@ -1405,6 +1405,20 @@ PANELS: dict[str, dict] = {
             "states that explicitly instead."
         ),
     },
+    "Catchup": {
+        "label": "Catch me up",
+        "what_it_shows": (
+            "The deterministic delta for this feature since your last "
+            "recorded review: PRs merged, requirements and ADRs changed, "
+            "goals reached or regressed, metric changes, and new open "
+            "items."
+        ),
+        "how_to_read": (
+            "Every field is computed, never an LLM summary -- a feature "
+            "with no recorded review states that plainly, and a delta "
+            "with no changes says so instead of rendering empty."
+        ),
+    },
 }
 
 

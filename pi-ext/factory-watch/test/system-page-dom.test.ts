@@ -143,12 +143,35 @@ function jsonResponse(body: unknown, status = 200): Promise<Response> {
 const DEFAULT_TRAVERSAL = { requirement: [], tasks: [], design: [], files: [] };
 const DEFAULT_LABELS = { labels: {}, aliases: {}, degraded: [] };
 
+// T-031: mirrors query_catchup's payload shape (see system-catchup-view.test.ts's
+// CATCHUP fixture) -- just enough for loadCatchupScope() to render successfully
+// and select the Catch me up tab.
+const CATCHUP = {
+  feature: "FEAT-001",
+  reviewed: true,
+  since_commit: "a".repeat(40),
+  reviewed_at: "2026-08-16T10:00:00Z",
+  delta: {
+    feature: "FEAT-001",
+    since_commit: "a".repeat(40),
+    prs_merged: [],
+    requirements_changed: [],
+    adrs_added: [],
+    scenarios_added: [],
+    goals_reached: [],
+    goals_regressed: [],
+    metric_changes: [],
+    new_open_items: [],
+  },
+};
+
 function mockFetch(
   guideFails = false,
   health: unknown = HEALTH,
   traversal: unknown = DEFAULT_TRAVERSAL,
   labels: unknown = DEFAULT_LABELS,
   labelsUnavailable = false,
+  catchup: unknown = CATCHUP,
 ) {
   return vi.fn((input: string | URL) => {
     const url = new URL(String(input), "http://localhost/");
@@ -157,6 +180,7 @@ function mockFetch(
     if (url.pathname === "/api/system/matrix") return jsonResponse(MATRIX);
     if (url.pathname === "/api/system/timeline") return jsonResponse(TIMELINE);
     if (url.pathname === "/api/system/traversal") return jsonResponse(traversal);
+    if (url.pathname === "/api/system/catchup") return jsonResponse(catchup);
     if (url.pathname === "/api/system/guide") {
       return guideFails
         ? jsonResponse({ error: "synthesis failed", kind: "RuntimeError" }, 503)
@@ -185,6 +209,7 @@ async function loadPage(
     traversal?: unknown;
     labels?: unknown;
     labelsUnavailable?: boolean;
+    catchup?: unknown;
   } = {},
 ): Promise<JSDOM> {
   const html = renderSystemPageHtml();
@@ -197,6 +222,7 @@ async function loadPage(
     opts.traversal ?? DEFAULT_TRAVERSAL,
     opts.labels ?? DEFAULT_LABELS,
     opts.labelsUnavailable ?? false,
+    opts.catchup ?? CATCHUP,
   );
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
@@ -750,7 +776,14 @@ describe("system-page.ts client script, executed against a real DOM", () => {
   // beneath the tab strip. KEY BY THE ELEMENT ID, NOT aria-label -- two tabs
   // disagree (id="tabVcycle" aria-label="V-cycle", id="tabSim" aria-label=
   // "Simulation"), and `id.slice(3)` is exactly the TABS_BY_KIND id for all
-  // thirteen tabs.
+  // fourteen tabs. This queries every `[role="tab"]` in the static shell
+  // regardless of which ones `configureTabs('bundle')` hides for this scope
+  // kind -- hidden tabs stay in the DOM (see system-shell.ts), and the
+  // orientation data model is per-tab-kind, not per-visibility, so a hidden
+  // tab still needs its own PANELS_DATA entry. T-031: this is why Catchup
+  // (hidden for a bundle scope) needed its own entry even though nothing
+  // here filters by visibility -- see "a Catchup scope selects Catch me up
+  // and renders its orientation line" below for the visible-and-selected case.
   test("every rendered tab has an orientation line", async () => {
     const dom = await loadPage({ scope: "bundle:b1" });
     const doc = dom.window.document;
@@ -767,5 +800,20 @@ describe("system-page.ts client script, executed against a real DOM", () => {
     expect(line.textContent).toContain("Every claim this scope makes");
     (doc.getElementById("tabMatrix") as HTMLElement).click();
     expect(line.textContent).toContain("validation has run");
+  });
+
+  // T-031: a catchup: scope selects the Catch me up tab as its default tab
+  // (configureTabs('catchup') unhides it, selectInitialTab picks it) -- this
+  // proves the real page render surfaces non-empty orientation text for it,
+  // not just that a PANELS_DATA entry exists in the abstract.
+  test("a Catchup scope selects Catch me up and renders its orientation line", async () => {
+    const dom = await loadPage({ scope: "catchup:FEAT-001" });
+    const doc = dom.window.document;
+    const tab = doc.getElementById("tabCatchup") as HTMLElement;
+    expect(tab.hidden).toBe(false);
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const line = doc.getElementById("panelOrientation")!;
+    expect(line.textContent).toBeTruthy();
+    expect(line.textContent).toContain(PANELS_DATA.panels.Catchup.what_it_shows);
   });
 });
