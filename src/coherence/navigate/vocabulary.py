@@ -1241,7 +1241,7 @@ def build_vocabulary() -> dict:
 # ---------------------------------------------------------------------------
 # PANELS (design Component 4) -- one persistent orientation line per tab,
 # shown beneath the tab strip for whichever panel is active. `TABS_BY_KIND`
-# (pi-ext/factory-watch/src/system-bootstrap.ts) holds thirteen tab ids; this
+# (pi-ext/factory-watch/src/system-bootstrap.ts) holds fourteen tab ids; this
 # table needs exactly one entry per id, or the completeness test in
 # system-page-dom.test.ts fails.
 #
@@ -1405,9 +1405,22 @@ PANELS: dict[str, dict] = {
             "states that explicitly instead."
         ),
     },
+    "Catchup": {
+        "label": "Catch me up",
+        "what_it_shows": (
+            "The deterministic delta for this feature since your last "
+            "recorded review: PRs merged, requirements and ADRs changed, "
+            "new experiments run, goals reached or regressed, metric "
+            "changes, and new open items."
+        ),
+        "how_to_read": (
+            "Every field is computed, never an LLM summary -- a feature "
+            "with no recorded review states that plainly, and a delta "
+            "with no changes says so instead of rendering empty."
+        ),
+    },
 }
 
 
 def build_panels() -> dict:
     return {"version": 1, "panels": PANELS}
-

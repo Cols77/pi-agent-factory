@@ -635,7 +635,7 @@ export async function systemBootstrap(): Promise<void> {
     // Design Component 4: a persistent one-line orientation beneath the tab
     // strip, for the active panel only. Wording is Python's, mirrored
     // verbatim into PANELS_DATA -- this only ever picks and renders it. An
-    // unknown tab (should not happen: PANELS has all thirteen TABS_BY_KIND
+    // unknown tab (should not happen: PANELS has all fourteen TABS_BY_KIND
     // ids) renders nothing rather than a placeholder.
     const orientation = document.getElementById('panelOrientation') as HTMLElement;
     clear(orientation);
