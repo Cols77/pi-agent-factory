@@ -421,6 +421,98 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_exactly(
     assert converted == legacy.overlap
 
 
+def test_converted_codemap_overlap_matches_factory_coverage_imports_for_relative_imports(
+    tmp_path: Path,
+) -> None:
+    """Parity for tests/unit/coverage/test_imports.py::test_relative_import_resolution's
+    fixture (`from . import b`, level > 0) -- also the only exercise of
+    kind="relative" edge classification via the parity path."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from factory.coverage.imports import compute_overlap as legacy_compute_overlap
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "pkg" / "a.py").write_text("from . import b\n")
+    (tmp_path / "pkg" / "b.py").write_text("X = 1\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_rel.py").write_text("from pkg.a import b\n")
+
+    selection = "tests/test_rel.py"
+    changed_files = ["pkg/a.py", "pkg/b.py"]
+
+    legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    converted = _closure_overlap(tmp_path, selection, changed_files)
+
+    assert converted == legacy.overlap == ("pkg/a.py", "pkg/b.py")
+
+
+def test_converted_codemap_overlap_matches_factory_coverage_imports_for_no_imports(
+    tmp_path: Path,
+) -> None:
+    """Parity for test_compute_overlap_false_when_imports_nothing's fixture
+    (a test file with no imports at all)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from factory.coverage.imports import compute_overlap as legacy_compute_overlap
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_empty.py").write_text(
+        "def test_nothing():\n    assert True\n"
+    )
+
+    selection = "tests/test_empty.py"
+    changed_files = ["src/drone/priority_filter.py"]
+
+    legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    converted = _closure_overlap(tmp_path, selection, changed_files)
+
+    assert converted == legacy.overlap == ()
+
+
+def test_converted_codemap_overlap_matches_factory_coverage_imports_for_external_unresolved(
+    tmp_path: Path,
+) -> None:
+    """Parity for test_unresolved_imports_are_honest's fixture (an import
+    of a genuinely external, unresolvable package)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from factory.coverage.imports import compute_overlap as legacy_compute_overlap
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_extern.py").write_text(
+        "import numpy\n\ndef test():\n    pass\n"
+    )
+
+    selection = "tests/test_extern.py"
+    changed_files = ["x.py"]
+
+    legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    converted = _closure_overlap(tmp_path, selection, changed_files)
+
+    assert converted == legacy.overlap == ()
+    assert legacy.unresolved == ("numpy",)  # still honest through the shim
+
+
+def test_build_import_closure_records_relative_edge_kind(tmp_path: Path) -> None:
+    """Direct (non-parity) coverage of kind="relative" edge classification,
+    complementing the parity test above."""
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "pkg" / "a.py").write_text("from . import b\n")
+    (tmp_path / "pkg" / "b.py").write_text("X = 1\n")
+
+    result = build_import_closure(tmp_path, ["pkg/a.py"])
+
+    assert result.status == "resolved"
+    edges = _load_edges(tmp_path, list(result.files))
+    assert edges is not None
+    assert any(
+        e.source == "pkg/a.py" and e.target == "pkg/b.py" and e.kind == "relative"
+        for e in edges
+    )
+
+
 # -- 3d. Edge storage: beside the fingerprinted index, with a tolerant reader.
 
 

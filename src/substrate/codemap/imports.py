@@ -1,19 +1,23 @@
 """Python import-edge tracking for the durable code map.
 
-Two layers live here, deliberately kept independent so the older, narrower
-answer never shifts underneath the newer, structured one:
+Two layers live here, sharing a single traversal implementation
+(`_closure_walk`) so the older, narrower answer can never drift from the
+newer, structured one by hand-synchronization error:
 
 - `compute_overlap`/`transitive_imports` -- the original coverage-binding
-  algorithm (moved here verbatim from `factory.coverage.imports`). Given a
-  test selection and a set of changed files, does the test's import closure
-  touch any of them? Answers are byte-for-byte identical to the pre-move
-  implementation.
-- `build_import_closure` -- a structured view over the same AST-level
-  resolution primitives, returning `ImportClosure(files, status,
-  diagnostics)` for one or more root files. Unlike `transitive_imports`,
-  the roots themselves are included in `files`, and unresolved imports or
-  unsupported (non-Python) roots are reported as an explicit status rather
-  than silently folded into "no overlap".
+  algorithm (moved here from `factory.coverage.imports`). Given a test
+  selection and a set of changed files, does the test's import closure touch
+  any of them? `transitive_imports` is now a thin projection of
+  `_closure_walk` that keeps only the (reached_files, unresolved_modules)
+  pair the old callers depend on and discards the edge list -- the answer is
+  identical to the pre-move implementation by construction, not by two
+  hand-kept-in-sync loops.
+- `build_import_closure` -- a structured view over the same traversal,
+  returning `ImportClosure(files, status, diagnostics)` for one or more root
+  files. Unlike `transitive_imports`, the roots themselves are included in
+  `files`, and unresolved imports or unsupported (non-Python) roots are
+  reported as an explicit status rather than silently folded into "no
+  overlap".
 
 Import edges discovered while building a closure are also persisted beside
 the fingerprinted `CodeIndex` data (`.factory/code-index/`), so a later
@@ -120,16 +124,26 @@ def _resolve_import(root: Path, module: str, level: int, origin: Path) -> Path |
     return None
 
 
-def transitive_imports(root: Path, source_file: Path) -> tuple[set[Path], set[str]]:
-    """All project files transitively imported from source_file.
+def _norm(p: Path) -> str:
+    return p.as_posix().lstrip("./")
 
-    Returns (reached_files, unresolved_modules). Files outside the project
-    root are unresolved and stop the walk. The source_file itself is excluded
-    from reached.
+
+def _closure_walk(
+    root: Path, source_file: Path
+) -> tuple[set[Path], set[str], list[ImportEdge]]:
+    """The single BFS traversal both transitive_imports and
+    build_import_closure are built on: walks every file reachable from
+    source_file, resolving each import via _resolve_import, and records
+    every edge encountered (resolved or not) as an ImportEdge.
+
+    Returns (reached_files, unresolved_modules, edges). Files outside the
+    project root are unresolved and stop the walk. source_file itself is
+    excluded from reached.
     """
     root_resolved = root.resolve()
     reached: set[Path] = set()
     unresolved: set[str] = set()
+    edges: list[ImportEdge] = []
     seen: set[Path] = set()
     queue: list[Path] = [source_file.resolve()]
     while queue:
@@ -141,26 +155,44 @@ def transitive_imports(root: Path, source_file: Path) -> tuple[set[Path], set[st
             text = cur.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for module, level, _kind in _import_edges(text):
+        try:
+            src_rel = _norm(cur.relative_to(root_resolved))
+        except ValueError:
+            src_rel = _norm(cur)
+        for module, level, kind in _import_edges(text):
             resolved = _resolve_import(root, module, level, cur)
             if resolved is None:
                 unresolved.add(module)
+                edges.append(ImportEdge(source=src_rel, target=module, kind=kind))
                 continue
             try:
                 resolved.relative_to(root_resolved)
             except ValueError:
                 continue
+            tgt_rel = _norm(resolved.relative_to(root_resolved))
+            edges.append(ImportEdge(source=src_rel, target=tgt_rel, kind=kind))
             if resolved in seen:
                 continue
             reached.add(resolved)
             queue.append(resolved)
     # Exclude the seed itself
     reached.discard(source_file.resolve())
+    return reached, unresolved, edges
+
+
+def transitive_imports(root: Path, source_file: Path) -> tuple[set[Path], set[str]]:
+    """All project files transitively imported from source_file.
+
+    Returns (reached_files, unresolved_modules). Files outside the project
+    root are unresolved and stop the walk. The source_file itself is excluded
+    from reached.
+
+    A thin projection of _closure_walk: keeps its (reached, unresolved) pair
+    and discards the edge list, so this old, narrower answer is guaranteed
+    identical to build_import_closure's traversal by construction.
+    """
+    reached, unresolved, _edges = _closure_walk(root, source_file)
     return reached, unresolved
-
-
-def _norm(p: Path) -> str:
-    return p.as_posix().lstrip("./")
 
 
 def compute_overlap(root: Path, selection: str, changed_files: Iterable[str]) -> OverlapResult:
@@ -190,49 +222,6 @@ def compute_overlap(root: Path, selection: str, changed_files: Iterable[str]) ->
         overlap=overlap,
         unresolved=tuple(sorted(unresolved)),
     )
-
-
-def _closure_walk(
-    root: Path, source_file: Path
-) -> tuple[set[Path], set[str], list[ImportEdge]]:
-    """Like transitive_imports, but also records every edge encountered
-    (resolved or not) as an ImportEdge, across every file visited."""
-    root_resolved = root.resolve()
-    reached: set[Path] = set()
-    unresolved: set[str] = set()
-    edges: list[ImportEdge] = []
-    seen: set[Path] = set()
-    queue: list[Path] = [source_file.resolve()]
-    while queue:
-        cur = queue.pop(0)
-        if cur in seen or not cur.exists():
-            continue
-        seen.add(cur)
-        try:
-            text = cur.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        try:
-            src_rel = _norm(cur.relative_to(root_resolved))
-        except ValueError:
-            continue
-        for module, level, kind in _import_edges(text):
-            resolved = _resolve_import(root, module, level, cur)
-            if resolved is None:
-                unresolved.add(module)
-                edges.append(ImportEdge(source=src_rel, target=module, kind=kind))
-                continue
-            try:
-                resolved.relative_to(root_resolved)
-            except ValueError:
-                continue
-            tgt_rel = _norm(resolved.relative_to(root_resolved))
-            edges.append(ImportEdge(source=src_rel, target=tgt_rel, kind=kind))
-            if resolved not in seen:
-                reached.add(resolved)
-                queue.append(resolved)
-    reached.discard(source_file.resolve())
-    return reached, unresolved, edges
 
 
 def build_import_closure(repo_root: Path, roots: Iterable[str]) -> ImportClosure:
