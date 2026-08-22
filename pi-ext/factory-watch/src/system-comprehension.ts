@@ -685,3 +685,37 @@ export function closeOpenCard(): void {
   const anyDocument = document as any;
   if (typeof anyDocument.__refCardClose === 'function') anyDocument.__refCardClose();
 }
+
+export interface BrowserRemediationAction {
+  kind: 'trace_link' | 'trace_defer' | 'register_bind';
+  args: Record<string, unknown>;
+}
+
+/** Render a confirmation affordance without ever rendering/executing a command string. */
+export function renderActionConfirmation(action: BrowserRemediationAction): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'system-action-confirmation';
+  const args = action && action.args ? action.args : {};
+  const allowed = ['trace_link', 'trace_defer', 'register_bind'].includes(action?.kind);
+  const hasCommand = Object.prototype.hasOwnProperty.call(args, 'command');
+  const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
+  const label = document.createElement('span');
+  label.className = 'system-action-reason';
+  label.textContent = allowed && !hasCommand
+    ? 'Confirm ' + action.kind.replace('_', ' ') + (reason ? ': ' + reason : '')
+    : 'Unsupported remediation action';
+  box.appendChild(label);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'system-action-confirm';
+  button.textContent = 'Confirm action';
+  button.disabled = !allowed || hasCommand;
+  if (allowed && !hasCommand) {
+    button.dataset.action = JSON.stringify(action);
+    button.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('system-action-confirmed', { detail: action }));
+    });
+  }
+  box.appendChild(button);
+  return box;
+}

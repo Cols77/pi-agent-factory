@@ -31,6 +31,7 @@ import {
   refCardFields,
   refChip,
   renderVocabularyPanel,
+  renderActionConfirmation,
   resolveLabel,
   vocabularyBadgeFor,
 } from './system-comprehension.js';
@@ -101,6 +102,7 @@ function clientSource(): string {
     definitionCardFields,
     humaniseGroup,
     renderVocabularyPanel,
+    renderActionConfirmation,
     badge,
     freshnessBadge,
     citationLine,

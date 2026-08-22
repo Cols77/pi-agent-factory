@@ -19,7 +19,7 @@ import type { CliResult } from "./cli-runner.js";
 // next request spawns a fresh one.
 export interface WorkerRequest {
   cmd: string;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
 }
 
 interface RunningWorker {
@@ -38,7 +38,7 @@ function buildWorkerCommand(cwd: string): { bin: string; args: string[] } {
     bin: "uv",
     // `-u` (unbuffered) plus the worker's own per-line flush: a piped stdout
     // must never sit in a buffer while the caller waits for its response.
-    args: ["run", "python", "-u", "-m", "factory.system", "worker", "--repo-root", cwd],
+    args: ["run", "python", "-u", "-m", "coherence.navigate", "worker", "--repo-root", cwd],
   };
 }
 

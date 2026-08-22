@@ -1,6 +1,11 @@
-"""Read-only system navigator: briefings, validation matrices, decision
+from __future__ import annotations
 
-timelines, and a grounded guide assembled over evidence recorded elsewhere
-in the repo. This package owns shapes only -- no queries, no CLI (see the
-design doc for the full rollout).
-"""
+import warnings
+
+warnings.warn(
+    "factory.system is deprecated; use coherence.navigate",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+from coherence.navigate import *  # noqa: F401,F403,E402

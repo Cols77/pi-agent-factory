@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-import sys
+import warnings
 
-from factory.system.cli import main
+warnings.warn(
+    "factory.system is deprecated; use coherence.navigate",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+from coherence.navigate.cli import main  # noqa: E402
+
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    raise SystemExit(main())

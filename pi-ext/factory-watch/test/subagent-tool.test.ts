@@ -17,7 +17,6 @@ import {
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 const sessionEvent = (id = "ses-123") =>
   JSON.stringify({ type: "session", version: 3, id, cwd: "C:\\repo" });

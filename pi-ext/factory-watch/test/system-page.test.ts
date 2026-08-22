@@ -166,7 +166,7 @@ function serveWorker(
 // The docs server spawns exactly one long-lived worker process; when the
 // worker answers, the one-shot per-command spawn is never used.
 function isWorkerArgv(args: string[]): boolean {
-  return args[4] === "factory.system" && args[5] === "worker";
+  return args[4] === "coherence.navigate" && args[5] === "worker";
 }
 
 function mockAsyncSystemCli(): void {
@@ -381,7 +381,7 @@ describe("GET /system and /api/system/*", () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(spawn).toHaveBeenCalledWith(
       "uv",
-      ["run", "python", "-u", "-m", "factory.system", "worker", "--repo-root", expect.any(String)],
+      ["run", "python", "-u", "-m", "coherence.navigate", "worker", "--repo-root", expect.any(String)],
       expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
     );
     expect(spawnSync).not.toHaveBeenCalled();

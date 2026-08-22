@@ -17,6 +17,10 @@
       "minLength": 1,
       "description": "One or two sentences stating WHAT the feature is -- an expansion of `label`. Rationale for why artifacts were grouped this way belongs in an ADR, not here. There is no length cap: a truncated description is worse than a long one, because the reader cannot tell what was cut."
     },
+    "draft": {
+      "type": "boolean",
+      "description": "True when this bundle is a generated proposal awaiting human acceptance."
+    },
     "members": {
       "type": "array",
       "uniqueItems": true,

@@ -72,7 +72,14 @@ def test_missing_or_unknown_group_module_entry_returns_two_and_lists_valid_group
     assert all(group in output for group in ("trace", "register", "doctor"))
 
 
-@pytest.mark.parametrize("group", ["trace", "register", "doctor"])
+@pytest.mark.parametrize("group", ["navigate", "presentation", "goals", "simulation"])
+def test_coherence_exposes_increment_three_groups(group):
+    from coherence import cli
+
+    assert group in cli.GROUPS
+
+
+@pytest.mark.parametrize("group", ["trace", "register", "doctor", "navigate", "presentation", "goals", "simulation"])
 def test_dispatch_passes_child_argv_unchanged(group, monkeypatch):
     from coherence import cli
 

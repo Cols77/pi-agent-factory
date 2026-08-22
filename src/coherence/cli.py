@@ -4,10 +4,22 @@ import sys
 from collections.abc import Sequence
 
 from coherence.doctor.cli import main as doctor_main
+from coherence.goals.cli import main as goals_main
+from coherence.navigate.cli import main as navigate_main
+from coherence.presentation.cli import main as presentation_main
 from coherence.register.cli import main as register_main
+from coherence.simulation.cli import main as simulation_main
 from coherence.trace.cli import main as trace_main
 
-GROUPS = {"trace": trace_main, "register": register_main, "doctor": doctor_main}
+GROUPS = {
+    "trace": trace_main,
+    "register": register_main,
+    "doctor": doctor_main,
+    "navigate": navigate_main,
+    "presentation": presentation_main,
+    "goals": goals_main,
+    "simulation": simulation_main,
+}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -8,9 +8,8 @@ warnings.warn(
     stacklevel=2,
 )
 
-from coherence.goals.cli import main
+from coherence.goals.cli import main  # noqa: E402
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

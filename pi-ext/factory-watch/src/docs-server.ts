@@ -90,7 +90,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 async function systemRequest<T>(
   cwd: string,
   cmd: string,
-  params: Record<string, string>,
+  params: Record<string, unknown>,
   fallback: () => Promise<CliResult<T>> | CliResult<T>,
 ): Promise<CliResult<T>> {
   const viaWorker = await systemWorkerRequest<T>(cwd, { cmd, params });
@@ -508,6 +508,42 @@ async function handle(cwd: string, req: IncomingMessage, res: ServerResponse): P
       return;
     }
     json(res, 200, result.value);
+    return;
+  }
+
+  // Remediation is the only mutating system route. It is worker-only so a
+  // worker failure never falls back to arbitrary command execution. The
+  // Python action service applies the closed allow-list and requires the
+  // browser to send an explicit confirmation bit.
+  if (req.method === "POST" && url.pathname === "/api/system/action") {
+    readActionBody(req, res, async (body) => {
+      const keys = Object.keys(body).sort();
+      if (keys.length !== 2 || keys[0] !== "action" || keys[1] !== "confirmed") {
+        json(res, 400, { error: "action request requires exactly action and confirmed" });
+        return;
+      }
+      if (typeof body.action !== "object" || body.action === null || Array.isArray(body.action)) {
+        json(res, 400, { error: "action must be a JSON object" });
+        return;
+      }
+      if (typeof body.confirmed !== "boolean") {
+        json(res, 400, { error: "confirmed must be a boolean" });
+        return;
+      }
+      const result = await systemWorkerRequest(cwd, {
+        cmd: "action",
+        params: { action: body.action, confirmed: body.confirmed },
+      });
+      if (result === null) {
+        json(res, 503, { error: "action worker unavailable; no write was attempted" });
+        return;
+      }
+      if (!result.ok) {
+        json(res, body.confirmed ? 400 : 409, { error: result.error });
+        return;
+      }
+      json(res, 200, result.value);
+    });
     return;
   }
 

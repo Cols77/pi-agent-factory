@@ -12,6 +12,7 @@ import {
   refCardFields,
   refChip,
   renderVocabularyPanel,
+  renderActionConfirmation,
 } from "../src/system-comprehension.js";
 import {
   badge,
@@ -94,6 +95,27 @@ const A_CLAIM = {
   freshness: { state: "fresh", reason: null, dependencies: [] },
   citations: [], spans: [],
 };
+
+test("remediation confirmation renders the typed reason and no command", () => {
+  const action = {
+    kind: "trace_defer" as const,
+    args: { node_id: "T-060", reason: "awaiting review" },
+  };
+  const element = renderActionConfirmation(action);
+  expect(element.textContent).toContain("awaiting review");
+  expect(element.querySelector("button")?.dataset.action).toContain("trace_defer");
+  expect(element.querySelector("button")?.disabled).toBe(false);
+});
+
+test("remediation confirmation disables an action carrying command text", () => {
+  const element = renderActionConfirmation({
+    kind: "trace_defer",
+    args: { node_id: "T-060", reason: "unsafe", command: "rm -rf ." },
+  });
+  expect(element.textContent).not.toContain("rm -rf .");
+  expect(element.querySelector("button")?.disabled).toBe(true);
+  expect(element.querySelector("button")?.dataset.action).toBeUndefined();
+});
 
 const RECORDED_TERM = {
   term: "recorded", group: "claim-kind", label: "recorded",

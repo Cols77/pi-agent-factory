@@ -87,7 +87,7 @@ describe("system worker protocol", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(spawnMock).toHaveBeenCalledWith(
       "uv",
-      ["run", "python", "-u", "-m", "factory.system", "worker", "--repo-root", "/repo"],
+      ["run", "python", "-u", "-m", "coherence.navigate", "worker", "--repo-root", "/repo"],
       expect.objectContaining({ cwd: "/repo", stdio: ["pipe", "pipe", "pipe"] }),
     );
     // The request line is the documented JSON protocol with a monotonic id.

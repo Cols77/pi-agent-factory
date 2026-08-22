@@ -849,7 +849,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "goal",
       "gloss": "cites a goal file under goals/",
-      "definition": "The cited path is a goal file under `goals/`, loaded through `factory.goals.registry` -- the measurable engineering contract (brief §5.3). Used by the durable-memory projection's open-goal entries (`factory.memory.durable`) so an open goal's entry carries a citation to the goal file that declares it.",
+      "definition": "The cited path is a goal file under `goals/`, loaded through `coherence.goals.registry` -- the measurable engineering contract (brief §5.3). Used by the durable-memory projection's open-goal entries (`factory.memory.durable`) so an open goal's entry carries a citation to the goal file that declares it.",
       "siblings": [
         "manifest",
         "task",
@@ -871,7 +871,7 @@ export const VOCABULARY_DATA = {
       "group": "citation-kind",
       "label": "trace",
       "gloss": "cites a spec, plan, feature, metric, or goal",
-      "definition": "The cited path is one of the trace graph's other document kinds -- a spec, a plan, or a feat/metric/goal node -- resolved through the same loader the `factory.trace` command itself uses, never a second parser.",
+      "definition": "The cited path is one of the trace graph's other document kinds -- a spec, a plan, or a feat/metric/goal node -- resolved through the same loader the `coherence.trace` command itself uses, never a second parser.",
       "siblings": [
         "manifest",
         "task",
@@ -1178,7 +1178,7 @@ export const REMEDIATION_DATA = {
       "headline": "Task satisfies no requirement",
       "what_it_means": "This task declares no `satisfies` edge linking it to any requirement.",
       "why_it_matters": "A task with no satisfies edge can't be counted toward any requirement's coverage, so the work it represents is invisible to the trace graph.",
-      "command": "uv run python -m factory.trace link {id} --satisfies <SR-id>",
+      "command": "uv run python -m coherence.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1187,7 +1187,7 @@ export const REMEDIATION_DATA = {
       "headline": "Task declares no source plan",
       "what_it_means": "This task declares no `source_plan` edge pointing at the plan that produced it.",
       "why_it_matters": "Without a source_plan, the task->plan->spec chain has nothing to walk, so its Trace tab and the working traversal can't reach the plan or spec it came from.",
-      "command": "uv run python -m factory.trace link {id} --source-plan <plan-filename>",
+      "command": "uv run python -m coherence.trace link {id} --source-plan <plan-filename>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1196,7 +1196,7 @@ export const REMEDIATION_DATA = {
       "headline": "Task's source plan does not exist",
       "what_it_means": "This task's recorded `source_plan` points at a plan that doesn't exist in the trace graph.",
       "why_it_matters": "The link was recorded but the plan it names is gone or was never there, so the task's plan hop dead-ends instead of resolving.",
-      "command": "uv run python -m factory.trace link {id} --source-plan <existing-plan-filename>",
+      "command": "uv run python -m coherence.trace link {id} --source-plan <existing-plan-filename>",
       "command_kind": "shell",
       "severity": "failure"
     },
@@ -1205,7 +1205,7 @@ export const REMEDIATION_DATA = {
       "headline": "Plan references no spec",
       "what_it_means": "This plan declares no `spec_ref` edge pointing at the spec that authorized it.",
       "why_it_matters": "Without a spec_ref, the plan's design rationale can't be traced back to the spec that authorized it.",
-      "command": "uv run python -m factory.trace link {id} --spec <spec-filename>",
+      "command": "uv run python -m coherence.trace link {id} --spec <spec-filename>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1232,7 +1232,7 @@ export const REMEDIATION_DATA = {
       "headline": "Requirement's binding is not yet decided",
       "what_it_means": "This SR is `proposed`: accepted in substance, but it carries no measurement binding yet.",
       "why_it_matters": "A proposed SR can never be validated -- there is no experiment, metric, or assertion recorded to check it against.",
-      "command": "uv run python -m factory.requirements bind {id} --experiment <name> --metric <metric> --assert <expression>",
+      "command": "uv run python -m coherence.register bind {id} --experiment <name> --metric <metric> --assert <expression>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1322,7 +1322,7 @@ export const REMEDIATION_DATA = {
       "headline": "No requirements recorded on this task",
       "what_it_means": "This task declares no `satisfies` edges -- the same condition the `task_no_sr` gap reports.",
       "why_it_matters": "A task with no requirement link can't be shown as implementing anything the system is tracking.",
-      "command": "uv run python -m factory.trace link {id} --satisfies <SR-id>",
+      "command": "uv run python -m coherence.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1367,7 +1367,7 @@ export const REMEDIATION_DATA = {
       "headline": "No features defined yet",
       "what_it_means": "A feature bundle groups the requirements, tasks, and decisions you read together to understand one part of the system. Bundles are hand-authored, not generated: create `bundles/<id>.json` with `id`, `label`, and `members` (a list of `sr:`/`task:`/`spec:`/`plan:`/... refs), and optionally a `description` (one or two sentences stating what the feature is -- there is no length cap).",
       "why_it_matters": "Bundles are how this project is browsed, so until one exists the directory stays empty. The command below only checks a draft file you've already written -- it proposes nothing and writes nothing, the draft is judged, not generated -- there is no CLI that creates the bundle file for you.",
-      "command": "uv run python -m factory.system bundle check --draft <path>",
+      "command": "uv run python -m coherence.navigate bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1376,7 +1376,7 @@ export const REMEDIATION_DATA = {
       "headline": "No description recorded",
       "what_it_means": "No description is recorded for this artifact: a bundle has no `description` field, or a spec/plan has none of the named sections the label index looks for (`Purpose`, `Goal`, `Problem`, `Overview`, `Summary`, or a plan's `**Goal:**` line -- design Component 1).",
       "why_it_matters": "Without a recorded description, the card that opens on hover or focus has nothing to show beyond the id and title. For a bundle, add a `description` (one or two sentences stating what the feature is -- there is no length cap) to its hand-authored `bundles/<id>.json` by hand, then use the command below to check it -- the command validates a draft you edit yourself; it does not write the field for you. For a spec or plan, there is no CLI at all -- add the named section or `**Goal:**` line directly in the document.",
-      "command": "uv run python -m factory.system bundle check --draft <path>",
+      "command": "uv run python -m coherence.navigate bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1403,7 +1403,7 @@ export const REMEDIATION_DATA = {
       "headline": "Not a member of any bundle",
       "what_it_means": "This artifact is not listed as a member of any bundle declaration.",
       "why_it_matters": "Unbundled artifacts are unreachable by browsing the feature directory -- only a direct ref or the Trace tab reaches them. To fix this, add this ref to the `members` list of an existing (or new) hand-authored `bundles/<id>.json` -- the command below only checks that edit; it does not add the membership for you, the draft is judged, not generated.",
-      "command": "uv run python -m factory.system bundle check --draft <path>",
+      "command": "uv run python -m coherence.navigate bundle check --draft <path>",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1411,7 +1411,7 @@ export const REMEDIATION_DATA = {
       "state": "unresolved_ref",
       "headline": "Reference does not resolve",
       "what_it_means": "A reference shown on this page (a member-of bundle id, a satisfies/upstream target, a trace hop) doesn't resolve to any known artifact; the browser shows the raw text plus the note \"not in the label index\".",
-      "why_it_matters": "A ref that can't resolve means the id it names is either misspelled or was never created, so whatever it points at can't be reached from here. `/trace-fix` only helps when the broken ref is a trace edge (satisfies/source_plan/spec_ref/upstream) -- for the `member_of` flavour of this gap (a bundle listing a member ref that doesn't resolve), `factory.trace link` has no `--member-of` flag, so the fix is to hand-edit the bundle's `members` list directly; running `/trace-fix {id}` will not touch it.",
+      "why_it_matters": "A ref that can't resolve means the id it names is either misspelled or was never created, so whatever it points at can't be reached from here. `/trace-fix` only helps when the broken ref is a trace edge (satisfies/source_plan/spec_ref/upstream) -- for the `member_of` flavour of this gap (a bundle listing a member ref that doesn't resolve), `coherence.trace link` has no `--member-of` flag, so the fix is to hand-edit the bundle's `members` list directly; running `/trace-fix {id}` will not touch it.",
       "command": "/trace-fix {id}",
       "command_kind": "slash",
       "severity": "failure"

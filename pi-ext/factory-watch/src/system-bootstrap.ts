@@ -696,6 +696,18 @@ export async function systemBootstrap(): Promise<void> {
     const tab = anchor.getAttribute('data-tab');
     void loadScope(ref, true, true, tab || undefined);
   });
+
+  // Remediation actions are emitted by a confirmation button only. The
+  // browser sends the typed object plus an explicit confirmation bit to the
+  // worker-backed endpoint; it never interprets or executes command text.
+  document.addEventListener('system-action-confirmed', (event: Event) => {
+    const action = (event as CustomEvent).detail;
+    void fetch('/api/system/action', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action, confirmed: true }),
+    });
+  });
   (document.getElementById('tabMatrix') as HTMLElement).onclick = () => showTab('Matrix');
   (document.getElementById('tabTimeline') as HTMLElement).onclick = () => showTab('Timeline');
   (document.getElementById('tabGuide') as HTMLElement).onclick = () => showTab('Guide');
