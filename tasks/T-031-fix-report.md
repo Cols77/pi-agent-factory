@@ -1,5 +1,64 @@
 # T-031 fix report — Catchup tab orientation metadata
 
+## Follow-up fix (review round 1) — missing "New experiments" clause
+
+Review flagged one Important finding on commit `91d7717`: `renderCatchup`
+(`system-catchup-view.ts` lines 249-302) renders seven `catchupSection`
+blocks — Requirements, Design decisions (ADRs), Implementation (PRs merged),
+**New experiments** (`scenarios_added`), Goals, Metrics, New open items — but
+the `Catchup` entry's `what_it_shows` text named only six of the seven,
+omitting the "new experiments"/`scenarios_added` section even though it's one
+of the eight fields summed into the `changed` count and unconditionally
+rendered when non-empty.
+
+**Fix**: added a "new experiments run" clause to `what_it_shows` in both
+copies:
+
+- `pi-ext/factory-watch/src/system-vocabulary-data.ts`:
+  `"The deterministic delta for this feature since your last recorded
+  review: PRs merged, requirements and ADRs changed, new experiments run,
+  goals reached or regressed, metric changes, and new open items."`
+- `src/factory/system/vocabulary.py`'s `PANELS["Catchup"]["what_it_shows"]`:
+  re-synced to the identical string (its multi-line literal reassembles to
+  the exact same text — verified via `test_table_drift.py`, which does exact
+  JSON equality after concatenation).
+
+No other files changed — `how_to_read` was untouched, and the new
+`system-page-dom.test.ts` test that asserts
+`line.textContent` contains `PANELS_DATA.panels.Catchup.what_it_shows`
+compares against the constant dynamically, so it needed no edit and still
+passes with the updated text.
+
+### Re-verification
+
+1. `npm test --prefix pi-ext/factory-watch` (full suite):
+   ```
+   Test Files  90 passed | 2 skipped (92)
+        Tests  1138 passed | 2 skipped (1140)
+   Duration    183.23s
+   [exited with code 0]
+   ```
+2. `rtk proxy uv run python -m pytest tests/unit/system/test_table_drift.py -q`:
+   ```
+   ...                                                                      [100%]
+   3 passed in 0.62s
+   ```
+   (confirms the TS/Python mirrors stayed byte-for-byte identical after the
+   text edit)
+3. `rtk proxy uv run python -m pytest tests/gates/test_watch_ext_gate.py -q`:
+   ```
+   .                                                                        [100%]
+   1 passed in 223.38s (0:03:43)
+   [exited with code 0]
+   ```
+
+Text-only change, no behavior change, as expected — all green.
+
+Also cleaned up two more `pif-pulse-*` untracked scratch directories that
+leaked into `pi-ext/factory-watch/` from re-running the integration test
+suite (same known pre-existing leak noted in the first report), before
+committing.
+
 ## Root cause
 
 `PANELS_DATA.panels` (`pi-ext/factory-watch/src/system-vocabulary-data.ts`) had

@@ -1410,8 +1410,8 @@ PANELS: dict[str, dict] = {
         "what_it_shows": (
             "The deterministic delta for this feature since your last "
             "recorded review: PRs merged, requirements and ADRs changed, "
-            "goals reached or regressed, metric changes, and new open "
-            "items."
+            "new experiments run, goals reached or regressed, metric "
+            "changes, and new open items."
         ),
         "how_to_read": (
             "Every field is computed, never an LLM summary -- a feature "
