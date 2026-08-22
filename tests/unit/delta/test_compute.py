@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from factory.delta.compute import ContextDelta, compute_delta
-from _seed_repo import git, seed_repo
+from tests.unit._seed_repo import git, seed_repo
 
 pytestmark = pytest.mark.unit
 

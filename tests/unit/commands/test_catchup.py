@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from _seed_repo import git, seed_repo
+from tests.unit._seed_repo import git, seed_repo
 from factory.commands.catchup import run_catchup
 from factory.delta.checkpoint import Checkpoint, load_checkpoint, save_checkpoint
 from factory.system.queries import ScopeNotFoundError, query_catchup
