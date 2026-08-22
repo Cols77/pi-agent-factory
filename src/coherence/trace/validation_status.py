@@ -9,7 +9,8 @@ SrState = Literal["passed", "failed", "error", "never_validated"]
 
 
 class HasState(Protocol):
-    state: str
+    @property
+    def state(self) -> str: ...
 
 REPORT_RELPATH = ("validation", "validation-report.json")
 

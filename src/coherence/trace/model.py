@@ -177,13 +177,14 @@ def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
         edges.append(Edge(src_id, dst, "parent_of"))
     for parent in as_str_list(meta.get("child_of")):
         edges.append(Edge(parent, src_id, "parent_of"))
-    for field, kind in (
+    edge_fields: tuple[tuple[str, EdgeKind], ...] = (
         ("verified_by", "verified_by"),
         ("demonstrates", "demonstrates"),
         ("evaluates", "evaluates"),
         ("contains", "contains"),
         ("illustrates", "illustrates"),
-    ):
+    )
+    for field, kind in edge_fields:
         for dst in as_str_list(meta.get(field)):
             edges.append(Edge(src_id, dst, kind))
     return edges

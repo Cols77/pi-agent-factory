@@ -3,6 +3,7 @@
 import warnings
 
 from coherence.trace.model import *  # noqa: F403
+from coherence.trace.model import _load_post  # noqa: F401
 
 
 warnings.warn(
