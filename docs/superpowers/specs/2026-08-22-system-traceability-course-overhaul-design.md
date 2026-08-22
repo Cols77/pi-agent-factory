@@ -203,12 +203,28 @@ until the gate passes.
   gate exit).
 - **Gate I** (see §7).
 
-### Increment 2 — The seven untaught workflow lessons
+### Increment 2 — The eight workflow lessons (seven untaught + progressive-assurance roadmap)
 
-One lesson per workflow. Each: exact live verbs, one worked micro-example against the
+One lesson per workflow. Each: exact live verbs (or, for the roadmap lesson, the designed vocabulary), one worked micro-example against the
 real repo state, one diagram where it earns its place, a retrieval-first quiz, and a
 citation to the governing spec or source file.
 
+0. **Progressive assurance: obligations, profiles, nonconformances (roadmap)** — added at
+   the learner's request after the second-wave amendment. Teaches the vocabulary as
+   **designed, not shipped**: the seven-dimension profile (`maturity`, `consequence`,
+   `reversibility`, `volatility`, `verification_cost`, `exposure`, `collaboration`), the
+   compiled `Obligation` contract `{id, scope_ref, kind, requiredness, reason,
+   source_policy, state, resolve_cmd}` with `requiredness`
+   `not_applicable|advisory|required|blocking`, typed task `justification:`
+   (satisfies/corrects/mitigates/implements/maintains/explores), `docs/nonconformances/
+   NC-*.md` records (mirror of `FR-*`, `external_ref: gh-issue:<n>`, `corrected_by:
+   T-031`), the eleven-dimension health vector, suspect-edge
+   `proposed|valid|suspect|invalid|waived` with the STRICT no-auto-`valid` rule, CI as a
+   compiled obligation consumer (D18), and the increment map 2B→2C→3B→4→5→6→6B/7-8 with
+   D15 (never reopen a shipped increment). Grounded in
+   `2026-08-22-coherence-progressive-assurance-design.md`; every command-level claim
+   carries the "as of 2026-08-22, not shipped" label. Quiz asks the learner to
+   distinguish live-vs-roadmap and name the strict rule — retrieval, not recognition.
 1. **Staleness and checksums** (the named gap):
    `coherence.register index|status --stale`, trace gap `sr_stale`, `is_checksum_current`,
    `content_checksum`, `substrate.freshness` fingerprints, `derived_auto/repeatable_policy/
@@ -246,15 +262,16 @@ citation to the governing spec or source file.
   arc: what the framework does (coherence brand, one loop, the deterministic split) →
   where each numbered lesson sits → how to run the first loop on a real project → where
   the course map lives. Serves as the entry point a newcomer opens first. Numbering after
-  Increment 2 runs: 004 staleness, 005 doctor loop, 006 evidence+recovery, 007 navigator
-  read-backs, 008 coverage run flow, 009 goals+simulation, 010 agent mechanics.
+  Increment 2 runs: 004 progressive-assurance (roadmap), 005 staleness, 006 doctor loop,
+  007 evidence+recovery, 008 navigator read-backs, 009 coverage run flow, 010
+  goals+simulation, 011 agent mechanics.
 - **Roadmap perspective**: fold the spec audit's current-vs-planned split into a
   newcomer-readable map (this is live today / this is the roadmap; what will not survive
   the carve: residual `factory.*` renames, coverage→membership, /factory-doctor→
   /factory-selfcheck; the progressive-assurance layer as designed-not-shipped);
   cross-link 003.
 - **Course map diagram** (tff-generate_visual HTML into `assets/`, linked): the full
-  lesson flow 000→010 with prerequisites.
+  lesson flow 000→011 with prerequisites.
 - **Gate III**: full-course fresh-eyes audit (see §7), browser render check of every
   lesson, quiz-key contract check, broken-link scan.
 
@@ -306,11 +323,12 @@ Gate failure blocks the increment. The gate itself is recorded in
   topic from the Q&A ('filename link', 'exempt a requirement', 'model creates the link',
   'how implemented in the coding agent') is covered by a lesson or explicitly marked
   deferred.
-- End of Increment 3: a newcomer with zero factory context can follow lesson 000 → 010
+- End of Increment 3: a newcomer with zero factory context can follow lesson 000 → 011
   (the full spine) and end able to run a full understand → audit → close-gaps → re-gate
   loop on `cool_physical_ai_project`, naming the tool for each step and which layer is
   authoritative for which question — and able to say, for any coherence item, whether it
-  is live or roadmap ("as of 2026-08-22").
+  is live or roadmap ("as of 2026-08-22"), including the progressive-assurance vocabulary
+  (obligations, profiles, NC-* records, health vector) recognized as designed-not-shipped.
 
 ## 9. Risks and open items
 
@@ -334,8 +352,9 @@ Gate failure blocks the increment. The gate itself is recorded in
 ## 10. Decisions already taken (with the learner)
 
 - Sequencing: strict 1 → 2 → 3, each gated (learner: "yess sounds good").
-- Increment 2 carries the full set of seven workflow lessons (learner asked to cover all
-  untaught topics, not a subset).
+- Increment 2 carries the full set of eight workflow lessons — the seven untaught
+  workflows plus a dedicated progressive-assurance (roadmap) lesson, added at the
+  learner's request after the second-wave amendment.
 - Design doc homes here (repo `docs/superpowers/specs/`), amended for the second-wave
   drift; course content lands in the classroom directory; the implementation plan will
   follow under `docs/superpowers/plans/` per the superpowers flow.
