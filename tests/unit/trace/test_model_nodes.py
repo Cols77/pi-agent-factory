@@ -191,3 +191,24 @@ def test_a_malformed_requirement_still_degrades_to_a_filename_node(tmp_path):
     nodes = {n.path.name: n for n in load_nodes(tmp_path)}
     assert nodes["SR-bad.md"].id == "SR-bad.md"
     assert nodes["SR-bad.md"].proposed is False
+
+
+def test_task_with_unsupported_justification_kind_degrades_to_a_scope_error(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-902.md",
+        "---\nid: T-902\ntitle: t\nstatus: todo\ndod: []\n"
+        "justification:\n- rejects: SR-001\n---\n",
+    )
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["T-902"].scope_error is not None
+    assert "rejects" in nodes["T-902"].scope_error
+
+
+def test_task_with_well_formed_justification_has_no_scope_error(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-903.md",
+        "---\nid: T-903\ntitle: t\nstatus: todo\ndod: []\n"
+        "justification:\n- corrects: NC-0001\n---\n",
+    )
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["T-903"].scope_error is None

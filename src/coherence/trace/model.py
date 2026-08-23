@@ -34,6 +34,7 @@ class Node:
     deferred: str | None = None
     proposed: bool = False
     diagram_file: str | None = None
+    scope_error: str | None = None
 
 
 def _load_post(path: Path) -> frontmatter.Post | None:
@@ -56,11 +57,37 @@ def _first_heading(text: str, fallback: str) -> str:
     return match.group(1).strip() if match else fallback
 
 
+_JUSTIFICATION_KINDS = (
+    "satisfies", "corrects", "mitigates", "implements", "maintains", "explores",
+)
+JUSTIFICATION_EDGE_KINDS: frozenset[str] = frozenset(_JUSTIFICATION_KINDS)
+
+
+def _justification_scope_error(meta: dict) -> str | None:
+    """Mirrors substrate.ledger.tasks._parse_justification's shape/kind checks,
+    independently -- this module never imports substrate.ledger.tasks (stays a
+    pure frontmatter reader; extract_edges/load_nodes must work without it).
+    """
+    raw = meta.get("justification")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return "justification must be a list of single-key {kind: target_id} mappings"
+    for entry in raw:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            return f"each justification entry must be a single {{kind: target_id}} mapping, got {entry!r}"
+        ((kind, _target_id),) = entry.items()
+        if kind not in _JUSTIFICATION_KINDS:
+            return f"unknown justification kind {kind!r} (have {_JUSTIFICATION_KINDS})"
+    return None
+
+
 def _id_node(path: Path, kind: NodeKind) -> Node:
     post = _load_post(path)
     if post is None or "id" not in post.metadata:
         return Node(id=path.name, kind=kind, title=path.name, path=path)
     exempt, deferred = _disposition(post.metadata)
+    scope_error = _justification_scope_error(post.metadata) if kind == "task" else None
     return Node(
         id=str(post.metadata["id"]),
         kind=kind,
@@ -74,6 +101,7 @@ def _id_node(path: Path, kind: NodeKind) -> Node:
         diagram_file=str(post.metadata["diagram_file"])
         if kind == "diag" and "diagram_file" in post.metadata
         else None,
+        scope_error=scope_error,
     )
 
 
@@ -140,6 +168,24 @@ EdgeKind = Literal[
     "evaluates",
     "contains",
     "illustrates",
+    # Typed lifecycle relationships (spec §4): intent, design, assurance, change.
+    "derives",
+    "decomposes",
+    "refines",
+    "allocates",
+    "implements",
+    "verifies",
+    "validates",
+    "mitigates",
+    "evidences",
+    "corrects",
+    "impacts",
+    "supersedes",
+    # Task-justification-only kinds (substrate.ledger.tasks._JUSTIFICATION_KINDS)
+    # that spec §4's lifecycle list does not itself name -- added so every
+    # legal justification entry maps to a real edge kind (see Task 7 Decision 1).
+    "maintains",
+    "explores",
 ]
 
 _SPEC_REF_RE = re.compile(r"docs/superpowers/specs/([A-Za-z0-9._-]+\.md)")
@@ -190,6 +236,29 @@ def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
     return edges
 
 
+def _edges_from_justification(node_id: str, meta: dict) -> list[Edge]:
+    """Task-node justification edges (spec §4 "typed task justification").
+    Legacy `satisfies:` frontmatter with no `justification:` key is read as
+    shorthand for `justification: [{satisfies: ...}]`, producing byte-
+    identical `satisfies` edges to before this change. A malformed or
+    unsupported-kind entry produces no edge here -- it is already recorded on
+    the node as `scope_error` by `_id_node`/`_justification_scope_error`."""
+    raw = meta.get("justification")
+    if raw is None:
+        return [Edge(node_id, sr_id, "satisfies") for sr_id in as_str_list(meta.get("satisfies"))]
+    if not isinstance(raw, list):
+        return []
+    edges: list[Edge] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            continue
+        ((kind, target_id),) = entry.items()
+        if kind not in _JUSTIFICATION_KINDS:
+            continue
+        edges.append(Edge(node_id, str(target_id), kind))  # type: ignore[arg-type]
+    return edges
+
+
 def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
     edges: list[Edge] = []
     seen: set[Edge] = set()
@@ -208,8 +277,12 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
             source_plan = meta.get("source_plan")
             if source_plan:
                 add(Edge(node.id, f"plan:{Path(str(source_plan)).name}", "source_plan"))
-            for sr_id in as_str_list(meta.get("satisfies")):
-                add(Edge(node.id, sr_id, "satisfies"))
+            if node.kind == "task":
+                for edge in _edges_from_justification(node.id, meta):
+                    add(edge)
+            else:
+                for sr_id in as_str_list(meta.get("satisfies")):
+                    add(Edge(node.id, sr_id, "satisfies"))
             for upstream_id in as_str_list(meta.get("upstream")):
                 add(Edge(node.id, upstream_id, "upstream"))
             for edge in edges_from_frontmatter(node.id, meta):

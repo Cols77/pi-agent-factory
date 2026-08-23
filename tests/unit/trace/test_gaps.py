@@ -182,3 +182,42 @@ def test_a_bound_requirement_with_no_report_is_unvalidated_not_unvalidatable():
 
 def test_a_proposed_requirement_still_needs_a_satisfying_task():
     assert "sr_unsatisfied" in _kinds(find_gaps([_proposed_sr("SR-009")], [], {}), "SR-009")
+
+
+def test_task_with_only_a_corrects_edge_is_not_task_no_sr():
+    # T-031's real case: justified solely by corrects: NC-0001.
+    nodes = [_task("T-031")]
+    edges = [Edge("T-031", "NC-0001", "corrects")]
+    assert "task_no_sr" not in _kinds(find_gaps(nodes, edges, {}), "T-031")
+
+
+def test_task_with_a_mitigates_edge_is_not_task_no_sr():
+    nodes = [_task("T-001")]
+    edges = [Edge("T-001", "FR-EXAMPLE", "mitigates")]
+    assert "task_no_sr" not in _kinds(find_gaps(nodes, edges, {}), "T-001")
+
+
+def test_task_with_only_a_source_plan_edge_still_gets_task_no_sr():
+    # Negative case: a source_plan edge is not a justification -- proves the
+    # fix widened the check to justification kinds, not to "any edge at all".
+    nodes = [_task("T-001"), _plan("p1.md")]
+    edges = [Edge("T-001", "plan:p1.md", "source_plan")]
+    assert "task_no_sr" in _kinds(find_gaps(nodes, edges, {}), "T-001")
+
+
+def test_t031_has_no_task_no_sr_gap_after_migrating_to_corrects():
+    # Exercised against the real repo tree, not a tmp_path fixture -- same
+    # REPO_ROOT convention as tests/unit/memory/test_t031_link.py (Task 4):
+    # tests/unit/trace/test_gaps.py is the same depth below the repo root
+    # (tests/unit/trace/), so parents[3] again.
+    from pathlib import Path
+
+    from coherence.trace.gaps import find_gaps
+    from coherence.trace.model import extract_edges, load_nodes
+
+    root = Path(__file__).resolve().parents[3]
+    nodes = load_nodes(root)
+    edges = extract_edges(root, nodes)
+    gaps = find_gaps(nodes, edges, {})
+    t031_gap_kinds = {g.kind for g in gaps if g.node_id == "T-031"}
+    assert "task_no_sr" not in t031_gap_kinds

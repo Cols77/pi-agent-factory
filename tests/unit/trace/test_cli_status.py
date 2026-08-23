@@ -30,7 +30,7 @@ def test_status_reports_percent_and_gap_count(tmp_path):
 
     assert "task->plan" in text
     assert "%" in text
-    assert "task declares no satisfies" in text
+    assert "task declares no justification" in text
 
 
 def test_graph_dict_is_json_serialisable_and_has_the_expected_keys(tmp_path):

@@ -150,6 +150,28 @@ def test_schema_valid_feature_and_goal_canonical_fields_produce_typed_edges(tmp_
     assert not any(edge.src == "GOAL-NAV-003" and edge.dst == "FEAT-NAV-017" for edge in edges)
 
 
+def test_task_justification_corrects_produces_a_typed_edge(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-031.md",
+        "---\nid: T-031\ntitle: t\nstatus: done\ndod: []\n"
+        "justification:\n- corrects: NC-0001\n---\n",
+    )
+    edges = _edges(tmp_path)
+    assert Edge("T-031", "NC-0001", "corrects") in edges
+    assert not any(e.kind == "satisfies" for e in edges if e.src == "T-031")
+
+
+def test_task_justification_mixed_kinds_produce_their_own_edges(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-900.md",
+        "---\nid: T-900\ntitle: t\nstatus: todo\ndod: []\n"
+        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n---\n",
+    )
+    edges = _edges(tmp_path)
+    assert Edge("T-900", "SR-002", "satisfies") in edges
+    assert Edge("T-900", "FR-EXAMPLE", "mitigates") in edges
+
+
 def test_diagram_stub_illustrates_target_with_a_typed_edge(tmp_path):
     _write(
         tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",

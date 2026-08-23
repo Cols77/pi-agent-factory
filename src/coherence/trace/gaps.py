@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from coherence.trace.model import Edge, Node
+from coherence.trace.model import Edge, JUSTIFICATION_EDGE_KINDS, Node
 from coherence.trace.validation_status import SrStatus
 
 GapKind = Literal[
@@ -75,8 +75,13 @@ def find_gaps(
     for node in nodes:
         node_edges = out[node.id]
         if node.kind == "task":
-            if not any(e.kind == "satisfies" for e in node_edges):
-                add(node, "task_no_sr", "task declares no satisfies")
+            if not any(e.kind in JUSTIFICATION_EDGE_KINDS for e in node_edges):
+                add(
+                    node,
+                    "task_no_sr",
+                    "task declares no justification "
+                    "(satisfies/corrects/mitigates/implements/maintains/explores)",
+                )
             # A task that declares no source_plan at all is just as untraceable as
             # one whose source_plan dangles -- both leave the task->plan slot unfilled.
             if not any(e.kind == "source_plan" for e in node_edges):
