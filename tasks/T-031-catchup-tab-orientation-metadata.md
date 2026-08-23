@@ -10,7 +10,8 @@ dod:
   line without a blank panel-orientation element.'
 - 'The factory-watch Vitest suite and watch extension gate pass.'
 id: T-031
-satisfies: []
+justification:
+  - corrects: NC-0001
 source_plan: null
 status: done
 title: 'Add Catchup tab orientation metadata and coverage'
