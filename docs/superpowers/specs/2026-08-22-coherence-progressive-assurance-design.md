@@ -73,6 +73,10 @@ into it). Decision D15 below resolves this.
 
 ## 3. Decisions (continuing the numbering in the toolset design)
 
+**Amended (same-day review round) — an independent review pass against this spec, the planning
+guide and four implementation plans built from it found five spec-level gaps in the model below;
+see §13 for the correction record.**
+
 | # | Decision | Rationale |
 |---|---|---|
 | D15 | Amend an increment's plan in place only if it has not yet been built; carry forward any delta assigned to an already-shipped increment as a new, separately-numbered increment | Preserves the historical record of what 0/1/1B/1C/2/3 actually shipped; matches how the agentic-io amendment (§15 of the toolset design) was layered rather than rewritten |
@@ -184,10 +188,16 @@ dispatch:
 - Reads the compiled obligation set for the repo's own profile (bootstrapped `prototype` in
   Increment 2B, since the profile compiler does not exist before then) and runs every check
   backing a `blocking` obligation.
-- Under the default preset this resolves, on day one, to exactly what `/factory-run`'s gates
-  already run: `pytest -m unit`, `pytest -m sim`, `pytest tests/integration/ -m integration`,
-  `ruff check .`, `pyright`, `npm test --prefix pi-ext/factory-watch`, plus `coherence trace
-  check` / `coherence register check`.
+- Under the default preset this resolves, on day one, to the command inventory declared by
+  `.factory/factory.yaml`: `{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py`,
+  `{python} -m pytest -m sim -q`, `{python} -m pytest tests/integration/ -q -m integration`,
+  `{python} -m ruff check .`, `{python} -m pyright`, the repeated unit command from `full`,
+  and `{python} -m pytest -m agent -q`, plus `coherence trace check` / `coherence register
+  check`.
+- The extension suite is not a separate command in that inventory: the unit gate's
+  `tests/gates/test_watch_ext_gate.py` invokes `python scripts/gates/watch_ext.py`, which runs
+  `npm --prefix pi-ext/factory-watch run typecheck` followed by
+  `npm --prefix pi-ext/factory-watch test`.
 - No new step list to maintain by hand: a later increment that compiles a new `blocking`
   obligation (e.g. Increment 6's gate-requiredness work, or a `high_assurance`-scoped feature)
   extends what CI enforces automatically (D18).
@@ -294,3 +304,28 @@ running it against a seeded repo state in a dry-run job before it gates real PRs
   graph.
 - **CI drifts from `/factory-run`'s gates.** Mitigated by D18: CI reads the compiled obligation
   set rather than maintaining its own list, so the two cannot silently diverge.
+
+## 13. Amendment record: closing the review-round gaps
+
+This section records how a same-day review round changes the design above. Four implementation
+plans built from this spec were checked, independently, against this document and the planning
+guide (`pi-coherence-progressive-assurance-planning-guide.md`) by separate Opus review passes.
+The passes converged on five spec-level gaps — not plan bugs, but places where this document
+either left an owner unstated, over-claimed scope, left a state transition under-specified, left
+a mechanism with no expressible home, or diverged from the guide without saying so. All five are
+resolved below, as decisions, not open questions. It is evidence for design review, not a second
+roadmap, matching how §15/§16 of the toolset design record their own correction rounds.
+
+| Original concept | What the review found | What the spec now says |
+|---|---|---|
+| §7 (CI) and §4's `Obligation.resolve_cmd` both assume a runnable command string | `{python}` template substitution — required by every real gate command in `.factory/factory.yaml` — was never assigned an owner in this design; it is currently implemented once, in `factory.orchestrator.backends` (`_target_python`, `_quote_for_shell`, applied via `step.cmd.replace("{python}", ...)`) | `coherence.policy.compiler`, which composes `Obligation.resolve_cmd`, reuses `factory.orchestrator.backends`'s existing `_target_python`/`_quote_for_shell` helpers rather than reimplementing substitution. This is layering-legal — `coherence` may import `factory`, never the reverse, an existing repo rule — and keeps one substitution rule instead of two |
+| §6 said dimensions "1, 2, 4–6, 9–11 [are] new obligation-backed queries" | Only `verification_result` (backing dimensions 4/5) and `human_review` (backing dimension 11) have compiled obligation kinds under D16's thin-slice scope (three kinds only). Dimensions 1 (requirement quality/source), 2 (decomposition/architecture allocation), 9 (nonconformance/change closure) and 10 (deferrals/waivers) have no corresponding obligation kind; backing them would mean inventing four new kinds purely to satisfy this sentence, which is not worth doing now | §6's claim is narrowed to match what is actually built: dimensions 3, 7 and (partially) 8 reclassify existing `vcycle_findings`/`freshness_health` findings, unchanged. Dimensions 4, 5 and 11 are genuinely obligation-backed (`verification_result`, `human_review`). Dimensions 1, 2, 9 and 10 are direct queries over existing recorded state — register, trace, `NC-*`, gap data — **not** obligation-backed, and the spec now says so plainly instead of implying otherwise. This is a scope reduction from the original claim, named as one |
+| §4: a governed edge is `proposed \| valid \| suspect \| invalid \| waived`; "only a policy-authorized operation restores `valid`" | A draft suspect-edge classifier let a *deferred* gap (an explicit, recorded acceptance) read back as `valid` with no policy action recorded, and separately let `advisory`/`required` (non-blocking) obligations "auto-resolve" a suspect state once the underlying gap cleared, again with no decision-file action | Resolved to the STRICT reading, stated as the rule with no carve-out: no automatic path to `valid` exists at any requiredness level (`advisory`, `required`, or `blocking`). A deferred or exempt gap classifies as `waived`, never `valid`. Restoring `valid` from `suspect`, `invalid` or `waived` always requires the same policy-authorized action — the gate protocol's DecisionFile `accept` (Increment 6) — regardless of the obligation's requiredness |
+| §4's scope precedence (artifact/requirement > feature/bundle > path/component > project default) implies frontmatter overrides work identically at every level | §8 step 3 requires a `high_assurance` override on one seeded feature, but `src/substrate/schemas/feat.schema.json` has `"additionalProperties": false` and no `profile` property — a FEAT file with `profile: high_assurance` in frontmatter fails schema validation today. (SR-level overrides were never actually blocked: `substrate/schemas/` has no `sr.schema.json` at all, so there was nothing there to reject the property) | Decided as option (a) of two considered: `feat.schema.json` gains `profile` as an allowed optional string property — the same frontmatter-override mechanism SR-level overrides already use unblocked. Option (b) — moving overrides into a central `.factory/factory.yaml` `scopes: [{ref, override}]` block, per the guide §4.2's literal shape — was considered and **not** chosen: it would require redesigning the already-specified `artifact_profile_override`/precedence mechanism for a marginal fidelity gain. (a) is small, reuses machinery already designed, and unblocks §8 step 3 directly |
+| D18: `ci_verification` is `blocking` under every default preset, immediately | Guide §9.2 says: "the default must not suddenly fail unrelated legacy gates. Introduce new non-kernel obligations as advisory, provide migration diagnostics, then allow explicit promotion." `ci_verification` is not one of the guide §3.3's seven kernel rules, yet D18 makes it `blocking` from day one under every preset — a real, load-bearing divergence from the guide's own migration rule that this spec never flagged, unlike the two guide overrides §1 already names (what CI runs day one; how the dogfood exercise is scoped) | Documented here as a **third** deliberate divergence, decided in favor of (i) below rather than (ii) softening `ci_verification` to `required` under `prototype` and `blocking` only under `high_assurance`: guide §9.2's advisory-then-promote path is guidance for introducing a *genuinely new* check with no track record into a project — not for making an already-enforced check machine-checkable. Every command `ci_verification` backs (`{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py`, `{python} -m pytest -m sim -q`, `{python} -m pytest tests/integration/ -q -m integration`, `{python} -m ruff check .`, `{python} -m pyright`, the repeated unit command from `full`, `{python} -m pytest -m agent -q`, `coherence trace check`, `coherence register check`) already runs and passes today via `/factory-run`; the unit command also reaches the extension helper, `python scripts/gates/watch_ext.py`, which runs `npm --prefix pi-ext/factory-watch run typecheck` followed by `npm --prefix pi-ext/factory-watch test`. CI is a stricter, independent execution surface for the same commands, not a new obligation kind in the guide's sense, so there is no legacy-gate-breakage risk to migrate away from. This repo's CI is meant to be at least as strict as its local gates from day one |
+
+Nothing in §1–§12 above is rewritten or removed by this section. Where a later reader needs the
+corrected reading — `{python}` substitution ownership, §6's dimension classification, the
+suspect-state STRICT rule, `feat.schema.json`'s `profile` property, or D18's day-one `blocking`
+divergence — this table is the authoritative correction; the sections it corrects stand as
+originally written except where this table overrides them.

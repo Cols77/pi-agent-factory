@@ -103,7 +103,7 @@ Run:
 
 - [ ] **Step 1: Write source collector tests.**
 
-Build fixtures for coverage reports, session review suggestions, KB candidates, expired deferrals, and stale register bindings. Assert InboxItem(id, source, kind, ref, summary, evidence, resolve_cmd, review_after) is stable-sorted, has no duplicate ID, and creates no new file. Assert authoritative_gate staleness maps to owning resolve_cmd and provenance_blocked maps to a blocker without resolver execution.
+Build fixtures for coverage reports, session review suggestions, KB candidates, expired deferrals, and stale register bindings. Assert `InboxItem(id, source, kind, ref, summary, evidence, resolve_cmd: tuple[str, ...] | None, review_after)` is stable-sorted, has no duplicate ID, and creates no new file. Assert authoritative_gate staleness maps to the owning ordered `resolve_cmd` tuple unchanged and provenance_blocked maps to a blocker without resolver execution.
 
 - [ ] **Step 2: Implement pure collectors.**
 
@@ -142,3 +142,297 @@ Expected: no finalisation without a decision; every input source appears in inbo
 DecisionFile has schema=1 and is stored as <run_dir>/gate-decisions/<gate_id>.json; load_decision(path) returns a typed corrupt-file diagnostic, write_decision(run_dir, file) validates then atomically replaces. The Pi renderer writes this file through the same validated service. Item IDs are coverage:<run>:proposal:<id>, coverage:<run>:warning:<id>, doctor:<id>, trace:<id>, or review:<id>; accept/reject/defer never author a requirement/trace change, and owning writers apply any follow-up action.
 
 Adopt the DecisionFile adapter for coverage, doctor proposals, trace-gap review, and HumanReviewGate. Human review maps approve to accept and reject to reject while retaining review-decision.json compatibility. Inbox collectors start only after the deferral parser and staleness source are final. unresolved_staleness(root) performs the documented guarded-read/status sweep and exposes recorded StalenessObservation/ResolutionBlocker items; inbox reads that sweep, never executes a resolver.
+
+## Addendum (2026-08-22): progressive assurance — requiredness in the gate protocol, suspect-edge review, milestone baselines
+
+See `docs/superpowers/specs/2026-08-22-coherence-progressive-assurance-design.md` (section 4 suspect relationships and baselines, section 10 disposition row for Increment 6). Requires this plan's Tasks 1-5, Increment 2B, and Increment 4's addendum merged first. Increment 6B's dogfood slice is this addendum's mandatory successor and consumes everything it adds.
+
+### Task 6: `coherence.trace.suspect.edge_validity` and the `human_review` obligation kind
+
+**Unresolved review-contract decisions (not closed by this addendum):** do not choose between
+`reviewer` and `reviewed_by` as the human-review identity field. Do not decide whether that
+evidence is a separate `human_review` contract or part of `verification_result`; no unapproved
+contract may be introduced here. The waiver source/loader and its authority also remain open;
+this round does not select governed-artifact frontmatter versus `DecisionFile` as authoritative.
+
+- [ ] **Step 1: Write the failing tests.**
+
+Add `tests/unit/coherence/trace/test_suspect.py`:
+
+```python
+import pytest
+from dataclasses import dataclass
+
+from coherence.trace.suspect import edge_validity
+
+pytestmark = pytest.mark.unit
+
+
+@dataclass
+class _FakeGap:
+    kind: str
+    disposition: str
+
+
+def test_no_gaps_without_recorded_prior_state_is_valid():
+    assert edge_validity([]) == "valid"
+
+
+def test_empty_gaps_preserve_recorded_suspect_state():
+    assert edge_validity([], prior_state="suspect") == "suspect"
+
+
+def test_empty_gaps_preserve_recorded_waived_state():
+    assert edge_validity([], prior_state="waived") == "waived"
+
+
+def test_pending_sr_stale_is_suspect():
+    assert edge_validity([_FakeGap("sr_stale", "pending")]) == "suspect"
+
+
+def test_pending_sr_unsatisfied_is_invalid():
+    assert edge_validity([_FakeGap("sr_unsatisfied", "pending")]) == "invalid"
+
+
+def test_only_non_pending_gaps_is_waived():
+    # A deferred/exempt gap is an explicit, recorded acceptance -- not a
+    # silent return to "never had a problem." Spec section 13 amendment row 3
+    # (STRICT reading): no automatic path to `valid` exists at any
+    # requiredness level; a deferred/exempt gap classifies as `waived`, never
+    # `valid`. Restoring `valid` always requires a policy-authorized
+    # DecisionFile `accept` action.
+    assert edge_validity([_FakeGap("sr_stale", "deferred")]) == "waived"
+
+
+def test_only_exempt_gaps_is_waived():
+    assert edge_validity([_FakeGap("sr_unsatisfied", "exempt")]) == "waived"
+```
+
+Add to `tests/unit/coherence/policy/test_compiler.py` (Increment 2B): seed an SR under
+`profile: high_assurance` with no human-review identity evidence, compile obligations for its
+`sr:` scope, and assert a `human_review` obligation comes back `requiredness == "blocking"`,
+`state == "open"`; assert the same SR under `profile: prototype` gets `requiredness ==
+"not_applicable"` (D16: `human_review` does not even apply under `prototype`).
+
+Run:
+
+    rtk proxy uv run python -m pytest tests/unit/coherence/trace/test_suspect.py tests/unit/coherence/policy/test_compiler.py -k "suspect or human_review" -v
+
+Expected: FAIL (`coherence.trace.suspect` does not exist yet; no `human_review` obligation is
+emitted yet).
+
+- [ ] **Step 2: Implement `src/coherence/trace/suspect.py`.**
+
+```python
+"""Suspect relationship validity (spec section 4), derived FROM the existing
+gap engine -- not a second dependency graph. coherence.trace.gaps.find_gaps
+already detects when an edge's target changed since a validation/binding was
+recorded (sr_stale) or is missing outright (sr_unsatisfied/sr_unvalidated/
+sr_unvalidatable); this module only classifies a gap set into the guide's
+five-state validity vocabulary. With no gaps, `valid` is the initial result
+only when no prior state is recorded; a supplied prior non-`valid` state is
+preserved, so an empty current gap set never silently restores `proposed`,
+`suspect`, `invalid`, or `waived`. Deterministic code only ever downgrades
+from an assumed valid baseline or records an explicit waiver -- restoring
+`valid` after a downgrade/waiver is a policy-authorized human action recorded
+through the gate protocol's DecisionFile (Task 3/4 of this plan), never
+computed here, and there is no requiredness level (advisory/required/
+blocking) at which that rule relaxes (spec section 13 amendment row 3,
+STRICT reading).
+
+Note on granularity: `find_gaps` returns node-keyed gaps (`Gap.node_id`), so
+"governed edge validity" here is really governed SR-NODE validity today --
+a genuinely per-edge (not per-SR-node) model is future work, not something
+this module or its callers should claim.
+"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from coherence.trace.gaps import Gap
+
+ValidityState = Literal["proposed", "valid", "suspect", "invalid", "waived"]
+
+_INVALID_GAP_KINDS = ("sr_unsatisfied", "sr_unvalidated", "sr_unvalidatable")
+_SUSPECT_GAP_KINDS = ("sr_stale",)
+_WAIVER_DISPOSITIONS = ("deferred", "exempt")
+
+
+def edge_validity(
+    gaps_for_edge: "list[Gap]", *, prior_state: ValidityState | None = None
+) -> ValidityState:
+    """Classify current gaps without silently clearing recorded state.
+
+    An empty gap set returns the supplied prior state, if any, and otherwise
+    establishes the initial `valid` state. Only explicit `deferred`/`exempt`
+    dispositions produce `waived`; absence of a pending gap, an empty set, or
+    an unknown disposition is not waiver evidence. The waiver source and its
+    authority are selected by a later gate-policy decision, not here.
+    """
+    if not gaps_for_edge:
+        return prior_state if prior_state is not None else "valid"
+    pending = [g for g in gaps_for_edge if g.disposition == "pending"]
+    if any(g.kind in _INVALID_GAP_KINDS for g in pending):
+        return "invalid"
+    if any(g.kind in _SUSPECT_GAP_KINDS for g in pending):
+        return "suspect"
+    if all(g.disposition in _WAIVER_DISPOSITIONS for g in gaps_for_edge):
+        return "waived"
+    return "proposed"
+```
+
+- [ ] **Step 3: Add the `human_review` obligation kind.**
+
+In `src/coherence/policy/compiler.py` (Increment 2B), extend the existing `elif
+scope_ref.startswith("sr:")` branch (already appending `_verification_result_obligation`, added
+by Increment 4's addendum) to also append `_human_review_obligation(root, scope_ref, profile,
+nodes=nodes, edges=edges)` -- passing the SAME preloaded `nodes`/`edges` objects from
+`compile_obligations` through `resolve_profile` and both helpers; no helper reloads the graph.
+via Increment 2B's `nodes=`/`edges=` passthrough param, so this does not add a second graph
+reload on top of the one `resolve_profile` already does:
+
+```python
+def _human_review_obligation(
+    root: Path, scope_ref: str, profile: str, *, nodes, edges,
+) -> Obligation:
+    sr_id = scope_ref.partition(":")[2]
+    # Resolve the SR's real file the same way resolve_profile already does
+    # correctly -- via the trace node's `.path`, found by loading nodes and
+    # matching by frontmatter id -- never a guessed `requirements/<id>.md`
+    # path, which breaks for any file not literally named `<id>.md` (e.g.
+    # `SR-002-foo.md`).
+    node = next((n for n in nodes if n.id == sr_id and n.kind == "sr"), None)
+    sr_path = node.path if node is not None else None
+    # The identity field and obligation ownership are unresolved. Do not read
+    # either `reviewer` or `reviewed_by`, and do not invent a separate contract
+    # until the open decisions above are approved.
+    reviewed = False
+    # Only high_assurance requires a recorded human review; prototype does not
+    # apply this obligation at all (D16's "three obligation kinds" scope).
+    requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
+    resolve_cmd = (
+        (f"record approved human-review identity for {sr_path.name} once the field contract is decided",)
+        if sr_path is not None
+        else (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
+    )
+    return Obligation(
+        id=f"ob:human_review:{scope_ref}",
+        scope_ref=scope_ref,
+        kind="human_review",
+        requiredness=requiredness,
+        reason=f"{profile} requires a recorded human reviewer for high-criticality requirement {sr_id}",
+        source_policy=profile,
+        state="satisfied" if reviewed else "open",
+        resolve_cmd=resolve_cmd,
+    )
+```
+
+Coordination note with Increment 5's addendum: Increment 5's `compile_health_dimensions` (dimension
+11, `human_review`) filters `human_review` obligations to `requiredness in ("required",
+"blocking")` before computing satisfied/expected, so `_human_review_obligation` correctly returning
+`not_applicable` for every `sr:` scope under `prototype` needs no change here — the two addenda were
+checked against each other and are consistent: `not_applicable` is emitted once, here, and excluded
+from the denominator once, in Increment 5's dimension compiler, never double-handled.
+
+- [ ] **Step 4: Wire requiredness into the gate protocol.**
+
+The gate protocol's DecisionFile (this plan's Task 3/4) gains one new item kind: `suspect:<sr_id>`,
+emitted by inbox collection whenever `edge_validity` returns `suspect`, `invalid` or `waived` for
+an SR's gap set (a `waived` classification still surfaces in the inbox as an explicit, recorded
+acceptance — never silently dropped from view). Per the spec's STRICT rule (§13 amendment row 3):
+**no automatic path to `valid` exists at any requiredness level.** A `suspect`/`invalid`/`waived`
+item never auto-closes back to `valid` regardless of whether its obligations are `blocking`,
+`required`, or `advisory` — `unresolved_staleness` (this plan's own machinery) reports it as a
+`ResolutionBlocker` until a human writes an `accept` DecisionFile entry, the one policy-authorized
+action allowed to record `valid` again. (An earlier draft of this step said a `suspect` item under
+only `advisory`/`required` obligations "may still auto-resolve once its underlying gap clears" —
+that contradicted the spec's decided rule and is removed with no replacement carve-out.
+Deterministic code may only ever downgrade `valid → suspect/invalid` or record `waived` for a
+deferred/exempt gap; restoring `valid` is always the same human, policy-authorized act, uniformly,
+independent of requiredness.)
+
+**Expiring exceptions (spec §10 row 6).** Spec row 6 assigns "expiring exceptions" to this
+increment, but Task 7's `expired_baselines` below only covers baseline documents, not a general
+obligation waiver with an expiry. This is closed here with one small, real mechanism: an SR or
+task's frontmatter may declare an optional `waived_until: <ISO date>` field, and a `DecisionFile`
+entry of kind `accept` on a `suspect:<sr_id>`/`ob:<kind>:<scope_ref>` item may set `waived_until`
+the same way a `defer` decision already carries `review_after` (this plan's Task 3). However, the
+existing plan text names both the governed artifact frontmatter and the `DecisionFile` entry as
+possible sources and does not define precedence, so the authoritative waiver source and loader are
+an explicit open decision, not an implementation choice in this increment:
+
+> **Open decision — waiver source/loader:** choose whether `waived_until` is authoritative in the
+> governed SR/task frontmatter or in the loaded `DecisionFile` accept entry, and then name one
+> loader/API as the sole compiler input. Until that decision is made, do not support two writable
+> copies or infer precedence between them.
+
+After that decision, `coherence.policy.compiler.compile_obligations` must read the one authoritative
+source: while `today <= waived_until`, the obligation keeps the canonical recorded state
+`state == "waived"` even though the underlying gap is still open; once
+`today > waived_until`, the waiver stops applying — the obligation reverts to its normal,
+gap-derived `state`/`requiredness`, and the item reappears in the inbox as an ordinary open item,
+not a specially-flagged "expired" state. An expired waiver is not a new state; it is simply the
+absence of an active one, computed by a date comparison, not a stored transition. This remains the
+smallest mechanism that satisfies "expiring exceptions": one authoritative expiry field, one date
+comparison in the compiler, no new record type or CLI verb.
+
+- [ ] **Step 5: Run the tests.**
+
+Run:
+
+    rtk proxy uv run python -m pytest tests/unit/coherence/trace/test_suspect.py tests/unit/coherence/policy/test_compiler.py tests/unit/coherence -q
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit.**
+
+    git add src/coherence/trace/suspect.py src/coherence/policy/compiler.py tests/unit/coherence/trace/test_suspect.py tests/unit/coherence/policy/test_compiler.py
+    git commit -m "feat(gate): human_review obligation, suspect-edge validity, gate-protocol wiring"
+
+### Task 7: Milestone baselines (optional, product/high_assurance only)
+
+- [ ] **Step 1: Write the failing tests.**
+
+Add `tests/unit/memory/test_baseline.py`, mirroring the existing `FR-*`/`NC-*` record
+tests: a `Baseline` record at `docs/baselines/BASELINE-*.md` with frontmatter `id`, `title`,
+`git_ref` (a commit sha the snapshot pins), `scope` (list of `sr:`/`adr:`/`feat:` refs it covers),
+and `approved_by`. Assert loading a directory with no baselines returns `{}` (baselines are
+optional, per spec section 4, not required to run an experiment or ship a prototype); assert a
+malformed record degrades to `scope_errors`, matching every other record type in this repo.
+
+Run:
+
+    rtk proxy uv run python -m pytest tests/unit/memory/test_baseline.py -v
+
+Expected: FAIL (`ModuleNotFoundError`).
+
+- [ ] **Step 2: Implement `src/factory/memory/baseline.py`.**
+
+Mirror `factory/memory/nonconformance.py` (Increment 2B) exactly: `Baseline` frozen dataclass
+(`id`, `title`, `path`, `git_ref`, `scope: list[str]`, `approved_by`, `scope_errors`),
+`load_baselines(repo_root) -> dict[str, Baseline]`, `DuplicateBaselineIdError`. Add
+`src/substrate/schemas/baseline.schema.json` requiring `id` (pattern `^BASELINE-[0-9]+$`),
+`title`, `git_ref`, `approved_by`; `scope` defaults to `[]`.
+
+- [ ] **Step 3: Wire an expiry check.**
+
+A baseline whose `scope` includes an SR that has since gone `suspect`/`invalid`
+(`coherence.trace.suspect.edge_validity`, Task 6) is a stale baseline, not merely a stale SR --
+add `expired_baselines(root) -> list[str]` to `src/coherence/trace/suspect.py`, returning baseline
+ids whose scope contains at least one suspect/invalid SR. This is queried, never enforced
+automatically: closing an expired baseline is a human decision recorded the same way any other
+gate-protocol decision is (Task 4), not an auto-transition.
+
+- [ ] **Step 4: Run the tests.**
+
+Run:
+
+    rtk proxy uv run python -m pytest tests/unit/memory/test_baseline.py tests/unit/coherence/trace -q
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit.**
+
+    git add src/factory/memory/baseline.py src/substrate/schemas/baseline.schema.json src/coherence/trace/suspect.py tests/unit/memory/test_baseline.py
+    git commit -m "feat(baseline): optional product/high_assurance baseline records and expiry"
