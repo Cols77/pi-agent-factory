@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/nonconformance.schema.json",
+  "title": "Nonconformance record frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "status"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^NC-[0-9]+$",
+      "description": "Stable identity. Scope refs use this (nc:NC-0001), never the filename."
+    },
+    "title": {"type": "string", "minLength": 1},
+    "external_ref": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z][a-z-]*:.+$",
+      "description": "A citation, not a live sync (e.g. gh-issue:1). Coherence never calls out to the tracker."
+    },
+    "detected_by": {"type": ["string", "null"]},
+    "status": {"type": "string", "enum": ["open", "corrected", "waived"]},
+    "corrected_by": {
+      "type": ["string", "null"],
+      "pattern": "^T-[0-9]+$",
+      "description": "The task whose justification names `corrects: <this id>`."
+    }
+  }
+}
