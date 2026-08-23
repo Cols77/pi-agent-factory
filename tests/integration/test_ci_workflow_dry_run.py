@@ -63,12 +63,20 @@ def test_workflow_installs_the_runtime_and_locked_dependencies():
 def test_workflow_resolves_required_gates_against_the_real_repo(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
     runner_temp = tmp_path / "runner-temp"
+    fake_bin = tmp_path / "bin"
+    python_launcher = fake_bin / "python"
     runner_temp.mkdir()
-    python_bin_dir = str(Path(sys.executable).resolve().parent)
+    fake_bin.mkdir()
+    python_launcher.write_text(
+        "#!/usr/bin/env bash\n"
+        f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+        encoding="utf-8",
+    )
+    python_launcher.chmod(0o755)
     env = dict(
         os.environ,
         RUNNER_TEMP=str(runner_temp),
-        PATH=f"{python_bin_dir}{os.pathsep}{os.environ['PATH']}",
+        PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
     )
 
     subprocess.run(
