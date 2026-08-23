@@ -5,17 +5,18 @@ for a scope, plus a plain-words explanation for any one obligation. Composes
 (`coherence.trace.model`) once per call and passes it through to
 `resolve_profile`/`compile_obligations` via their `nodes=`/`edges=` params,
 since both would otherwise reload the same graph independently (each
-non-project scope call would load twice inside `effective_profile_view`
-alone, and callers like `cmd_goal_show`/`cmd_sim_run` are hit on every
+non-project scope call would load once inside the shared `_load_scope_graph`
+helper, and callers like `cmd_goal_show`/`cmd_sim_run` are hit on every
 docs-server page load through `coherence.navigate.worker`).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from coherence.policy.compiler import compile_obligations, resolve_profile
 from coherence.trace import model as trace_model
-from coherence.navigate.queries import ScopeKindError
+from coherence.navigate.queries import ScopeKindError, ScopeNotFoundError
 from substrate.policy.obligation import Obligation
 from substrate.policy.vocabulary import (
     InvalidProfileError,
@@ -72,37 +73,51 @@ def _obligation_dict(o: Obligation) -> dict:
 
 
 def _obligation_sort_key(o: Obligation) -> tuple[int, str, str, str]:
-    rank = _OBLIGATION_KIND_ORDER.index(o.kind) if o.kind in _OBLIGATION_KIND_ORDER else len(_OBLIGATION_KIND_ORDER)
+    rank = (
+        _OBLIGATION_KIND_ORDER.index(o.kind)
+        if o.kind in _OBLIGATION_KIND_ORDER
+        else len(_OBLIGATION_KIND_ORDER)
+    )
     return rank, o.kind, o.scope_ref, o.id
 
 
-def _declared_policy_scope(root: Path, scope_ref: str) -> bool:
-    kind, separator, identifier = scope_ref.partition(":")
-    if not separator or not identifier or kind not in _POLICY_SCOPE_KINDS:
-        return False
-    nodes = trace_model.load_nodes(root)
-    return any(node.kind == kind and node.id == identifier for node in nodes)
+def _load_scope_graph(root: Path, scope_ref: str) -> tuple[list | None, list | None]:
+    """Validate scope and load the trace graph once per call.
 
-
-def _require_declared_policy_scope(root: Path, scope_ref: str) -> None:
+    Returns (nodes, edges) tuple. For project scope, returns (None, None).
+    Raises ScopeKindError for malformed/unsupported kinds.
+    Raises ScopeNotFoundError for well-formed but undeclared scopes.
+    """
     if scope_ref == "project":
-        return
-    kind = scope_ref.partition(":")[0]
+        return None, None
+
+    kind, separator, identifier = scope_ref.partition(":")
+
+    # Check for malformed scopes (missing colon or identifier)
+    if not separator or not identifier:
+        raise ScopeKindError(f"malformed scope ref: {scope_ref!r}")
+
+    # Check for unsupported kinds
     if kind in _UNSUPPORTED_POLICY_SCOPE_KINDS:
         raise ScopeKindError(
             f"policy scope unsupported for {scope_ref!r}: load_nodes exposes no run nodes"
         )
-    if not _declared_policy_scope(root, scope_ref):
-        raise ScopeKindError(f"{_NO_DECLARED_SCOPE} for {scope_ref!r}")
+
+    # Check for unknown kinds
+    if kind not in _POLICY_SCOPE_KINDS:
+        raise ScopeKindError(f"unknown scope kind: {kind!r}")
+
+    # Load and check for declared scope
+    nodes = trace_model.load_nodes(root)
+    if not any(node.kind == kind and node.id == identifier for node in nodes):
+        raise ScopeNotFoundError(f"{_NO_DECLARED_SCOPE} for {scope_ref!r}")
+
+    edges = trace_model.extract_edges(root, nodes)
+    return nodes, edges
 
 
 def _compile(root: Path, scope_ref: str) -> list[Obligation]:
-    _require_declared_policy_scope(root, scope_ref)
-    nodes = None
-    edges = None
-    if scope_ref != "project":
-        nodes = trace_model.load_nodes(root)
-        edges = trace_model.extract_edges(root, nodes)
+    nodes, edges = _load_scope_graph(root, scope_ref)
     # resolve_profile is still called once more inside compile_obligations
     # (2B's own internal contract) -- passing nodes/edges through means that
     # second call reuses the graph already loaded here rather than reloading
@@ -114,12 +129,7 @@ def _compile(root: Path, scope_ref: str) -> list[Obligation]:
 
 
 def effective_profile_view(root: Path, scope_ref: str = "project") -> dict:
-    _require_declared_policy_scope(root, scope_ref)
-    nodes = None
-    edges = None
-    if scope_ref != "project":
-        nodes = trace_model.load_nodes(root)
-        edges = trace_model.extract_edges(root, nodes)
+    nodes, edges = _load_scope_graph(root, scope_ref)
     profile = resolve_profile(root, scope_ref, nodes=nodes, edges=edges)
     obligations = sorted(
         compile_obligations(root, scope_ref, nodes=nodes, edges=edges),
@@ -144,7 +154,8 @@ def why_required(
         if obligation.id == obligation_id:
             return (
                 f"{obligation.reason} "
-                f"(source_policy={obligation.source_policy}, requiredness={obligation.requiredness})"
+                f"(source_policy={obligation.source_policy}, "
+                f"requiredness={obligation.requiredness})"
             )
     return None
 
@@ -162,7 +173,13 @@ def obligations_open_count(
     """
     try:
         obligations = _compile(root, scope_ref)
-    except (ScopeKindError, InvalidProfileError, ProfileConflictError, UncompiledPresetError) as exc:
+    except (
+        ScopeKindError,
+        ScopeNotFoundError,
+        InvalidProfileError,
+        ProfileConflictError,
+        UncompiledPresetError,
+    ) as exc:
         return 0, str(exc)
     count = sum(
         1
@@ -180,13 +197,18 @@ def present_obligations(root: Path, scope_ref: str) -> dict:
     """
     kind = scope_ref.partition(":")[0]
     if kind not in _WHY_REQUIRED_KINDS:
-        return {"obligations": None, "obligations_note": "no policy scope for this artifact kind"}
-    if not _declared_policy_scope(root, scope_ref):
-        return {"obligations": None, "obligations_note": _NO_DECLARED_SCOPE}
+        return {
+            "obligations": None,
+            "obligations_note": "no policy scope for this artifact kind",
+        }
+
     try:
         compiled = _compile(root, scope_ref)
+    except ScopeNotFoundError:
+        return {"obligations": None, "obligations_note": _NO_DECLARED_SCOPE}
     except (InvalidProfileError, ProfileConflictError, UncompiledPresetError) as exc:
         return {"obligations": [], "obligations_error": str(exc)}
+
     obligations = [_obligation_dict(o) for o in compiled]
     for ob, o in zip(obligations, compiled):
         if o.requiredness in _OPEN_SEVERITIES:
