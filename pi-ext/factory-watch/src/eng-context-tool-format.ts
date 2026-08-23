@@ -12,6 +12,7 @@ import type {
   SystemGoalsList,
   SystemVcycle,
   GoalEvaluate,
+  PresentObligation,
   PresentResult,
 } from "./system-cli.js";
 
@@ -122,6 +123,46 @@ export function formatGoalEvaluate(result: GoalEvaluate): string {
   return lines.join("\n");
 }
 
+// Task 4 (Inc 3B): a `--why-required` obligation is only well-formed once it
+// carries a string `kind`/`requiredness`/`reason` (the fields Python always
+// sets, per `_obligation_dict`). This is a shape guard for an optional
+// enrichment, not a re-derivation of policy -- an entry missing any of these
+// three fields is treated as malformed and never rendered.
+function isWellFormedObligation(o: unknown): o is PresentObligation {
+  if (typeof o !== "object" || o === null) return false;
+  const candidate = o as Record<string, unknown>;
+  return (
+    typeof candidate.kind === "string" &&
+    typeof candidate.requiredness === "string" &&
+    typeof candidate.reason === "string"
+  );
+}
+
+// Renders the additive `obligations`/`obligations_note`/`obligations_error`
+// fields `--why-required` adds (Task 1's `present_obligations` shape,
+// consumed identically here and in `coherence.navigate.cli`'s `present`).
+// Absent entirely (flag off, the default) prints nothing. Never throws on a
+// malformed payload -- an optional enrichment degrades to a stable marker
+// instead of breaking the rest of the render.
+function formatObligationLines(result: PresentResult): string[] {
+  if (result.obligations_note !== undefined) {
+    return [`  obligations: ${result.obligations_note}`];
+  }
+  if (result.obligations_error !== undefined) {
+    return [`  obligations: unresolved (${result.obligations_error})`];
+  }
+  if (result.obligations === undefined) return [];
+  if (!Array.isArray(result.obligations) || !result.obligations.every(isWellFormedObligation)) {
+    return ["  obligations: unavailable (malformed payload)"];
+  }
+  const lines: string[] = [];
+  for (const obligation of result.obligations) {
+    lines.push(`  [${obligation.kind}] ${obligation.requiredness}: ${obligation.reason}`);
+    if (obligation.why) lines.push(`    why: ${obligation.why}`);
+  }
+  return lines;
+}
+
 export function formatPresent(result: PresentResult): string {
   const focus = result.focus ? `, focus=${result.focus}` : "";
   const lines = [
@@ -132,5 +173,6 @@ export function formatPresent(result: PresentResult): string {
   if (result.target) lines.push(`  target: ${result.target}`);
   lines.push(`  resolution: ${result.resolution}`);
   if (result.note) lines.push(`  note: ${result.note}`);
+  lines.push(...formatObligationLines(result));
   return lines.join("\n");
 }

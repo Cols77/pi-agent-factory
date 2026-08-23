@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="INSPECT, PRESENT or REVIEW (default: decided by policy — INSPECT with no facts)",
     )
+    p_present.add_argument("--why-required", action="store_true", dest="why_required")
 
     args = parser.parse_args(argv)
 
@@ -43,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "present":
             level = parse_level(args.level) if args.level is not None else None
             result = present(args.repo_root, args.artifact, args.focus, level=level)
+            if args.why_required and "snapshot" not in result:
+                from coherence.navigate.obligations import present_obligations
+
+                result = {**result, **present_obligations(args.repo_root, args.artifact)}
         else:  # pragma: no cover - argparse enforces subcommand
             parser.error(f"unknown command: {args.cmd}")
             return 1

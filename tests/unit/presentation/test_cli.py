@@ -64,3 +64,29 @@ def test_present_cli_blocks_traversal(tmp_path, capsys):
     assert payload["adapter"] is None
     assert payload["target"] is None
     assert "traversal blocked" in payload["note"]
+
+
+def test_present_cli_why_required_calls_why_required(tmp_path, capsys):
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        "gates:\n  unit:\n  - { cmd: 'pytest -m unit -q' }\n", encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: d\n---\n", encoding="utf-8",
+    )
+    rc = main([
+        "present", "sr:SR-001", "--why-required", "--repo-root", str(tmp_path), "--json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations"] is not None
+    ci = next(o for o in payload["obligations"] if o["kind"] == "ci_verification")
+    assert ci["why"] is not None
+
+
+def test_present_cli_why_required_off_by_default(tmp_path, capsys):
+    rc = main(["present", "feat:FEAT-NAV-017", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert "obligations" not in payload

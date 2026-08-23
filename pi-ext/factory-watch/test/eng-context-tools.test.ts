@@ -15,6 +15,17 @@ import type {
 
 const CTX = { cwd: "/repo" };
 
+const present: PresentResult = {
+  artifact: "feat:FEAT-NAV-017",
+  focus: "overview",
+  level: "INSPECT",
+  intent: { artifact: "feat:FEAT-NAV-017", focus: "overview" },
+  resolution: "INSPECT — no application focus change.",
+  adapter: "browser",
+  target: "system?scope=feat:FEAT-NAV-017",
+  note: "Feature Dossier lands in Inc 6; degrading to the scope's Brief page (D2).",
+};
+
 // Minimal dependency stubs so the read-only tools can be unit-tested without a
 // real Python side. Each returns a fake `ok` payload for one subcommand.
 function deps(overrides: Record<string, unknown> = {}) {
@@ -80,16 +91,6 @@ function deps(overrides: Record<string, unknown> = {}) {
       commit: "f92b004",
       blocked_reason: null,
     },
-  };
-  const present: PresentResult = {
-    artifact: "feat:FEAT-NAV-017",
-    focus: "overview",
-    level: "INSPECT",
-    intent: { artifact: "feat:FEAT-NAV-017", focus: "overview" },
-    resolution: "INSPECT — no application focus change.",
-    adapter: "browser",
-    target: "system?scope=feat:FEAT-NAV-017",
-    note: "Feature Dossier lands in Inc 6; degrading to the scope's Brief page (D2).",
   };
   const traversal = {
     requirement: ["SR-001"],
@@ -232,5 +233,18 @@ describe("eng-context tools (unit, mocked deps)", () => {
     const registered: string[] = [];
     registerEngContextTools({ registerTool: (t: { name: string }) => { registered.push(t.name); } });
     expect(registered.length).toBeGreaterThan(0);
+  });
+
+  test("eng_present forwards optional why_required to its loader", async () => {
+    let received: boolean | undefined;
+    const tool = buildEngContextTools(deps({
+      present: (_cwd: string, _artifact: string, _focus: string | undefined, whyRequired: boolean | undefined) => {
+        received = whyRequired;
+        return { ok: true as const, value: present };
+      },
+    })).find((candidate) => candidate.name === "eng_present");
+    if (!tool) throw new Error("eng_present not found");
+    await run(tool, { artifact: "sr:SR-001", why_required: true });
+    expect(received).toBe(true);
   });
 });

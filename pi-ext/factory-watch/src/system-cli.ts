@@ -665,6 +665,23 @@ export function loadSystemGoalEvaluate(cwd: string, goalId: string): CliResult<G
   return runJsonCli<GoalEvaluate>(cwd, cmd.bin, cmd.args);
 }
 
+// Task 4 (Inc 3B): the additive obligation fields `--why-required` appends to
+// `factory.presentation present --json` -- mirrors
+// `coherence.navigate.obligations.present_obligations`'s dict shape exactly
+// (Task 1). `why` is optional because it is only computed for the obligation
+// kinds `_WHY_REQUIRED_KINDS` covers.
+export interface PresentObligation {
+  id: string;
+  scope_ref: string;
+  kind: string;
+  requiredness: string;
+  reason: string;
+  source_policy: string;
+  state: string;
+  resolve_cmd: string | null;
+  why?: string | null;
+}
+
 export interface PresentResult {
   artifact: string;
   focus: string | null;
@@ -674,10 +691,21 @@ export interface PresentResult {
   adapter: string | null;
   target: string | null;
   note: string;
+  obligations?: PresentObligation[] | null;
+  obligations_note?: string;
+  obligations_error?: string;
 }
 
-export function loadSystemPresent(cwd: string, artifact: string, focus?: string): CliResult<PresentResult> {
-  const args = focus ? ["present", artifact, "--focus", focus, "--json"] : ["present", artifact, "--json"];
+export function loadSystemPresent(
+  cwd: string,
+  artifact: string,
+  focus?: string,
+  whyRequired = false,
+): CliResult<PresentResult> {
+  const args = ["present", artifact];
+  if (focus) args.push("--focus", focus);
+  if (whyRequired) args.push("--why-required");
+  args.push("--json");
   const cmd = buildPresentationCommand(args);
   return runJsonCli<PresentResult>(cwd, cmd.bin, cmd.args);
 }

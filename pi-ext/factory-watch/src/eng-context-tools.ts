@@ -290,9 +290,16 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     parameters: Type.Object({
       artifact: Type.String({ description: "Artifact to present, e.g. feat:FEAT-NAV-017, sr:SR-001, or a file path" }),
       focus: Type.Optional(Type.String({ description: "Optional focus within the artifact, e.g. a node id or line number" })),
+      why_required: Type.Optional(Type.Boolean({ description: "Include compiled obligation explanations" })),
     }),
-    async execute(_id: string, params: { artifact: string; focus?: string }, _sig: AbortSignal | undefined, _u: unknown, ctx: ToolCtx) {
-      const res = deps.present(ctx.cwd, params.artifact, params.focus ?? undefined);
+    async execute(
+      _id: string,
+      params: { artifact: string; focus?: string; why_required?: boolean },
+      _sig: AbortSignal | undefined,
+      _u: unknown,
+      ctx: ToolCtx,
+    ) {
+      const res = deps.present(ctx.cwd, params.artifact, params.focus ?? undefined, params.why_required ?? false);
       return result(res.ok ? formatPresent(res.value) : `eng_present failed: ${res.error}`, res.ok ? res.value : null);
     },
   };

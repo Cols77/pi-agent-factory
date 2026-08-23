@@ -9,6 +9,7 @@ import {
   loadSystemDossier,
   loadSystemGuide,
   loadSystemMatrix,
+  loadSystemPresent,
   loadSystemScopes,
   loadSystemTimeline,
 } from "../src/system-cli.js";
@@ -274,4 +275,14 @@ describe("loadSystemGuide", () => {
       expect(result.error).toContain("invalid scope ref");
     }
   });
+});
+
+test("loadSystemPresent propagates --why-required to factory.presentation", () => {
+  spawnSync.mockReturnValue({ status: 0, stdout: "{}", stderr: "" });
+  loadSystemPresent("/repo", "sr:SR-001", undefined, true);
+  expect(spawnSync).toHaveBeenCalledWith(
+    "uv",
+    ["run", "python", "-m", "factory.presentation", "present", "sr:SR-001", "--why-required", "--json"],
+    expect.objectContaining({ cwd: "/repo" }),
+  );
 });
