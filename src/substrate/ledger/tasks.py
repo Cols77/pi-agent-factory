@@ -6,6 +6,46 @@ from pathlib import Path
 import frontmatter
 
 _REQUIRED = ("id", "title", "status", "dod")
+_JUSTIFICATION_KINDS = (
+    "satisfies", "corrects", "mitigates", "implements", "maintains", "explores",
+)
+
+
+class InvalidJustificationError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Justification:
+    kind: str
+    target_id: str
+
+
+def _parse_justification(meta: dict) -> list[Justification]:
+    raw = meta.get("justification")
+    if raw is None:
+        # Legacy shorthand: satisfies: [...] means justification: [{satisfies: ...}].
+        satisfies_value = meta.get("satisfies") or []
+        if isinstance(satisfies_value, str):
+            satisfies_value = [satisfies_value]
+        return [Justification("satisfies", str(s)) for s in satisfies_value]
+    if not isinstance(raw, list):
+        raise InvalidJustificationError(
+            "justification must be a list of single-key {kind: target_id} mappings"
+        )
+    out: list[Justification] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            raise InvalidJustificationError(
+                f"each justification entry must be a single mapping, got {entry!r}"
+            )
+        ((kind, target_id),) = entry.items()
+        if kind not in _JUSTIFICATION_KINDS:
+            raise InvalidJustificationError(
+                f"unknown justification kind {kind!r} (have {_JUSTIFICATION_KINDS})"
+            )
+        out.append(Justification(str(kind), str(target_id)))
+    return out
 
 
 @dataclass
@@ -22,6 +62,7 @@ class Task:
     # parsed. A task written before these fields existed simply has None.
     source_plan: str | None = None
     source_task: int | None = None
+    justification: list[Justification] = field(default_factory=list)
 
 
 def _parse(path: Path) -> Task:
@@ -36,11 +77,8 @@ def _parse(path: Path) -> Task:
         dod = [dod_value]
     else:
         dod = list(dod_value)  # type: ignore[arg-type]
-    satisfies_value = meta.get("satisfies") or []
-    if isinstance(satisfies_value, str):
-        satisfies = [satisfies_value]
-    else:
-        satisfies = [str(s) for s in satisfies_value]  # type: ignore[union-attr]
+    justification = _parse_justification(meta)
+    satisfies = [j.target_id for j in justification if j.kind == "satisfies"]
     source_plan_value = meta.get("source_plan")
     source_plan = str(source_plan_value) if source_plan_value else None
     # A hand-edited task file can carry anything here. A non-integer is not a
@@ -60,6 +98,7 @@ def _parse(path: Path) -> Task:
         satisfies=satisfies,
         source_plan=source_plan,
         source_task=source_task,
+        justification=justification,
     )
 
 

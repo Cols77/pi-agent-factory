@@ -38,11 +38,15 @@ def validate_task_requirements(
             raise ValueError(f"no harness {name!r} declared in .factory/factory.yaml")
         return h
 
+    own_ids = set(satisfies)  # the task's own justified SRs -- see select_requirement_ids
     ids = select_requirement_ids(reqs, satisfies, full_sweep=full_sweep)
     report = run_requirement_validation(ids, reqs, harness_for, repo_root)
-    # Only a requirement that RAN and failed its assertion (passed is False) makes
-    # the suite not-ok. A requirement that could NOT run — an "error" entry, e.g. no
-    # harness declared in .factory/factory.yaml yet — is a setup gap the caller
-    # surfaces as a warning, not a hard failure.
-    ok = not any(e.get("passed") is False for e in report["requirements"])
+    # Invariant kernel rule 1: an execution error, missing executable or invalid
+    # result on a task's OWN justified SR cannot become pass -- it blocks, exactly
+    # like a ran-and-failed assertion. An "error" entry on an SR the task did not
+    # name (only swept in by full_sweep's periodic cadence) is still a setup gap
+    # unrelated to this task's claim, surfaced as a warning, not a hard failure.
+    reds = any(e.get("passed") is False for e in report["requirements"])
+    own_errors = any("error" in e and e.get("id") in own_ids for e in report["requirements"])
+    ok = not (reds or own_errors)
     return report, ok

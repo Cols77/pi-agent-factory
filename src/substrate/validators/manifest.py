@@ -81,11 +81,27 @@ def context_ref_errors(manifest: dict, repo_root: Path) -> list[str]:
     return missing
 
 
+def identity_errors(manifest: dict, task_id: str | None) -> list[str]:
+    """The manifest's declared task_id must match the task it was gathered for.
+
+    `task_id=None` means the caller has no task context (e.g. ad-hoc manifest
+    validation outside a dispatched task) -- nothing to cross-check against.
+    """
+    if task_id is None:
+        return []
+    declared = manifest.get("task_id")
+    if declared != task_id:
+        return [f"task_id: manifest declares {declared!r}, but this is task {task_id!r}"]
+    return []
+
+
 def validate_manifest_document(
     manifest: dict,
     repo_root: Path,
     check_errors: Callable[[dict], list[str]],
     coverage_errors: Callable[[dict], list[str]],
+    *,
+    task_id: str | None = None,
 ) -> list[str]:
     """Two-layer coherence gate over a normalized manifest. The manifest
     passes iff this returns [].
@@ -94,11 +110,12 @@ def validate_manifest_document(
     schema validation -- they are untrusted self-reports. Schema validation
     gates everything else: on schema error, `check_errors`/`coverage_errors`
     are never invoked. Once the manifest is normalized and schema-valid,
-    context-ref existence is checked, and `coverage_errors`/`check_errors`
-    are invoked with the normalized manifest and their results merged in --
-    these two callables carry whatever caller-specific machinery (task
-    bodies, evidence connectors, gate runners) produced them; this function
-    knows only that each returns a list of error strings.
+    context-ref existence and task-id identity are checked, and
+    `coverage_errors`/`check_errors` are invoked with the normalized manifest
+    and their results merged in -- these two callables carry whatever
+    caller-specific machinery (task bodies, evidence connectors, gate
+    runners) produced them; this function knows only that each returns a
+    list of error strings.
     """
     manifest = normalize_manifest(manifest)
     errors = validate(manifest, _SCHEMA)
@@ -106,6 +123,7 @@ def validate_manifest_document(
         return errors
 
     out: list[str] = list(context_ref_errors(manifest, repo_root))
+    out += identity_errors(manifest, task_id)
     out += coverage_errors(manifest)
     out += check_errors(manifest)
     return out

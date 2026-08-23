@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/profile.schema.json",
+  "title": "Resolved profile value",
+  "type": "object",
+  "required": ["profile"],
+  "additionalProperties": false,
+  "properties": {
+    "profile": {
+      "type": "string",
+      "enum": ["exploration", "prototype", "product", "high_assurance"]
+    }
+  }
+}

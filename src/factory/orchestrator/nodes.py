@@ -482,11 +482,22 @@ def run_validation(
         report, ok = validate_task_requirements(repo_root, satisfies or [])
         if transcript_dir is not None:
             write_validation_report(transcript_dir / "validation-report.json", report)
-        # reds = requirements that RAN and failed (block). warns = requirements that
-        # could not run (no harness/scenario defined yet) — surface, don't block.
-        reds = [e["id"] for e in report["requirements"] if e.get("passed") is False]
-        warns = [e["id"] for e in report["requirements"] if "error" in e]
-        if reds:
+        own_ids = set(satisfies or [])
+        # reds/warns here only build the human-readable status messages; `ok`
+        # (from validate_task_requirements, fixed above) is the single source
+        # of truth for blocking. Before this task, gating on a self-recomputed
+        # `reds` (RAN-and-failed only) meant an own-SR execution error never
+        # blocked here no matter what validate_task_requirements returned --
+        # that is the actual runtime bug Task 1 exists to close.
+        reds = [
+            e["id"]
+            for e in report["requirements"]
+            if e.get("passed") is False or ("error" in e and e.get("id") in own_ids)
+        ]
+        warns = [
+            e["id"] for e in report["requirements"] if "error" in e and e.get("id") not in own_ids
+        ]
+        if not ok:
             status.report(
                 task_id=task_id,
                 node="validation",

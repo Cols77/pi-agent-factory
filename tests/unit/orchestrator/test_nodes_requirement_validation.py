@@ -122,10 +122,37 @@ def test_fails_when_sr_red(tmp_path):
     assert ev.extra["failed_requirements"] == ["SR-001"]
 
 
-def test_missing_harness_warns_not_fails(tmp_path):
-    # SR present but no harness declared → can't run → warning, NOT a failure.
+def test_missing_harness_on_own_sr_fails(tmp_path):
+    # SR-001 is the task's own justified SR; no harness is declared for it,
+    # so validate_task_requirements reports an "error" entry. Invariant
+    # kernel rule 1 (Task 1, Increment 2B): this must fail the node, the same
+    # way test_fails_when_sr_red does -- both are the task's own SR not
+    # resolving to a clean pass. This test used to assert PASS (the bug).
     _project(tmp_path, [GOOD, GOOD])
     (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
     outcome, ev = run_validation(_Gates(), "T-1", repo_root=tmp_path, satisfies=["SR-001"])
+    assert outcome == NodeOutcome.FAIL
+    assert ev.extra["failed_requirements"] == ["SR-001"]
+
+
+def test_error_on_a_sr_the_task_does_not_own_still_warns(tmp_path):
+    from factory.requirements.register import content_checksum, parse_requirement
+
+    _project(tmp_path, [GOOD, GOOD])  # SR-001: bound, harnessed, green
+    sr2 = tmp_path / "requirements" / "SR-002.md"
+    sr2.write_text(
+        "---\nid: SR-002\ntitle: t2\nstatement: s2\ndomain: behavioral\n"
+        "binding:\n  harness: not-declared\n  experiment: e\n"
+        "  metric: m\n  trials: 1\n  assert: '>= 0.90'\n"
+        "checksum: null\n---\nbody\n",
+        encoding="utf-8",
+    )
+    sr2.write_text(
+        sr2.read_text(encoding="utf-8").replace(
+            "checksum: null", f"checksum: {content_checksum(parse_requirement(sr2))}"
+        ),
+        encoding="utf-8",
+    )
+    outcome, ev = run_validation(_Gates(), "T-1", repo_root=tmp_path, satisfies=["SR-001"])
     assert outcome == NodeOutcome.PASS
-    assert ev.extra["requirement_warnings"] == ["SR-001"]
+    assert ev.extra["requirement_warnings"] == ["SR-002"]

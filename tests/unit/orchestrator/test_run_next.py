@@ -26,12 +26,12 @@ def _repo(tmp_path):
     return tmp_path
 
 
-def _scripts():
+def _scripts(task_id="T-001"):
     manifest = {
-        "task_id": "T-001", "generated_by": "context-gatherer",
+        "task_id": task_id, "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
-        "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
+        "context": {"task": f"tasks/{task_id}.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }
     return {
@@ -68,7 +68,7 @@ def test_run_next_targets_specific_task_id(tmp_path):
     repo = _repo(tmp_path)
     (repo / "tasks" / "T-002.md").write_text(
         "---\nid: T-002\ntitle: second\nstatus: todo\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
-    path = run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
+    path = run_next(repo, FakeAgentBackend(_scripts(task_id="T-002")), FakeGateRunner(),
                     session_id="s1", git_info={"branch": "main"}, task_id="T-002")
     assert path and path.exists()
     tasks = {t.id: t.status for t in load_tasks(repo / "tasks")}
@@ -124,7 +124,7 @@ def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_p
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }

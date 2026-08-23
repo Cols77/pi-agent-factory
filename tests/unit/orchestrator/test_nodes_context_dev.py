@@ -28,7 +28,8 @@ def _manifest(tmp_path, checks=None, reject=None):
 
 def test_context_gatherer_pass(tmp_path):
     write_skill_stubs(tmp_path)
-    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path))]})
+    checks = [{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}]
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path, checks=checks))]})
     outcome, manifest, ev = run_context_gatherer(b, _task(), tmp_path)
     assert outcome == NodeOutcome.PASS and manifest is not None and ev.result == "pass"
 
@@ -129,7 +130,8 @@ def test_dev_does_not_note_backend_failure_when_ok(tmp_path):
 def test_context_gatherer_reports_running_each_attempt(tmp_path):
     write_skill_stubs(tmp_path)
     status = FakeStatusReporter()
-    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path))]})
+    checks = [{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}]
+    b = FakeAgentBackend({AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path, checks=checks))]})
     run_context_gatherer(b, _task(), tmp_path, status=status)
     assert status.calls[0]["node"] == "context-gather"
     assert status.calls[0]["node_state"] == "running"
@@ -184,8 +186,9 @@ def test_dev_reports_session_id_while_running(tmp_path):
 
 def test_run_context_gatherer_writes_transcript_when_dir_given(tmp_path):
     write_skill_stubs(tmp_path)
+    checks = [{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}]
     b = FakeAgentBackend({
-        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path), "raw gather output")]
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path, checks=checks), "raw gather output")]
     })
     transcript_dir = tmp_path / "transcripts"
     run_context_gatherer(b, _task(), tmp_path, transcript_dir=transcript_dir)
@@ -194,8 +197,9 @@ def test_run_context_gatherer_writes_transcript_when_dir_given(tmp_path):
 
 def test_run_context_gatherer_no_transcript_when_dir_not_given(tmp_path):
     write_skill_stubs(tmp_path)
+    checks = [{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}]
     b = FakeAgentBackend({
-        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path), "raw gather output")]
+        AgentRole.CONTEXT_GATHERER: [AgentResult(True, _manifest(tmp_path, checks=checks), "raw gather output")]
     })
     run_context_gatherer(b, _task(), tmp_path)
     assert not (tmp_path / "transcripts").exists()
@@ -205,7 +209,8 @@ def test_run_context_gatherer_no_transcript_when_dir_not_given(tmp_path):
 def test_context_gatherer_pass_reports_session_id_and_summary(tmp_path):
     write_skill_stubs(tmp_path)
     status = FakeStatusReporter()
-    manifest = _manifest(tmp_path)
+    checks = [{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}]
+    manifest = _manifest(tmp_path, checks=checks)
     b = FakeAgentBackend({
         AgentRole.CONTEXT_GATHERER: [AgentResult(True, manifest, "raw", "sess-ctx-1")]
     })
