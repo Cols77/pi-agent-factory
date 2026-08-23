@@ -859,3 +859,136 @@ def test_present_rejects_empty_artifact(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 1
     assert "non-empty artifact" in err
+
+
+def _seed_gates(root: Path) -> None:
+    (root / ".factory").mkdir(exist_ok=True)
+    (root / ".factory" / "factory.yaml").write_text(
+        "gates:\n  unit:\n  - { cmd: 'pytest -m unit -q' }\n", encoding="utf-8",
+    )
+
+
+def test_obligations_project_scope_renders_and_json(tmp_path, capsys):
+    _seed_gates(tmp_path)
+    rc = main(["obligations", "--scope", "project", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["scope_ref"] == "project"
+    assert payload["profile"] == "prototype"
+    ci = next(o for o in payload["obligations"] if o["kind"] == "ci_verification")
+    assert ci["scope_ref"] == "project"
+    assert ci["source_policy"] == "prototype"
+
+
+def test_obligations_rejects_garbage_scope_with_structured_error(tmp_path, capsys):
+    """review finding #6: --scope must not silently accept an arbitrary
+    string and return project-default obligations mislabeled with it."""
+    _seed_gates(tmp_path)
+    rc = main(["obligations", "--scope", "garbage", "--repo-root", str(tmp_path), "--json"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "invalid scope ref" in err
+
+
+def test_obligations_rejects_unknown_declared_kind_id_with_structured_error(tmp_path, capsys):
+    """A supported scope kind with an undeclared id must fail closed at the
+    CLI boundary instead of inheriting project-default obligations."""
+    _seed_gates(tmp_path)
+    rc = main([
+        "obligations", "--scope", "goal:GOAL-DOES-NOT-EXIST",
+        "--repo-root", str(tmp_path), "--json",
+    ])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "not declared" in err
+    assert "ScopeNotFoundError" in err
+
+
+def test_obligations_accepts_a_real_trace_scope(tmp_path, capsys):
+    _seed_gates(tmp_path)
+    write_sr(tmp_path / "requirements", "SR-001")
+    rc = main(["obligations", "--scope", "sr:SR-001", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["scope_ref"] == "sr:SR-001"
+
+
+def test_present_why_required_calls_why_required_for_relevant_obligation(tmp_path, capsys):
+    """Blocking finding #1: not just that an 'obligations' key exists, but
+    that why_required actually ran for the relevant obligation(s)."""
+    _seed_gates(tmp_path)
+    write_sr(tmp_path / "requirements", "SR-001")
+    rc = main([
+        "present", "sr:SR-001", "--why-required", "--repo-root", str(tmp_path), "--json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations"] is not None
+    ci = next(o for o in payload["obligations"] if o["kind"] == "ci_verification")
+    assert ci["why"] is not None
+    assert "prototype" in ci["why"]
+
+
+def test_present_why_required_is_additive_and_off_by_default(tmp_path, capsys):
+    _seed_gates(tmp_path)
+    # Create the feature so it has a policy scope
+    (tmp_path / "docs" / "features").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "features" / "FEAT-NAV-017.md").write_text(
+        "---\nid: FEAT-NAV-017\ntitle: Test Feature\ncontains: [SR-001]\n---\n\nTest feature description\n",
+        encoding="utf-8",
+    )
+    write_sr(tmp_path / "requirements", "SR-001")
+
+    rc = main(["present", "feat:FEAT-NAV-017", "--repo-root", str(tmp_path), "--json"])
+    baseline = json.loads(capsys.readouterr().out)
+    assert "obligations" not in baseline
+
+    rc = main([
+        "present", "feat:FEAT-NAV-017", "--why-required", "--repo-root", str(tmp_path), "--json",
+    ])
+    with_why = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert baseline.keys() <= with_why.keys()
+    assert with_why["obligations"] is not None
+
+
+def test_present_why_required_skips_non_scope_artifact(tmp_path, capsys):
+    """review finding #7: a raw file path must not fall through to
+    mislabeled project-default obligations."""
+    _seed_gates(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("# x\n", encoding="utf-8")
+    rc = main([
+        "present", "src/a.py", "--why-required", "--repo-root", str(tmp_path), "--json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations"] is None
+    assert payload["obligations_note"] == "no policy scope for this artifact kind"
+
+
+def test_obligations_renderer_handles_stale_scope_result():
+    from factory.system.cli import _render_obligations
+
+    rendered = _render_obligations({
+        "scope": {"kind": "sr", "ref": "sr:SR-001"},
+        "stale": True,
+        "freshness": "stale",
+        "snapshot": {"ref": "sr:SR-001"},
+        "resolver": "coherence navigate snapshot refresh --ref sr:SR-001",
+        "message": "navigation input is not current",
+    })
+    assert "stale: true" in rendered
+    assert "navigation input is not current" in rendered
+
+
+def test_obligations_renderer_handles_malformed_payload_without_crashing():
+    from factory.system.cli import _render_obligations
+
+    rendered = _render_obligations({
+        "scope_ref": "project",
+        "profile": "prototype",
+        "obligations": [{"kind": "ci_verification"}, "not-an-obligation"],
+    })
+    assert "malformed obligation[0]" in rendered
+    assert "malformed obligation[1]" in rendered

@@ -144,7 +144,33 @@ def cmd_goal_evaluate(repo_root: Path, goal_id: str) -> dict:
     return evaluate_goal_from_runs(_evidence_dir(repo_root), goals, goal_id)
 
 
-def cmd_present(repo_root: Path, artifact: str, focus: str | None, level: str | None = None) -> dict:
+def cmd_obligations(repo_root: Path, scope_raw: str) -> dict:
+    """Effective profile and compiled obligations for a scope (Inc 3B).
+
+    `scope_raw == "project"` is the one legitimate obligations scope that is
+    not a trace-graph artifact kind (`queries._SCOPE_KINDS` has no "project"
+    entry) -- handled explicitly, first. Everything else routes through the
+    same `_guard_scope`/`parse_scope_ref` contract every other `--scope`-
+    taking subcommand in this file already uses, so `--scope garbage` raises
+    a structured `ScopeKindError` instead of silently returning
+    project-default obligations mislabeled with the garbage string (review
+    finding #6).
+    """
+    from coherence.navigate.obligations import effective_profile_view
+
+    if scope_raw == "project":
+        return effective_profile_view(repo_root, "project")
+    scope, snapshot = _guard_scope(repo_root, scope_raw)
+    if snapshot.freshness == "stale":
+        return _stale_scope_result(scope, snapshot)
+    if snapshot.freshness == "missing":
+        from coherence.navigate.queries import ScopeNotFoundError
+
+        raise ScopeNotFoundError(f"scope {scope.ref!r} is not declared")
+    return effective_profile_view(repo_root, scope.ref)
+
+
+def cmd_present(repo_root: Path, artifact: str, focus: str | None, level: str | None = None, *, why_required: bool = False) -> dict:
     """Route a presentation intent to the Inc 5 router (spec §22–§24).
 
     This delegates to ``coherence.presentation.router.present`` so the CLI keeps
@@ -153,7 +179,16 @@ def cmd_present(repo_root: Path, artifact: str, focus: str | None, level: str | 
     the actual UI open is the caller's (browser/IDE/Inc 6).
     """
     level_obj = parse_level(level) if level is not None else None
-    return present(repo_root, artifact, focus, level=level_obj)
+    result = present(repo_root, artifact, focus, level=level_obj)
+    # "snapshot" only appears in the router's result when resolve_intent hit
+    # its OWN stale-navigation-input early return (router.py's
+    # ResolvedIntent.snapshot_freshness is set only on that path) -- obligation
+    # data must never be glued onto that refusal (review minor finding).
+    if why_required and "snapshot" not in result:
+        from coherence.navigate.obligations import present_obligations
+
+        result = {**result, **present_obligations(repo_root, artifact)}
+    return result
 
 
 def cmd_matrix(repo_root: Path, scope_raw: str) -> dict:
@@ -502,6 +537,48 @@ def _render_goal_evaluate(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_obligations(result: dict) -> str:
+    if not isinstance(result, dict):
+        return "obligations: unavailable (malformed payload)"
+    if result.get("stale"):
+        scope = result.get("scope", {}).get("ref", "unknown")
+        lines = [f"scope: {scope}", "  stale: true"]
+        if result.get("freshness"):
+            lines.append(f"  freshness: {result['freshness']}")
+        if result.get("message"):
+            lines.append(f"  message: {result['message']}")
+        if result.get("resolver"):
+            lines.append(f"  resolver: {result['resolver']}")
+        return "\n".join(lines)
+    obligations = result.get("obligations")
+    if not isinstance(obligations, list):
+        return "obligations: unavailable (malformed payload)"
+    if "scope_ref" not in result or "profile" not in result:
+        return "obligations: unavailable (malformed payload)"
+    lines = [f"scope: {result['scope_ref']}", f"  profile: {result['profile']}"]
+    if result.get("obligations_note"):
+        lines.append(f"  obligations: {result['obligations_note']}")
+    if result.get("obligations_error"):
+        lines.append(f"  obligations: unresolved ({result['obligations_error']})")
+    for index, ob in enumerate(obligations):
+        if not isinstance(ob, dict) or not all(key in ob for key in ("kind", "requiredness", "reason")):
+            lines.append(f"  ! malformed obligation[{index}]")
+            continue
+        # not_applicable obligations render distinctly, not identically to an
+        # applicable one (review minor finding).
+        marker = " [not applicable]" if ob["requiredness"] == "not_applicable" else ""
+        lines.append(f"  [{ob['kind']}] {ob['requiredness']}{marker}: {ob['reason']}")
+        if "scope_ref" in ob and "source_policy" in ob:
+            lines.append(f"    scope_ref: {ob['scope_ref']}  source_policy: {ob['source_policy']}")
+        if ob.get("resolve_cmd"):
+            lines.append(f"    resolve: {ob['resolve_cmd']}")
+        if ob.get("why"):
+            lines.append(f"    why: {ob['why']}")
+    if not obligations:
+        lines.append("  no compiled obligations")
+    return "\n".join(lines)
+
+
 def _render_present(result: dict) -> str:
     lines = [
         f"intent: present({result['artifact']}{', focus=' + result['focus'] if result['focus'] else ''})",
@@ -513,6 +590,16 @@ def _render_present(result: dict) -> str:
     lines.append(f"  resolution: {result['resolution']}")
     if result.get("note"):
         lines.append(f"  note: {result['note']}")
+    if result.get("obligations_note"):
+        lines.append(f"  obligations: {result['obligations_note']}")
+    elif result.get("obligations_error"):
+        lines.append(f"  obligations: unresolved ({result['obligations_error']})")
+    elif result.get("obligations") is not None:
+        lines.append(f"  obligations ({len(result['obligations'])}):")
+        for ob in result["obligations"]:
+            lines.append(f"    [{ob['kind']}] {ob['requiredness']}: {ob['reason']}")
+            if ob.get("why"):
+                lines.append(f"      why: {ob['why']}")
     return "\n".join(lines)
 
 
@@ -864,6 +951,10 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="INSPECT, PRESENT or REVIEW (default: decided by policy — INSPECT with no facts)",
     )
+    p_present.add_argument("--why-required", action="store_true", dest="why_required")
+
+    p_obligations = sub.add_parser("obligations", parents=[common])
+    p_obligations.add_argument("--scope", default="project")
 
     sub.add_parser("scope", parents=[common])
 
@@ -1021,8 +1112,13 @@ def main(argv: list[str] | None = None) -> int:
             else:  # evaluate
                 result = cmd_goal_evaluate(args.repo_root, args.goal_id)
                 rendered = _render_goal_evaluate(result)
+        elif args.cmd == "obligations":
+            result = cmd_obligations(args.repo_root, args.scope)
+            rendered = _render_obligations(result)
         elif args.cmd == "present":
-            result = cmd_present(args.repo_root, args.artifact, args.focus, args.level)
+            result = cmd_present(
+                args.repo_root, args.artifact, args.focus, args.level, why_required=args.why_required
+            )
             rendered = _render_present(result)
         else:
             result = cmd_scope(args.repo_root)
