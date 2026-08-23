@@ -39,17 +39,61 @@ def test_required_ci_commands_resolves_a_well_formed_list_against_this_repo():
 def test_workflow_installs_the_runtime_and_locked_dependencies():
     repo_root = Path(__file__).resolve().parents[2]
     steps = _workflow_steps(repo_root)
+    step_names = [step.get("name") for step in steps]
 
     assert any(step.get("uses") == "actions/setup-python@v5" for step in steps)
     assert any(step.get("uses") == "actions/setup-node@v4" for step in steps)
     assert any(step.get("run") == "python -m pip install uv" for step in steps)
     assert any("npm ci --prefix pi-ext/factory-watch" in step.get("run", "") for step in steps)
     assert any(step.get("run") == "uv sync --locked" for step in steps)
+    install_steps = [
+        "Install uv",
+        "Install extension dependencies",
+        "Sync locked Python environment",
+    ]
+    assert [step_names.index(name) for name in install_steps] == sorted(
+        step_names.index(name) for name in install_steps
+    )
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or shutil.which("bash") is None,
+    reason="requires bash on a non-Windows system",
+)
+def test_workflow_resolves_required_gates_against_the_real_repo(tmp_path):
+    repo_root = Path(__file__).resolve().parents[2]
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    python_bin_dir = str(Path(sys.executable).resolve().parent)
+    env = dict(
+        os.environ,
+        RUNNER_TEMP=str(runner_temp),
+        PATH=f"{python_bin_dir}{os.pathsep}{os.environ['PATH']}",
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            "-euo",
+            "pipefail",
+            "-c",
+            _workflow_step(repo_root, "Resolve required CI gates")["run"],
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    resolved = (runner_temp / "required-gates.txt").read_text(encoding="utf-8").splitlines()
+    assert resolved == required_ci_commands(repo_root)
 
 
 def _write_fake_executables(
     fake_bin: Path, exits: dict[str, int], marker: Path
 ) -> None:
+    marker_path = shlex.quote(str(marker))
     by_executable: dict[str, list[tuple[list[str], str, int]]] = {}
     for command, exit_code in exits.items():
         argv = shlex.split(command)
@@ -73,7 +117,7 @@ def _write_fake_executables(
             lines.extend(
                 [
                     f'if [ "$*" = {expected_args} ]; then',
-                    f"  printf '%s\\n' {shlex.quote(command)} >> \"$GATE_MARKER\"",
+                    f"  printf '%s\\n' {shlex.quote(command)} >> {marker_path}",
                     f"  exit {exit_code}",
                     "fi",
                 ]
@@ -101,7 +145,6 @@ def test_workflow_executes_install_commands_in_order_against_fake_tools(tmp_path
     _write_fake_executables(fake_bin, {command: 0 for command in commands}, marker)
     env = dict(
         os.environ,
-        GATE_MARKER=str(marker),
         PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
     )
 
@@ -171,7 +214,6 @@ def _run_workflow_gate_loop(
     env = dict(
         os.environ,
         RUNNER_TEMP=str(runner_temp),
-        GATE_MARKER=str(marker),
         PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
     )
 
