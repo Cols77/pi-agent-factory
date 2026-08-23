@@ -67,6 +67,46 @@ test("formats explanations in the received obligation order", () => {
   expect(rendered).toContain("why: the profile requires a human review");
 });
 
+test("renders resolve_cmd when present", () => {
+  const rendered = formatPresent({
+    ...basePresent(),
+    obligations: [
+      {
+        id: "ob:ci",
+        scope_ref: "project",
+        kind: "ci_verification",
+        requiredness: "blocking",
+        reason: "run CI",
+        source_policy: "prototype",
+        state: "open",
+        resolve_cmd: "pi ci run --scope project",
+        why: null,
+      },
+    ],
+  });
+  expect(rendered).toContain("resolve: pi ci run --scope project");
+});
+
+test("omits resolve_cmd when null", () => {
+  const rendered = formatPresent({
+    ...basePresent(),
+    obligations: [
+      {
+        id: "ob:human",
+        scope_ref: "sr:SR-001",
+        kind: "human_review",
+        requiredness: "required",
+        reason: "review the result",
+        source_policy: "prototype",
+        state: "open",
+        resolve_cmd: null,
+        why: null,
+      },
+    ],
+  });
+  expect(rendered).not.toContain("resolve:");
+});
+
 test("marks malformed optional obligation payloads without throwing", () => {
   const malformedArray = { ...basePresent(), obligations: "not-an-array" } as unknown as PresentResult;
   expect(() => formatPresent(malformedArray)).not.toThrow();

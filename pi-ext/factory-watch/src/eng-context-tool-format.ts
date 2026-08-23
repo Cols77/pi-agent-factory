@@ -159,6 +159,7 @@ function formatObligationLines(result: PresentResult): string[] {
   for (const obligation of result.obligations) {
     lines.push(`  [${obligation.kind}] ${obligation.requiredness}: ${obligation.reason}`);
     if (obligation.why) lines.push(`    why: ${obligation.why}`);
+    if (obligation.resolve_cmd) lines.push(`    resolve: ${obligation.resolve_cmd}`);
   }
   return lines;
 }

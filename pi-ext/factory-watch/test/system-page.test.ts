@@ -247,6 +247,11 @@ describe("renderSystemPageHtml", () => {
     // The browser never has an export affordance -- export is CLI-only,
     // explicit, user-initiated (design SS4.5).
     expect(html).not.toContain("--export");
+    // Inc 3B Task 7: `--why-required` obligation data is surfaced only
+    // through the eng_present agent tool (eng-context-tool-format.ts); the
+    // /system page has no projection for it and must never fetch or expect
+    // a worker `present` action.
+    expect(html).not.toContain("/api/system/present");
   });
 
   test("the guide tab falls back to a plain notice, never synthesizes prose client-side, if its own fetch fails", () => {
@@ -493,6 +498,16 @@ describe("GET /system and /api/system/*", () => {
     expect((await fetch(`${server.url}/api/system/../secret`)).status).toBe(404);
     expect((await fetch(`${server.url}/api/system/export`)).status).toBe(404);
     expect((await fetch(`${server.url}/system/../../etc/passwd`)).status).toBe(404);
+  });
+
+  test("has no worker `present` route: obligation data stays agent-tool-only (Inc 3B Task 7)", async () => {
+    // `--why-required` obligations flow through eng_present (eng-context-
+    // tools.ts) -> loadSystemPresent (system-cli.ts) -> formatObligationLines
+    // (eng-context-tool-format.ts), never through the /system page's worker
+    // protocol. No route or worker cmd named "present" exists here.
+    mockSystemCli();
+    const server = await ensureDocsServer(repo());
+    expect((await fetch(`${server.url}/api/system/present`)).status).toBe(404);
   });
 
   test("stays loopback-only", async () => {
