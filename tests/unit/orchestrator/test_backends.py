@@ -1,8 +1,27 @@
+import subprocess
+
 import pytest
+from factory.config import GateStep
 from factory.orchestrator.types import AgentRole, AgentResult
-from factory.orchestrator.backends import GATE_NOT_APPLICABLE, FakeAgentBackend, FakeGateRunner, GateRun
+from factory.orchestrator.backends import (
+    GATE_NOT_APPLICABLE,
+    ConfigGateRunner,
+    FakeAgentBackend,
+    FakeGateRunner,
+    GateRun,
+)
 
 pytestmark = pytest.mark.unit
+
+
+class _FakeSubprocessRunner:
+    def __init__(self, returncode: int) -> None:
+        self.returncode = returncode
+        self.commands: list[str] = []
+
+    def __call__(self, command: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        self.commands.append(command)
+        return subprocess.CompletedProcess(command, self.returncode, stdout="", stderr="")
 
 
 def test_fake_backend_pops_in_order():
@@ -83,3 +102,29 @@ def test_fake_backend_accepts_and_ignores_on_snippet():
     result = b.run(AgentRole.DEV, "p", on_snippet=seen.append)
     assert result.output["n"] == 1
     assert seen == []  # FakeAgentBackend never calls it -- no real streaming to report
+
+
+@pytest.mark.parametrize("command", ["pytest -q", "python -m pytest -q"])
+def test_config_gate_runner_treats_exit_five_as_pass_for_exact_pytest_tokens(
+    tmp_path, monkeypatch, command
+):
+    fake_run = _FakeSubprocessRunner(5)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runner = ConfigGateRunner(tmp_path, {"unit": [GateStep(cmd=command)]})
+
+    assert runner.run_detail("unit").returncode == 0
+    assert fake_run.commands == [command]
+
+
+def test_config_gate_runner_rejects_pytest_substrings_when_exit_five_is_returned(
+    tmp_path, monkeypatch
+):
+    command = "python -m ruff check pytest-config"
+    fake_run = _FakeSubprocessRunner(5)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runner = ConfigGateRunner(tmp_path, {"unit": [GateStep(cmd=command)]})
+
+    assert runner.run_detail("unit").returncode == 5
+    assert fake_run.commands == [command]

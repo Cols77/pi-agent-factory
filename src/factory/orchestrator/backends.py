@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -139,6 +139,16 @@ GATE_NOT_APPLICABLE = -1
 PYTEST_NO_TESTS_COLLECTED = 5
 
 
+def _is_pytest_command(argv: Sequence[str]) -> bool:
+    """Return whether parsed argv contains an exact ``pytest`` token.
+
+    This aligns the orchestrator with Task 3's workflow contract: exit 5 is
+    normalized only for commands invoking pytest, including ``pytest ...`` and
+    ``python -m pytest ...``, not for tokens such as ``pytest-config``.
+    """
+    return "pytest" in argv
+
+
 def _quote_for_shell(path: str) -> str:
     """Quote an interpreter path for safe interpolation into a `shell=True`
     command string. cmd.exe and POSIX shells disagree on quoting rules, so
@@ -230,7 +240,7 @@ class ConfigGateRunner:
             )
             chunks.append(f"$ {cmd}\n{proc.stdout or ''}{proc.stderr or ''}")
             rc = proc.returncode
-            if rc == PYTEST_NO_TESTS_COLLECTED:
+            if rc == PYTEST_NO_TESTS_COLLECTED and _is_pytest_command(shlex.split(cmd)):
                 chunks.append(f"[gate] step matched nothing (exit 5), treated as pass: {cmd}\n")
                 continue
             if rc != 0:

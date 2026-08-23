@@ -42,14 +42,27 @@ def test_undeclared_gate_is_not_applicable_and_is_recorded_as_skipped(tmp_path):
     assert "not declared" in (tmp_path / "logs" / "sim-gate.log").read_text(encoding="utf-8")
 
 
-def test_exit_five_is_a_pass_and_is_noted(tmp_path):
+def test_exit_five_from_pytest_is_a_pass_and_is_noted(tmp_path):
     # pytest returns 5 for "no tests collected" -- a declared gate that matches
     # nothing must not be a false red.
-    runner = ConfigGateRunner(tmp_path, {"sim": [_fail(5), _ok("still runs")]}, log_dir=tmp_path / "logs")
+    no_tests = GateStep(cmd=f"{sys.executable} -m pytest -q")
+    runner = ConfigGateRunner(
+        tmp_path, {"sim": [no_tests, _ok("still runs")]}, log_dir=tmp_path / "logs"
+    )
     assert runner.run("sim") == 0
     log = (tmp_path / "logs" / "sim-gate.log").read_text(encoding="utf-8")
     assert "matched nothing" in log
     assert "still runs" in log
+
+
+def test_exit_five_from_non_pytest_command_is_a_failure(tmp_path):
+    runner = ConfigGateRunner(
+        tmp_path, {"sim": [_fail(5), _ok("never runs")]}, log_dir=tmp_path / "logs"
+    )
+    assert runner.run("sim") == 5
+    log = (tmp_path / "logs" / "sim-gate.log").read_text(encoding="utf-8")
+    assert "matched nothing" not in log
+    assert "never runs" not in log
 
 
 def test_python_placeholder_expands_to_this_interpreter(tmp_path):
