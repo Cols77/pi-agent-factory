@@ -37,7 +37,7 @@ def _parse_justification(meta: dict) -> list[Justification]:
     for entry in raw:
         if not isinstance(entry, dict) or len(entry) != 1:
             raise InvalidJustificationError(
-                f"each justification entry must be a single mapping, got {entry!r}"
+                f"each justification entry must be a single {{kind: target_id}} mapping, got {entry!r}"
             )
         ((kind, target_id),) = entry.items()
         if kind not in _JUSTIFICATION_KINDS:

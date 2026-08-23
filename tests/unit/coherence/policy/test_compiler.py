@@ -63,6 +63,13 @@ def test_resolve_profile_rejects_uncompiled_preset(tmp_path):
         resolve_profile(tmp_path, "project")
 
 
+def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text("profile: product\n", encoding="utf-8")
+    with pytest.raises(UncompiledPresetError):
+        resolve_profile(tmp_path, "project")
+
+
 def test_compile_obligations_ci_verification_substitutes_python_like_backends_does(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")

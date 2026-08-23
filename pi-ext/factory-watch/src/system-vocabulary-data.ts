@@ -434,8 +434,8 @@ export const VOCABULARY_DATA = {
       "group": "health-class",
       "label": "Tasks linked to a requirement",
       "gloss": "share of tasks that declare a satisfies edge",
-      "denominator_rule": "Counts every task; satisfied when it names at least one requirement it helps satisfy.",
-      "definition": "Denominator: every `task` node in the trace graph, one slot each (the same task also has a `task->plan` slot; they are counted independently). Satisfied: the task declares at least one `satisfies` edge (`task_no_sr` is the gap when it declares none). Exempt tasks remove their slot from the denominator.",
+      "denominator_rule": "Counts every task; satisfied when it declares at least one justification edge (satisfies, corrects, mitigates, implements, maintains, or explores) linking it to a requirement or other record.",
+      "definition": "Denominator: every `task` node in the trace graph, one slot each (the same task also has a `task->plan` slot; they are counted independently). Satisfied: the task declares at least one justification edge -- satisfies, corrects, mitigates, implements, maintains, or explores (`task_no_sr` is the gap when it declares none). Exempt tasks remove their slot from the denominator.",
       "siblings": [
         "task->plan",
         "plan->spec",
@@ -1176,8 +1176,8 @@ export const REMEDIATION_DATA = {
     "task_no_sr": {
       "state": "task_no_sr",
       "headline": "Task satisfies no requirement",
-      "what_it_means": "This task declares no `satisfies` edge linking it to any requirement.",
-      "why_it_matters": "A task with no satisfies edge can't be counted toward any requirement's coverage, so the work it represents is invisible to the trace graph.",
+      "what_it_means": "This task declares no justification edge (satisfies, corrects, mitigates, implements, maintains, or explores) linking it to any requirement or other record.",
+      "why_it_matters": "A task with no justification edge can't be counted toward any requirement's coverage, so the work it represents is invisible to the trace graph.",
       "command": "uv run python -m coherence.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",
       "severity": "absence"
@@ -1320,7 +1320,7 @@ export const REMEDIATION_DATA = {
     "no_requirements": {
       "state": "no_requirements",
       "headline": "No requirements recorded on this task",
-      "what_it_means": "This task declares no `satisfies` edges -- the same condition the `task_no_sr` gap reports.",
+      "what_it_means": "This task declares no justification edges (satisfies, corrects, mitigates, implements, maintains, or explores) -- the same condition the `task_no_sr` gap reports.",
       "why_it_matters": "A task with no requirement link can't be shown as implementing anything the system is tracking.",
       "command": "uv run python -m coherence.trace link {id} --satisfies <SR-id>",
       "command_kind": "shell",

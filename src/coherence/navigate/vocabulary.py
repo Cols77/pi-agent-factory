@@ -517,13 +517,15 @@ VOCABULARY: dict[str, dict] = {
         "group": "health-class",
         "label": "Tasks linked to a requirement",
         "gloss": "share of tasks that declare a satisfies edge",
-        "denominator_rule": "Counts every task; satisfied when it names at least one requirement it helps satisfy.",
+        "denominator_rule": "Counts every task; satisfied when it declares at least one justification edge (satisfies, corrects, mitigates, implements, maintains, or explores) linking it to a requirement or other record.",
         "definition": (
             "Denominator: every `task` node in the trace graph, one slot "
             "each (the same task also has a `task->plan` slot; they are "
             "counted independently). Satisfied: the task declares at least "
-            "one `satisfies` edge (`task_no_sr` is the gap when it declares "
-            "none). Exempt tasks remove their slot from the denominator."
+            "one justification edge -- satisfies, corrects, mitigates, "
+            "implements, maintains, or explores (`task_no_sr` is the gap "
+            "when it declares none). Exempt tasks remove their slot from "
+            "the denominator."
         ),
         "siblings": ["task->plan", "plan->spec", "SR satisfied", "SR validated"],
         "computed_by": ["src/factory/trace/health.py", "src/factory/trace/gaps.py"],

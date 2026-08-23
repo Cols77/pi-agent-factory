@@ -33,11 +33,12 @@ REMEDIATION: dict[str, dict] = {
         "state": "task_no_sr",
         "headline": "Task satisfies no requirement",
         "what_it_means": (
-            "This task declares no `satisfies` edge linking it to any "
-            "requirement."
+            "This task declares no justification edge (satisfies, corrects, "
+            "mitigates, implements, maintains, or explores) linking it to any "
+            "requirement or other record."
         ),
         "why_it_matters": (
-            "A task with no satisfies edge can't be counted toward any "
+            "A task with no justification edge can't be counted toward any "
             "requirement's coverage, so the work it represents is invisible "
             "to the trace graph."
         ),
@@ -293,7 +294,8 @@ REMEDIATION: dict[str, dict] = {
         "state": "no_requirements",
         "headline": "No requirements recorded on this task",
         "what_it_means": (
-            "This task declares no `satisfies` edges -- the same "
+            "This task declares no justification edges (satisfies, corrects, "
+            "mitigates, implements, maintains, or explores) -- the same "
             "condition the `task_no_sr` gap reports."
         ),
         "why_it_matters": (
