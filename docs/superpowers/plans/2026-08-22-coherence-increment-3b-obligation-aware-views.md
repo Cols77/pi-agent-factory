@@ -1105,7 +1105,7 @@ def test_goal_show_propagates_a_positive_open_obligation(monkeypatch, tmp_path, 
     assert rc == 0
     assert payload["obligations_open"] == 2
     assert payload["obligations_error"] is None
-
+```
 
 Append to `pi-ext/factory-watch/test/system-worker.test.ts`:
 
