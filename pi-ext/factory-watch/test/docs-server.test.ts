@@ -364,3 +364,125 @@ describe("ensureDocsServer", () => {
     expect(stopDocsServer()).toBe(false);
   });
 });
+
+// Inc 3B Task 6: browser transport boundary coverage for goal_show/sim_run
+// obligations fields. `system-worker.test.ts` already proves the additive
+// fields survive the mocked persistent-worker protocol (system-worker.ts);
+// these tests exercise the same `/api/system/goal` and `/api/system/sim/run`
+// routes end to end through `docs-server.ts`, the same way every other test
+// in this file does -- via the one-shot CLI fallback (`spawnSync` mocked,
+// `spawn` left unmocked so the real worker process is unreachable in this
+// sandbox and `systemRequest` falls back immediately). `docs-server.ts` never
+// re-derives or reshapes a `value` field, so this pins the same "no
+// reshaping" promise for the browser-facing routes that
+// `test_dossier_mirrors_individual_commands` pins on the Python side.
+describe("goal_show / sim_run obligations transport", () => {
+  test("serves goal_show with its additive obligations fields intact", async () => {
+    const goal = {
+      id: "GOAL-CLI-001",
+      title: "worker goal",
+      state: "proposed",
+      version: 1,
+      feature: ["FEAT-CLI-001"],
+      requirements: ["SR-001"],
+      metric: null,
+      target: ">=0.9",
+      evidence: [],
+      history: [],
+      scope_errors: [],
+      obligations_open: 0,
+      obligations_error: null,
+    };
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(goal), stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/goal?id=GOAL-CLI-001`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(goal);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      ["run", "python", "-m", "factory.system", "goal", "show", "GOAL-CLI-001", "--json"],
+      expect.objectContaining({ cwd: expect.any(String) }),
+    );
+  });
+
+  test("serves sim_run's unsupported run-scope obligations_error, stably across repeated calls", async () => {
+    const simRun = {
+      run: "RUN-3",
+      experiment: "SIM-X",
+      feature: "FEAT-CLI-001",
+      requirements: [],
+      goals: ["GOAL-CLI-001"],
+      commit: "f92b005",
+      result: "passed",
+      scope_errors: [],
+      metrics: {},
+      recording: null,
+      recorded_ts: null,
+      obligations_open: 0,
+      obligations_error: "policy scope unsupported for 'run:RUN-3': load_nodes exposes no run nodes",
+    };
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(simRun), stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const first = await (await fetch(`${server.url}/api/system/sim/run?id=RUN-3`)).json();
+    const second = await (await fetch(`${server.url}/api/system/sim/run?id=RUN-3`)).json();
+    // Same stable degraded shape both times -- no throw, no fabricated
+    // presentation response, no drift between calls.
+    expect(first).toEqual(simRun);
+    expect(second).toEqual(simRun);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      ["run", "python", "-m", "factory.system", "sim", "run", "RUN-3", "--json"],
+      expect.objectContaining({ cwd: expect.any(String) }),
+    );
+  });
+
+  test("passes through a stale goal payload missing the additive obligations fields", async () => {
+    // Simulates an older worker/CLI build that predates Task 3: the route
+    // must serve exactly what it was given, not fabricate the missing keys
+    // and not throw because they are absent.
+    const staleGoal = {
+      id: "GOAL-CLI-001",
+      title: "worker goal",
+      state: "proposed",
+      version: 1,
+      feature: ["FEAT-CLI-001"],
+      requirements: ["SR-001"],
+      metric: null,
+      target: ">=0.9",
+      evidence: [],
+      history: [],
+      scope_errors: [],
+    };
+    spawnSync.mockReturnValue({ status: 0, stdout: JSON.stringify(staleGoal), stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/goal?id=GOAL-CLI-001`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual(staleGoal);
+    expect(body).not.toHaveProperty("obligations_open");
+    expect(body).not.toHaveProperty("obligations_error");
+  });
+
+  test("reports a malformed goal_show payload as a 503 instead of crashing", async () => {
+    // Status 0 but unparseable stdout -- a corrupt/partial write, not a
+    // reported Python failure. `parseCliResult` must still degrade to a
+    // structured error rather than throwing out of the request handler.
+    spawnSync.mockReturnValue({ status: 0, stdout: "not json at all", stderr: "" });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/goal?id=GOAL-CLI-001`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("could not parse");
+  });
+
+  test("reports sim_run's structured Python error (unresolvable run) as a 503", async () => {
+    spawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: JSON.stringify({ error: "no simulation run with id 'RUN-GONE'", kind: "ScopeNotFoundError" }),
+    });
+    const server = await ensureDocsServer(repo());
+    const res = await fetch(`${server.url}/api/system/sim/run?id=RUN-GONE`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("no simulation run with id");
+  });
+});
