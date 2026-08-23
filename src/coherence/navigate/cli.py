@@ -112,7 +112,13 @@ def cmd_diagram(repo_root: Path, diagram_id: str) -> dict:
     return query_diagram(repo_root, diagram_id)
 
 def cmd_sim_run(repo_root: Path, run_id: str) -> dict:
-    return query_simulation_run(repo_root, run_id)
+    from coherence.navigate.obligations import obligations_open_count
+
+    result = query_simulation_run(repo_root, run_id)
+    count, error = obligations_open_count(repo_root, f"run:{run_id}")
+    result["obligations_open"] = count
+    result["obligations_error"] = error
+    return result
 
 
 def cmd_sim_latest(repo_root: Path, feature: str) -> dict:
@@ -132,7 +138,13 @@ def cmd_sim_goal_evidence(repo_root: Path, goal_id: str) -> dict:
 
 
 def cmd_goal_show(repo_root: Path, goal_id: str) -> dict:
-    return query_goal(repo_root, goal_id)
+    from coherence.navigate.obligations import obligations_open_count
+
+    result = query_goal(repo_root, goal_id)
+    count, error = obligations_open_count(repo_root, f"goal:{goal_id}")
+    result["obligations_open"] = count
+    result["obligations_error"] = error
+    return result
 
 
 def cmd_goal_list(repo_root: Path, scope_raw: str) -> dict:

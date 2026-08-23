@@ -178,4 +178,45 @@ describe("system worker protocol", () => {
     await tick();
     expect(child.kill).toHaveBeenCalled(); // timed out request already discarded worker
   });
+
+  test("worker preserves additive goal_show obligation fields", async () => {
+    const result = systemWorkerRequest("/repo", {
+      cmd: "goal_show",
+      params: { goal_id: "GOAL-CLI-001" },
+    });
+    const child = lastChild();
+    const value = {
+      id: "GOAL-CLI-001",
+      obligations_open: 2,
+      obligations_error: null,
+    };
+    child.emitLine(JSON.stringify({ id: 1, ok: true, value }));
+    await expect(result).resolves.toEqual({ ok: true, value });
+    expect(JSON.parse(requestLine(child))).toEqual({
+      id: 1,
+      cmd: "goal_show",
+      params: { goal_id: "GOAL-CLI-001" },
+    });
+  });
+
+  test("worker preserves sim_run additive fields and unsupported run-scope error", async () => {
+    const result = systemWorkerRequest("/repo", {
+      cmd: "sim_run",
+      params: { run_id: "RUN-3" },
+    });
+    const child = lastChild();
+    const value = {
+      run: "RUN-3",
+      result: "passed",
+      obligations_open: 0,
+      obligations_error: "policy scope unsupported for 'run:RUN-3': load_nodes exposes no run nodes",
+    };
+    child.emitLine(JSON.stringify({ id: 1, ok: true, value }));
+    await expect(result).resolves.toEqual({ ok: true, value });
+    expect(JSON.parse(requestLine(child))).toEqual({
+      id: 1,
+      cmd: "sim_run",
+      params: { run_id: "RUN-3" },
+    });
+  });
 });

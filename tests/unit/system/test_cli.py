@@ -992,3 +992,56 @@ def test_obligations_renderer_handles_malformed_payload_without_crashing():
     })
     assert "malformed obligation[0]" in rendered
     assert "malformed obligation[1]" in rendered
+
+
+def test_goal_show_reports_open_blocking_obligations(tmp_path, capsys):
+    _seed_gates(tmp_path)
+    _write_goal_file(tmp_path)
+    rc = main(["goal", "show", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    # ci_verification is excluded (review finding #3): a goal scope compiles
+    # no other obligation kind today, so this is honestly 0, not a
+    # structural >= 1.
+    assert payload["obligations_open"] == 0
+    assert payload["obligations_error"] is None
+
+
+def test_goal_show_surfaces_uncompiled_preset_error(tmp_path, capsys):
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text("profile: exploration\n", encoding="utf-8")
+    _write_goal_file(tmp_path)
+    rc = main(["goal", "show", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations_open"] == 0
+    assert payload["obligations_error"] is not None
+    assert "exploration" in payload["obligations_error"]
+
+
+def test_sim_run_reports_unsupported_run_scope(tmp_path, capsys):
+    _seed_gates(tmp_path)
+    _seed_sim_runs(tmp_path)
+    rc = main(["sim", "run", "RUN-3", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations_open"] == 0
+    assert payload["obligations_error"] == (
+        "policy scope unsupported for 'run:RUN-3': load_nodes exposes no run nodes"
+    )
+
+
+def test_goal_show_propagates_a_positive_open_obligation(monkeypatch, tmp_path, capsys):
+    """Positive consumer coverage: 2B has no goal-specific kind yet, so
+    inject the future compiler result at this boundary and prove the view does
+    not hard-code the honest-current zero."""
+    _seed_gates(tmp_path)
+    _write_goal_file(tmp_path)
+    from coherence.navigate import obligations as obligations_module
+
+    monkeypatch.setattr(obligations_module, "obligations_open_count", lambda *_args, **_kwargs: (2, None))
+    rc = main(["goal", "show", "GOAL-CLI-001", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations_open"] == 2
+    assert payload["obligations_error"] is None
