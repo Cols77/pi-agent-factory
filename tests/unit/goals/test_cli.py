@@ -115,3 +115,14 @@ def test_history_after_evaluation(tmp_path, capsys):
 def test_show_unknown_goal_exits_nonzero(tmp_path):
     with pytest.raises(SystemExit):
         _run(tmp_path, "show", "GOAL-NOPE")
+
+
+def test_show_reports_obligations_open(tmp_path, capsys):
+    _run(tmp_path, "create", "--id", "GOAL-NAV-003", "--title", "t", "--feature", "FEAT-NAV-017",
+         "--requirements", "SR-032", "--metric", "reacquisition_rate", "--source-experiment",
+         "SIM-047", "--target", ">= 0.90")
+    capsys.readouterr()  # drain create's payload
+    assert _run(tmp_path, "show", "GOAL-NAV-003") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["obligations_open"] == 0
+    assert payload["obligations_error"] is None

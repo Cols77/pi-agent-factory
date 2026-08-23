@@ -102,6 +102,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "show":
         goal = _load_one(root, args.goal_id)
+        from coherence.navigate.obligations import obligations_open_count
+
+        obligations_open, obligations_error = obligations_open_count(root, f"goal:{goal.id}")
         _emit(
             {
                 "id": goal.id,
@@ -115,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
                 "evidence": goal.evidence,
                 "history": goal.history,
                 "scope_errors": goal.scope_errors,
+                "obligations_open": obligations_open,
+                "obligations_error": obligations_error,
             },
             args.json,
         )
