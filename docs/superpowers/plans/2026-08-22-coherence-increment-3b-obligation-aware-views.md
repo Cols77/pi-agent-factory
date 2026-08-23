@@ -1616,3 +1616,35 @@ git commit -m "feat(goals): obligations_open on show (the /goal show entry point
   plan still passes unchanged.
 - `coherence.simulation.cli` is deliberately not extended in this increment (Architecture; no
   verified pi-extension caller reaches it today).
+## Browser/UI contract reconciliation
+
+This increment also covers the browser-facing transport and rendering contracts. The worker surface is intentionally limited: `src/coherence/navigate/worker.py` exposes `goal_show` and `sim_run`; it has no `present` handler, and this plan must not add one.
+
+**Files:**
+- Modify: `src/coherence/navigate/worker.py` only as needed to preserve the JSON-lines response contract for `goal_show` and `sim_run`.
+- Test: `tests/coherence/navigate/test_worker.py` for the Python/JSON serializer boundary and additive obligation/profile fields.
+- Modify: `pi-ext/factory-watch/src/docs-server.ts` for browser endpoint transport behavior.
+- Test: `pi-ext/factory-watch/test/docs-server.test.ts` for `goal_show`, `sim_run`, and stable unsupported `run:<id>` degradation.
+- Modify: `pi-ext/factory-watch/src/eng-context-tools.ts` and `pi-ext/factory-watch/src/system-cli.ts` for the existing `eng_present` → `loadSystemPresent` → `factory.presentation` path.
+- Test: `pi-ext/factory-watch/test/system-context-tools.test.ts` for `why_required` propagation and `pi-ext/factory-watch/test/system-renderers.test.ts` for ordered presentation formatting.
+- Test: `pi-ext/factory-watch/test/system-page.test.ts`, `pi-ext/factory-watch/test/system-page-additions.test.ts`, and `pi-ext/factory-watch/test/system-feature-view.test.ts` for browser/UI rendering of the transported payload.
+
+### Task: Test the browser transport before changing implementation
+
+- [ ] Add worker-level JSON-lines fixtures that assert `goal_show` and `sim_run` retain their existing fields while adding obligation/profile fields. Assert that the worker still has no `present` action.
+- [ ] Add docs-server tests that exercise both browser endpoints through the Python worker boundary. Assert additive fields survive serialization and parsing, and that an unsupported `run:<id>` request returns the same stable degraded response on repeated calls rather than throwing or fabricating a presentation response.
+- [ ] Include stale, malformed, and error payload fixtures at the transport boundary. Assert each is represented as a deterministic degraded payload that the TypeScript side can render without guessing missing fields.
+
+### Task: Verify the factory-watch presentation path and renderer contract
+
+- [ ] Add an `eng_present` test proving `why_required` is carried through `pi-ext/factory-watch/src/eng-context-tools.ts`, into `loadSystemPresent` in `pi-ext/factory-watch/src/system-cli.ts`, and ultimately to `factory.presentation`.
+- [ ] Add formatter tests for stable item order, visible `why_required`, omission of `resume_cmd` when absent, and visible `blocking_obligation_resolve_cmd` when present.
+- [ ] Add view tests covering fresh, stale, malformed, and error payloads. Assert that obligation/profile data remains additive, stale/error state is visible, malformed data is safely degraded, and no view expects a worker-side `present` handler.
+
+### Acceptance criteria
+
+- Browser tests cover the Python/JSON serializer boundary and both existing worker actions, including additive obligation/profile fields.
+- Unsupported `run:<id>` degradation is stable, deterministic, and tested without introducing a `present` worker action.
+- The `eng_present` → `loadSystemPresent` → `factory.presentation` path preserves `why_required`.
+- TypeScript formatter/view tests prove order, `why_required`, absent `resume_cmd`, displayed `blocking_obligation_resolve_cmd`, and stale/malformed/error rendering behavior.
+- Existing decisions about run-scope, reviewer naming, taxonomy, and CI remain unresolved; this browser/UI reconciliation does not select values for them.
