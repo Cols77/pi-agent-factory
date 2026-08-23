@@ -30,7 +30,20 @@ harnesses:
   sim-testbench:
     type: sim-testbench
     traces_dir: traces
+    scorers: {module}.scorers
 """
+
+# The metric lives in the target project, so this fixture project declares one
+# like any real target would (mirrors tests/unit/orchestrator's own fixture) --
+# without it, SR-001 never actually runs to a "passed" result, it just errors
+# on "no trial scorer", which the pre-fix `ok` computation silently ignored.
+_SCORER_MODULE = '''
+def _preempted(frames, window):
+    return any(f["active_directive"]["kind"] != "patrol" for f in frames)
+
+
+SCORERS = {"preemption_success_rate": _preempted}
+'''
 
 
 def _f(t, kind, sharks=()):
@@ -51,14 +64,26 @@ def _write_sr(req_dir, sr_id, cadence):
     stub.write_text(_SR.format(id=sr_id, cadence=cadence, ck=ck), encoding="utf-8")
 
 
+def _write_scorers(tmp_path) -> str:
+    # A package name derived from the test's own tmp_path: importlib caches in
+    # sys.modules, so a shared name would let one test read another's module.
+    module = f"scorerpkg_{tmp_path.name}".replace("-", "_")
+    pkg = tmp_path / "src" / module
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "scorers.py").write_text(_SCORER_MODULE, encoding="utf-8")
+    return module
+
+
 def _project(tmp_path):
     req = tmp_path / "requirements"
     req.mkdir()
     _write_sr(req, "SR-001", "every_iteration")
     _write_sr(req, "SR-002", "periodic")
+    module = _write_scorers(tmp_path)
     fac = tmp_path / ".factory"
     fac.mkdir()
-    (fac / "factory.yaml").write_text(_CONFIG, encoding="utf-8")
+    (fac / "factory.yaml").write_text(_CONFIG.format(module=module), encoding="utf-8")
     traces = tmp_path / "traces"
     traces.mkdir()
     (traces / "shark_warning.json").write_text(
@@ -88,14 +113,31 @@ def test_validate_empty_when_no_register(tmp_path):
     assert report == {"requirements": []} and ok is True
 
 
-def test_missing_harness_is_warning_not_failure(tmp_path):
-    # An SR whose harness isn't declared can't run → an "error" entry, but that is
-    # a setup gap (warning), NOT a validation failure: ok stays True.
+def test_missing_harness_on_own_sr_blocks(tmp_path):
+    # SR-001 is the task's own justified SR (satisfies=["SR-001"]); its harness
+    # isn't declared, so validation reports an "error" entry. Invariant kernel
+    # rule 1: an execution error on a task's OWN justified SR cannot become
+    # pass -- this used to assert ok is True (the bug this task fixes).
     _project(tmp_path)
     (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
     report, ok = validate_task_requirements(tmp_path, ["SR-001"])
-    assert ok is True
+    assert ok is False
     assert "error" in report["requirements"][0]
+
+
+def test_unrelated_periodic_sr_error_stays_a_warning(tmp_path):
+    # The task names nothing itself (satisfies=[]); SR-001 (every_iteration)
+    # and SR-002 (periodic) are both swept in only because full_sweep=True,
+    # not because the task claims either -- neither is in own_ids, so an
+    # error on either stays a warning: ok is True.
+    _project(tmp_path)
+    (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
+    report, ok = validate_task_requirements(tmp_path, [], full_sweep=True)
+    ids = [e["id"] for e in report["requirements"]]
+    assert "SR-002" in ids
+    periodic_entry = next(e for e in report["requirements"] if e["id"] == "SR-002")
+    assert "error" in periodic_entry
+    assert ok is True
 
 
 def test_harness_lookup_is_by_instance_key_not_type(tmp_path):
@@ -110,10 +152,13 @@ def test_harness_lookup_is_by_instance_key_not_type(tmp_path):
     stub.write_text(text, encoding="utf-8")
     ck = content_checksum(parse_requirement(stub))
     stub.write_text(text.replace("checksum: null", f"checksum: {ck}"), encoding="utf-8")
+    module = _write_scorers(tmp_path)
     fac = tmp_path / ".factory"
     fac.mkdir()
     (fac / "factory.yaml").write_text(
-        "harnesses:\n  sim:\n    type: sim-testbench\n    traces_dir: traces\n", encoding="utf-8"
+        "harnesses:\n  sim:\n    type: sim-testbench\n    traces_dir: traces\n"
+        f"    scorers: {module}.scorers\n",
+        encoding="utf-8",
     )
     traces = tmp_path / "traces"
     traces.mkdir()
