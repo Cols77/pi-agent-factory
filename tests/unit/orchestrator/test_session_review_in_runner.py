@@ -32,7 +32,7 @@ def _scripts():
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }

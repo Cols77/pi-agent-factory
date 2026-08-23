@@ -46,7 +46,10 @@ def validate_manifest(
             return []
         return _evidence_coverage_errors(task.body, normalized.get("context", {}), repo_root)
 
-    return validate_manifest_document(manifest, repo_root, _check_errors, _coverage_errors)
+    return validate_manifest_document(
+        manifest, repo_root, _check_errors, _coverage_errors,
+        task_id=task.id if task is not None else None,
+    )
 
 
 __all__ = ["validate_manifest"]

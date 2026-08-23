@@ -105,7 +105,11 @@ def test_validate_manifest_document_returns_schema_errors_without_invoking_calla
 
 
 def test_validate_manifest_document_merges_context_check_and_coverage_errors(tmp_path):
-    manifest = _manifest(tmp_path, source_files=["src/missing.py"])
+    manifest = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+        source_files=["src/missing.py"],
+    )
     check_errors = _CountingErrors(["check failed"])
     coverage_errors = _CountingErrors(["coverage failed"])
 
@@ -134,7 +138,10 @@ def test_validate_manifest_document_passes_the_normalized_manifest_to_callables(
 
 
 def test_validate_manifest_document_valid_manifest_no_checks_is_clean(tmp_path):
-    manifest = _manifest(tmp_path)
+    manifest = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+    )
     assert validate_manifest_document(manifest, tmp_path, _no_errors, _no_errors) == []
 
 
@@ -194,7 +201,10 @@ def test_pure_document_matches_legacy_validate_manifest_for_the_coverage_floor(t
         id="T-001", title="t", status="todo", dod=["done"],
         body="- Modify: `src/b.py`", path=Path("x"),
     )
-    manifest = _manifest(tmp_path)
+    manifest = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+    )
 
     def _coverage_errors(normalized: dict) -> list[str]:
         return compute_coverage_errors(task.body, normalized.get("context", {}), tmp_path)

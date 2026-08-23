@@ -32,7 +32,7 @@ def _scripts(review_findings=None, n_review_calls=1):
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }
@@ -166,7 +166,7 @@ def _already_done_scripts(with_dev=False):
     manifest = {
         "task_id": "T-001", "generated_by": "context-gatherer",
         "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None, "already_done": True,
     }
@@ -235,7 +235,7 @@ def test_already_done_but_sim_fails_falls_through_to_dev(tmp_path):
 def _base_manifest():
     return {
         "task_id": "T-001", "generated_by": "context-gatherer", "generated_at": "2026-07-16T14:32:10Z",
-        "coherence": {"checks": []},
+        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["src/x.py"]}}]},
         "context": {"task": "tasks/T-001.md", "source_files": ["src/x.py"], "skills": []},
         "reject": None,
     }

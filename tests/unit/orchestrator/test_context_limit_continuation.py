@@ -72,7 +72,7 @@ def test_context_limit_gets_fresh_call_for_context_gatherer(tmp_path):
                         "task_id": "T-001",
                         "generated_by": "context-gatherer",
                         "generated_at": "2026-08-07T12:00:00Z",
-                        "coherence": {"checks": []},
+                        "coherence": {"checks": [{"name": "c", "kind": "files_exist", "args": {"paths": ["task.md"]}}]},
                         "context": {"task": "task.md", "source_files": [], "skills": []},
                         "reject": None,
                     },

@@ -19,19 +19,37 @@ def _manifest(tmp_path, checks=None, **ctx):
     return base
 
 
-def test_valid_manifest_no_checks(tmp_path):
-    assert validate_manifest(_manifest(tmp_path), tmp_path) == []
+def test_empty_checks_now_rejected(tmp_path):
+    # A context-gatherer that emits zero proof obligations must fail schema
+    # validation, not pass silently (spec §1 gap 3).
+    errors = validate_manifest(_manifest(tmp_path), tmp_path)  # default checks=[]
+    assert any("checks" in e for e in errors)
+
+
+def test_valid_manifest_with_one_check(tmp_path):
+    (tmp_path / "spec.md").write_text("x", encoding="utf-8")
+    checks = [{"name": "n", "kind": "files_exist", "args": {"paths": ["spec.md"]}}]
+    errors = validate_manifest(_manifest(tmp_path, checks=checks), tmp_path)
+    assert errors == []
 
 
 def test_missing_source_file_reports_error(tmp_path):
-    m = _manifest(tmp_path, source_files=["src/does_not_exist.py"])
+    m = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+        source_files=["src/does_not_exist.py"],
+    )
     errors = validate_manifest(m, tmp_path)
     assert any("does_not_exist" in e for e in errors)
 
 
 def test_anchor_is_stripped_before_existence_check(tmp_path):
     (tmp_path / "spec.md").write_text("x", encoding="utf-8")
-    m = _manifest(tmp_path, spec=["spec.md#section"])
+    m = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["spec.md"]}}],
+        spec=["spec.md#section"],
+    )
     assert validate_manifest(m, tmp_path) == []
 
 
@@ -44,17 +62,26 @@ def test_legacy_pass_field_is_stripped_not_rejected(tmp_path):
 
 
 def test_legacy_proven_field_is_stripped_not_rejected(tmp_path):
-    m = _manifest(tmp_path)
+    m = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+    )
     m["coherence"]["proven"] = True
     assert validate_manifest(m, tmp_path) == []
 
 
-def test_evidence_style_checks_are_dropped_not_rejected(tmp_path):
-    # Regression: deepseek-v4-flash emitted checks like
+def test_evidence_style_checks_are_dropped_but_the_resulting_emptiness_now_fails_schema(tmp_path):
+    # Regression pedigree unchanged: deepseek-v4-flash emitted checks like
     # {"name": "x", "evidence": "recorder.py exists", "pass": false} with no
-    # kind/args -- the schema rejected every one and the whole task died on the
-    # first execution. Such checks carry no machine-verifiable claim and are
-    # dropped; the manifest still validates (context refs still checked).
+    # kind/args -- normalize_manifest still strips them (no machine-verifiable
+    # claim survives). What changes here is what happens AFTER stripping: a
+    # manifest whose checks are stripped to [] is exactly "zero proof
+    # obligations, still schema-valid" -- the bug spec §1 gap 3 targets, in a
+    # different disguise -- so minItems: 1 now catches it as a schema error
+    # instead of a silent pass. This is the new, correct default-deny stance,
+    # not a regression of the original strip-not-reject fix: the STRIPPING
+    # behavior (hollow checks never survive into the manifest) is unchanged
+    # and still asserted below; only the final validity verdict changed.
     m = _manifest(
         tmp_path,
         checks=[
@@ -62,8 +89,8 @@ def test_evidence_style_checks_are_dropped_not_rejected(tmp_path):
             {"name": "c2", "evidence": "test file exists", "pass": True},
         ],
     )
-    assert validate_manifest(m, tmp_path) == []
-    # The dropped checks must not survive into the manifest (hollow claims).
+    errors = validate_manifest(m, tmp_path)
+    assert any("checks" in e for e in errors)
     assert m["coherence"]["checks"] == []
 
 
@@ -90,8 +117,29 @@ def test_coverage_floor_requires_modify_deliverable(tmp_path):
     from pathlib import Path
     task = Task(id="T-001", title="t", status="todo", dod=["done"],
                 body="- Modify: `src/b.py`", path=Path("x"))
-    # Manifest gathered nothing; the Modify: deliverable is uncovered even though
-    # every declared check passes -> still an error (honest-but-hollow).
-    m = _manifest(tmp_path)
+    # Manifest gathered nothing but a real, passing, unrelated check; the
+    # Modify: deliverable is still uncovered even though every declared check
+    # passes -> still an error (honest-but-hollow).
+    m = _manifest(
+        tmp_path,
+        checks=[{"name": "c", "kind": "files_exist", "args": {"paths": ["tasks/T-001.md"]}}],
+    )
     errors = validate_manifest(m, tmp_path, task=task)
     assert any("src/b.py" in e and "not gathered" in e for e in errors)
+
+
+def test_manifest_task_id_mismatch_rejected(tmp_path):
+    from substrate.ledger.tasks import Task
+    m = _manifest(tmp_path, checks=[{"name": "n", "kind": "k", "args": {}}])
+    m["task_id"] = "T-999"  # gathered for a different task than the one running
+    task = Task(id="T-001", title="t", status="todo", dod=["d"], body="", path=tmp_path / "tasks" / "T-001.md")
+    errors = validate_manifest(m, tmp_path, task=task)
+    assert any("task_id" in e for e in errors)
+
+
+def test_manifest_task_id_match_accepted(tmp_path):
+    from substrate.ledger.tasks import Task
+    m = _manifest(tmp_path, checks=[{"name": "n", "kind": "k", "args": {}}])
+    task = Task(id="T-001", title="t", status="todo", dod=["d"], body="", path=tmp_path / "tasks" / "T-001.md")
+    errors = validate_manifest(m, tmp_path, task=task)
+    assert not any("task_id" in e for e in errors)
