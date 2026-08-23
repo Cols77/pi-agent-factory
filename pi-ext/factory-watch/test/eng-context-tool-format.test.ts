@@ -79,12 +79,52 @@ test("renders resolve_cmd when present", () => {
         reason: "run CI",
         source_policy: "prototype",
         state: "open",
-        resolve_cmd: "pi ci run --scope project",
+        resolve_cmd: ["pi ci run --scope project"],
         why: null,
       },
     ],
   });
   expect(rendered).toContain("resolve: pi ci run --scope project");
+});
+
+test("joins a multi-command resolve_cmd array into one readable line", () => {
+  const rendered = formatPresent({
+    ...basePresent(),
+    obligations: [
+      {
+        id: "ob:ci",
+        scope_ref: "project",
+        kind: "ci_verification",
+        requiredness: "blocking",
+        reason: "run CI",
+        source_policy: "prototype",
+        state: "open",
+        resolve_cmd: ["pytest -m unit -q", "ruff check ."],
+        why: null,
+      },
+    ],
+  });
+  expect(rendered).toContain("resolve: pytest -m unit -q && ruff check .");
+});
+
+test("omits resolve_cmd when it is an empty array", () => {
+  const rendered = formatPresent({
+    ...basePresent(),
+    obligations: [
+      {
+        id: "ob:ci",
+        scope_ref: "project",
+        kind: "ci_verification",
+        requiredness: "blocking",
+        reason: "run CI",
+        source_policy: "prototype",
+        state: "open",
+        resolve_cmd: [],
+        why: null,
+      },
+    ],
+  });
+  expect(rendered).not.toContain("resolve:");
 });
 
 test("omits resolve_cmd when null", () => {

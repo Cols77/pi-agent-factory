@@ -164,6 +164,19 @@ def test_present_obligations_none_for_unknown_goal(tmp_path):
     assert result == {"obligations": None, "obligations_note": "no declared policy scope"}
 
 
+def test_present_obligations_degrades_bare_kind_scope_kind_error(tmp_path):
+    """review finding #1: a bare kind with no colon (e.g. 'feat') passes the
+    `_WHY_REQUIRED_KINDS` allowlist gate (`scope_ref.partition(":")[0]`
+    returns the WHOLE STRING when there is no colon) but is then rejected by
+    `_load_scope_graph`'s malformed-scope check, raising `ScopeKindError`.
+    This must degrade the same as "no policy scope", not raise."""
+    result = present_obligations(tmp_path, "feat")
+    assert result == {
+        "obligations": None,
+        "obligations_note": "no policy scope for this artifact kind",
+    }
+
+
 def test_present_obligations_rejects_windows_path_looking_like_a_scope(tmp_path):
     """A Windows absolute path contains ':' (C:\\...) and must not be
     misparsed as scope kind 'C' (review finding #7a)."""

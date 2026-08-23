@@ -678,7 +678,7 @@ export interface PresentObligation {
   reason: string;
   source_policy: string;
   state: string;
-  resolve_cmd: string | null;
+  resolve_cmd: string[] | null;
   why?: string | null;
 }
 

@@ -967,6 +967,18 @@ def test_present_why_required_skips_non_scope_artifact(tmp_path, capsys):
     assert payload["obligations_note"] == "no policy scope for this artifact kind"
 
 
+def test_present_why_required_degrades_bare_kind_instead_of_crashing(tmp_path, capsys):
+    """review finding #1: 'present feat --why-required' (a bare kind, no
+    colon, no id) must return rc=0 with the degrade note instead of an
+    unhandled ScopeKindError traceback."""
+    _seed_gates(tmp_path)
+    rc = main(["present", "feat", "--why-required", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations"] is None
+    assert payload["obligations_note"] == "no policy scope for this artifact kind"
+
+
 def test_obligations_renderer_handles_stale_scope_result():
     from factory.system.cli import _render_obligations
 

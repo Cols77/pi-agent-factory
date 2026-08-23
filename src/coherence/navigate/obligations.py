@@ -206,6 +206,18 @@ def present_obligations(root: Path, scope_ref: str) -> dict:
         compiled = _compile(root, scope_ref)
     except ScopeNotFoundError:
         return {"obligations": None, "obligations_note": _NO_DECLARED_SCOPE}
+    except ScopeKindError:
+        # A bare kind (no colon) or a trailing-colon typo passes the
+        # allowlist gate above (`scope_ref.partition(":")[0]` returns the
+        # WHOLE STRING when there is no colon at all) but is then rejected by
+        # `_load_scope_graph`'s stricter malformed/unsupported/unknown-kind
+        # checks. `artifact` is free-form text an LLM generates for
+        # `eng_present`, so this must degrade the same as "no policy scope"
+        # rather than raise (review finding #1).
+        return {
+            "obligations": None,
+            "obligations_note": "no policy scope for this artifact kind",
+        }
     except (InvalidProfileError, ProfileConflictError, UncompiledPresetError) as exc:
         return {"obligations": [], "obligations_error": str(exc)}
 

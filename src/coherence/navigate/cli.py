@@ -583,7 +583,7 @@ def _render_obligations(result: dict) -> str:
         if "scope_ref" in ob and "source_policy" in ob:
             lines.append(f"    scope_ref: {ob['scope_ref']}  source_policy: {ob['source_policy']}")
         if ob.get("resolve_cmd"):
-            lines.append(f"    resolve: {ob['resolve_cmd']}")
+            lines.append(f"    resolve: {', '.join(ob['resolve_cmd'])}")
         if ob.get("why"):
             lines.append(f"    why: {ob['why']}")
     if not obligations:

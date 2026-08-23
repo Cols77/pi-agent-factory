@@ -159,7 +159,13 @@ function formatObligationLines(result: PresentResult): string[] {
   for (const obligation of result.obligations) {
     lines.push(`  [${obligation.kind}] ${obligation.requiredness}: ${obligation.reason}`);
     if (obligation.why) lines.push(`    why: ${obligation.why}`);
-    if (obligation.resolve_cmd) lines.push(`    resolve: ${obligation.resolve_cmd}`);
+    // `resolve_cmd` is a JSON array of shell commands (Python's
+    // `Obligation.resolve_cmd: tuple[str, ...] | None` serializes to a
+    // list, never a plain string) -- join into one readable, runnable-
+    // looking line instead of letting JS coerce the array to a comma string.
+    if (Array.isArray(obligation.resolve_cmd) && obligation.resolve_cmd.length > 0) {
+      lines.push(`    resolve: ${obligation.resolve_cmd.join(" && ")}`);
+    }
   }
   return lines;
 }

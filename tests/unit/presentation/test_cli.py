@@ -85,6 +85,22 @@ def test_present_cli_why_required_calls_why_required(tmp_path, capsys):
     assert ci["why"] is not None
 
 
+def test_present_cli_why_required_degrades_bare_kind_instead_of_crashing(tmp_path, capsys):
+    """review finding #1: this is the ONE boundary in the whole chain that
+    had no handler for `ScopeKindError` at all -- `present feat
+    --why-required` on this module raised a raw traceback instead of
+    returning the same degrade shape the navigate CLI already returned."""
+    (tmp_path / ".factory").mkdir()
+    (tmp_path / ".factory" / "factory.yaml").write_text(
+        "gates:\n  unit:\n  - { cmd: 'pytest -m unit -q' }\n", encoding="utf-8",
+    )
+    rc = main(["present", "feat", "--why-required", "--repo-root", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["obligations"] is None
+    assert payload["obligations_note"] == "no policy scope for this artifact kind"
+
+
 def test_present_cli_why_required_off_by_default(tmp_path, capsys):
     rc = main(["present", "feat:FEAT-NAV-017", "--repo-root", str(tmp_path), "--json"])
     payload = json.loads(capsys.readouterr().out)

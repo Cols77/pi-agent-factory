@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+from coherence.navigate.queries import ScopeError
 from coherence.presentation.level import parse_level
 from coherence.presentation.router import present
 
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         else:  # pragma: no cover - argparse enforces subcommand
             parser.error(f"unknown command: {args.cmd}")
             return 1
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, ScopeError) as exc:
         _print_error(exc)
         return 1
 
