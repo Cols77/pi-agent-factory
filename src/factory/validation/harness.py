@@ -1,27 +1,22 @@
-from __future__ import annotations
+"""Deprecated compatibility shim for :mod:`coherence.measurement.harness`."""
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Protocol
+import sys
+import warnings
 
-from factory.requirements.register import Binding
+from coherence.measurement import harness as _canonical
+from coherence.measurement.harness import *  # noqa: F401,F403
 
+warnings.warn(
+    "factory.validation.harness is deprecated; import coherence.measurement.harness",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-@dataclass(frozen=True)
-class TrialResult:
-    seed: int
-    passed: bool
-    detail: str = ""
-
-
-@dataclass(frozen=True)
-class HarnessResult:
-    metric_value: float
-    passed: bool
-    trials: list[TrialResult]
-    artifacts: list[Path]
-    raw: dict
+__all__ = _canonical.__all__
 
 
-class Harness(Protocol):
-    def run(self, binding: Binding, workdir: Path) -> HarnessResult: ...
+def __getattr__(name: str):
+    return getattr(_canonical, name)
+
+
+sys.modules[__name__] = _canonical

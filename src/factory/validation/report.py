@@ -1,86 +1,22 @@
-from __future__ import annotations
+"""Deprecated compatibility shim for :mod:`coherence.measurement.report`."""
 
-import json
-from collections.abc import Callable
-from pathlib import Path
+import sys
+import warnings
 
-from factory.requirements.register import (
-    Requirement,
-    get_requirement,
-    is_checksum_current,
+from coherence.measurement import report as _canonical
+from coherence.measurement.report import *  # noqa: F401,F403
+
+warnings.warn(
+    "factory.validation.report is deprecated; import coherence.measurement.report",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from factory.validation.harness import Harness
-from factory.validation.sim_harness import SimTestbenchHarness
 
-HarnessFor = Callable[[str], Harness]
+__all__ = _canonical.__all__
 
 
-def default_harness_for(
-    traces_dir: Path, scorers: dict[str, Callable[..., bool]] | None = None
-) -> HarnessFor:
-    def _factory(harness_name: str) -> Harness:
-        if harness_name == "sim-testbench":
-            return SimTestbenchHarness(traces_dir, scorers)
-        raise ValueError(f"unknown harness: {harness_name}")
-
-    return _factory
+def __getattr__(name: str):
+    return getattr(_canonical, name)
 
 
-def run_requirement_validation(
-    satisfies: list[str],
-    reqs: list[Requirement],
-    harness_for: HarnessFor,
-    workdir: Path,
-) -> dict:
-    entries: list[dict] = []
-    for req_id in satisfies:
-        req = get_requirement(reqs, req_id)
-        if req is None:
-            entries.append({"id": req_id, "error": "unknown requirement"})
-            continue
-        if req.binding is None:
-            # Reached only when a task names a proposed requirement directly.
-            # An honest error beats an AttributeError from deep in the harness.
-            entries.append(
-                {"id": req.id, "error": "proposed requirement: no binding to validate"}
-            )
-            continue
-        if req.binding.harness is None:
-            # The measurement is decided, but the harness does not exist yet.
-            # This is intentional (a WARNING state), but validation cannot proceed.
-            entries.append(
-                {"id": req.id, "error": "binding: no harness named yet"}
-            )
-            continue
-        try:
-            harness = harness_for(req.binding.harness)
-            result = harness.run(req.binding, workdir)
-        except Exception as exc:  # isolate a bad harness/metric/trace to this requirement
-            entries.append({"id": req.id, "error": str(exc)})
-            continue
-        actual_trials = len(result.trials)
-        entries.append(
-            {
-                "id": req.id,
-                "domain": req.domain,
-                "metric": req.binding.metric,
-                "value": result.metric_value,
-                "assert": req.binding.assert_expr,
-                "passed": result.passed and actual_trials >= req.binding.trials,
-                "trials": actual_trials,
-                "declared_trials": req.binding.trials,
-                "stale": not is_checksum_current(req),
-                "artifacts": [str(a) for a in result.artifacts],
-            }
-        )
-    return {"requirements": entries}
-
-
-def write_validation_report(path: Path, report: dict) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        pass  # best-effort, mirrors review_guide.write_review_guide
+sys.modules[__name__] = _canonical
