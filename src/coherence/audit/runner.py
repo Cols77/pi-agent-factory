@@ -18,7 +18,11 @@ from coherence.audit.cli import cmd_audit, cmd_consolidate
 from coherence.audit.policy import audit_max_workers
 from coherence.audit.report import render_human_summary
 from coherence.audit.scope import resolve_feature_scope
-from coherence.policy.compiler import compile_obligations
+from coherence.policy.compiler import (
+    UncompiledPresetError,
+    UnsupportedScopeError,
+    compile_obligations,
+)
 from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.orchestrator.types import AgentRole
 from substrate.agents.skills import load_skill_block
@@ -211,7 +215,10 @@ def run(
     set is sorted by SR id and capped at ``max_reruns`` (default 10; 0
     disables policy-bound resubmission entirely); the uncapped remainder
     keeps its existing verdict for this run and is recorded as
-    ``skipped_by_max_reruns`` in ``audit.json``.
+    ``skipped_by_max_reruns`` in ``audit.json`` and ``report.json`` (also
+    surfaced in the human summary), with ``sr_progress`` state
+    ``"stale_capped"`` -- distinct from a genuinely fresh ``"done"``
+    verdict.
 
     Returns 0 (pass), 1 (fail), 2 (degraded), or 127 (runner error).
     """
@@ -226,6 +233,8 @@ def run(
         max_workers = audit_max_workers(root)
     if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers <= 0:
         raise ValueError(f"max_workers must be a positive integer, got {max_workers!r}")
+    if isinstance(max_reruns, bool) or not isinstance(max_reruns, int) or max_reruns < 0:
+        raise ValueError(f"max_reruns must be a nonnegative integer, got {max_reruns!r}")
 
     def _status(phase: str, srs: dict | None = None, **kw: object) -> None:
         payload: dict = {
@@ -279,7 +288,17 @@ def run(
                 _, error = validate_verdict(existing)
                 if error is None:
                     if policy_bound:
-                        obligations = compile_obligations(root, f"sr:{sr_id}")
+                        try:
+                            obligations = compile_obligations(root, f"sr:{sr_id}")
+                        except (UnsupportedScopeError, UncompiledPresetError):
+                            # Cannot prove the verification_result obligation
+                            # satisfied (e.g. an SR declared but not in the
+                            # requirements register, or a profile that isn't
+                            # compiled yet) -- fail closed: treat exactly
+                            # like an unsatisfied obligation, same as the
+                            # branch below, never a silent skip.
+                            rerun_candidates.append(sr_id)
+                            continue
                         verification = next(
                             (o for o in obligations if o.kind == "verification_result"),
                             None,
@@ -310,7 +329,10 @@ def run(
         sr_progress[sr_id]["state"] = "running"
         needs_worker.append(sr_id)
     for sr_id in skipped_by_max_reruns:
-        sr_progress[sr_id]["state"] = "done"
+        # Distinct from a genuinely fresh "done" verdict: this SR's stale
+        # verdict is being kept only because --max-reruns capped it out of
+        # this run's resubmission set, not because it was proven satisfied.
+        sr_progress[sr_id]["state"] = "stale_capped"
 
     _status("auditing", srs=sr_progress)
 
@@ -341,7 +363,20 @@ def run(
                 for sr_id in needs_worker
             }
             for future in as_completed(futures):
-                worker_results[futures[future]] = future.result()
+                sr_id = futures[future]
+                worker_results[sr_id] = future.result()
+                # Live progress: this runs on the coordinator thread (the
+                # as_completed loop itself, not a worker thread), so writing
+                # a progress-only status update here violates no
+                # sole-writer rule. "worker_done" is distinct from
+                # "running" (still in flight) and from the final
+                # "done"/"failed" the sorted pass below assigns -- it only
+                # marks "this worker finished, coordinator hasn't
+                # finalized state yet". The sorted(worker_results) pass
+                # below is unchanged: it alone decides the final,
+                # order-independent done/failed state and tool_failures.
+                sr_progress[sr_id]["state"] = "worker_done"
+                _status("auditing", srs=sr_progress)
 
         for sr_id in sorted(worker_results):
             result = worker_results[sr_id]

@@ -633,6 +633,15 @@ def test_audit_v1_facts_preserve_typed_state_and_reference_report_and_verdict(
     assert "feat:FEAT-NAV-017" in envelope.scope_refs
     assert "sr:SR-032" in envelope.scope_refs
 
+    # Finding 6: these two ArtifactRefs must carry the same feat/sr scope
+    # tags as the envelope itself -- otherwise they're the only artifacts
+    # among the Increment-4 adapters that can't be traced back to their
+    # SR/feature by scope tag.
+    assert "feat:FEAT-NAV-017" in verdict_artifact.scope_refs
+    assert "sr:SR-032" in verdict_artifact.scope_refs
+    assert "feat:FEAT-NAV-017" in report_artifact.scope_refs
+    assert "sr:SR-032" in report_artifact.scope_refs
+
 
 def test_audit_v1_missing_report_file_has_no_report_ref_but_is_still_recorded(
     tmp_path: Path,

@@ -141,6 +141,15 @@ def test_max_workers_nonpositive_rejected_by_run(tmp_path: Path) -> None:
         run(tmp_path, "FEAT-001", run_id="r-bad", no_gates=True, max_workers=0)
 
 
+def test_max_reruns_negative_rejected_by_run(tmp_path: Path) -> None:
+    """Finding 5: run() is a library function other callers/tests can call
+    directly, bypassing the CLI's _nonnegative_int argparse type -- it must
+    validate max_reruns itself, mirroring the existing max_workers guard."""
+    _feat_scope(tmp_path, ["SR-001"])
+    with pytest.raises(ValueError, match="max_reruns"):
+        run(tmp_path, "FEAT-001", run_id="r-bad-reruns", no_gates=True, max_reruns=-1)
+
+
 @pytest.mark.parametrize("bad_value", ["0", "-1"])
 def test_cli_max_workers_nonpositive_fails_argument_validation(
     bad_value: str, capsys: pytest.CaptureFixture[str]
@@ -303,6 +312,230 @@ def test_policy_bound_skips_sr_whose_verification_result_is_satisfied(
     assert status["srs"]["SR-001"]["state"] == "done"
 
 
+def test_policy_bound_survives_compile_obligations_crash_for_unregistered_sr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 1: a feature can declare `satisfies: [SR-999]` for an SR with
+    no requirements/SR-999.md file -- coherence.trace.model emits the
+    `contains` edge regardless, so compile_obligations(root, "sr:SR-999")
+    raises UnsupportedScopeError for that scope. Under --policy-bound this
+    must not crash the whole run: the SR must be treated as NOT satisfied
+    (fail-closed) and land in the resubmission set, never silently skipped
+    as "done"."""
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: Test\nrequirements: [SR-999]\n---\n"
+    )
+    (tmp_path / "requirements").mkdir()  # SR-999.md is deliberately absent
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: T\ndeliverables: []\nsatisfies: [SR-999]\n---\n"
+    )
+    (tmp_path / "evidence" / "runs").mkdir(parents=True)
+    manifest = {
+        "schema_version": 2, "run_id": "RUN-001", "task_id": "T-001",
+        "started_at": "2026-08-01T00:00:00Z", "ended_at": "2026-08-01T01:00:00Z",
+        "start_commit": "a" * 40, "result_commit": "b" * 40, "outcome": "completed",
+        "inputs": {
+            "task": {"path": "tasks/T-001.md", "sha256": "0" * 64},
+            "requirements": [], "factory_config_sha256": "0" * 64,
+        },
+        "implementation": {
+            "changed_files": ["src/x.py"],
+            "patch": {"sha256": "0" * 64, "size": 0, "media_type": "application/json"},
+        },
+        "dependencies": [], "validation": [], "reviews": [], "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
+    (tmp_path / "evidence" / "runs" / "RUN-001.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-unreg"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    (verdict_dir / "SR-999.json").write_text(json.dumps(_verdict("SR-999")), encoding="utf-8")
+
+    calls: list[str] = []
+
+    class _Backend:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def run(self, role: object, prompt: str) -> AgentResult:
+            calls.append(prompt)
+            return AgentResult(ok=True, output=_verdict("SR-999"), raw="", session_id="s")
+
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _Backend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="unreg", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=10,
+    )
+
+    # Must complete (not raise an unhandled UnsupportedScopeError) and must
+    # resubmit SR-999 rather than silently treating it as done.
+    assert rc in (0, 1, 2)
+    assert any("auditing SR-SR-999" in p for p in calls)
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == []
+
+
+def test_policy_bound_caps_unregistered_sr_when_max_reruns_is_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same crash-guard scenario as above, but with --max-reruns 0: the SR
+    must be recorded in skipped_by_max_reruns (capped, "cannot prove
+    satisfied" fails closed into the rerun-candidate set which the cap then
+    holds back) -- not resubmitted, and never treated as a silent pass."""
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: Test\nrequirements: [SR-999]\n---\n"
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks" / "T-001.md").write_text(
+        "---\nid: T-001\ntitle: T\ndeliverables: []\nsatisfies: [SR-999]\n---\n"
+    )
+    (tmp_path / "evidence" / "runs").mkdir(parents=True)
+    manifest = {
+        "schema_version": 2, "run_id": "RUN-001", "task_id": "T-001",
+        "started_at": "2026-08-01T00:00:00Z", "ended_at": "2026-08-01T01:00:00Z",
+        "start_commit": "a" * 40, "result_commit": "b" * 40, "outcome": "completed",
+        "inputs": {
+            "task": {"path": "tasks/T-001.md", "sha256": "0" * 64},
+            "requirements": [], "factory_config_sha256": "0" * 64,
+        },
+        "implementation": {
+            "changed_files": ["src/x.py"],
+            "patch": {"sha256": "0" * 64, "size": 0, "media_type": "application/json"},
+        },
+        "dependencies": [], "validation": [], "reviews": [], "decisions": [],
+        "publication": {"state": "local", "errors": []},
+    }
+    (tmp_path / "evidence" / "runs" / "RUN-001.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-unreg-capped"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    (verdict_dir / "SR-999.json").write_text(json.dumps(_verdict("SR-999")), encoding="utf-8")
+
+    calls: list[str] = []
+
+    class _Backend:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def run(self, role: object, prompt: str) -> AgentResult:
+            calls.append(prompt)
+            return AgentResult(ok=True, output=_verdict("SR-999"), raw="", session_id="s")
+
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _Backend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="unreg-capped", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=0,
+    )
+
+    assert rc in (0, 1, 2)
+    assert calls == []
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == ["SR-999"]
+    status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["srs"]["SR-999"]["state"] == "stale_capped"
+
+
+def test_worker_completion_updates_live_status_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 3: the coordinator's `for future in as_completed(futures):`
+    loop runs on the coordinator thread, so it may safely write a
+    progress-only status update per completed worker -- proving live
+    per-SR status.json progress survived Task 3's parallelisation, instead
+    of every in-flight SR showing "running" for the whole batch duration.
+    A fast SR must reach a distinguishing "worker_done" marker in a status
+    write while a slower sibling is still genuinely in flight.
+
+    Spies on ``_write_status`` (recording a deep copy of each payload)
+    rather than polling status.json off disk: reading a file mid-``os.
+    replace()`` from another thread is a real sharing-violation race on
+    Windows, not just a synchronization nicety, so this asserts on the
+    in-memory call sequence instead -- still exercising the real write
+    path via ``call through``."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002"])
+    fast_done = threading.Event()
+    release_slow = threading.Event()
+
+    class _Backend:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def run(self, role: object, prompt: str) -> AgentResult:
+            if "auditing SR-SR-001" in prompt:
+                result = AgentResult(ok=True, output=_verdict("SR-001"), raw="", session_id="s")
+                fast_done.set()
+                return result
+            # SR-002: block until the test has observed SR-001's live
+            # progress marker.
+            release_slow.wait(timeout=5)
+            return AgentResult(ok=True, output=_verdict("SR-002"), raw="", session_id="s")
+
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _Backend)
+
+    import coherence.audit.runner as runner_mod
+
+    original_write_status = runner_mod._write_status
+    writes_lock = threading.Lock()
+    writes: list[dict] = []
+
+    def _spy_write_status(path: Path, payload: dict) -> None:
+        with writes_lock:
+            writes.append(json.loads(json.dumps(payload)))
+        original_write_status(path, payload)
+
+    monkeypatch.setattr("coherence.audit.runner._write_status", _spy_write_status)
+
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-live"
+    result: dict[str, int] = {}
+
+    def _run_it() -> None:
+        result["rc"] = run(
+            tmp_path, "FEAT-001", run_id="live", no_gates=True, max_workers=2,
+        )
+
+    thread = threading.Thread(target=_run_it)
+    thread.start()
+    try:
+        assert fast_done.wait(timeout=5)
+        deadline = time.time() + 5
+        observed_payload: dict | None = None
+        while time.time() < deadline:
+            with writes_lock:
+                for payload in reversed(writes):
+                    if payload.get("srs", {}).get("SR-001", {}).get("state") == "worker_done":
+                        observed_payload = payload
+                        break
+            if observed_payload is not None:
+                break
+            time.sleep(0.005)
+        assert observed_payload is not None, (
+            "expected SR-001 to reach 'worker_done' before the batch finished"
+        )
+        # SR-002 must still be genuinely in flight in that same snapshot --
+        # proves this was a mid-batch write, not the final post-batch status.
+        assert observed_payload["srs"]["SR-002"]["state"] == "running"
+    finally:
+        release_slow.set()
+        thread.join(timeout=10)
+
+    assert result["rc"] == 0
+    final_status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+    assert final_status["srs"]["SR-001"]["state"] == "done"
+    assert final_status["srs"]["SR-002"]["state"] == "done"
+
+
 def test_max_reruns_caps_resubmission_and_reports_the_uncapped_remainder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -331,9 +564,19 @@ def test_max_reruns_caps_resubmission_and_reports_the_uncapped_remainder(
     assert _audited_srs(_CallTrackingBackend.calls) == {"SR-001"}
     audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
     assert audit["skipped_by_max_reruns"] == ["SR-002", "SR-003"]
+    # Distinct from a genuinely fresh "done" verdict (Finding 2): status.json
+    # must not let a capped SR look indistinguishable from a real pass.
     status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-    assert status["srs"]["SR-002"]["state"] == "done"
-    assert status["srs"]["SR-003"]["state"] == "done"
+    assert status["srs"]["SR-002"]["state"] == "stale_capped"
+    assert status["srs"]["SR-003"]["state"] == "stale_capped"
+
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert report["skipped_by_max_reruns"] == ["SR-002", "SR-003"]
+    from coherence.audit.report import render_human_summary
+
+    summary = render_human_summary(report)
+    assert "SR-002" in summary and "SR-003" in summary
+    assert "--max-reruns cap" in summary
 
 
 def test_max_reruns_zero_disables_resubmission_but_still_submits_missing_verdicts(
@@ -364,7 +607,7 @@ def test_max_reruns_zero_disables_resubmission_but_still_submits_missing_verdict
     audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
     assert audit["skipped_by_max_reruns"] == ["SR-001"]
     status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-    assert status["srs"]["SR-001"]["state"] == "done"
+    assert status["srs"]["SR-001"]["state"] == "stale_capped"
     assert status["srs"]["SR-002"]["state"] == "done"
 
 

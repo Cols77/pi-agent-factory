@@ -20,6 +20,14 @@ def render_human_summary(report: dict) -> str:
         lines.append(f"  WARNED: {', '.join(gate['warned'])}")
     lines.append("")
 
+    skipped_by_max_reruns = report.get("skipped_by_max_reruns") or []
+    if skipped_by_max_reruns:
+        lines.append(
+            f"{len(skipped_by_max_reruns)} SR(s) skipped by --max-reruns cap: "
+            f"{', '.join(skipped_by_max_reruns)}"
+        )
+        lines.append("")
+
     scope = report.get("scope", {})
     lines.append(f"Declared SRs: {len(scope.get('declared', []))}")
     lines.append(f"Linked SRs:   {len(scope.get('linked', []))}")

@@ -19,7 +19,7 @@ def cmd_validate(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="factory-validate")
+    parser = argparse.ArgumentParser(prog="coherence-measurement")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_run = sub.add_parser("run")
     p_run.add_argument("--project-root", default=Path("."), type=Path)

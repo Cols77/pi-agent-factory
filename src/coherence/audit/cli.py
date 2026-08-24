@@ -204,6 +204,12 @@ def cmd_consolidate(root: Path, feat: str, run_id: str) -> dict:
         },
         "workflow_issues": tool_failures,
     }
+    # Only present when --policy-bound recorded it in audit.json (see
+    # runner.py) -- threaded through so report.json/the human summary don't
+    # silently drop the cap the way they did before this fix (Increment 4
+    # final-review Finding 2).
+    if "skipped_by_max_reruns" in audit:
+        report["skipped_by_max_reruns"] = audit["skipped_by_max_reruns"]
     (run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
 
@@ -331,7 +337,7 @@ def cmd_run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="factory-coverage")
+    parser = argparse.ArgumentParser(prog="coherence-audit")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--project-root", default=Path("."), type=Path)
 

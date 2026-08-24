@@ -63,7 +63,7 @@ def _measurement_fixture(root: Path) -> None:
     trial source (the reserved ``unit_pass_rate`` metric, no scorer module
     required) -- enough for ``coherence measurement run --satisfies SR-001``
     to pass."""
-    from factory.requirements.register import content_checksum, parse_requirement
+    from coherence.register.register import content_checksum, parse_requirement
 
     sr = """---
 id: SR-001

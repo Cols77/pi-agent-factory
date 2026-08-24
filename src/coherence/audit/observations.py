@@ -217,8 +217,10 @@ def audit_observation(
     state, notes = _sr_state_and_notes(report, sr_id)
     tool_failure, issue = _sr_tool_failure(report, sr_id)
 
-    report_ref = _report_artifact(report_path, id=id, scope_refs=scope_refs)
-    verdict_ref = _verdict_artifact(verdict, sr_id, id=id, scope_refs=scope_refs)
+    full_scope_refs = _dedupe((f"feat:{feature}", f"sr:{sr_id}", *scope_refs))
+
+    report_ref = _report_artifact(report_path, id=id, scope_refs=full_scope_refs)
+    verdict_ref = _verdict_artifact(verdict, sr_id, id=id, scope_refs=full_scope_refs)
     all_artifacts = tuple(artifacts)
     if report_ref is not None:
         all_artifacts += (report_ref,)
@@ -240,8 +242,6 @@ def audit_observation(
         "verdict": verdict_ref.ref if verdict_ref is not None else None,
         "report": report_ref.ref if report_ref is not None else None,
     }
-
-    full_scope_refs = _dedupe((f"feat:{feature}", f"sr:{sr_id}", *scope_refs))
 
     envelope = ObservationEnvelope(
         schema=1,
