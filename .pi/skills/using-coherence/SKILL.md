@@ -14,6 +14,19 @@ anything, or decide anything on the register, the trace graph, or any file.
 The resolve commands printed by `/using-coherence` itself, and the workflows
 below, hold all write authority; this document holds none.
 
+## Argument routing
+
+`/using-coherence <free text>` also classifies the text through a
+deterministic phrase-to-intent table (`coherence route --json`,
+`src/coherence/router.py`) — no model call anywhere in this path. A phrase
+match sums to a score per intent; the argument routes only when one intent
+has a unique maximum score at or above the threshold (3). That classified
+route (intent, its score, and any `<kind>:<id>` scope ref found in the text)
+prints *above* the same ranked menu and "not that? pick from the menu:"
+escape hatch described below — the classification is never the only output.
+A tie, no matching phrase, or a below-threshold score all return no route,
+and the command falls through to exactly the zero-argument menu render.
+
 ## What you own, and what you do not
 
 You own **orientation**: given an outcome name from the menu, which skill or

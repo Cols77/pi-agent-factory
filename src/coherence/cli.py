@@ -12,6 +12,7 @@ from coherence.measurement.cli import main as measurement_main
 from coherence.navigate.cli import main as navigate_main
 from coherence.presentation.cli import main as presentation_main
 from coherence.register.cli import main as register_main
+from coherence.router import main as route_main
 from coherence.simulation.cli import main as simulation_main
 from coherence.status import main as status_main
 from coherence.trace.cli import main as trace_main
@@ -27,6 +28,7 @@ GROUPS = {
     "audit": audit_main,
     "measurement": measurement_main,
     "status": status_main,
+    "route": route_main,
     "focus": focus_main,
     "explain": explain_main,
 }

@@ -1,12 +1,22 @@
 // /using-coherence -- a pure, deterministic rendering of `coherence status
-// --json` (Increment 5 Task 3, spec plan
+// --json` (Increment 5 Task 3), plus, when an argument is given, a
+// deterministic phrase-to-intent classification of it (Increment 5 Task 4,
+// spec plan
 // docs/superpowers/plans/2026-08-20-coherence-increment-5-status-focus-dispatcher.md).
 //
 // This command sends no model message: it never calls ctx.newSession or any
 // session-sending API. Everything it prints is a mechanical transcription of
-// the StatusSnapshot Python already computed and ranked worst-first --
-// picking which line is worst, and any argument-driven intent routing over
-// that ranking, is later increments' job (Task 4's deterministic router).
+// the StatusSnapshot Python already computed and ranked worst-first, plus
+// (argument-present path) the RouteMatch `coherence route --json`
+// (src/coherence/router.py) already computed via pure phrase matching --
+// this file never reimplements that phrase table, and never calls a model
+// API to classify the argument itself. A classification is never printed
+// alone: the same ranked menu and escape hatch as the zero-argument path
+// always render underneath it, and a `null` route (no match, a tie, or a
+// below-threshold score) falls through to exactly the zero-argument
+// rendering.
+import { loadCoherenceRoute } from "./coherence-router.js";
+import type { RouteMatch } from "./coherence-router.js";
 import { loadCoherenceStatus } from "./coherence-status.js";
 import type { StatusLine, StatusSnapshot } from "./coherence-status.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
@@ -54,11 +64,38 @@ export function formatCoherenceWidget(snapshot: StatusSnapshot): string[] {
   return [`coherence: ${snapshot.primary.outcome} — ${snapshot.primary.summary}`];
 }
 
+// The argument-present classification line: names the routed intent and its
+// score, plus the scope ref `route_text` pulled out of the free text, when
+// one was found. Never the only output -- callers always render this above
+// `formatCoherenceMenu`'s escape hatch and ranked menu, never in its place.
+export function formatRouteClassification(route: RouteMatch): string[] {
+  const scopeSuffix = route.scope_ref !== null ? ` scope=${route.scope_ref}` : "";
+  return [`route: ${route.intent} (score=${route.score})${scopeSuffix}`];
+}
+
 export function registerCoherenceCommand(pi: PiApi): void {
   pi.registerCommand("using-coherence", {
     description:
-      "Show the current coherence status as a ranked, actionable menu (worst-first; deterministic, no model call)",
-    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      "Show the current coherence status as a ranked, actionable menu (worst-first; deterministic, no model call). " +
+      "With an argument, also classifies it into a routed intent via a deterministic phrase table (no model call) -- " +
+      "the menu and escape hatch always render underneath the classification.",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      const trimmed = args.trim();
+      // Argument-present path: classify via the deterministic router bridge
+      // (a subprocess call to `coherence route --json`, never a model call
+      // and never a reimplementation of route_text's phrase table here). A
+      // bridge failure or a `null` route (no match, a tie, or a
+      // below-threshold score) both fall through to the same zero-argument
+      // rendering below -- never a distinct error path that could hide the
+      // menu.
+      let route: RouteMatch | null = null;
+      if (trimmed.length > 0) {
+        const routeResult = loadCoherenceRoute(ctx.cwd, trimmed);
+        if (routeResult.ok) {
+          route = routeResult.value.route;
+        }
+      }
+
       const result = loadCoherenceStatus(ctx.cwd);
       if (!result.ok) {
         ctx.ui.notify(`/using-coherence: ${result.error}`, "error");
@@ -66,7 +103,10 @@ export function registerCoherenceCommand(pi: PiApi): void {
       }
       const snapshot = result.value;
       ctx.ui.setWidget(COHERENCE_WIDGET_KEY, formatCoherenceWidget(snapshot));
-      ctx.ui.notify(formatCoherenceMenu(snapshot).join("\n"), "info");
+
+      const menuLines = formatCoherenceMenu(snapshot);
+      const lines = route !== null ? [...formatRouteClassification(route), "", ...menuLines] : menuLines;
+      ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 }

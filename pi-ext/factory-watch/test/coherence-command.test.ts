@@ -4,15 +4,22 @@ vi.mock("../src/coherence-status.js", () => ({
   loadCoherenceStatus: vi.fn(),
 }));
 
+vi.mock("../src/coherence-router.js", () => ({
+  loadCoherenceRoute: vi.fn(),
+}));
+
 import {
   COHERENCE_WIDGET_KEY,
   NOT_THAT_PICK_FROM_MENU,
   formatCoherenceMenu,
   formatCoherenceWidget,
+  formatRouteClassification,
   registerCoherenceCommand,
 } from "../src/coherence-command.js";
 import { loadCoherenceStatus } from "../src/coherence-status.js";
 import type { StatusSnapshot } from "../src/coherence-status.js";
+import { loadCoherenceRoute } from "../src/coherence-router.js";
+import type { RouteMatch } from "../src/coherence-router.js";
 import type { CommandDef, ExtCommandCtx, PiApi, UiApi } from "../src/pi-types.js";
 
 const SNAPSHOT: StatusSnapshot = {
@@ -300,10 +307,120 @@ describe("/using-coherence (zero-argument menu)", () => {
 
   test("sends no model message even when an argument is passed", async () => {
     vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: null } });
     const { commands } = capture();
     const ctx = fakeCtx();
 
     await commands.get("using-coherence")!.handler("some argument", ctx);
+
+    expect(ctx.newSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("/using-coherence (argument-present routing)", () => {
+  const MATCHED_ROUTE: RouteMatch = { intent: "BUILD", scope_ref: null, score: 4 };
+  const MATCHED_WITH_SCOPE: RouteMatch = { intent: "VERIFY_CLAIM", scope_ref: "sr:SR-001", score: 3 };
+
+  test("a classified route prints the classification, the escape hatch, and the ranked menu underneath it", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_ROUTE } });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("let's build this", ctx);
+
+    expect(ctx.ui.setWidget).toHaveBeenCalledWith(COHERENCE_WIDGET_KEY, formatCoherenceWidget(SNAPSHOT));
+    const notified = vi.mocked(ctx.ui.notify).mock.calls[0]?.[0] as string;
+    expect(notified).toContain("BUILD");
+    expect(notified).toContain(NOT_THAT_PICK_FROM_MENU);
+    expect(notified).toContain("1. [failing_gate]");
+  });
+
+  test("the classification never appears alone -- the menu always renders underneath it", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_ROUTE } });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("let's build this", ctx);
+
+    const notified = vi.mocked(ctx.ui.notify).mock.calls[0]?.[0] as string;
+    expect(notified).toEqual(
+      [...formatRouteClassification(MATCHED_ROUTE), "", ...formatCoherenceMenu(SNAPSHOT)].join("\n"),
+    );
+  });
+
+  test("a route with a scope_ref renders it in the classification", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_WITH_SCOPE } });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("verify sr:SR-001", ctx);
+
+    const notified = vi.mocked(ctx.ui.notify).mock.calls[0]?.[0] as string;
+    expect(notified).toContain("sr:SR-001");
+  });
+
+  test("a null route (no match/tie/below-threshold) falls through to exactly the zero-argument menu", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: null } });
+    const { commands } = capture();
+    const ctxArg = fakeCtx();
+    const ctxNoArg = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("the weather is nice today", ctxArg);
+    await commands.get("using-coherence")!.handler("", ctxNoArg);
+
+    const notifiedWithArg = vi.mocked(ctxArg.ui.notify).mock.calls[0]?.[0];
+    const notifiedNoArg = vi.mocked(ctxNoArg.ui.notify).mock.calls[0]?.[0];
+    expect(notifiedWithArg).toEqual(notifiedNoArg);
+  });
+
+  test("a router-bridge failure falls through to the zero-argument menu rather than erroring", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: false, error: "router boom" });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("let's build this", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("1. [failing_gate]"),
+      "info",
+    );
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("router boom"), "error");
+  });
+
+  test("passes the trimmed argument text to the router bridge, with ctx.cwd", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: null } });
+    const { commands } = capture();
+    const ctx = fakeCtx({ cwd: "/some/other/repo" });
+
+    await commands.get("using-coherence")!.handler("  let's build this  ", ctx);
+
+    expect(loadCoherenceRoute).toHaveBeenCalledWith("/some/other/repo", "let's build this");
+  });
+
+  test("does not call the router bridge at all when the argument is only whitespace", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockClear();
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("   ", ctx);
+
+    expect(loadCoherenceRoute).not.toHaveBeenCalled();
+  });
+
+  test("sends no model message on the classified path", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_ROUTE } });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("let's build this", ctx);
 
     expect(ctx.newSession).not.toHaveBeenCalled();
   });
