@@ -283,6 +283,23 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _nonnegative_int(value: str) -> int:
+    """argparse ``type=`` for ``--max-reruns``: unlike ``_positive_int``, 0
+    is a valid, meaningful value here -- it explicitly disables policy-bound
+    resubmission rather than being rejected as a bad argument."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--max-reruns must be a nonnegative integer, got {value!r}"
+        ) from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(
+            f"--max-reruns must be a nonnegative integer, got {value!r}"
+        )
+    return parsed
+
+
 def cmd_run(
     root: Path,
     feat: str,
@@ -292,6 +309,8 @@ def cmd_run(
     run_id: str | None = None,
     no_gates: bool = False,
     max_workers: int | None = None,
+    policy_bound: bool = False,
+    max_reruns: int = 10,
 ) -> int:
     """Execute the deterministic coverage run (Phase 0 -> 5)."""
     # Lazy import: runner.py imports this module, so importing it here at
@@ -306,6 +325,8 @@ def cmd_run(
         run_id=run_id,
         no_gates=no_gates,
         max_workers=max_workers,
+        policy_bound=policy_bound,
+        max_reruns=max_reruns,
     )
 
 
@@ -355,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--run-id", default=None)
     p_run.add_argument("--no-gates", action="store_true")
     p_run.add_argument("--max-workers", type=_positive_int, default=None)
+    p_run.add_argument("--policy-bound", action="store_true")
+    p_run.add_argument("--max-reruns", type=_nonnegative_int, default=10)
 
     args = parser.parse_args(argv)
 
@@ -369,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
             run_id=args.run_id,
             no_gates=args.no_gates,
             max_workers=args.max_workers,
+            policy_bound=args.policy_bound,
+            max_reruns=args.max_reruns,
         )
     elif args.cmd == "audit":
         print(json.dumps(cmd_audit(args.project_root, args.feat, run_id=args.run_id), indent=2))

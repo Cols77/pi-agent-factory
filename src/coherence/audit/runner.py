@@ -18,6 +18,7 @@ from coherence.audit.cli import cmd_audit, cmd_consolidate
 from coherence.audit.policy import audit_max_workers
 from coherence.audit.report import render_human_summary
 from coherence.audit.scope import resolve_feature_scope
+from coherence.policy.compiler import compile_obligations
 from factory.orchestrator.pi_backend import PiAgentBackend
 from factory.orchestrator.types import AgentRole
 from substrate.agents.skills import load_skill_block
@@ -185,6 +186,8 @@ def run(
     run_id: str | None = None,
     no_gates: bool = False,
     max_workers: int | None = None,
+    policy_bound: bool = False,
+    max_reruns: int = 10,
 ) -> int:
     """Execute a full coverage review run.
 
@@ -195,6 +198,20 @@ def run(
     CPU-bound, so threads rather than processes. ``max_workers`` defaults to
     the ``audit.max_workers`` policy (see ``coherence.audit.policy``,
     default 4) and must be a positive integer.
+
+    ``policy_bound``/``max_reruns`` are inert unless ``policy_bound`` is set:
+    without it, an SR with an already-recorded verdict is always accepted
+    as-is (this coordinator's original resume semantics). With
+    ``policy_bound``, an SR whose verdict already exists is instead
+    resubmitted when its compiled ``verification_result`` obligation is not
+    ``"satisfied"`` -- checking the verdict file *and* the obligation state,
+    never the obligation alone (an SR can pass harness validation while
+    never having had an audit verdict recorded at all; an SR with no verdict
+    file is always submitted regardless of these flags). The resubmission
+    set is sorted by SR id and capped at ``max_reruns`` (default 10; 0
+    disables policy-bound resubmission entirely); the uncapped remainder
+    keeps its existing verdict for this run and is recorded as
+    ``skipped_by_max_reruns`` in ``audit.json``.
 
     Returns 0 (pass), 1 (fail), 2 (degraded), or 127 (runner error).
     """
@@ -245,18 +262,36 @@ def run(
     ext = scope_guard_extension()
 
     needs_worker: list[str] = []
+    rerun_candidates: list[str] = []
     for sr_id, sr_data in srs.items():
         if not _sr_needs_subagent(sr_data):
             sr_progress[sr_id]["state"] = "skipped"
             continue
 
-        # Resume support: an existing verdict file is accepted as-is.
+        # Resume support: an existing verdict file is accepted as-is, unless
+        # --policy-bound requires resubmission (checked below) -- an SR with
+        # no verdict file at all always falls through to needs_worker,
+        # regardless of policy_bound/max_reruns.
         verdict_path = run_dir / "verdicts" / f"{sr_id}.json"
         if verdict_path.exists():
             try:
                 existing = json.loads(verdict_path.read_text(encoding="utf-8"))
                 _, error = validate_verdict(existing)
                 if error is None:
+                    if policy_bound:
+                        obligations = compile_obligations(root, f"sr:{sr_id}")
+                        verification = next(
+                            (o for o in obligations if o.kind == "verification_result"),
+                            None,
+                        )
+                        if verification is not None and verification.state == "satisfied":
+                            sr_progress[sr_id]["state"] = "done"
+                            continue
+                        # Verdict exists but its verification_result
+                        # obligation is not satisfied: a resubmission
+                        # candidate, subject to the --max-reruns cap below.
+                        rerun_candidates.append(sr_id)
+                        continue
                     sr_progress[sr_id]["state"] = "done"
                     continue
             except (OSError, json.JSONDecodeError):
@@ -264,6 +299,18 @@ def run(
 
         sr_progress[sr_id]["state"] = "running"
         needs_worker.append(sr_id)
+
+    # Policy-bound resubmission: sort candidates by SR id, cap at
+    # max_reruns, submit the capped set alongside needs_worker, and record
+    # the uncapped remainder (not silently dropped) for the audit report.
+    rerun_candidates.sort()
+    to_resubmit = rerun_candidates[:max_reruns]
+    skipped_by_max_reruns = rerun_candidates[max_reruns:]
+    for sr_id in to_resubmit:
+        sr_progress[sr_id]["state"] = "running"
+        needs_worker.append(sr_id)
+    for sr_id in skipped_by_max_reruns:
+        sr_progress[sr_id]["state"] = "done"
 
     _status("auditing", srs=sr_progress)
 
@@ -311,6 +358,10 @@ def run(
     _status("consolidating", srs=sr_progress)
     audit_path = run_dir / "audit.json"
     audit["tool_failures"] = tool_failures
+    # Only recorded when --policy-bound is set: without it, this key never
+    # existed before this task, and behaviour must stay byte-identical.
+    if policy_bound:
+        audit["skipped_by_max_reruns"] = skipped_by_max_reruns
     audit_path.write_text(json.dumps(audit, indent=2), encoding="utf-8")
 
     try:

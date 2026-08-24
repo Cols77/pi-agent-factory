@@ -187,6 +187,213 @@ def test_preexisting_verdict_launches_no_worker(
     assert status["srs"]["SR-002"]["state"] == "done"
 
 
+class _CallTrackingBackend:
+    """Records which SR each dispatched call audited (via the runner's own
+    "auditing SR-<id>" header line), independent of dispatch order."""
+
+    def __init__(self, *a: object, **k: object) -> None:
+        pass
+
+    calls: list[str] = []
+
+    def run(self, role: object, prompt: str) -> AgentResult:
+        type(self).calls.append(prompt)
+        for sr_id in ("SR-001", "SR-002", "SR-003"):
+            if f"auditing SR-{sr_id}" in prompt:
+                return AgentResult(ok=True, output=_verdict(sr_id), raw="", session_id="s")
+        raise AssertionError(f"unrecognised prompt: {prompt!r}")
+
+
+def _audited_srs(calls: list[str]) -> set[str]:
+    audited = set()
+    for prompt in calls:
+        for sr_id in ("SR-001", "SR-002", "SR-003"):
+            if f"auditing SR-{sr_id}" in prompt:
+                audited.add(sr_id)
+    return audited
+
+
+def test_policy_bound_and_max_reruns_are_inert_without_the_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --policy-bound, an SR with an existing verdict is always
+    accepted as-is -- even though (with no validation-report.json at all)
+    its verification_result obligation would be unsatisfied. Behaviour must
+    be byte-identical to before this task regardless of what max_reruns is
+    set to."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002"])
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-inert"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    (verdict_dir / "SR-001.json").write_text(json.dumps(_verdict("SR-001")), encoding="utf-8")
+
+    _CallTrackingBackend.calls = []
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _CallTrackingBackend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="inert", no_gates=True, max_workers=2,
+        policy_bound=False, max_reruns=0,
+    )
+
+    assert rc == 0
+    assert _audited_srs(_CallTrackingBackend.calls) == {"SR-002"}
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert "skipped_by_max_reruns" not in audit
+
+
+def test_policy_bound_resubmits_sr_whose_verification_result_is_unsatisfied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With --policy-bound, an SR with an existing verdict but no recorded
+    (harness) validation at all has an open verification_result obligation,
+    so its stale verdict is resubmitted -- unlike the non-policy-bound
+    resume shortcut."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002"])
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-resubmit"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    (verdict_dir / "SR-001.json").write_text(json.dumps(_verdict("SR-001")), encoding="utf-8")
+
+    _CallTrackingBackend.calls = []
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _CallTrackingBackend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="resubmit", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=10,
+    )
+
+    assert rc == 0
+    assert _audited_srs(_CallTrackingBackend.calls) == {"SR-001", "SR-002"}
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == []
+
+
+def test_policy_bound_skips_sr_whose_verification_result_is_satisfied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With --policy-bound, an SR whose existing verdict AND recorded
+    (passing, non-stale) harness validation both hold is not resubmitted --
+    checking the verdict file alone, or the obligation state alone, would
+    both be wrong (see the fail-open-avoidance note in runner.run's
+    docstring)."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002"])
+    (tmp_path / "validation").mkdir()
+    (tmp_path / "validation" / "validation-report.json").write_text(
+        json.dumps({"requirements": [{"id": "SR-001", "passed": True, "stale": False}]}),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-satisfied"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    (verdict_dir / "SR-001.json").write_text(json.dumps(_verdict("SR-001")), encoding="utf-8")
+
+    _CallTrackingBackend.calls = []
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _CallTrackingBackend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="satisfied", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=10,
+    )
+
+    assert rc == 0
+    assert _audited_srs(_CallTrackingBackend.calls) == {"SR-002"}
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == []
+    status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["srs"]["SR-001"]["state"] == "done"
+
+
+def test_max_reruns_caps_resubmission_and_reports_the_uncapped_remainder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The resubmission set (verdict exists, obligation unsatisfied) is
+    sorted by SR id and capped at max_reruns; the remainder keep their stale
+    verdict for this run and are recorded, not silently dropped."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002", "SR-003"])
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-capped"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    for sr_id in ("SR-001", "SR-002", "SR-003"):
+        (verdict_dir / f"{sr_id}.json").write_text(
+            json.dumps(_verdict(sr_id)), encoding="utf-8"
+        )
+
+    _CallTrackingBackend.calls = []
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _CallTrackingBackend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="capped", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=1,
+    )
+
+    assert rc == 0
+    # Only the lexicographically-first candidate is resubmitted.
+    assert _audited_srs(_CallTrackingBackend.calls) == {"SR-001"}
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == ["SR-002", "SR-003"]
+    status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["srs"]["SR-002"]["state"] == "done"
+    assert status["srs"]["SR-003"]["state"] == "done"
+
+
+def test_max_reruns_zero_disables_resubmission_but_still_submits_missing_verdicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--max-reruns 0 disables policy-bound resubmission entirely, but an SR
+    with no verdict file at all is always (re)submitted regardless -- the
+    fail-open-avoidance rule this task must not violate."""
+    _feat_scope(tmp_path, ["SR-001", "SR-002"])
+    run_dir = tmp_path / "coverage-reviews" / "FEAT-001-zero"
+    verdict_dir = run_dir / "verdicts"
+    verdict_dir.mkdir(parents=True)
+    # SR-001 has a stale existing verdict; SR-002 has none at all.
+    (verdict_dir / "SR-001.json").write_text(json.dumps(_verdict("SR-001")), encoding="utf-8")
+
+    _CallTrackingBackend.calls = []
+    monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", _CallTrackingBackend)
+
+    rc = run(
+        tmp_path, "FEAT-001", run_id="zero", no_gates=True, max_workers=2,
+        policy_bound=True, max_reruns=0,
+    )
+
+    assert rc == 0
+    # SR-001 is a resubmission candidate but capped away; SR-002 has no
+    # verdict file, so it is always submitted, cap or no cap.
+    assert _audited_srs(_CallTrackingBackend.calls) == {"SR-002"}
+    audit = json.loads((run_dir / "audit.json").read_text(encoding="utf-8"))
+    assert audit["skipped_by_max_reruns"] == ["SR-001"]
+    status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["srs"]["SR-001"]["state"] == "done"
+    assert status["srs"]["SR-002"]["state"] == "done"
+
+
+@pytest.mark.parametrize("bad_value", ["-1"])
+def test_cli_max_reruns_negative_fails_argument_validation(
+    bad_value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "FEAT-001", "--max-reruns", bad_value])
+    assert exc_info.value.code == 2
+
+
+def test_cli_max_reruns_zero_is_a_valid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unlike --max-workers, 0 must be ACCEPTED by argument parsing -- it is
+    the explicit way to disable policy-bound resubmission, not a rejected
+    non-positive value."""
+    captured: dict[str, object] = {}
+
+    def _fake_cmd_run(root: object, feat: object, **kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("coherence.audit.cli.cmd_run", _fake_cmd_run)
+    rc = cli_main(["run", "FEAT-001", "--policy-bound", "--max-reruns", "0"])
+    assert rc == 0
+    assert captured["max_reruns"] == 0
+    assert captured["policy_bound"] is True
+
+
 def test_one_worker_failure_yields_degraded_semantics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

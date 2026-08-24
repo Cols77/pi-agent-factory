@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pathlib import Path
 
@@ -136,3 +138,73 @@ def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch)
 
     monkeypatch.setattr(trace_model, "load_nodes", _boom)
     assert resolve_profile(tmp_path, "sr:SR-001", nodes=nodes, edges=edges) == "high_assurance"
+
+
+def test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open(
+    tmp_path,
+):
+    # An SR with a declared harness but no recorded validation at all: under
+    # high_assurance this must block, and stay open (never satisfied by
+    # absence of evidence -- spec's "missing evidence is unknown, never
+    # passing" invariant).
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: f\nprofile: high_assurance\nrequirements: [SR-001]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-001")
+    vr = next(o for o in obligations if o.kind == "verification_result")
+    assert vr.requiredness == "blocking"
+    assert vr.state == "open"
+
+
+def test_compile_obligations_verification_result_prototype_pass_nonstale_is_satisfied(
+    tmp_path,
+):
+    # prototype's contract is pass/fail only -- no harness-declared check --
+    # so a passing, non-stale validation entry alone satisfies it, and its
+    # requiredness must be "required", never "blocking" (D16: only
+    # high_assurance blocks on this kind).
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-002.md").write_text(
+        "---\nid: SR-002\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "validation").mkdir()
+    (tmp_path / "validation" / "validation-report.json").write_text(
+        json.dumps({"requirements": [{"id": "SR-002", "passed": True, "stale": False}]}),
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-002")
+    vr = next(o for o in obligations if o.kind == "verification_result")
+    assert vr.state == "satisfied"
+    assert vr.requiredness == "required"
+
+
+def test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open(
+    tmp_path,
+):
+    # Same passing, non-stale validation entry as above, but under
+    # high_assurance with no declared harness: the extra high_assurance check
+    # must still hold this open, naming the missing harness in the reason.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-003.md").write_text(
+        "---\nid: SR-003\ntitle: t\nstatement: s\ndomain: d\nprofile: high_assurance\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "validation").mkdir()
+    (tmp_path / "validation" / "validation-report.json").write_text(
+        json.dumps({"requirements": [{"id": "SR-003", "passed": True, "stale": False}]}),
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-003")
+    vr = next(o for o in obligations if o.kind == "verification_result")
+    assert vr.requiredness == "blocking"
+    assert vr.state == "open"
+    assert "harness" in vr.reason

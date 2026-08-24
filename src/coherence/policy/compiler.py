@@ -91,16 +91,28 @@ def compile_obligations(
 ) -> list[Obligation]:
     """Every default preset compiles a blocking ci_verification obligation (D18)
     -- CI (Increment 2C) reads this, never a hand-maintained step list. A
-    `task:*` scope additionally compiles task_justification. Increment 4 and
-    Increment 6 extend this SAME function with verification_result and
-    human_review respectively (see those plans' addenda) -- each new kind is
-    appended to the branch for the scope kind it applies to, never a parallel
-    compiler. `nodes=`/`edges=` pass straight through to `resolve_profile`.
+    `task:*` scope additionally compiles task_justification; a `sr:*` scope
+    additionally compiles verification_result (Increment 4 addendum).
+    Increment 6 extends this SAME function with human_review (see that plan's
+    addendum) -- each new kind is appended to the branch for the scope kind
+    it applies to, never a parallel compiler. For a non-`project` scope,
+    `nodes`/`edges` are loaded at most once here (when the caller did not
+    already supply them) and the same objects are forwarded to
+    `resolve_profile` and to every obligation helper that accepts them.
     """
+    if scope_ref != "project":
+        if nodes is None:
+            nodes = trace_model.load_nodes(root)
+        if edges is None:
+            edges = trace_model.extract_edges(root, nodes)
     profile = resolve_profile(root, scope_ref, nodes=nodes, edges=edges)
     obligations = [_ci_verification_obligation(root, scope_ref, profile)]
     if scope_ref.startswith("task:"):
         obligations.append(_task_justification_obligation(root, scope_ref, profile))
+    elif scope_ref.startswith("sr:"):
+        obligations.append(
+            _verification_result_obligation(root, scope_ref, profile, nodes=nodes, edges=edges)
+        )
     return obligations
 
 
@@ -155,4 +167,54 @@ def _task_justification_obligation(root: Path, scope_ref: str, profile: str) -> 
         source_policy=profile,
         state="satisfied" if has_justification else "open",
         resolve_cmd=("add a `justification:` entry to the task's frontmatter",),
+    )
+
+
+def _sr_node_path(sr_id: str, *, nodes) -> Path | None:
+    """Resolve an SR's actual file from preloaded trace nodes.
+
+    Match by node kind and frontmatter id; never guess ``requirements/<sr_id>.md``.
+    The caller owns graph loading; this helper never reloads nodes.
+    """
+    node = next((n for n in nodes if n.kind == "sr" and n.id == sr_id), None)
+    return node.path if node is not None else None
+
+
+def _verification_result_obligation(
+    root: Path, scope_ref: str, profile: str, *, nodes, edges,
+) -> Obligation:
+    from coherence.register import register as register_module
+    from coherence.trace.validation_status import load_validation
+
+    sr_id = scope_ref.partition(":")[2]
+    sr_path = _sr_node_path(sr_id, nodes=nodes)
+    status = load_validation(root).get(sr_id)
+    passed = status is not None and status.state == "passed" and not status.stale
+    reason_extra = None
+    if passed and profile == "high_assurance":
+        # guide §5.3: this addendum checks only a declared harness. Whether
+        # human-review identity is part of this obligation or human_review is
+        # intentionally unresolved; do not read either proposed field name.
+        register = {r.id: r for r in register_module.load_register(root / "requirements")}
+        req = register.get(sr_id)
+        if req is None or req.binding is None or req.binding.harness is None:
+            passed, reason_extra = False, "binding declares no harness"
+    requiredness = "blocking" if profile == "high_assurance" else "required"
+    reason = reason_extra or (
+        "harness-validated result recorded" if passed
+        else "no passing, non-stale validation result recorded"
+    )
+    return Obligation(
+        id=f"ob:verification_result:{scope_ref}",
+        scope_ref=scope_ref,
+        kind="verification_result",
+        requiredness=requiredness,
+        reason=f"{profile} requires {reason} for {sr_id}",
+        source_policy=profile,
+        state="satisfied" if passed else "open",
+        resolve_cmd=(
+            (f"coherence register bind ...; rerun validation for {sr_path.name}",)
+            if sr_path is not None
+            else ("coherence register bind ...; rerun validation (SR trace node not found)",)
+        ),
     )
