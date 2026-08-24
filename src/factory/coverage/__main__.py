@@ -1,6 +1,15 @@
-# src/factory/coverage/__main__.py
+from __future__ import annotations
+
 import sys
+import warnings
 
-from factory.coverage.cli import main
+from coherence.audit.cli import main
 
-sys.exit(main())
+warnings.warn(
+    "factory.coverage.__main__ is deprecated; import coherence.audit.__main__",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
