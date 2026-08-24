@@ -5,6 +5,8 @@ from collections.abc import Sequence
 
 from coherence.audit.cli import main as audit_main
 from coherence.doctor.cli import main as doctor_main
+from coherence.explain import main as explain_main
+from coherence.focus import main as focus_main
 from coherence.goals.cli import main as goals_main
 from coherence.measurement.cli import main as measurement_main
 from coherence.navigate.cli import main as navigate_main
@@ -25,6 +27,8 @@ GROUPS = {
     "audit": audit_main,
     "measurement": measurement_main,
     "status": status_main,
+    "focus": focus_main,
+    "explain": explain_main,
 }
 
 
