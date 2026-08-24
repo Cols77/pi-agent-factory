@@ -34,6 +34,7 @@ import { registerSessionReviewSuggestTools } from "./session-review-suggest.js";
 import { registerFactoryInit } from "./factory-init-command.js";
 import { registerSessionMemory } from "./session-memory-command.js";
 import { registerCoverageRun } from "./coverage-run-command.js";
+import { registerCoherenceCommand } from "./coherence-command.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
@@ -577,6 +578,9 @@ export default function factoryWatch(pi: PiApi): void {
   registerSessionMemory(pi);
   // The feature-scoped coverage audit: /coverage-review (factory-run style).
   registerCoverageRun(pi);
+  // The deterministic coherence status menu: /using-coherence (renders
+  // `coherence status --json` worst-first; sends no model message).
+  registerCoherenceCommand(pi);
 
   let pollHandle: ReturnType<typeof setInterval> | undefined;
 
