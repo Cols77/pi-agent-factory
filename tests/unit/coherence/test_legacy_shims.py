@@ -19,6 +19,8 @@ def _isolated_legacy_import(module_name: str):
         "coherence.doctor",
         "factory.coverage",
         "coherence.audit",
+        "factory.validation",
+        "coherence.measurement",
     )
     names_to_track = set()
     for name in (module_name, *prefixes):
@@ -168,3 +170,39 @@ def test_legacy_coverage_module_entrypoint_forwards_to_canonical_cli():
 
         assert any("factory.coverage" in str(item.message) for item in caught)
         assert legacy.main.__module__ == "coherence.audit.cli"
+
+
+@pytest.mark.parametrize(
+    "module_name,canonical_name",
+    [
+        ("factory.validation.harness", "coherence.measurement.harness"),
+        ("factory.validation.sim_harness", "coherence.measurement.sim_harness"),
+        ("factory.validation.playwright_harness", "coherence.measurement.playwright_harness"),
+        ("factory.validation.pipeline", "coherence.measurement.pipeline"),
+        ("factory.validation.report", "coherence.measurement.report"),
+        ("factory.validation.scorer_registry", "coherence.measurement.scorer_registry"),
+        ("factory.validation.assertions", "coherence.measurement.assertions"),
+        ("factory.validation.cli", "coherence.measurement.cli"),
+    ],
+)
+def test_legacy_validation_modules_warn_and_reexport(module_name: str, canonical_name: str):
+    with _isolated_legacy_import(module_name):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            legacy = importlib.import_module(module_name)
+
+        assert any("factory.validation" in str(item.message) for item in caught)
+        canonical = importlib.import_module(canonical_name)
+        assert legacy.__dict__["__all__"] == canonical.__dict__["__all__"]
+        for name in canonical.__dict__["__all__"]:
+            assert getattr(legacy, name) is getattr(canonical, name)
+
+
+def test_legacy_validation_module_entrypoint_forwards_to_canonical_cli():
+    with _isolated_legacy_import("factory.validation.__main__"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            legacy = importlib.import_module("factory.validation.__main__")
+
+        assert any("factory.validation" in str(item.message) for item in caught)
+        assert legacy.main.__module__ == "coherence.measurement.cli"
