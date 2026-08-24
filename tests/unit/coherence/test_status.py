@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -319,6 +320,60 @@ def test_status_snapshot_reports_current_audit_as_clean(tmp_path: Path):
     audit_line = next(ln for ln in snapshot.lines if ln.source == "audit_age")
     assert audit_line.outcome == "nothing_pending"
     assert audit_line.resolve_cmd is None
+
+
+def test_audit_age_summary_surfaces_computed_wall_clock_age(tmp_path: Path):
+    # Review finding: generated_at was only used to pick the "newest" run,
+    # never compared to wall-clock "now". The probe must now genuinely
+    # measure and surface elapsed age in the summary, regardless of which
+    # outcome tier fires (checked here for both stale and clean tiers).
+    generated_at = datetime.now(timezone.utc) - timedelta(days=5)
+
+    def _write_run(dirname: str, feat: str, run_id: str, checksum_state: str) -> None:
+        run_dir = tmp_path / "coverage-reviews" / dirname
+        run_dir.mkdir(parents=True)
+        report = {
+            "feature": feat,
+            "run_id": run_id,
+            "generated_at": generated_at.isoformat(),
+            "srs": {"SR-001": {"sr_id": "SR-001", "checksum_state": checksum_state}},
+        }
+        (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    # Stale tier.
+    _write_run("FEAT-001-run-1", "FEAT-001", "run-1", "stale")
+    snapshot = status_snapshot(tmp_path)
+    audit_line = next(ln for ln in snapshot.lines if ln.source == "audit_age")
+    assert audit_line.outcome == "stale_audit"
+    assert "5 days" in audit_line.summary
+    assert "ago" in audit_line.summary
+
+    # Clean tier -- same age visibility requirement, different outcome.
+    import shutil
+
+    shutil.rmtree(tmp_path / "coverage-reviews")
+    _write_run("FEAT-002-run-2", "FEAT-002", "run-2", "current")
+    snapshot = status_snapshot(tmp_path)
+    audit_line = next(ln for ln in snapshot.lines if ln.source == "audit_age")
+    assert audit_line.outcome == "nothing_pending"
+    assert "5 days" in audit_line.summary
+    assert "ago" in audit_line.summary
+
+
+def test_audit_age_phrase_helper_computes_expected_bucket():
+    from coherence.status import _audit_age_phrase
+
+    ten_minutes_ago = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    assert _audit_age_phrase(ten_minutes_ago) == "last ran 10 minutes ago"
+
+    three_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    assert _audit_age_phrase(three_hours_ago) == "last ran 3 hours ago"
+
+    two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    assert _audit_age_phrase(two_days_ago) == "last ran 2 days ago"
+
+    assert _audit_age_phrase("") == "last ran at an unknown time"
+    assert _audit_age_phrase("not-a-timestamp") == "last ran at an unknown time"
 
 
 def test_status_snapshot_picks_the_newest_audit_run_across_features(tmp_path: Path):

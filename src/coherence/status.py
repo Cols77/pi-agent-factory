@@ -27,6 +27,7 @@ import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -188,6 +189,42 @@ def _probe_membership_gate(project_root: Path) -> StatusLine:
     )
 
 
+def _format_age(delta: timedelta) -> str:
+    """Render a non-negative timedelta as a coarse, human-readable age --
+    the largest whole unit that applies (days, else hours, else minutes,
+    else "less than a minute")."""
+    seconds = max(delta.total_seconds(), 0.0)
+    days = int(seconds // 86400)
+    if days >= 1:
+        return f"{days} day{'s' if days != 1 else ''}"
+    hours = int(seconds // 3600)
+    if hours >= 1:
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    minutes = int(seconds // 60)
+    if minutes >= 1:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    return "less than a minute"
+
+
+def _audit_age_phrase(generated_at_raw: str) -> str:
+    """"last ran <age> ago" for the newest audit run's `generated_at`, computed
+    against wall-clock now -- this is the actual age measurement the probe's
+    name promises (review finding: the previous version only used
+    `generated_at` to pick the newest run, never compared it to "now"). Falls
+    back to a plain, non-crashing phrase for a missing/malformed timestamp
+    rather than raising out of a status probe."""
+    if not generated_at_raw:
+        return "last ran at an unknown time"
+    try:
+        generated_at = datetime.fromisoformat(generated_at_raw)
+    except ValueError:
+        return "last ran at an unknown time"
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=timezone.utc)
+    age = _format_age(datetime.now(timezone.utc) - generated_at)
+    return f"last ran {age} ago"
+
+
 def _probe_audit_age(project_root: Path) -> StatusLine:
     """"Newest audit age" has no ready-made helper in this codebase (flagged
     as genuinely under-specified by the task brief) -- documenting the
@@ -209,8 +246,17 @@ def _probe_audit_age(project_root: Path) -> StatusLine:
       if the newest run recorded any SR whose checksum was already not
       "current" at audit time, that run's own evidence is known-stale, so
       `stale_audit`. This is about requirement-checksum staleness *as
-      recorded by the audit*, not elapsed wall-clock time -- see the task
-      report's Concerns section.
+      recorded by the audit*, not elapsed wall-clock time -- the
+      outcome/precedence tier is deliberately not driven by age, per
+      controller ruling (no age-threshold convention exists anywhere in this
+      codebase to anchor an elapsed-time outcome to).
+    - Wall-clock age IS surfaced, just not as the outcome driver: whenever a
+      newest run is found (`stale_audit` or the clean `nothing_pending`
+      branch below), its `generated_at` is compared to `datetime.now(utc)`
+      and rendered into the summary via `_audit_age_phrase` (e.g. "last ran
+      12 days ago") -- the one thing "newest audit age" as a probe name
+      promises, now genuinely measured rather than only used to pick which
+      run counts as newest.
     - If no coverage-review run has EVER been recorded, but
       `coherence.audit.cli.cmd_list_features` reports at least one declared
       feature, that is a real backlog: registered work nobody has audited
@@ -243,6 +289,7 @@ def _probe_audit_age(project_root: Path) -> StatusLine:
 
     if runs:
         feat, run_id, payload = max(runs, key=lambda item: str(item[2].get("generated_at", "")))
+        age_phrase = _audit_age_phrase(str(payload.get("generated_at", "")))
         srs = payload.get("srs", {})
         stale_srs = sorted(
             sr_id
@@ -254,7 +301,7 @@ def _probe_audit_age(project_root: Path) -> StatusLine:
                 source="audit_age",
                 outcome="stale_audit",
                 summary=(
-                    f"newest audit {feat} {run_id} recorded {len(stale_srs)} "
+                    f"newest audit {feat} {run_id} ({age_phrase}) recorded {len(stale_srs)} "
                     f"stale-checksum SR(s): {', '.join(stale_srs)}"
                 ),
                 produced_by="coherence.status._probe_audit_age",
@@ -264,7 +311,7 @@ def _probe_audit_age(project_root: Path) -> StatusLine:
         return StatusLine(
             source="audit_age",
             outcome="nothing_pending",
-            summary=f"newest audit {feat} {run_id} is current",
+            summary=f"newest audit {feat} {run_id} ({age_phrase}) is current",
             produced_by="coherence.status._probe_audit_age",
             resolve_cmd=None,
             observation_ref=f"audit:{feat}:{run_id}",
