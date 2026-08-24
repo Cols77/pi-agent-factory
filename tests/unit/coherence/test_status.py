@@ -144,6 +144,42 @@ def test_ties_break_on_declared_order_not_arbitrarily():
     assert snapshot.primary.source == "first"
 
 
+def test_lines_itself_is_returned_worst_first_not_only_primary():
+    # Review finding: `snapshot.lines` used to come back in the original
+    # probe-declaration order untouched -- only `primary` was
+    # precedence-selected. A consumer of the full list (the
+    # /using-coherence menu, this module's own CLI renderer) must see the
+    # SAME worst-first ordering `primary` implies, not just have `primary`
+    # happen to match lines[0] by luck of probe declaration order. Mirrors
+    # `_PROBES`' real declaration order (trace_check, register_check,
+    # run_checkpoint, audit_age, membership_gate) with the worst outcome
+    # deliberately placed on the THIRD-declared probe, so a naive
+    # "primary is usually lines[0] because trace_check is first" bug cannot
+    # hide behind this test.
+    lines = (
+        _line("trace_check", "nothing_pending", resolve_cmd=None),
+        _line("register_check", "nothing_pending", resolve_cmd=None),
+        _line("run_checkpoint", "interrupted_run"),
+        _line("audit_age", "proposed_backlog"),
+        _line("membership_gate", "nothing_pending", resolve_cmd=None),
+    )
+    snapshot = snapshot_from_lines(lines)
+    assert snapshot.lines[0].outcome == "interrupted_run"
+    assert snapshot.lines[0].source == "run_checkpoint"
+    assert snapshot.lines[1].outcome == "proposed_backlog"
+    assert snapshot.lines[1].source == "audit_age"
+    # The three nothing_pending lines keep their relative declared order
+    # (stable sort), filling the remaining slots.
+    assert [ln.source for ln in snapshot.lines[2:]] == [
+        "trace_check",
+        "register_check",
+        "membership_gate",
+    ]
+    # primary must be exactly the sorted list's first element, not a
+    # separately-computed value that merely happens to agree with it.
+    assert snapshot.primary is snapshot.lines[0]
+
+
 def test_every_line_names_its_producer_and_resolver():
     lines = (
         _line("a", "interrupted_run"),

@@ -77,17 +77,18 @@ def _outcome_rank(outcome: str) -> int:
 
 
 def snapshot_from_lines(lines: tuple[StatusLine, ...]) -> StatusSnapshot:
-    """Pure precedence rule: `primary` is the worst-ranked line, ties broken
-    by declared order (first probe wins, not sort-stability of `min`'s
-    happenstance semantics -- made explicit here since callers rely on it)."""
+    """Pure precedence rule: `lines` itself comes back worst-first sorted by
+    outcome rank, ties broken by declared order (stable sort -- first probe
+    wins among equally-ranked outcomes, not `sorted`'s happenstance
+    semantics, made explicit here since callers rely on it: both `primary`
+    AND every consumer of the full `lines` list, e.g. the `/using-coherence`
+    menu, depend on this ordering, not just the single worst line)."""
     if not lines:
         raise ValueError("snapshot_from_lines requires at least one StatusLine")
-    best_index, primary = min(
-        enumerate(lines), key=lambda pair: (_outcome_rank(pair[1].outcome), pair[0])
-    )
-    del best_index
+    sorted_lines = tuple(sorted(lines, key=lambda line: _outcome_rank(line.outcome)))
+    primary = sorted_lines[0]
     exit_code = 0 if primary.outcome == "nothing_pending" else 1
-    return StatusSnapshot(lines=lines, primary=primary, exit_code=exit_code)
+    return StatusSnapshot(lines=sorted_lines, primary=primary, exit_code=exit_code)
 
 
 # --------------------------------------------------------------------------

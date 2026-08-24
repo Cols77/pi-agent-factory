@@ -53,6 +53,72 @@ const SNAPSHOT: StatusSnapshot = {
   ],
 };
 
+// Review finding: `coherence-command.ts` trusts that `snapshot.lines` already
+// arrives worst-first sorted (status.py's snapshot_from_lines now guarantees
+// this) -- it does no sorting of its own. The SNAPSHOT fixture above was
+// hand-assembled already in worst-first order, which never exercised that
+// trust: it would have passed identically even if coherence-command.ts had
+// silently re-sorted or reordered on its own. This fixture instead mirrors
+// the real five-probe shape (`_PROBES`' declared order in status.py:
+// trace_check, register_check, run_checkpoint, audit_age, membership_gate)
+// with its worst outcome deliberately produced by the THIRD-declared probe
+// (run_checkpoint), exactly as the Python-side regression test does -- so a
+// menu/widget that happened to just echo declaration order (trace_check
+// first) rather than genuinely worst-first order would fail this.
+const REALISTIC_SNAPSHOT: StatusSnapshot = {
+  primary: {
+    source: "run_checkpoint",
+    outcome: "interrupted_run",
+    summary: "run run-1 (T-001) is interrupted at dev",
+    produced_by: "factory.orchestrator.run_cli.load_current_checkpoint",
+    resolve_cmd: ["python -m factory.orchestrator run-state inspect run-1 --repo /repo"],
+    observation_ref: "run:run-1",
+  },
+  exit_code: 1,
+  lines: [
+    {
+      source: "run_checkpoint",
+      outcome: "interrupted_run",
+      summary: "run run-1 (T-001) is interrupted at dev",
+      produced_by: "factory.orchestrator.run_cli.load_current_checkpoint",
+      resolve_cmd: ["python -m factory.orchestrator run-state inspect run-1 --repo /repo"],
+      observation_ref: "run:run-1",
+    },
+    {
+      source: "audit_age",
+      outcome: "proposed_backlog",
+      summary: "1 feature(s) declared; none has ever been audited",
+      produced_by: "coherence.status._probe_audit_age",
+      resolve_cmd: ["coherence audit run FEAT-A --project-root /repo"],
+      observation_ref: null,
+    },
+    {
+      source: "trace_check",
+      outcome: "nothing_pending",
+      summary: "0 pending, 0 deferred, 0 exempt",
+      produced_by: "coherence.trace.cli.cmd_check",
+      resolve_cmd: null,
+      observation_ref: "trace:graph",
+    },
+    {
+      source: "register_check",
+      outcome: "nothing_pending",
+      summary: "0 invalid requirement(s)",
+      produced_by: "coherence.register.cli.cmd_check",
+      resolve_cmd: null,
+      observation_ref: "register:requirements",
+    },
+    {
+      source: "membership_gate",
+      outcome: "nothing_pending",
+      summary: "bundle coverage: 3/3 artifacts",
+      produced_by: "coherence.navigate.cli.cmd_coverage",
+      resolve_cmd: null,
+      observation_ref: "bundle:coverage",
+    },
+  ],
+};
+
 function capture(): { commands: Map<string, CommandDef>; pi: PiApi } {
   const commands = new Map<string, CommandDef>();
   const pi: PiApi = {
@@ -120,12 +186,32 @@ describe("formatCoherenceMenu", () => {
     const idx = lines.indexOf("3. [nothing_pending] 0 pending, 0 deferred, 0 exempt");
     expect(idx).toBeGreaterThan(-1);
   });
+
+  test("menu choice 1 is whichever probe is worst, even when that probe is not first-declared (REALISTIC_SNAPSHOT: run_checkpoint, 3rd of 5 real probes)", () => {
+    const lines = formatCoherenceMenu(REALISTIC_SNAPSHOT);
+    expect(lines[0]).toBe("coherence status: [interrupted_run] run run-1 (T-001) is interrupted at dev");
+    const joined = lines.join("\n");
+    expect(joined).toContain("1. [interrupted_run] run run-1 (T-001) is interrupted at dev");
+    expect(joined).toContain("2. [proposed_backlog] 1 feature(s) declared; none has ever been audited");
+    // The three clean lines fill 3-5, in the same order status.py's stable
+    // sort would preserve (trace_check, register_check, membership_gate --
+    // _PROBES' own declared order among themselves).
+    expect(joined).toContain("3. [nothing_pending] 0 pending, 0 deferred, 0 exempt");
+    expect(joined).toContain("4. [nothing_pending] 0 invalid requirement(s)");
+    expect(joined).toContain("5. [nothing_pending] bundle coverage: 3/3 artifacts");
+  });
 });
 
 describe("formatCoherenceWidget", () => {
   test("renders one summary line naming the primary outcome", () => {
     expect(formatCoherenceWidget(SNAPSHOT)).toEqual([
       "coherence: failing_gate — register check failed: 1 requirement(s) invalid",
+    ]);
+  });
+
+  test("names the worst probe's outcome even when it is not first-declared", () => {
+    expect(formatCoherenceWidget(REALISTIC_SNAPSHOT)).toEqual([
+      "coherence: interrupted_run — run run-1 (T-001) is interrupted at dev",
     ]);
   });
 });
@@ -163,6 +249,23 @@ describe("/using-coherence (zero-argument menu)", () => {
 
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("boom"), "error");
     expect(ctx.ui.setWidget).not.toHaveBeenCalled();
+  });
+
+  test("widget and menu both surface the worst probe even when it is not first-declared (REALISTIC_SNAPSHOT)", async () => {
+    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: REALISTIC_SNAPSHOT });
+    const { commands } = capture();
+    const ctx = fakeCtx();
+
+    await commands.get("using-coherence")!.handler("", ctx);
+
+    expect(ctx.ui.setWidget).toHaveBeenCalledWith(
+      COHERENCE_WIDGET_KEY,
+      formatCoherenceWidget(REALISTIC_SNAPSHOT),
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("1. [interrupted_run]"),
+      "info",
+    );
   });
 
   test("passes ctx.cwd through to the status bridge", async () => {
