@@ -84,13 +84,27 @@ def _verdict(sr_id: str, *, implemented: bool = True, honest: bool = True) -> di
 class _ConcurrencyTrackingBackend:
     """Shared across all worker calls (constructed once, returned by every
     ``PiAgentBackend(...)`` invocation via monkeypatch) so a class-level
-    lock+counter can observe how many workers are inside ``run()`` at once."""
+    lock+counter can observe how many workers are inside ``run()`` at once.
 
-    def __init__(self, *, hold_s: float = 0.05) -> None:
+    Concurrency is proven deterministically with a ``threading.Barrier``,
+    not timing. The runner submits every ``needs_worker`` future to the
+    bounded executor up front (see runner.py), so with ``max_workers=N``
+    exactly the first ``N`` dispatched calls start running immediately and
+    truly concurrently; only those first ``barrier_parties`` calls are made
+    to rendezvous on the barrier -- ``barrier.wait()`` cannot return for any
+    of them until all of them have entered ``run()``, which forces the
+    active-worker count to have genuinely reached ``barrier_parties`` at
+    that instant, no sleep window or scheduler luck required. Calls beyond
+    ``barrier_parties`` (there is no guaranteed further concurrent partner
+    for them under a bounded pool) skip the barrier and return immediately."""
+
+    def __init__(self, *, barrier_parties: int = 2) -> None:
         self._lock = threading.Lock()
         self._active = 0
         self.max_active = 0
-        self._hold_s = hold_s
+        self._entry_count = 0
+        self._barrier_parties = barrier_parties
+        self._barrier = threading.Barrier(barrier_parties)
         self.calls: list[str] = []
 
     def run(self, role: object, prompt: str) -> AgentResult:
@@ -98,7 +112,10 @@ class _ConcurrencyTrackingBackend:
             self._active += 1
             self.max_active = max(self.max_active, self._active)
             self.calls.append(prompt)
-        time.sleep(self._hold_s)
+            self._entry_count += 1
+            use_barrier = self._entry_count <= self._barrier_parties
+        if use_barrier:
+            self._barrier.wait()
         with self._lock:
             self._active -= 1
         return AgentResult(ok=True, output=_verdict("SR-generic"), raw="", session_id="fake")
@@ -108,15 +125,14 @@ def test_bounded_concurrency_exceeds_one_and_respects_max_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _feat_scope(tmp_path, ["SR-001", "SR-002", "SR-003"])
-    backend = _ConcurrencyTrackingBackend(hold_s=0.05)
+    backend = _ConcurrencyTrackingBackend(barrier_parties=2)
     monkeypatch.setattr("coherence.audit.runner.PiAgentBackend", lambda *a, **k: backend)
 
     rc = run(tmp_path, "FEAT-001", run_id="r1", no_gates=True, max_workers=2)
 
     assert rc == 0
     assert len(backend.calls) == 3
-    assert backend.max_active > 1
-    assert backend.max_active <= 2
+    assert 1 < backend.max_active <= 2
 
 
 def test_max_workers_nonpositive_rejected_by_run(tmp_path: Path) -> None:
