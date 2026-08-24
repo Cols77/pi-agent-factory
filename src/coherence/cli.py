@@ -3,8 +3,10 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
+from coherence.audit.cli import main as audit_main
 from coherence.doctor.cli import main as doctor_main
 from coherence.goals.cli import main as goals_main
+from coherence.measurement.cli import main as measurement_main
 from coherence.navigate.cli import main as navigate_main
 from coherence.presentation.cli import main as presentation_main
 from coherence.register.cli import main as register_main
@@ -19,6 +21,8 @@ GROUPS = {
     "presentation": presentation_main,
     "goals": goals_main,
     "simulation": simulation_main,
+    "audit": audit_main,
+    "measurement": measurement_main,
 }
 
 
