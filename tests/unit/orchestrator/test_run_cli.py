@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
+import re
 import subprocess
 
 import pytest
@@ -293,3 +295,61 @@ def test_doctor_ok_on_clean_repo(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True
     assert out["findings"] == []
+
+
+def test_doctor_stays_scoped_to_run_recovery_not_bootstrap_diagnostics(tmp_path):
+    """Regression guard against confusing the two unrelated "doctor"s.
+
+    factory.orchestrator.run_cli's `doctor` subcommand (this module,
+    run-recovery diagnostics: interrupted runs, oversized run dirs, embedded
+    repos, reserved names, dirty tracked files) is completely unrelated to
+    the pi-ext `/factory-doctor` command (now `/factory-selfcheck`, a Pi
+    extension command diagnosing project bootstrap: profile freshness, the
+    AGENTS.md managed block, essential tools, subagent metadata). This test
+    pins run_doctor's scope so a future change to one does not silently grow
+    into the other's territory.
+    """
+    from factory.orchestrator.run_cli import run_doctor
+
+    source = inspect.getsource(run_doctor)
+    lowered = source.lower()
+    forbidden_terms = [
+        "agents.md",
+        "profile",
+        "subagent",
+        "tools aligned",
+        "tools_aligned",
+        "code index",
+        "code_index",
+        "bootstrap",
+    ]
+    for term in forbidden_terms:
+        assert term not in lowered, (
+            f"run_doctor source mentions {term!r}, which reads as bootstrap-"
+            "diagnostic content bleeding in from the unrelated /factory-selfcheck "
+            "(pi-ext) command; run_doctor must stay run-recovery only"
+        )
+
+    # The closed set of finding codes run_doctor can ever emit today. Growing
+    # this set with more run-recovery codes is fine; a code drawn from the
+    # forbidden vocabulary above would be scope creep this test should catch.
+    known_codes = {
+        "run_oversized",
+        "embedded_repo",
+        "reserved_name",
+        "dirty_tracked",
+        "interrupted_run",
+    }
+    emitted_codes = set(re.findall(r'"code":\s*"([a-z_]+)"', source))
+    assert emitted_codes == known_codes
+
+    # End-to-end sanity check: on a clean repo the report shape itself stays
+    # minimal (ok/findings/summary) -- no bootstrap-shaped keys.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
+    report = run_doctor(tmp_path)
+    assert set(report.keys()) == {"findings", "ok", "summary"}

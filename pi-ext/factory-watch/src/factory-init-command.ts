@@ -1,7 +1,9 @@
 // /factory-init command wiring.
 //
-// This layer owns the two commands /factory-init and /factory-doctor, the
-// interactive-diff preview, and the reload-after-change contract. All of the
+// This layer owns /factory-init, /factory-selfcheck, and the deprecated
+// /factory-doctor forwarder (kept working, just nudges toward
+// /factory-selfcheck), the interactive-diff preview, and the
+// reload-after-change contract. All of the
 // deterministic discovery/synthesis/write logic lives in factory-init.ts (pure,
 // Pi-free, unit-testable); everything here is glue that touches Pi APIs.
 
@@ -181,13 +183,23 @@ export function registerFactoryInit(pi: PiApi): void {
     },
   });
 
+  pi.registerCommand("factory-selfcheck", {
+    description:
+      "Diagnose the project bootstrap: root, profile, AGENTS.md block, essential tools, subagent metadata",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      runFactoryDiagnostics(ctx);
+    },
+  });
+
+  // Deprecated alias: kept working (not a dead end) so existing muscle memory
+  // and scripts still get the full diagnostic, just with a one-line nudge to
+  // switch to /factory-selfcheck.
   pi.registerCommand("factory-doctor", {
     description:
       "Diagnose the project bootstrap: root, profile, AGENTS.md block, essential tools, subagent metadata",
     handler: async (_args: string, ctx: ExtCommandCtx) => {
-      const { root } = resolveProjectRoot(ctx.cwd);
-      const check = runFactoryCheck(root);
-      for (const line of renderDoctor(check)) ctx.ui.notify(line, "info");
+      ctx.ui.notify("factory-doctor is deprecated; use /factory-selfcheck", "warning");
+      runFactoryDiagnostics(ctx);
     },
   });
 
@@ -257,6 +269,14 @@ export function registerFactoryInitTools(pi: Pick<PiApi, "registerTool">): void 
       });
     },
   });
+}
+
+// Shared by /factory-selfcheck and the deprecated /factory-doctor forwarder
+// so the diagnostic logic itself lives in exactly one place.
+function runFactoryDiagnostics(ctx: ExtCommandCtx): void {
+  const { root } = resolveProjectRoot(ctx.cwd);
+  const check = runFactoryCheck(root);
+  for (const line of renderDoctor(check)) ctx.ui.notify(line, "info");
 }
 
 function renderDoctor(check: CheckResult): string[] {
