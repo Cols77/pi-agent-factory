@@ -267,6 +267,22 @@ def cmd_list_features(root: Path) -> list[dict]:
     return features
 
 
+def _positive_int(value: str) -> int:
+    """argparse ``type=`` for ``--max-workers``: reject non-positive values
+    at argument-parsing time rather than deep inside the run."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--max-workers must be a positive integer, got {value!r}"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(
+            f"--max-workers must be a positive integer, got {value!r}"
+        )
+    return parsed
+
+
 def cmd_run(
     root: Path,
     feat: str,
@@ -275,6 +291,7 @@ def cmd_run(
     model: str = "",
     run_id: str | None = None,
     no_gates: bool = False,
+    max_workers: int | None = None,
 ) -> int:
     """Execute the deterministic coverage run (Phase 0 -> 5)."""
     # Lazy import: runner.py imports this module, so importing it here at
@@ -282,7 +299,13 @@ def cmd_run(
     from coherence.audit.runner import run as run_coverage
 
     return run_coverage(
-        root, feat, provider=provider, model=model, run_id=run_id, no_gates=no_gates
+        root,
+        feat,
+        provider=provider,
+        model=model,
+        run_id=run_id,
+        no_gates=no_gates,
+        max_workers=max_workers,
     )
 
 
@@ -331,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--model", default="")
     p_run.add_argument("--run-id", default=None)
     p_run.add_argument("--no-gates", action="store_true")
+    p_run.add_argument("--max-workers", type=_positive_int, default=None)
 
     args = parser.parse_args(argv)
 
@@ -344,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             run_id=args.run_id,
             no_gates=args.no_gates,
+            max_workers=args.max_workers,
         )
     elif args.cmd == "audit":
         print(json.dumps(cmd_audit(args.project_root, args.feat, run_id=args.run_id), indent=2))

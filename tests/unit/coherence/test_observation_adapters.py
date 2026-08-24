@@ -45,6 +45,11 @@ from coherence.simulation.observations import (
     simulation_run_observation,
 )
 from coherence.simulation.registry import Run
+from coherence.audit.observations import (
+    AUDIT_SCHEMA,
+    REGISTRY as AUDIT_REGISTRY,
+    audit_observation,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -493,8 +498,256 @@ def test_simulation_run_v1_registry_rejects_non_string_run_id() -> None:
 
 
 # --------------------------------------------------------------------------
-# Registries stay schema-scoped: neither adapter's registry validates the
-# other domain's facts schema.
+# audit/v1 (coherence.audit.observations.audit_observation)
+# --------------------------------------------------------------------------
+
+
+def _report(
+    *,
+    feature: str = "FEAT-NAV-017",
+    sr_id: str = "SR-032",
+    state: str = "pass",
+    notes: list[str] | None = None,
+    workflow_issues: list[dict] | None = None,
+) -> dict:
+    return {
+        "feature": feature,
+        "states": {sr_id: [state, notes or []]},
+        "workflow_issues": workflow_issues or [],
+    }
+
+
+def _report_file(tmp_path: Path, report: dict) -> Path:
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "state,tool_failed,outcome_override,expected_outcome",
+    [
+        ("pass", False, None, "pass"),
+        ("not_implemented", False, None, "fail"),
+        ("dishonest", False, None, "fail"),
+        ("unlinked", False, None, "fail"),
+        ("unverified", True, None, "unknown"),
+        ("unverified", False, None, "fail"),
+        ("suspect", False, None, "unknown"),
+        ("unmeasured", False, None, "unknown"),
+        ("declined", False, None, "unknown"),
+        ("pass", False, "interrupted", "interrupted"),
+    ],
+)
+def test_audit_v1_outcome_matches_expected(
+    tmp_path: Path,
+    state: str,
+    tool_failed: bool,
+    outcome_override: str | None,
+    expected_outcome: str,
+) -> None:
+    workflow_issues = [{"sr_id": "SR-032", "issue": "dispatch failed"}] if tool_failed else []
+    report = _report(state=state, workflow_issues=workflow_issues)
+    report_path = _report_file(tmp_path, report)
+    verdict = None if state == "unverified" else _verdict()
+
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        verdict,
+        (SOME_INPUT,),
+        (SOME_ARTIFACT,),
+        report_path=report_path,
+        id=f"obs:audit:{state}:{tool_failed}:{expected_outcome}",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+        outcome=outcome_override,
+    )
+
+    assert envelope.facts["schema"] == AUDIT_SCHEMA
+    assert envelope.outcome == expected_outcome
+    assert envelope.gate_eligible is (expected_outcome in {"pass", "fail"})
+
+
+def _verdict(
+    *, implemented: bool = True, honest: bool = True, confidence: str = "high"
+) -> dict:
+    return {
+        "sr_id": "SR-032",
+        "implemented": implemented,
+        "honest": honest,
+        "confidence": confidence,
+        "margin": None,
+        "reasoning": "Binding test exercises the claimed behavior end to end.",
+        "checked": ["binding test"],
+        "assumed": ["fixture state"],
+        "verify": [],
+    }
+
+
+def test_audit_v1_facts_preserve_typed_state_and_reference_report_and_verdict(
+    tmp_path: Path,
+) -> None:
+    report = _report(state="pass", notes=["import-graph overlap ok"])
+    report_path = _report_file(tmp_path, report)
+    verdict = _verdict(confidence="high")
+
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        verdict,
+        (SOME_INPUT,),
+        (SOME_ARTIFACT,),
+        report_path=report_path,
+        id="obs:audit:facts",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+    )
+
+    facts = envelope.facts
+    assert facts["feature"] == "FEAT-NAV-017"
+    assert facts["sr_id"] == "SR-032"
+    assert facts["state"] == "pass"
+    assert facts["notes"] == ("import-graph overlap ok",)
+    assert facts["tool_failure"] is False
+    assert facts["implemented"] is True
+    assert facts["honest"] is True
+    assert facts["confidence"] == "high"
+    assert facts["artifacts"] == (SOME_ARTIFACT.ref,)
+
+    # The verdict's own narrative fields (reasoning/checked/assumed/verify)
+    # are never embedded directly in facts -- only referenced by content hash,
+    # same discipline as measurement/v1's raw HarnessResult output.
+    assert "reasoning" not in facts
+    assert "checked" not in facts
+    verdict_ref = facts["verdict"]
+    assert isinstance(verdict_ref, str) and verdict_ref.strip()
+    verdict_artifact = next(a for a in envelope.artifacts if a.ref == verdict_ref)
+    assert verdict_artifact.content_hash.startswith("sha256:")
+
+    report_ref = facts["report"]
+    assert isinstance(report_ref, str) and report_ref.strip()
+    report_artifact = next(a for a in envelope.artifacts if a.ref == report_ref)
+    assert report_artifact.content_hash.startswith("sha256:")
+    assert report_artifact.location == str(report_path)
+
+    assert "feat:FEAT-NAV-017" in envelope.scope_refs
+    assert "sr:SR-032" in envelope.scope_refs
+
+
+def test_audit_v1_missing_report_file_has_no_report_ref_but_is_still_recorded(
+    tmp_path: Path,
+) -> None:
+    report = _report(state="pass")
+    missing_path = tmp_path / "no-such-report.json"
+
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        _verdict(),
+        (),
+        (),
+        report_path=missing_path,
+        id="obs:audit:missing-report",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+    )
+
+    assert envelope.facts["report"] is None
+
+
+def test_audit_v1_workflow_failure_never_projects_a_synthetic_pass(tmp_path: Path) -> None:
+    """A dispatch/tool failure (unverified + tool_failure) must resolve to
+    fail/unknown per the existing gate state, never pass -- even though no
+    verdict exists to contradict it."""
+    report = _report(
+        state="unverified",
+        workflow_issues=[{"sr_id": "SR-032", "issue": "subagent dispatch failed"}],
+    )
+    report_path = _report_file(tmp_path, report)
+
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        None,
+        (),
+        (),
+        report_path=report_path,
+        id="obs:audit:workflow-failure",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+    )
+
+    assert envelope.outcome == "unknown"
+    assert envelope.facts["tool_failure"] is True
+    assert any(d.code == "AUDIT_WORKFLOW_FAILURE" for d in envelope.diagnostics)
+
+
+def test_audit_v1_projections_agree_on_outcome_diagnostics_and_artifacts(
+    tmp_path: Path,
+) -> None:
+    report = _report(state="pass")
+    report_path = _report_file(tmp_path, report)
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        _verdict(),
+        (SOME_INPUT,),
+        (SOME_ARTIFACT,),
+        report_path=report_path,
+        id="obs:audit:parity",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+    )
+    _assert_projection_parity(envelope)
+
+
+def test_audit_v1_unmeasured_outcome_cannot_project_to_pass(tmp_path: Path) -> None:
+    report = _report(state="unmeasured", notes=["no passing measurement recorded"])
+    report_path = _report_file(tmp_path, report)
+    envelope = audit_observation(
+        report,
+        "SR-032",
+        _verdict(),  # facts say implemented=True; outcome must still not be "pass"
+        (),
+        (),
+        report_path=report_path,
+        id="obs:audit:invalid-projection",
+        producer=PRODUCER,
+        observed_at=OBSERVED_AT,
+    )
+    assert envelope.facts["implemented"] is True  # the machine truth is retained
+    _assert_invalid_or_unknown_cannot_project_to_pass(envelope)
+
+
+def test_audit_v1_registry_rejects_facts_missing_required_keys() -> None:
+    with pytest.raises(ValueError, match="feature"):
+        AUDIT_REGISTRY.validate({"schema": AUDIT_SCHEMA})
+
+
+def test_audit_v1_registry_rejects_unknown_state() -> None:
+    with pytest.raises(ValueError, match="state"):
+        AUDIT_REGISTRY.validate(
+            {
+                "schema": AUDIT_SCHEMA,
+                "feature": "FEAT-NAV-017",
+                "sr_id": "SR-032",
+                "state": "bogus",
+                "notes": [],
+                "tool_failure": False,
+                "implemented": None,
+                "honest": None,
+                "confidence": None,
+                "margin": None,
+                "artifacts": [],
+                "verdict": None,
+                "report": None,
+            }
+        )
+
+
+# --------------------------------------------------------------------------
+# Registries stay schema-scoped: no adapter's registry validates another
+# domain's facts schema.
 # --------------------------------------------------------------------------
 
 
@@ -506,6 +759,15 @@ def test_simulation_registry_does_not_know_measurement_schema() -> None:
     assert SIMULATION_REGISTRY.lookup(MEASUREMENT_SCHEMA) is None
 
 
+def test_audit_registry_does_not_know_measurement_schema() -> None:
+    assert AUDIT_REGISTRY.lookup(MEASUREMENT_SCHEMA) is None
+
+
+def test_measurement_registry_does_not_know_audit_schema() -> None:
+    assert MEASUREMENT_REGISTRY.lookup(AUDIT_SCHEMA) is None
+
+
 def test_registries_are_payload_registry_instances() -> None:
     assert isinstance(MEASUREMENT_REGISTRY, PayloadRegistry)
     assert isinstance(SIMULATION_REGISTRY, PayloadRegistry)
+    assert isinstance(AUDIT_REGISTRY, PayloadRegistry)

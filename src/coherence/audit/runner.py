@@ -6,6 +6,7 @@ human-gate blocking) without the full journal/recovery/lock machinery.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
 import time
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from coherence.audit.audit import validate_verdict
 from coherence.audit.cli import cmd_audit, cmd_consolidate
+from coherence.audit.policy import audit_max_workers
 from coherence.audit.report import render_human_summary
 from coherence.audit.scope import resolve_feature_scope
 from factory.orchestrator.pi_backend import PiAgentBackend
@@ -40,6 +42,22 @@ def _write_status(path: Path, payload: dict) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def write_verdict_atomically(run_dir: Path, sr_id: str, verdict: dict) -> Path:
+    """The only write a worker performs: atomically persist one SR's verdict.
+
+    Same tmp-file-then-``Path.replace()`` pattern as :func:`_write_status`, so
+    a reader (e.g. a later run's own resume check) never observes a partially
+    written verdict file. The coordinator alone writes ``audit.json``,
+    ``report.json``, and ``status.json``.
+    """
+    path = run_dir / "verdicts" / f"{sr_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return path
 
 
 def _sr_needs_subagent(sr_data: dict) -> bool:
@@ -116,6 +134,48 @@ def compose_audit_prompt(feat: str, sr_id: str, sr_data: dict, overlap: dict | N
     return "\n".join(lines)
 
 
+def _dispatch_sr(
+    root: Path,
+    ext: Path,
+    feat: str,
+    sr_id: str,
+    sr_data: dict,
+    overlap: dict | None,
+    provider: str,
+    model: str,
+    run_dir: Path,
+) -> dict:
+    """Runs on a worker thread for exactly one SR.
+
+    Constructs its own fresh ``PiAgentBackend`` (the plan's "each worker
+    already gets its own backend instance naturally"), dispatches the child
+    audit, and -- on a valid verdict -- performs the only write a worker is
+    allowed to make: :func:`write_verdict_atomically`. Never touches
+    ``status.json``, ``audit.json``, or ``report.json``; the coordinator
+    thread applies the returned result after collecting every worker, sorted
+    by SR id, so completion order can never affect what gets written.
+    """
+    prompt = compose_audit_prompt(feat, sr_id, sr_data, overlap)
+    backend = PiAgentBackend(
+        root,
+        ext,
+        provider=provider if provider else None,
+        model=model if model else None,
+    )
+    result = backend.run(AgentRole.COVERAGE_AUDIT, prompt)
+
+    if not result.ok:
+        return {"ok": False, "issue": f"subagent failed: {result.raw[:200]}"}
+
+    child_output = result.output if isinstance(result.output, dict) else {}
+    verified, error = validate_verdict(child_output)
+    if error or verified is None:
+        return {"ok": False, "issue": f"invalid verdict: {error}"}
+
+    write_verdict_atomically(run_dir, sr_id, verified)
+    return {"ok": True, "session_id": result.session_id}
+
+
 def run(
     root: Path,
     feat: str,
@@ -124,8 +184,17 @@ def run(
     *,
     run_id: str | None = None,
     no_gates: bool = False,
+    max_workers: int | None = None,
 ) -> int:
     """Execute a full coverage review run.
+
+    Phase 0 (scope/overlap), resume checks, consolidation, and the gate all
+    stay serial and are owned exclusively by this coordinator. Only the
+    per-SR audit dispatch (a fresh subagent per SR needing a verdict) runs on
+    a bounded ``ThreadPoolExecutor`` -- I/O-bound subprocess/API work, not
+    CPU-bound, so threads rather than processes. ``max_workers`` defaults to
+    the ``audit.max_workers`` policy (see ``coherence.audit.policy``,
+    default 4) and must be a positive integer.
 
     Returns 0 (pass), 1 (fail), 2 (degraded), or 127 (runner error).
     """
@@ -135,6 +204,11 @@ def run(
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / STATUS_FILENAME
     decisions_path = run_dir / DECISIONS_FILENAME
+
+    if max_workers is None:
+        max_workers = audit_max_workers(root)
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers <= 0:
+        raise ValueError(f"max_workers must be a positive integer, got {max_workers!r}")
 
     def _status(phase: str, srs: dict | None = None, **kw: object) -> None:
         payload: dict = {
@@ -164,15 +238,16 @@ def run(
     overlaps = audit.get("overlaps", {})
     sr_progress = {sid: {"state": "pending", "session_id": None} for sid in srs}
 
-    # Phase 2: per-SR audit (sequential; parallel is a future option)
+    # Phase 2: per-SR audit. Serial pass first: classify every SR as
+    # skipped/resumed/needing-a-worker, in the original scope order -- this
+    # is also where a pre-existing verdict short-circuits a worker entirely.
     _status("auditing", srs=sr_progress)
-    tool_failures: list[dict] = []
     ext = scope_guard_extension()
 
+    needs_worker: list[str] = []
     for sr_id, sr_data in srs.items():
         if not _sr_needs_subagent(sr_data):
             sr_progress[sr_id]["state"] = "skipped"
-            _status("auditing", srs=sr_progress)
             continue
 
         # Resume support: an existing verdict file is accepted as-is.
@@ -180,50 +255,57 @@ def run(
         if verdict_path.exists():
             try:
                 existing = json.loads(verdict_path.read_text(encoding="utf-8"))
-                verified, error = validate_verdict(existing)
+                _, error = validate_verdict(existing)
                 if error is None:
                     sr_progress[sr_id]["state"] = "done"
-                    _status("auditing", srs=sr_progress)
                     continue
             except (OSError, json.JSONDecodeError):
                 pass
 
         sr_progress[sr_id]["state"] = "running"
-        _status("auditing", srs=sr_progress)
+        needs_worker.append(sr_id)
 
-        prompt = compose_audit_prompt(feat, sr_id, sr_data, overlaps.get(sr_id))
-        backend = PiAgentBackend(
-            root,
-            ext,
-            provider=provider if provider else None,
-            model=model if model else None,
-        )
-        result = backend.run(AgentRole.COVERAGE_AUDIT, prompt)
+    _status("auditing", srs=sr_progress)
 
-        if not result.ok:
-            tool_failures.append(
-                {"sr_id": sr_id, "issue": f"subagent failed: {result.raw[:200]}"}
-            )
-            sr_progress[sr_id]["state"] = "failed"
-            _status("auditing", srs=sr_progress)
-            continue
+    # Bounded parallel dispatch: only the SRs collected above. Each worker
+    # builds its own PiAgentBackend and, on a valid verdict, performs the
+    # only write it is allowed to make (write_verdict_atomically). Results
+    # are collected as futures resolve, but never applied to sr_progress or
+    # tool_failures until every worker is done and sorted by SR id below --
+    # this coordinator is the sole writer of status/audit/report artifacts,
+    # and their content must never depend on completion order.
+    tool_failures: list[dict] = []
+    if needs_worker:
+        worker_results: dict[str, dict] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _dispatch_sr,
+                    root,
+                    ext,
+                    feat,
+                    sr_id,
+                    srs[sr_id],
+                    overlaps.get(sr_id),
+                    provider,
+                    model,
+                    run_dir,
+                ): sr_id
+                for sr_id in needs_worker
+            }
+            for future in as_completed(futures):
+                worker_results[futures[future]] = future.result()
 
-        child_output = result.output if isinstance(result.output, dict) else {}
-        verified, error = validate_verdict(child_output)
-        if error:
-            tool_failures.append({"sr_id": sr_id, "issue": f"invalid verdict: {error}"})
-            sr_progress[sr_id]["state"] = "failed"
-            _status("auditing", srs=sr_progress)
-            continue
+        for sr_id in sorted(worker_results):
+            result = worker_results[sr_id]
+            if result["ok"]:
+                sr_progress[sr_id]["state"] = "done"
+                sr_progress[sr_id]["session_id"] = result.get("session_id")
+            else:
+                tool_failures.append({"sr_id": sr_id, "issue": result["issue"]})
+                sr_progress[sr_id]["state"] = "failed"
 
-        verdict_dir = run_dir / "verdicts"
-        verdict_dir.mkdir(parents=True, exist_ok=True)
-        (verdict_dir / f"{sr_id}.json").write_text(
-            json.dumps(verified, indent=2), encoding="utf-8"
-        )
-        sr_progress[sr_id]["state"] = "done"
-        sr_progress[sr_id]["session_id"] = result.session_id
-        _status("auditing", srs=sr_progress)
+    _status("auditing", srs=sr_progress)
 
     # Phase 3+4: consolidate + gate
     _status("consolidating", srs=sr_progress)
@@ -297,4 +379,4 @@ def _find_proposed_requirements(report: dict) -> list[dict]:
     return proposed
 
 
-__all__ = ["compose_audit_prompt", "run"]
+__all__ = ["compose_audit_prompt", "run", "write_verdict_atomically"]
