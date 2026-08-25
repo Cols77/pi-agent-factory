@@ -46,7 +46,7 @@ def _status_for_report(root: Path, feat: str, run_id: str, payload: dict[str, ob
         run_id=run_id,
         state=_state_from_report(payload),
         observation_ref=obs_ref,
-        resume_cmd=(f"coherence audit run {feat} --project-root {root}",) if _state_from_report(payload) != "passed" else None,
+        resume_cmd=(f"coherence audit run {feat} --project-root {root}" if _state_from_report(payload) != "passed" else None),
         updated_at=str(payload.get("generated_at", "")),
         requirement_ids=(),
     )
@@ -85,7 +85,7 @@ def audit_run_status(root: Path) -> list[RunStatusInput]:
             rows.append(
                 RunStatusInput(
                     producer="audit",
-                    run_id=str(payload.get("run_id", run_dir.name)),
+                    run_id=run_id,
                     state="unknown",
                     observation_ref=f"audit:{feat}:{run_dir.name}",
                     diagnostics=(Diagnostic(code="AUDIT_RUN_MALFORMED", summary=str(exc)),),

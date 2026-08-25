@@ -66,8 +66,9 @@ def _blocking_for(
 ) -> tuple[str | None, tuple[str, ...] | None, bool]:
     """Deterministic run -> obligation mapping (Increment 7 Task 5 addendum)."""
     from coherence.policy.compiler import compile_obligations
+    from substrate.policy.obligation import Obligation
 
-    candidates: list[tuple[str, object]] = []
+    candidates: list[tuple[str, Obligation]] = []
     for req_id in sorted(requirement_ids):
         try:
             obligations = compile_obligations(root, f"sr:{req_id}")

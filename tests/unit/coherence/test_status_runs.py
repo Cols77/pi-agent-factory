@@ -7,7 +7,6 @@ the snapshot even when a source is missing.
 """
 import pytest
 import json
-from pathlib import Path
 
 from coherence import status as status_module
 

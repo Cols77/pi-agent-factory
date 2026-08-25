@@ -15,7 +15,7 @@ import {
 } from "./process-control.js";
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
-import { formatStatusLines, parseStatus, devEscalated } from "./status-format.js";
+import { formatStatusLines, parseStatus, devEscalated, formatRunStatusLines, resumeCommand } from "./status-format.js";
 import type { StatusRecord } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
@@ -78,6 +78,9 @@ import type { Surface } from "./review-surface.js";
 import { spawnTerminalWindow } from "./terminal-window.js";
 import { MissionControlDashboard } from "./mission-control-dashboard.js";
 import type { MissionControlAction } from "./mission-control-dashboard.js";
+import { RunStatusDashboard } from "./mission-control-dashboard.js";
+import type { MissionControlRunAction } from "./mission-control-dashboard.js";
+import { loadRunStatuses } from "./run-status-cli.js";
 import { parseSessionTranscript } from "./session-transcript.js";
 import { SessionTranscriptView } from "./session-transcript-view.js";
 import { resolveSessionPath } from "./session-path.js";
@@ -863,6 +866,66 @@ export default function factoryWatch(pi: PiApi): void {
         return;
       }
       await runMissionControl(ctx);
+    },
+  });
+
+  // /mission-control (Increment 7): the unified long-run status surface. It
+  // consumes ONLY the canonical `serialize_run_statuses` payload
+  // (`{"runs": [...]}`, producer-discriminated rows) via loadRunStatuses --
+  // no second serializer is maintained here. The dashboard renders each run's
+  // producer label, its obligation + resolve-command items, and a resume
+  // control only when `resume_cmd` is a non-empty string.
+  pi.registerCommand("mission-control", {
+    description: "Open mission control for the unified long-run status (factory/audit/measurement/simulation/experiment runs)",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const readRuns = () => {
+        const result = loadRunStatuses(ctx.cwd);
+        return result.ok ? result.value : null;
+      };
+      const initial = readRuns();
+      if (initial === null) {
+        ctx.ui.notify("no run status payload; run `coherence status --json` to confirm", "warning");
+      }
+      ctx.ui.setWidget("factory-runs", formatRunStatusLines(initial));
+
+      loop: for (;;) {
+        const action = await ctx.ui.custom<MissionControlRunAction>((tui, theme, _keybindings, done) => {
+          const dash = new RunStatusDashboard(readRuns(), (a) => {
+            clearInterval(poll);
+            done(a);
+          }, theme);
+          // Live refresh only -- no auto-launch of resolve/resume commands.
+          const poll = setInterval(() => {
+            try {
+              const payload = readRuns();
+              if (payload !== null) {
+                dash.update(payload);
+                tui.requestRender();
+              }
+            } catch {
+              clearInterval(poll);
+            }
+          }, POLL_INTERVAL_MS);
+          return dash;
+        });
+
+        switch (action.type) {
+          case "quit":
+            break loop;
+          case "resume": {
+            const cmd = resumeCommand(action.run);
+            if (cmd !== null) {
+              // The resume_cmd is a single shell command string; run it in a
+              // fresh terminal window so the operator sees the native run.
+              spawnTerminalWindow("bash", ["-lc", cmd], { cwd: ctx.cwd });
+              ctx.ui.notify(`resuming ${action.run.producer} run ${action.run.run_id}`, "info");
+            } else {
+              ctx.ui.notify(`run ${action.run.run_id} has no resume command`, "info");
+            }
+            break;
+          }
+        }
+      }
     },
   });
 

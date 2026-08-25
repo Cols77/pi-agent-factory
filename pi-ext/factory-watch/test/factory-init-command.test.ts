@@ -94,9 +94,9 @@ describe("/factory-doctor (deprecated forwarder)", () => {
 
     const warningCalls = vi.mocked(ctx.ui.notify).mock.calls.filter((call) => call[1] === "warning");
     expect(warningCalls.length).toBe(1);
-    expect(warningCalls[0][0]).toContain("factory-doctor");
-    expect(warningCalls[0][0]).toContain("factory-selfcheck");
-    expect(warningCalls[0][0].toLowerCase()).toContain("deprecat");
+    expect(warningCalls[0]![0]).toContain("factory-doctor");
+    expect(warningCalls[0]![0]).toContain("factory-selfcheck");
+    expect(warningCalls[0]![0].toLowerCase()).toContain("deprecat");
   });
 
   test("still forwards: runs the full diagnostic after the deprecation line (not a dead end)", async () => {
