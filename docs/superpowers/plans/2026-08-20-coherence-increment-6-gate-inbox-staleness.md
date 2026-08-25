@@ -405,7 +405,7 @@ Expected: PASS.
 
 ### Task 7: Milestone baselines (optional, product/high_assurance only)
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**  (tests/unit/memory/test_baseline.py, committed 219034d)
 
 Add `tests/unit/memory/test_baseline.py`, mirroring the existing `FR-*`/`NC-*` record
 tests: a `Baseline` record at `docs/baselines/BASELINE-*.md` with frontmatter `id`, `title`,
@@ -420,7 +420,7 @@ Run:
 
 Expected: FAIL (`ModuleNotFoundError`).
 
-- [ ] **Step 2: Implement `src/factory/memory/baseline.py`.**
+- [x] **Step 2: Implement `src/factory/memory/baseline.py`.**
 
 Mirror `factory/memory/nonconformance.py` (Increment 2B) exactly: `Baseline` frozen dataclass
 (`id`, `title`, `path`, `git_ref`, `scope: list[str]`, `approved_by`, `scope_errors`),
@@ -428,7 +428,7 @@ Mirror `factory/memory/nonconformance.py` (Increment 2B) exactly: `Baseline` fro
 `src/substrate/schemas/baseline.schema.json` requiring `id` (pattern `^BASELINE-[0-9]+$`),
 `title`, `git_ref`, `approved_by`; `scope` defaults to `[]`.
 
-- [ ] **Step 3: Wire an expiry check.**
+- [x] **Step 3: Wire an expiry check.**
 
 A baseline whose `scope` includes an SR that has since gone `suspect`/`invalid`
 (`coherence.trace.suspect.edge_validity`, Task 6) is a stale baseline, not merely a stale SR --
@@ -437,7 +437,7 @@ ids whose scope contains at least one suspect/invalid SR. This is queried, never
 automatically: closing an expired baseline is a human decision recorded the same way any other
 gate-protocol decision is (Task 4), not an auto-transition.
 
-- [ ] **Step 4: Run the tests.**
+- [x] **Step 4: Run the tests.**
 
 Run:
 
@@ -445,7 +445,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**  (219034d)
 
     git add src/factory/memory/baseline.py src/substrate/schemas/baseline.schema.json src/coherence/trace/suspect.py tests/unit/memory/test_baseline.py
     git commit -m "feat(baseline): optional product/high_assurance baseline records and expiry"
