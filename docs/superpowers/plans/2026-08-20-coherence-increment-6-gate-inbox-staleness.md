@@ -221,7 +221,7 @@ Run:
 Expected: FAIL (`coherence.trace.suspect` does not exist yet; no `human_review` obligation is
 emitted yet).
 
-- [ ] **Step 2: Implement `src/coherence/trace/suspect.py`.**
+- [x] **Step 2: Implement `src/coherence/trace/suspect.py`.**
 
 ```python
 """Suspect relationship validity (spec section 4), derived FROM the existing
@@ -282,7 +282,7 @@ def edge_validity(
     return "proposed"
 ```
 
-- [ ] **Step 3: Add the `human_review` obligation kind.**
+- [x] **Step 3: Add the `human_review` obligation kind.**
 
 In `src/coherence/policy/compiler.py` (Increment 2B), extend the existing `elif
 scope_ref.startswith("sr:")` branch (already appending `_verification_result_obligation`, added
@@ -335,7 +335,7 @@ Coordination note with Increment 5's addendum: Increment 5's `compile_health_dim
 checked against each other and are consistent: `not_applicable` is emitted once, here, and excluded
 from the denominator once, in Increment 5's dimension compiler, never double-handled.
 
-- [ ] **Step 4: Wire requiredness into the gate protocol.**
+- [ ] **Step 4: Wire requiredness into the gate protocol.**  (BLOCKED on base Tasks 1-4 -- DecisionFile/inbox -- not yet merged)
 
 The gate protocol's DecisionFile (this plan's Task 3/4) gains one new item kind: `suspect:<sr_id>`,
 emitted by inbox collection whenever `edge_validity` returns `suspect`, `invalid` or `waived` for
@@ -377,7 +377,7 @@ absence of an active one, computed by a date comparison, not a stored transition
 smallest mechanism that satisfies "expiring exceptions": one authoritative expiry field, one date
 comparison in the compiler, no new record type or CLI verb.
 
-- [ ] **Step 5: Run the tests.**
+- [x] **Step 5: Run the tests.**
 
 Run:
 
@@ -385,7 +385,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.** (implementation 86f0c8 + review fixes 14f29ba)
 
     git add src/coherence/trace/suspect.py src/coherence/policy/compiler.py tests/unit/coherence/trace/test_suspect.py tests/unit/coherence/policy/test_compiler.py
     git commit -m "feat(gate): human_review obligation, suspect-edge validity, gate-protocol wiring"
