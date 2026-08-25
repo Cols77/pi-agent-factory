@@ -69,7 +69,7 @@ Replace coherence.audit runner timeout logic with coherence.gate.resolve_gate an
 
 ### Task 3: Migrate deferrals compatibly
 
-- [ ] **Step 1: Write legacy/structured read tests.**
+- [x] **Step 1: Write legacy/structured read tests.**  (tests/unit/coherence/test_deferrals.py)
 
 Require the reader to accept:
 
@@ -85,11 +85,11 @@ and:
 
 Assert both render the same present deferral; only structured due deferrals appear expired. Unknown shapes are rejected, not treated current.
 
-- [ ] **Step 2: Implement reader-first migration.**
+- [x] **Step 2: Implement reader-first migration.**
 
 Add a shared parse_deferral value object. Retarget trace/register/coverage readers before writers. Extend defer CLI with --review-after; old calls still write/read legacy-compatible values. Expiration never clears frontmatter.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**  (dcfed44)
 
 Run:
 
