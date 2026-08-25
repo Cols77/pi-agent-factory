@@ -339,7 +339,7 @@ Coordination note with Increment 5's addendum: Increment 5's `compile_health_dim
 checked against each other and are consistent: `not_applicable` is emitted once, here, and excluded
 from the denominator once, in Increment 5's dimension compiler, never double-handled.
 
-- [ ] **Step 4: Wire requiredness into the gate protocol.**  (BLOCKED on base Tasks 1-4 -- DecisionFile/inbox -- not yet merged)
+- [x] **Step 4: Wire requiredness into the gate protocol.**  (commit 076e61f)
 
 The gate protocol's DecisionFile (this plan's Task 3/4) gains one new item kind: `suspect:<sr_id>`,
 emitted by inbox collection whenever `edge_validity` returns `suspect`, `invalid` or `waived` for
