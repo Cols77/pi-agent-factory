@@ -168,8 +168,7 @@ evidence is a separate `human_review` contract or part of `verification_result`;
 contract may be introduced here. The waiver source/loader and its authority also remain open;
 this round does not select governed-artifact frontmatter versus `DecisionFile` as authoritative.
 
-- [ ] **Step 1: Write the failing tests.**
-
+- [x] **Step 1: Write the failing tests.**  (tests/unit/coherence/trace/test_suspect.py, prior addendum session)
 Add `tests/unit/coherence/trace/test_suspect.py`:
 
 ```python
