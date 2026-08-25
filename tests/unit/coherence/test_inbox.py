@@ -162,6 +162,51 @@ def test_coverage_gate_item_for_blocked_run(tmp_path):
     assert "coverage:r1:warning:SR-5" in ids
 
 
+# -- suspect / invalid / waived edges --------------------------------------
+
+
+def test_suspect_edge_item_for_an_unsatisfied_sr(tmp_path):
+    # Task 6 Step 4: a non-`valid` governed edge (here a non-proposed SR with
+    # no satisfies link, classified `invalid` by edge_validity) surfaces in the
+    # inbox as a `suspect:<sr_id>` item -- never silently dropped back to
+    # `valid`.
+    (tmp_path / "requirements").mkdir(parents=True)
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: T\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: sim-testbench\n  experiment: e\n  metric: m\n  trials: 20\n  assert: \">= 0.90\"\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    items = list_items(tmp_path, NOW)
+    suspect = [i for i in items if i.kind == "suspect_edge"]
+    assert suspect, "an invalid SR edge must surface as a suspect_edge item"
+    assert suspect[0].id == "suspect:SR-001"
+    assert suspect[0].ref == "sr:SR-001"
+
+
+def test_suspect_edge_does_not_auto_close_on_required_obligations(tmp_path):
+    # Spec section 13 amendment row 3 (STRICT): restoring `valid` never
+    # happens automatically, at any requiredness level. A classified
+    # suspect/invalid/waived edge stays in the inbox regardless of obligation
+    # requiredness. This asserts the inbox surfaces it and carries the
+    # human `accept` DecisionFile resolve_cmd as the ONLY path to `valid`.
+    (tmp_path / "requirements").mkdir(parents=True)
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: T\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: sim-testbench\n  experiment: e\n  metric: m\n  trials: 20\n  assert: \">= 0.90\"\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    items = list_items(tmp_path, NOW)
+    edge = next(i for i in items if i.kind == "suspect_edge")
+    # Even 'advisory'/'required' obligations must not let it skip the inbox:
+    # the item is present; there is no obligation-based carve-out that hides it.
+    assert edge.id == "suspect:SR-001"
+    # The sole recorded path to restore `valid` is a human DecisionFile accept.
+    assert edge.resolve_cmd is not None
+    assert any("accept" in cmd for cmd in edge.resolve_cmd)
+
+
 # -- ordering / dedup / no-write --------------------------------------------
 
 

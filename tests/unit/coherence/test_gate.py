@@ -130,6 +130,12 @@ def test_allowed_review_prefix_accepted():
     validate_decisions((Decision(item_id="review:7", action="accept"),))
 
 
+def test_allowed_suspect_prefix_accepted():
+    # Its purpose is an inbox critical-edge `accept`: the one policy-authorized
+    # action that can restore `valid` (spec section 4, §13 amendment row 3).
+    validate_decisions((Decision(item_id="suspect:SR-001", action="accept"),))
+
+
 # --- validation: accept / reject / defer rules ------------------------------
 
 

@@ -19,6 +19,7 @@ writes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from substrate.freshness.recipes import ResolutionClass
 
@@ -75,16 +76,65 @@ def route(result: UnresolvedStaleness) -> Routing:
     )
 
 
-def unresolved_staleness(root: str | None = None, *, now: str = "") -> list[UnresolvedStaleness]:
-    """Placeholder-ish sweep surface; the concrete sweep reuses the existing
-    freshness machinery and is wired by `coherence.inbox`. Reserved so callers
-    have a stable import target (spec: "inbox reads that sweep, never executes a
-    resolver"). Returns the current recorded unresolved set, if the root is a
-    runnable repo; with no root it returns an empty list.
+def _suspect_edge_items(root: Path) -> list[UnresolvedStaleness]:
+    """Sweep the trace graph for governed edges classified suspect/invalid/waived
+    by `edge_validity` (Increment 6 Task 6 Step 4).
+
+    Deterministic, read-only: builds the graph and classifies each SR's gap
+    set. Per the spec's §13 amendment row 3 (STRICT), no path back to `valid`
+    exists automatically at any requiredness level, so each non-`valid` edge
+    is reported as an authoritative gate carrying the one policy-authorized
+    restore action -- a human DecisionFile `accept`. This never executes a
+    resolver.
     """
-    # The inbox's collectors own the actual read of each source; this module
-    # keeps the routing decision pure and shared. See `coherence.inbox.list_items`.
-    return []
+    from coherence.trace.graph import build_graph
+    from coherence.trace.suspect import edge_validity
+
+    graph = build_graph(root)
+    gaps_by_node: dict[str, list] = {}
+    for gap in graph.gaps:
+        gaps_by_node.setdefault(gap.node_id, []).append(gap)
+
+    findings: list[UnresolvedStaleness] = []
+    for node in graph.nodes:
+        if node.kind != "sr":
+            continue
+        gaps = gaps_by_node.get(node.id, [])
+        state = edge_validity(gaps)
+        if state not in (
+            "suspect",
+            "invalid",
+            "waived",
+        ):
+            continue
+        findings.append(
+            UnresolvedStaleness(
+                ref=f"sr:{node.id}",
+                resolution_class=ResolutionClass.authoritative_gate,
+                reason=(
+                    f"edge {node.id} is {state}: restoring `valid` requires a "
+                    "human DecisionFile accept, not an automatic transition"
+                ),
+                resolve_cmd=(f"accept {node.id}",),
+            )
+        )
+    return findings
+
+
+def unresolved_staleness(root: Path | str | None = None, *, now: str = "") -> list[UnresolvedStaleness]:
+    """Sweep the trace graph for governed SR edges classified suspect/invalid/
+    waived by `edge_validity` and report each as a blocking authoritative gate
+    (`ResolutionBlocker` equivalent).
+
+    Pure read: never executes a resolver, never writes a decision file. The
+    inbox reads this sweep. With no runnable root (or a root with no
+    requirements dir) it returns an empty list, so callers have a stable
+    export target.
+    """
+    root_path = Path(root) if root else None
+    if root_path is None or not (root_path / "requirements").is_dir():
+        return []
+    return _suspect_edge_items(root_path)
 
 
 __all__ = ["Routing", "UnresolvedStaleness", "route", "unresolved_staleness"]

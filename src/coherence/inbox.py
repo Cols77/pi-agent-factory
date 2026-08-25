@@ -12,7 +12,9 @@ Sources wired concretely here:
 * expired deferrals -- a requirement whose structured ``trace_deferred`` is
   due (Task 3 ``deferral_is_due``);
 * stale register bindings -- a requirement whose recorded checksum no longer
-  matches its content (``coherence.register.cli.cmd_index``).
+  matches its content (``coherence.register.cli.cmd_index``);
+* suspect edges -- governed SR edges classified suspect/invalid/waived by
+  ``edge_validity`` (Task 6 Step 4) via the ``unresolved_staleness`` sweep.
 
 Item ids follow the Review Amendments vocabulary: ``coverage:<run>:proposal:<id>``,
 ``coverage:<run>:warning:<id>``, ``trace:<id>``. The list is stable-sorted by id
@@ -164,6 +166,36 @@ def _stale_binding_items(root: Path) -> list[InboxItem]:
     return items
 
 
+def _suspect_edge_items(root: Path) -> list[InboxItem]:
+    """Collect governed edges classified suspect/invalid/waived (Task 6 Step 4).
+
+    Reads `unresolved_staleness` -- the plan's gateway sweep -- into `suspect:<sr_id>`
+    inbox items. It does NOT execute a resolver and does NOT author a decision;
+    each item carries the human `accept` DecisionFile action (the only path to
+    restore `valid`, per §13 amendment row 3 STRICT). A waived classification is
+    still surfaced as an explicit recorded acceptance -- never dropped from view.
+    """
+    from coherence.staleness import unresolved_staleness
+
+    items: list[InboxItem] = []
+    for finding in unresolved_staleness(root):
+        sr_id = finding.ref.partition(":")[2]
+        items.append(
+            InboxItem(
+                id=f"suspect:{sr_id}",
+                source="trace",
+                kind="suspect_edge",
+                ref=finding.ref,
+                summary=(
+                    f"governed edge {sr_id} needs a human accept to record `valid`"
+                ),
+                evidence=finding.reason,
+                resolve_cmd=finding.resolve_cmd,
+            )
+        )
+    return items
+
+
 def list_items(root: Path | str, now: str) -> list[InboxItem]:
     """Compose all inbox sources into one stable-sorted, de-duplicated list
     (pure read -- never writes, never executes a resolver)."""
@@ -172,6 +204,7 @@ def list_items(root: Path | str, now: str) -> list[InboxItem]:
     collected.extend(_coverage_gate_items(root))
     collected.extend(_expired_deferral_items(root, now))
     collected.extend(_stale_binding_items(root))
+    collected.extend(_suspect_edge_items(root))
 
     # Stable sort by id; de-duplicate by id (first occurrence wins).
     seen: set[str] = set()

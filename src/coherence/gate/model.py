@@ -9,6 +9,10 @@ prefix families:
 - ``doctor:<id>``
 - ``trace:<id>``
 - ``review:<id>``
+- ``suspect:<id>`` (Increment 6 Task 6 Step 4: the one policy-authorized
+  path that restores a suspect/invalid/waived governed edge to ``valid`` is a
+  human ``accept`` DecisionFile entry on this item -- see the spec's §13
+  amendment row 3 STRICT rule)
 
 Validation rules (enforced by `validate_decisions`, and therefore by every
 store write and file read):
@@ -38,6 +42,7 @@ ITEM_ID_PREFIXES: tuple[str, ...] = (
     "doctor:",
     "trace:",
     "review:",
+    "suspect:",
 )
 
 
