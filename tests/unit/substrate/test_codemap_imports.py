@@ -45,6 +45,7 @@ from substrate.codemap.imports import (
     OverlapResult,
     ReachabilityResult,
     _load_edges,
+    _module_of,
     build_import_closure,
     compute_overlap,
     reachable_symbols,
@@ -684,3 +685,65 @@ def test_reachable_symbols_empty_changed_files_is_resolved_with_no_symbols(tmp_p
     assert result.status == "resolved"
     assert result.symbols == ()
 
+
+def test_module_of_collapses_package_init_py() -> None:
+    # The documented `pkg/__init__.py` -> `pkg` collapse: a symbol defined in a
+    # package __init__.py must resolve to the module-less package scope
+    # (`pkg.name`), never `pkg.__init__.name`, so a KB scope symbol written to
+    # the canonical convention matches it.
+    assert _module_of("src/pkg/__init__.py") == "pkg"
+    assert _module_of("pkg/__init__.py") == "pkg"
+    assert _module_of("src/factory/module.py") == "factory.module"
+
+
+def test_reachable_symbols_package_init_symbol_is_module_less_scope(
+    tmp_path: Path,
+) -> None:
+    # A public API-export pattern: the symbol lives in the package __init__.py.
+    # _qualified_symbols must emit it as `pkg.name` (reachable via the canonical
+    # KB scope convention), not `pkg.__init__.name`.
+    from substrate.codemap.store import ensure_fresh
+
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "__init__.py").write_text(
+        """def exported():
+    return 1
+"""
+    )
+    (tmp_path / "src" / "client.py").write_text(
+        """from pkg import exported
+
+def call():
+    return exported()
+"""
+    )
+    ensure_fresh(tmp_path, files=["src/pkg/__init__.py", "src/client.py"])
+
+    result = reachable_symbols(tmp_path, ["src/client.py"])
+
+    assert result.status == "resolved"
+    assert "pkg.exported" in result.symbols
+    assert not any("pkg.__init__" in s for s in result.symbols)
+
+
+def test_reachable_symbols_deep_relative_import_does_not_raise(
+    tmp_path: Path,
+) -> None:
+    # A parseable-but-too-deep relative import (from ....x in a shallowly-nested
+    # package) ascends above the repo root: base.relative_to(root) used to raise
+    # ValueError in _module_candidates and crash reachable_symbols. It must
+    # degrade to an unresolved-import diagnostic instead.
+    from substrate.codemap.store import ensure_fresh
+
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "src" / "pkg" / "sub.py").write_text(
+        """from ....x import value
+"""
+    )
+    ensure_fresh(tmp_path, files=["src/pkg/__init__.py", "src/pkg/sub.py"])
+
+    result = reachable_symbols(tmp_path, ["src/pkg/sub.py"])
+
+    assert result.status == "resolved"  # unresolved imports are diagnostics, not crashes
+    assert any("unresolved import" in d for d in result.diagnostics)

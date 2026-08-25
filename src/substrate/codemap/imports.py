@@ -128,7 +128,13 @@ def _module_candidates(root: Path, module: str, level: int, origin: Path) -> lis
             base = base.parent
     parts = module.split(".") if module else []
     if level > 0 and base != root:
-        rel = base.relative_to(root)
+        try:
+            rel = base.relative_to(root)
+        except (ValueError, OSError):
+            # A relative import whose level ascends above the repo root (e.g.
+            # `from .... import x` in a shallowly-nested package) has no
+            # in-project candidate; degrade to unresolved rather than crash.
+            return []
         parts = list(rel.parts) + parts
     dotted = ".".join(parts)
     rel_path = dotted.replace(".", "/")
@@ -378,6 +384,8 @@ def _module_of(rel: str) -> str:
     collapses to its package (`pkg/__init__.py` -> `pkg`).
     """
     base = rel[:-3] if rel.endswith(".py") else rel
+    if base.endswith("/__init__"):
+        base = base[: -len("/__init__")]
     parts = [p for p in base.split("/") if p not in ("src", "")]
     return ".".join(parts)
 
