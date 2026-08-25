@@ -775,12 +775,35 @@ def _render_bundle_new(result: dict) -> str:
     )
 
 
+def _worst_dimension(dimensions: list[dict]) -> dict | None:
+    shortfalls = [d for d in dimensions if d["expected"] > d["satisfied"]]
+    if not shortfalls:
+        return None
+    return min(shortfalls, key=lambda d: d["satisfied"] / d["expected"] if d["expected"] else 0)
+
+
 def _render_health(result: dict) -> str:
     h = result["health"]
-    lines = [
-        f"health: {h['satisfied']}/{h['expected']} SR ({h['percent']}%) "
-        f"[dangling {h['dangling']}, deferred {h['deferred']}, proposed {h['proposed']}]"
-    ]
+    dimensions = result.get("dimensions")
+    if dimensions:
+        worst = _worst_dimension(dimensions)
+        if worst is None:
+            headline = "health: every dimension fully satisfied"
+        else:
+            headline = (
+                f"health: worst dimension {worst['name']} "
+                f"({worst['satisfied']}/{worst['expected']})"
+            )
+        lines = [headline]
+        for dim in dimensions:
+            lines.append(f"  {dim['name']}: {dim['satisfied']}/{dim['expected']}")
+    else:
+        # No dimensions key (older/fixture query_health payload) -- degrade to
+        # the original percent-based line rather than raising KeyError.
+        lines = [
+            f"health: {h['satisfied']}/{h['expected']} SR ({h['percent']}%) "
+            f"[dangling {h['dangling']}, deferred {h['deferred']}, proposed {h['proposed']}]"
+        ]
     for cls in h["classes"]:
         suffix = f" (exempt {cls['exempt']})" if cls["exempt"] else ""
         lines.append(f"  {cls['name']}: {cls['satisfied']}/{cls['expected']}{suffix}")

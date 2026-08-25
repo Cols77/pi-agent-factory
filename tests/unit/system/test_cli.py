@@ -419,6 +419,44 @@ def test_health_without_json_flag_prints_human_readable_text(tmp_path, capsys):
     assert "b1" in out
 
 
+def test_render_health_headline_names_worst_dimension(tmp_path):
+    from coherence.navigate import cli
+    from coherence.navigate import health
+
+    # Force exactly one shortfall dimension: an open nonconformance record
+    # with no other seeded state. `nonconformance_closure` is then 0/1 while
+    # every other dimension is 0/0 (fully satisfied), so the one-line summary
+    # must name it rather than averaging it back into a percent.
+    nc = tmp_path / "docs" / "nonconformances"
+    nc.mkdir(parents=True)
+    (nc / "NC-0001.md").write_text(
+        "---\nid: NC-0001\ntitle: t\nstatus: open\n---\n", encoding="utf-8"
+    )
+
+    result = health.query_health(tmp_path)
+    first_line = cli._render_health(result).splitlines()[0]
+    assert "nonconformance_closure" in first_line
+    assert "0/1" in first_line
+
+
+def test_render_health_falls_back_to_percent_headline_without_dimensions(tmp_path):
+    from coherence.navigate import cli
+    from coherence.navigate import health
+
+    # Older/fixture `query_health`-shaped payload has no "dimensions" key:
+    # the renderer must fall back to the original percent-based headline and
+    # must not raise KeyError.
+    write_sr(tmp_path / "requirements", "SR-001")
+    write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
+    result = health.query_health(tmp_path)
+    result.pop("dimensions", None)
+
+    first_line = cli._render_health(result).splitlines()[0]
+    assert first_line.startswith("health:")
+    assert "SR" in first_line
+    assert "%" in first_line
+
+
 def test_memberships_subcommand_reports_containing_bundles(tmp_path, capsys):
     write_sr(tmp_path / "requirements", "SR-001")
     write_bundle(tmp_path / "bundles", "b1", "B1", ["sr:SR-001"])
