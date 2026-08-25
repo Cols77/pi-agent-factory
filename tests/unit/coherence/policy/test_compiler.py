@@ -208,3 +208,39 @@ def test_compile_obligations_verification_result_high_assurance_missing_harness_
     assert vr.requiredness == "blocking"
     assert vr.state == "open"
     assert "harness" in vr.reason
+
+
+def test_compile_obligations_human_review_high_assurance_no_review_identity_is_blocking_open(
+    tmp_path,
+):
+    # An SR under high_assurance with no human-review identity evidence at
+    # all: D16 human_review is blocking here and stays open -- absence of a
+    # recorded human reviewer is "unknown", never treated as satisfied.
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: f\nprofile: high_assurance\nrequirements: [SR-001]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-001")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.requiredness == "blocking"
+    assert hr.state == "open"
+
+
+def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_path):
+    # D16: human_review does not apply under prototype -- the obligation is
+    # still compiled so CI/dimension-11 sees a real node, but non-blocking.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-002.md").write_text(
+        "---\nid: SR-002\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-002")  # project default: prototype
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.requiredness == "not_applicable"
