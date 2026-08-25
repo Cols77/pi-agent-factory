@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/baseline.schema.json",
+  "title": "Milestone baseline record frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "git_ref", "approved_by"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^BASELINE-[0-9]+$",
+      "description": "Stable identity. Scope refs use this, never the filename."
+    },
+    "title": {"type": "string", "minLength": 1},
+    "git_ref": {
+      "type": "string",
+      "minLength": 7,
+      "description": "The commit sha (or ref) the snapshot pins."
+    },
+    "scope": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string",
+        "pattern": "^(sr|adr|feat):.+$",
+        "description": "Accepted needs/requirements/decisions refs the snapshot covers."
+      }
+    },
+    "approved_by": {"type": "string", "minLength": 1}
+  }
+}

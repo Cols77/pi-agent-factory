@@ -25,6 +25,7 @@ runtime dependency on `coherence.trace.gaps`.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:  # never imported at runtime -- tests use _FakeGap
@@ -63,3 +64,46 @@ def edge_validity(
     if all(g.disposition in _WAIVER_DISPOSITIONS for g in gaps_for_edge):
         return "waived"
     return "proposed"
+
+
+def _scope_sr_ids(scope: list[str]) -> list[str]:
+    """Extract the `sr:<id>` refs from a baseline `scope` list."""
+    return [s.partition(":")[2] for s in (scope or []) if s.startswith("sr:")]
+
+
+def expired_baselines(root: Path) -> list[str]:
+    """Return baseline ids whose scope contains an SR now suspect or invalid
+    (Increment 6 Task 7 Step 3).
+
+    A baseline pins a snapshot over accepted requirements; when one of the SRs
+    it covers has since decayed to `suspect`/`invalid` via `edge_validity`, the
+    snapshot is stale -- reported here by baseline id. This is a QUERY, never an
+    auto-transition: closing an expired baseline is a human decision recorded
+    the same way any other gate-protocol decision is (DecisionFile accept), and
+    this function mutates nothing (tests assert the repo is unchanged).
+    """
+    from coherence.trace.graph import build_graph
+
+    try:
+        graph = build_graph(root)
+    except Exception:
+        return []
+    gaps_by_node: dict[str, list] = {}
+    for gap in graph.gaps:
+        gaps_by_node.setdefault(gap.node_id, []).append(gap)
+
+    suspect_or_invalid: set[str] = set()
+    for node in graph.nodes:
+        if node.kind != "sr":
+            continue
+        state = edge_validity(gaps_by_node.get(node.id, []))
+        if state in ("suspect", "invalid"):
+            suspect_or_invalid.add(node.id)
+
+    from factory.memory.baseline import load_baselines
+
+    expired: list[str] = []
+    for baseline_id, baseline in sorted(load_baselines(root).items()):
+        if any(sr in suspect_or_invalid for sr in _scope_sr_ids(baseline.scope)):
+            expired.append(baseline_id)
+    return expired
