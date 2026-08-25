@@ -236,7 +236,7 @@ def _human_review_obligation(
     resolve_cmd = (
         (
             f"record approved human-review identity for {sr_path.name} "
-            "once the field contract is decided"
+            "once the field contract is decided",
         )
         if sr_path is not None
         else (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
