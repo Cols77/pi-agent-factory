@@ -16,6 +16,7 @@ import {
 import type { Command } from "./process-control.js";
 import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated, formatRunStatusLines, resumeCommand } from "./status-format.js";
+import type { RunStatus, RunStatusesPayload } from "./status-format.js";
 import type { StatusRecord } from "./status-format.js";
 import { homedir } from "node:os";
 import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
@@ -888,6 +889,34 @@ export default function factoryWatch(pi: PiApi): void {
       }
       ctx.ui.setWidget("factory-runs", formatRunStatusLines(initial));
 
+      // Increment 7 Task 3: completion notification is extension-owned and
+      // deduplicated by the immutable (producer, run_id, terminal_observation_id)
+      // tuple, never a timestamp -- so a live poll that re-reads a source whose
+      // mtime changed fires at most once per terminal run, and a later terminal
+      // observation may notify once for its new identity.
+      const notifiedTerminals = new Set<string>();
+      const terminalKey = (run: RunStatus): string | null => {
+        if (run.state !== "passed" && run.state !== "failed") return null;
+        if (!run.terminal_observation_id) return null;
+        return `${run.producer}\u0000${run.run_id}\u0000${run.terminal_observation_id}`;
+      };
+      const notifyNewTerminals = (payload: RunStatusesPayload | null): void => {
+        if (payload === null) return;
+        for (const run of payload.runs) {
+          const key = terminalKey(run);
+          if (key === null || notifiedTerminals.has(key)) continue;
+          notifiedTerminals.add(key);
+          const summary =
+            (run.blocking_obligation ? `; blocking: ${run.blocking_obligation}` : "") +
+            (run.rerun_allowed ? "; rerun allowed" : "");
+          ctx.ui.notify(
+            `${run.producer} run ${run.run_id} is ${run.state}${summary}`,
+            run.state === "failed" ? "warning" : "info",
+          );
+        }
+      };
+      notifyNewTerminals(initial);
+
       loop: for (;;) {
         const action = await ctx.ui.custom<MissionControlRunAction>((tui, theme, _keybindings, done) => {
           const dash = new RunStatusDashboard(readRuns(), (a) => {
@@ -899,6 +928,7 @@ export default function factoryWatch(pi: PiApi): void {
             try {
               const payload = readRuns();
               if (payload !== null) {
+                notifyNewTerminals(payload);
                 dash.update(payload);
                 tui.requestRender();
               }
