@@ -127,7 +127,7 @@ Add inbox triage and status counts from the pure items. The Pi renderer consumes
 
 ### Task 5: Verify Increment 6
 
-- [ ] **Step 1: Run gates and checks.**
+- [x] **Step 1: Run gates and checks.**  (note below)
 
 Run:
 
@@ -136,6 +136,15 @@ Run:
     rtk proxy uv run pyright
 
 Expected: no finalisation without a decision; every input source appears in inbox; blocked freshness names ownership.
+
+Verification note: 1183 passed / 1 skipped. Two orchestrator failures are
+pre-existing and unrelated to Increment 6 (``test_exit_five_is_a_pass_in_run_detail
+_too`` fails on a clean base -- a ``sim`` gate returncode 5; ``test_file_gate
+_waits_for_the_file_to_appear`` passes in isolation and only flaked under full-suite
+load). ruff: clean. pyright: 0 errors on every Increment 6 file (a repo-wide
+pyright baseline of 74 errors pre-exists in `factory/*` / `substrate/*` and is
+untouched by this work). New inbox sources all verified: expired deferrals,
+stale register bindings, coverage gates, and suspect/invalid/waived edges.
 
 ## Plan Self-review
 
