@@ -63,6 +63,19 @@ class BundleReadinessRow:
         }
 
 
+@dataclass(frozen=True)
+class DimensionCount:
+    """One row of the eleven-dimension health vector (spec §6, narrowed by
+    spec §13 amendment row 2). ``expected``/``satisfied`` are per-dimension
+    and independent of the legacy scalar ``health.percent``.
+    """
+
+    name: str
+    satisfied: int
+    expected: int
+    exempt: int
+
+
 def _validation_passing(
     root: Path, req_id: str, validation: dict[str, SrStatus] | None = None
 ) -> bool:
@@ -269,6 +282,12 @@ def query_health(root: Path, recency_source=None) -> dict:
         "degraded": degraded,
         "vcycle_findings": [asdict(f) for f in vcycle_health(root, nodes=nodes, edges=edges, validation=validation)],
         "freshness_findings": [asdict(f) for f in freshness_health(root, nodes=nodes, edges=edges)],
+        "dimensions": [
+            asdict(d)
+            for d in compile_health_dimensions(
+                root, nodes=nodes, edges=edges, validation=validation, degraded=degraded
+            )
+        ],
         "shape": {
             "sentence": _shape_sentence(
                 requirements_total, features_total, tasks_total, validated_total
@@ -593,3 +612,206 @@ def _load_explainers(root: Path):
     from coherence.trace.explainers import load_explainers
 
     return load_explainers(root)
+
+
+_DIMENSION_ORDER = (
+    "requirement_quality", "decomposition_allocation", "implementation_trace",
+    "verification_strategy", "executed_evidence", "validation_scenarios",
+    "evidence_freshness", "suspect_relationships", "nonconformance_closure",
+    "deferrals_waivers", "human_review",
+)
+
+_FRESHNESS_STALE_CODES = ("EVIDENCE_STALE", "EXPLAINER_STALE", "DIAGRAM_STALE")
+
+
+def compile_health_dimensions(
+    root: Path, *, nodes=None, edges=None, validation=None, degraded: list[str] | None = None,
+) -> list[DimensionCount]:
+    """Eleven independently-applicable dimensions (spec section 6, narrowed by
+    spec section 13 amendment row 2 to match what is actually built): only
+    dimensions 4 (verification_strategy), 5 (executed_evidence) and 11
+    (human_review) are genuinely obligation-backed. Dimensions 1
+    (requirement_quality), 2 (decomposition_allocation), 9
+    (nonconformance_closure) and 10 (deferrals_waivers) are direct queries
+    over existing recorded state -- register, trace, NC-*, gap data -- not
+    obligation-backed; this function does not pretend otherwise. Dimensions 3
+    (implementation_trace) and 7 (evidence_freshness) reclassify the existing
+    vcycle_health/freshness_health findings -- they are not recomputed here.
+    Dimension 8 (suspect_relationships) remains partial after Increment 6
+    unless this function concretely consumes coherence.trace.suspect.edge_validity
+    with integration tests proving the resulting health count; Increment 6's
+    standalone classifier is not sufficient. Until then it reuses REQ_STALE as
+    a proxy. Dimension 11 (human_review) correctly
+    reports 0/0 until Increment 6 compiles that obligation kind.
+
+    `degraded`, when passed (`query_health` passes its own already-built
+    list), receives one message if the human_review computation cannot
+    resolve a scope's profile -- it never raises past this function.
+    """
+    from coherence.policy.compiler import compile_obligations
+    from factory.memory.nonconformance import load_nonconformances
+    from substrate.policy.vocabulary import UncompiledPresetError
+
+    if nodes is None:
+        nodes = trace_model.load_nodes(root)
+    if edges is None:
+        edges = trace_model.extract_edges(root, nodes)
+    if validation is None:
+        validation = load_validation(root)
+    if degraded is None:
+        degraded = []
+    vcycle = vcycle_health(root, nodes=nodes, edges=edges, validation=validation)
+    fresh = freshness_health(root, nodes=nodes, edges=edges)
+    gaps = gaps_module.find_gaps(nodes, edges, validation)
+
+    sr_nodes = [n for n in nodes if n.kind == "sr"]
+    feat_nodes = [n for n in nodes if n.kind == "feat"]
+    task_nodes = [n for n in nodes if n.kind == "task"]
+
+    # Dimension 1 (requirement_quality) is a deliberately honest placeholder,
+    # not a silently-implied quality gate: `statement`/`domain` are already
+    # schema-required non-blank strings (enforced at load time, not here),
+    # and this repo has no further recorded content-quality signal for an SR
+    # today (fixtures repo-wide use one-letter placeholder statements/domains
+    # by convention, so a length/placeholder heuristic here would trivially
+    # fail nearly every existing fixture and much real content without
+    # measuring anything meaningful). A real criterion needs either a schema
+    # field or a project-level convention neither exists yet -- future work,
+    # not this addendum's.
+    req_quality_ok = len(sr_nodes)
+    decomposition_ok = sum(
+        1 for f in feat_nodes if any(e.kind == "contains" and e.src == f.id for e in edges)
+    )
+    impl_no_req = {f.subject for f in vcycle if f.code == "IMPL_NO_REQ"}
+
+    # Dimensions 4/5 share one obligation-derived universe. Only required and
+    # blocking verification_result obligations participate; advisory and
+    # not_applicable obligations are not denominator slots. The project-scope
+    # ci_verification obligation is deliberately excluded: CI proves the
+    # project gate, not an individual SR's verification result.
+    # Waived obligations are counted only in `exempt`; they are removed before
+    # both dimension numerators and the shared denominator are computed.
+    verification_candidates = [
+        o
+        for n in sr_nodes
+        for o in compile_obligations(root, f"sr:{n.id}", nodes=nodes, edges=edges)
+        if o.kind == "verification_result"
+        and o.requiredness in ("required", "blocking")
+    ]
+    verification_exempt = sum(1 for o in verification_candidates if o.state == "waived")
+    verification_obligations = [
+        o for o in verification_candidates if o.state != "waived"
+    ]
+    verification_expected = len(verification_obligations)
+    verification_strategy_ok = sum(
+        1
+        for o in verification_obligations
+        if any(command.strip() for command in (o.resolve_cmd or ()))
+    )
+    executed_evidence_ok = sum(
+        1 for o in verification_obligations if o.state == "satisfied"
+    )
+
+    # Dimension 6 (validation_scenarios): a genuinely different signal from
+    # dimension 5 (executed_evidence, harness pass/fail). Count SRs referenced
+    # by at least one goal whose lifecycle has reached a terminal, recorded
+    # evaluation (REACHED/NOT_REACHED), via the goal registry already imported
+    # at module level (coherence.goals.registry).
+    from coherence.goals.lifecycle import TERMINAL_GOAL_STATES
+
+    goals = load_goals(root)
+    validated_by_goal: set[str] = set()
+    for goal in goals.values():
+        if goal.state in TERMINAL_GOAL_STATES:
+            validated_by_goal.update(goal.requirements)
+    validation_scenarios_ok = sum(1 for n in sr_nodes if n.id in validated_by_goal)
+
+    # Dimension 7 (evidence_freshness): freshness_health's findings are NEVER
+    # subject-keyed by a bare SR id (only run:/explainer:/diag:/code:/feat:
+    # prefixes) and only ever appear for a NON-fresh artifact -- a fresh
+    # artifact has no finding at all. So the universe cannot be read off the
+    # finding list alone; it is reconstructed the same way freshness_health
+    # builds it internally (runs + explainers + diag nodes), the same three
+    # enumerable collections its EVIDENCE_STALE/EXPLAINER_STALE/DIAGRAM_STALE
+    # findings are drawn from. IMPL_STALE's subject is a code: ref from a
+    # separate, non-enumerable domain (semantically-invalidated code, derived
+    # per-SR-change, not a fixed count of trackable artifacts) -- it is
+    # tracked by dimension 3 (implementation_trace)/vcycle instead and
+    # deliberately excluded from this dimension's denominator, narrowing the
+    # four staleness codes to the three whose universe is actually countable.
+    freshness_universe: set[str] = set()
+    for run in sim_registry.load_runs(_evidence_dir(root)):
+        freshness_universe.add(f"run:{run.run_id}")
+    for explainer in _load_explainers(root):
+        freshness_universe.add(f"explainer:{explainer.id}")
+    for node in nodes:
+        if node.kind == "diag":
+            freshness_universe.add(f"diag:{node.id}")
+    freshness_stale = {
+        f.subject for f in fresh if f.code in _FRESHNESS_STALE_CODES
+    } & freshness_universe
+    evidence_freshness_ok = len(freshness_universe) - len(freshness_stale)
+
+    suspect_proxy = {f.subject for f in vcycle if f.code == "REQ_STALE"}
+    try:
+        nonconformances = load_nonconformances(root)
+    except Exception:
+        nonconformances = {}
+    nc_closed = sum(1 for r in nonconformances.values() if r.status in ("corrected", "waived"))
+    # `waived` is the canonical state wording. Raw `deferred`/`exempt` gap
+    # dispositions are counted as waiver evidence; no source or authority is selected here.
+    waived_gaps = sum(1 for g in gaps if g.disposition in ("deferred", "exempt"))
+
+    # Dimension 11 (human_review): obligation-backed. Reuse the already-loaded
+    # nodes/edges via compile_obligations'/resolve_profile's nodes=/edges=
+    # passthrough (Increment 2B) so this loop never reloads the trace graph
+    # per SR -- required to keep query_health's existing "load_nodes called
+    # once" contract (tests/unit/system/test_health.py). `not_applicable`
+    # obligations (every sr: scope under prototype, per Increment 6's
+    # addendum) are excluded from both satisfied and expected -- shown
+    # elsewhere, never counted here (spec section 6). A repo whose profile
+    # cannot yet be compiled (UncompiledPresetError, e.g. an
+    # exploration/product-profiled scope) degrades this dimension to 0/0
+    # instead of crashing the whole health page.
+    human_review_obligations: list = []
+    try:
+        human_review_obligations = [
+            o
+            for n in sr_nodes
+            for o in compile_obligations(root, f"sr:{n.id}", nodes=nodes, edges=edges)
+            if o.kind == "human_review"
+        ]
+    except UncompiledPresetError as exc:
+        degraded.append(f"human_review dimension unresolved: {exc}")
+    human_review_obligations = [
+        o for o in human_review_obligations if o.requiredness in ("required", "blocking")
+    ]
+    human_review_exempt = sum(1 for o in human_review_obligations if o.state == "waived")
+    human_review_obligations = [o for o in human_review_obligations if o.state != "waived"]
+
+    return [
+        DimensionCount("requirement_quality", req_quality_ok, len(sr_nodes), 0),
+        DimensionCount("decomposition_allocation", decomposition_ok, len(feat_nodes), 0),
+        DimensionCount(
+            "implementation_trace", len(task_nodes) - len(impl_no_req), len(task_nodes), 0
+        ),
+        DimensionCount(
+            "verification_strategy", verification_strategy_ok, verification_expected, verification_exempt
+        ),
+        DimensionCount(
+            "executed_evidence", executed_evidence_ok, verification_expected, verification_exempt
+        ),
+        DimensionCount("validation_scenarios", validation_scenarios_ok, len(sr_nodes), 0),
+        DimensionCount("evidence_freshness", evidence_freshness_ok, len(freshness_universe), 0),
+        DimensionCount(
+            "suspect_relationships", len(sr_nodes) - len(suspect_proxy), len(sr_nodes), 0
+        ),
+        DimensionCount("nonconformance_closure", nc_closed, len(nonconformances), 0),
+        DimensionCount("deferrals_waivers", waived_gaps, len(gaps), 0),
+        DimensionCount(
+            "human_review",
+            sum(1 for o in human_review_obligations if o.state == "satisfied"),
+            len(human_review_obligations),
+            human_review_exempt,
+        ),
+    ]
