@@ -25,10 +25,9 @@ for round-trip fidelity; they are not flattened to ``datetime`` objects.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Literal
 
-DecisionAction = Literal["accept", "reject", "defer"]
 
 #: The one allowed decision action values for this repo's gate items.
 ACCEPTED_ACTIONS: tuple[str, ...] = ("accept", "reject", "defer")
@@ -162,16 +161,35 @@ def validate_decisions(decisions: tuple[Decision, ...]) -> None:
 
 
 def _is_iso(value: str) -> bool:
-    """Cheap ISO-8601 shape check for a timestamp string.
+    """ISO-8601 shape check for a timestamp string (plan stores these verbatim, so
+    it validates shape, not instant semantics).
 
-    Accepts the repo's verbatim stamps (e.g. ``2026-08-20T00:00:00Z`` and
-    ``2026-08-20 00:00:00+00:00``) while rejecting junk. It validates shape,
-    not instant semantics -- the plan stores these stamps verbatim.
+    Accepts ``YYYY-MM-DD`` optionally followed by a ``T``- or space-separated
+    time (``HH:MM[:SS[.ffffff]]``) and an optional ``Z``/``+HH:MM`` offset --
+    e.g. ``2026-08-20``, ``2026-08-20T00:00:00Z``,
+    ``2026-08-20 00:00:00+00:00``. Any other string (including blank or junk
+    like ``hello world 123``) is rejected so a `defer`'s ``review_after`` is
+    a genuine ISO shape, never a free-form string.
     """
     s = value.strip()
-    if not s or len(s) < 10:
+    if not s:
         return False
-    return ("T" in s) or (" " in s)
+    # date part first: YYYY-MM-DD
+    date_part = s[:10]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
+        return False
+    tail = s[10:]
+    if not tail:
+        return True  # date-only
+    # optional T/space then a time, then optional Z / +HH:MM offset
+    if tail[0] not in ("T", " "):
+        return False
+    time_tail = tail[1:].rstrip("Zz")
+    match = re.match(r"^(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?((?:[+-]\d{2}:?\d{2})?)$", time_tail)
+    if not match:
+        return False
+    # offset is optional entirely (pure time accepted, e.g. 2026-08-20T12:00)
+    return True
 
 
 def _as_str(value: object) -> str:

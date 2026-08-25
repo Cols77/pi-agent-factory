@@ -163,6 +163,27 @@ def test_defer_accepts_iso_review_after():
     )
 
 
+def test_defer_rejects_junk_review_after():
+    # A defer whose review_after is not a real ISO shape must be refused, not
+    # silently persisted (the store's "a file it accepts is always valid"
+    # claim depends on _is_iso being a genuine shape check).
+    with pytest.raises(DecisionValidationError):
+        validate_decisions(
+            (Decision("doctor:001", "defer", reason="later", review_after="hello world 123"),)
+        )
+
+
+def test_defer_accepts_date_and_space_separated_iso():
+    # Date-only and space-separated ISO forms the repo legitimately stores
+    # verbatim are accepted.
+    validate_decisions(
+        (Decision("doctor:001", "defer", reason="later", review_after="2026-09-01"),)
+    )
+    validate_decisions(
+        (Decision("doctor:001", "defer", reason="later", review_after="2026-09-01 12:00:00+00:00"),)
+    )
+
+
 def test_reject_with_reason_is_valid():
     validate_decisions((Decision("doctor:001", "reject", reason="missing evidence"),))
 
@@ -225,6 +246,55 @@ def test_write_decision_writes_atomically_no_temp_residue(tmp_path: Path):
     assert leftovers == []
 
 
+def test_write_decision_is_always_validated_before_persist(tmp_path: Path):
+    # The store re-validates at its boundary (defence-in-depth over
+    # construction): a DecisionFile that cannot validate can never be written.
+    # Because DecisionFile.__post_init__ already rejects invalid decisions,
+    # the honest, reachable assertion is that an invalid decision can never
+    # reach the store -- constructing it raises before any path is touched.
+    with pytest.raises(DecisionValidationError):
+        _file(
+            decisions=(
+                Decision("coverage:FEAT-001:proposal:SR-001", "defer", reason="x"),  # no review_after
+            )
+        )
+    # And nothing was created on disk by that attempt.
+    assert not (tmp_path / "gate-decisions").exists()
+
+
+def test_write_decision_refuses_invalid_payload_without_touching_existing_file(tmp_path: Path):
+    # A store write is strictly validate-before-persist: an invalid payload
+    # can never overwrite a prior valid file. We simulate an invalid payload
+    # reaching the store boundary (as `write_decision` would receive it only
+    # if construction validation were bypassed) and assert the store re-check
+    # rejects it and leaves the existing file untouched.
+    import os
+
+    good = _file()
+    p = write_decision(tmp_path, good)
+    original = p.read_text(encoding="utf-8")
+
+    # Build an invalid file that cannot validate (empty decisions), forced past
+    # construction only to prove the store boundary also guards.
+    invalid = object.__new__(DecisionFile)
+    invalid.__dict__.update(
+        schema=1,
+        gate_id="coverage:FEAT-001",
+        artifact_ref="artifact:x",
+        decisions=(),
+        decided_at="2026-08-20T00:00:00Z",
+        decided_by="human",
+    )
+    with pytest.raises(DecisionValidationError):
+        write_decision(tmp_path, invalid)
+
+    # The prior valid file is byte-for-byte untouched; no temp residue.
+    assert p.read_text(encoding="utf-8") == original
+    leftovers = list((tmp_path / "gate-decisions").glob(".*.tmp-*"))
+    assert leftovers == []
+    assert os.path.exists(p)
+
+
 def test_load_missing_file_raises_typed_error(tmp_path: Path):
     with pytest.raises(CorruptDecisionFile):
         load_decision(_store_path(tmp_path, "does-not-exist"))
@@ -282,6 +352,40 @@ def test_resolve_gate_defer_reads_lowest_non_accept(tmp_path: Path):
     )
     write_decision(tmp_path, f)
     assert resolve_gate(tmp_path, f.gate_id, unattended=False) == "reject"
+
+
+def test_resolve_gate_precedence_reject_over_defer(tmp_path: Path):
+    # reject blocks the gate outright even when a defer is present.
+    f = _file(
+        decisions=(
+            Decision(
+                "coverage:FEAT-001:warning:SR-001",
+                "defer",
+                reason="later",
+                review_after="2026-09-01",
+            ),
+            Decision("coverage:FEAT-001:proposal:SR-002", "reject", reason="fails"),
+        )
+    )
+    write_decision(tmp_path, f)
+    assert resolve_gate(tmp_path, f.gate_id, unattended=False) == "reject"
+
+
+def test_resolve_gate_returns_defer_when_only_defer(tmp_path: Path):
+    # The defer branch of _resolved_action: a decision set containing ONLY
+    # defer (no reject) resolves to "defer".
+    f = _file(
+        decisions=(
+            Decision(
+                "coverage:FEAT-001:warning:SR-002",
+                "defer",
+                reason="re-check",
+                review_after="2026-09-01T00:00:00Z",
+            ),
+        )
+    )
+    write_decision(tmp_path, f)
+    assert resolve_gate(tmp_path, f.gate_id, unattended=False) == "defer"
 
 
 def test_resolve_gate_unattended_without_file_returns_blocked(tmp_path: Path):

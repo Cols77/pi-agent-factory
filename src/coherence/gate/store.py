@@ -58,8 +58,16 @@ def write_decision(run_dir: Path | str, file: DecisionFile) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(file.to_dict(), indent=2) + "\n"
     tmp = path.parent / f".{path.name}.tmp-{os.getpid()}-{int(time.time() * 1000)}"
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        # Remove any temp residue if the write or rename raised mid-way.
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
     return path
 
 
