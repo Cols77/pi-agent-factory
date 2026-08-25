@@ -314,6 +314,7 @@ def cmd_run(
     model: str = "",
     run_id: str | None = None,
     no_gates: bool = False,
+    unattended: bool = False,
     max_workers: int | None = None,
     policy_bound: bool = False,
     max_reruns: int = 10,
@@ -330,6 +331,7 @@ def cmd_run(
         model=model,
         run_id=run_id,
         no_gates=no_gates,
+        unattended=unattended,
         max_workers=max_workers,
         policy_bound=policy_bound,
         max_reruns=max_reruns,
@@ -381,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--model", default="")
     p_run.add_argument("--run-id", default=None)
     p_run.add_argument("--no-gates", action="store_true")
+    p_run.add_argument("--unattended", action="store_true")
     p_run.add_argument("--max-workers", type=_positive_int, default=None)
     p_run.add_argument("--policy-bound", action="store_true")
     p_run.add_argument("--max-reruns", type=_nonnegative_int, default=10)
@@ -397,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             run_id=args.run_id,
             no_gates=args.no_gates,
+            unattended=args.unattended,
             max_workers=args.max_workers,
             policy_bound=args.policy_bound,
             max_reruns=args.max_reruns,

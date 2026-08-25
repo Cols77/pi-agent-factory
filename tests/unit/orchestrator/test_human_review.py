@@ -14,6 +14,7 @@ from factory.orchestrator.human_review import (
     FileHumanReviewGate,
     HumanReviewDecision,
     format_review_feedback,
+    human_review_to_gate_item,
 )
 
 pytestmark = pytest.mark.unit
@@ -149,3 +150,68 @@ def test_fake_gate_records_requests_and_returns_scripted_decisions():
     result = gate.request_review("T-002", "def456")
     assert result == HumanReviewDecision("approve", [])
     assert gate.requests == [("T-002", "def456")]
+
+
+def test_human_review_to_gate_item_maps_approve_reject(tmp_path: Path):
+    approve = human_review_to_gate_item(
+        HumanReviewDecision("approve", []), "review:17"
+    )
+    assert approve.item_id == "review:17"
+    assert approve.action == "accept"
+    assert approve.reason == ""
+
+    reject = human_review_to_gate_item(
+        HumanReviewDecision(
+            "reject",
+            [Annotation(file="src/foo.py", line=3, body="explain this")],
+        ),
+        "review:18",
+    )
+    assert reject.action == "reject"
+    assert "src/foo.py:3" in reject.reason
+    assert "explain this" in reject.reason
+
+
+def test_human_review_gate_json_stays_byte_compatible(tmp_path: Path):
+    """Task 2 Test 5: the orchestrator HumanReviewGate JSON must not change
+    shape. Whatever FileHumanReviewGate writes today (the archive record) is
+    pinned verbatim -- the gate adapter is additive and must not alter it."""
+    transcript_dir = tmp_path / "transcript"
+    transcript_dir.mkdir()
+    reviews_dir = transcript_dir / "reviews"
+    reviews_dir.mkdir(parents=True)
+    (transcript_dir / "review-decision.json").write_text(
+        json.dumps({
+            "decision": "reject",
+            "annotations": [{"file": "a.py", "line": 1, "side": "new", "body": "x"}],
+            "reviewedFiles": ["a.py"],
+        }),
+        encoding="utf-8",
+    )
+
+    gate = FileHumanReviewGate(transcript_dir, poll_interval=0.01)
+    gate.request_review("T-001", "abc123")
+    payload = json.loads(
+        (reviews_dir / "review-001.json").read_text(encoding="utf-8")
+    )
+
+    # Exact top-level key set -- adding/removing/renaming any field changes
+    # the HumanReviewGate JSON shape and must fail this pin.
+    assert set(payload) == {
+        "version",
+        "reviewed_at",
+        "task_id",
+        "start_commit",
+        "decision",
+        "annotations",
+        "reviewed_files",
+        "diff",
+        "diff_error",
+        "review_guide",
+    }
+    # Annotation JSON shape pinned verbatim.
+    assert set(payload["annotations"][0]) == {"file", "body", "line", "side", "severity"}
+    # The review-decision source file is consumed+deleted, never rewritten.
+    assert not (transcript_dir / "review-decision.json").exists()
+    # The adapter is purely additive: writing it produced no new HumanReview JSON.
+    assert sorted(p.name for p in transcript_dir.iterdir()) == ["reviews"]

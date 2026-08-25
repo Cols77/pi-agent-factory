@@ -9,7 +9,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +17,8 @@ from coherence.audit.cli import cmd_audit, cmd_consolidate
 from coherence.audit.policy import audit_max_workers
 from coherence.audit.report import render_human_summary
 from coherence.audit.scope import resolve_feature_scope
+from coherence.gate.service import resolve_gate
+from coherence.gate.store import decision_path, load_decision
 from coherence.policy.compiler import (
     UncompiledPresetError,
     UnsupportedScopeError,
@@ -29,9 +30,6 @@ from substrate.agents.skills import load_skill_block
 from substrate.paths import factory_skills_dir, scope_guard_extension
 
 STATUS_FILENAME = "status.json"
-DECISIONS_FILENAME = "decisions.json"
-POLL_INTERVAL_S = 1.0
-GATE_TIMEOUT_S = 300.0
 
 
 def _now() -> str:
@@ -181,6 +179,21 @@ def _dispatch_sr(
     return {"ok": True, "session_id": result.session_id}
 
 
+def _gate_item_ids(run_id: str, proposed: list[dict], warned: list[str]) -> list[str]:
+    """The per-SR gate item ids a coverage run's DecisionFile must carry.
+
+    Proposed requirements map to ``coverage:<run>:proposal:<sr_id>`` and
+    warned SRs to ``coverage:<run>:warning:<sr_id>``, matching the
+    ``coverage:<run>:...`` item-family the DecisionFile model accepts. This is
+    the roster the runner surfaces when a human must author a decision.
+    """
+    ids: list[str] = []
+    for proposal in proposed:
+        ids.append(f"coverage:{run_id}:proposal:{proposal['candidate_id']}")
+    ids.extend(f"coverage:{run_id}:warning:{w}" for w in warned)
+    return ids
+
+
 def run(
     root: Path,
     feat: str,
@@ -189,6 +202,7 @@ def run(
     *,
     run_id: str | None = None,
     no_gates: bool = False,
+    unattended: bool = False,
     max_workers: int | None = None,
     policy_bound: bool = False,
     max_reruns: int = 10,
@@ -202,6 +216,17 @@ def run(
     CPU-bound, so threads rather than processes. ``max_workers`` defaults to
     the ``audit.max_workers`` policy (see ``coherence.audit.policy``,
     default 4) and must be a positive integer.
+
+    The human gate for proposed requirements / suggested actions is resolved
+    through ``coherence.gate.resolve_gate``: when such items exist, an
+    explicit `DecisionFile` is required before the run finalises.
+    ``unattended=True`` means no human is available to author one, so running
+    without a decision is a hard failure (``"blocked"``); ``unattended=False``
+    and no decision surfaces the authoring need and returns non-zero WITHOUT
+    writing a report -- an unreviewed run is never treated as reviewed by
+    exhausting a timeout. An existing valid decision short-circuits and
+    resumes without re-prompting. ``no_gates`` (the ``--no-gates`` CLI
+    opt-out) is the sole explicit opt-out and skips the human gate entirely.
 
     ``policy_bound``/``max_reruns`` are inert unless ``policy_bound`` is set:
     without it, an SR with an already-recorded verdict is always accepted
@@ -227,7 +252,6 @@ def run(
     run_dir = _run_dir(root, feat, run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     status_path = run_dir / STATUS_FILENAME
-    decisions_path = run_dir / DECISIONS_FILENAME
 
     if max_workers is None:
         max_workers = audit_max_workers(root)
@@ -409,10 +433,10 @@ def run(
 
     _status("gate", srs=sr_progress, gate=report_data.get("gate"))
 
-    # Phase 5: human gates for proposed requirements / suggested actions
+    # Phase 5: human gate for proposed requirements / suggested actions.
     proposed = _find_proposed_requirements(report_data)
     warned = report_data.get("gate", {}).get("warned", [])
-    if not no_gates and (proposed or warned):
+    if (proposed or warned) and not no_gates:
         _status(
             "gates",
             srs=sr_progress,
@@ -420,19 +444,56 @@ def run(
             proposed_requirements=proposed,
             suggested_actions=warned,
         )
-        waited = 0.0
-        while not decisions_path.exists():
-            time.sleep(POLL_INTERVAL_S)
-            waited += POLL_INTERVAL_S
-            if waited >= GATE_TIMEOUT_S:
-                _status("gates_timeout", srs=sr_progress, gate=report_data.get("gate"))
-                break
-        if decisions_path.exists():
-            try:
-                decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
-                report_data["human_decisions"] = decisions
-            except (OSError, json.JSONDecodeError) as exc:
-                print(f"coverage: could not read decisions file: {exc}", file=sys.stderr)
+        gate_id = f"coverage:{run_id}"
+        items = _gate_item_ids(run_id, proposed, warned)
+        resolved = resolve_gate(run_dir, gate_id, unattended=unattended)
+        if resolved is None:
+            # Attended but no decision authored: surface exactly where a
+            # human must write one and DO NOT auto-finalise. No timeout is
+            # exhausted to fake a "reviewed" outcome.
+            target = decision_path(run_dir, gate_id)
+            _status(
+                "gates_blocked",
+                srs=sr_progress,
+                gate=report_data.get("gate"),
+                proposed_requirements=proposed,
+                suggested_actions=warned,
+                decision_path=str(target),
+                needed_items=items,
+            )
+            print(
+                f"coverage: gate {gate_id!r} needs a human decision; "
+                f"author a DecisionFile at {target} with items "
+                f"{', '.join(items) or '(none)'}, then re-run",
+                file=sys.stderr,
+            )
+            return 1
+        if resolved == "blocked":
+            # Unattended and no decision: nothing can author it, so this is a
+            # hard failure -- never an auto-finalised "reviewed" run.
+            _status(
+                "gates_blocked",
+                srs=sr_progress,
+                gate=report_data.get("gate"),
+                proposed_requirements=proposed,
+                suggested_actions=warned,
+                decision_path=str(decision_path(run_dir, gate_id)),
+                needed_items=items,
+            )
+            print(
+                f"coverage: gate {gate_id!r} has no decision file and the run is "
+                "unattended; refusing to auto-finalise an unreviewed run",
+                file=sys.stderr,
+            )
+            return 1
+
+        # A durable decision exists (accept/defer/reject): resume without
+        # re-prompting. The resolved file is the single source of truth.
+        decision_file = load_decision(decision_path(run_dir, gate_id))
+        report_data["human_decisions"] = decision_file.to_dict()
+        if resolved == "reject":
+            # A durable reject is a hard failure, recorded in the report.
+            gate_outcome = "fail"
 
     report_data["generated_at"] = _now()
     (run_dir / "report.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
