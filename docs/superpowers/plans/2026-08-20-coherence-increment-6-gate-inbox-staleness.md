@@ -53,17 +53,15 @@ Run:
 
 ### Task 2: Adapt coverage gates without changing annotation review
 
-- [ ] **Step 1: Write failing coverage gate tests.**
+- [x] **Step 1: Write failing coverage gate tests.**
 
 Assert the former 300-second timeout no longer produces a human-reviewed report without a DecisionFile. An unattended run without decision exits nonzero; an existing valid decision resumes without a prompt; --no-gates remains explicit. Assert orchestrator human-review decision JSON stays byte-compatible.
 
-- [ ] **Step 2: Implement adapters.**
+- [x] **Step 2: Implement adapters.**
 
 Replace coherence.audit runner timeout logic with coherence.gate.resolve_gate and map per-SR verdict items to DecisionFile entries. Keep factory/orchestrator HumanReviewGate separate; add an adapter only where its result is represented as a gate item.
 
-- [ ] **Step 3: Verify and commit.**
-
-Run:
+- [x] **Step 3: Verify and commit.**  (f0230e2)
 
     rtk proxy uv run python -m pytest tests/unit/coverage/test_runner.py tests/unit/coverage/test_gate.py tests/unit/orchestrator/test_human_review.py tests/unit/coherence/test_gate.py -q
     git add src/coherence/audit src/factory/orchestrator/human_review.py tests/unit
