@@ -7,6 +7,8 @@ from typing import Literal
 
 import frontmatter
 
+from coherence.deferrals import parse_deferral
+
 NodeKind = Literal[
     "br",
     "sr",
@@ -49,7 +51,13 @@ def _load_post(path: Path) -> frontmatter.Post | None:
 def _disposition(meta: dict) -> tuple[bool, str | None]:
     exempt = bool(meta.get("trace_exempt", False))
     deferred = meta.get("trace_deferred")
-    return exempt, str(deferred) if deferred else None
+    if deferred is None:
+        return exempt, None
+    # Reader-first migration (Inc 6 Task 3): both the legacy scalar and
+    # structured dict form of trace_deferred render the SAME present deferral
+    # (its reason); a malformed value is rejected, not silently treated as
+    # current.
+    return exempt, parse_deferral(deferred).reason
 
 
 def _first_heading(text: str, fallback: str) -> str:

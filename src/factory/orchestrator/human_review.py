@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
+from coherence.gate.model import Decision
+
 
 @dataclass
 class Annotation:
@@ -150,3 +152,19 @@ def format_review_feedback(annotations: list[Annotation]) -> str:
         sev = f" [{a.severity}]" if a.severity else ""
         lines.append(f"- {loc}{sev}: {a.body}")
     return "\n".join(lines)
+
+
+def human_review_to_gate_item(decision: HumanReviewDecision, item_id: str) -> Decision:
+    """Adapter from a `HumanReviewDecision` to a persisted gate item.
+
+    Maps ``approve`` -> ``accept`` and ``reject`` -> ``reject`` (with a reason
+    derived from the review annotations). This is purely additive: it never
+    changes what the underlying `HumanReviewGate` writes -- ``review-decision
+    json`` and the ``review-###.json`` archive stay byte-identical. Callers
+    pick the ``item_id`` (a ``review:`` / ``coverage:`` family id) and, when
+    they need it, embed the returned `Decision` in a `DecisionFile`. Deferrals
+    are not synthesised here.
+    """
+    action = "accept" if decision.decision == "approve" else "reject"
+    reason = "" if action == "accept" else format_review_feedback(decision.annotations)
+    return Decision(item_id=item_id, action=action, reason=reason)

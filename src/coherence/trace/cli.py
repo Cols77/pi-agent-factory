@@ -112,6 +112,7 @@ def _parser(prog: str) -> argparse.ArgumentParser:
     _add_root(p_defer)
     p_defer.add_argument("node_id")
     p_defer.add_argument("--reason", required=True)
+    p_defer.add_argument("--review-after", default=None)
 
     return parser
 
@@ -179,7 +180,7 @@ def main(argv: list[str] | None = None, *, prog: str = "coherence-trace") -> int
             return 2
     elif args.cmd == "defer":
         try:
-            print(set_deferred(args.project_root, args.node_id, args.reason))
+            print(set_deferred(args.project_root, args.node_id, args.reason, review_after=args.review_after))
         except LookupError as exc:
             print(f"error: {exc}")
             return 2

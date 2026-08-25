@@ -113,6 +113,9 @@ def compile_obligations(
         obligations.append(
             _verification_result_obligation(root, scope_ref, profile, nodes=nodes, edges=edges)
         )
+        obligations.append(
+            _human_review_obligation(root, scope_ref, profile, nodes=nodes, edges=edges)
+        )
     return obligations
 
 
@@ -217,4 +220,34 @@ def _verification_result_obligation(
             if sr_path is not None
             else ("coherence register bind ...; rerun validation (SR trace node not found)",)
         ),
+    )
+
+
+def _human_review_obligation(
+    root: Path, scope_ref: str, profile: str, *, nodes, edges,
+) -> Obligation:
+    sr_id = scope_ref.partition(":")[2]
+    sr_path = _sr_node_path(sr_id, nodes=nodes)
+    # Identity field unresolved; do NOT read reviewer/reviewed_by yet --
+    # guide §5.3: the field contract is undecided, so absence is unknown,
+    # never satisfied. Only a later declared field may flip the flag.
+    reviewed = False
+    requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
+    resolve_cmd = (
+        (
+            f"record approved human-review identity for {sr_path.name} "
+            "once the field contract is decided",
+        )
+        if sr_path is not None
+        else (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
+    )
+    return Obligation(
+        id=f"ob:human_review:{scope_ref}",
+        scope_ref=scope_ref,
+        kind="human_review",
+        requiredness=requiredness,
+        reason=f"{profile} requires a recorded human reviewer for high-criticality requirement {sr_id}",
+        source_policy=profile,
+        state="satisfied" if reviewed else "open",
+        resolve_cmd=resolve_cmd,
     )

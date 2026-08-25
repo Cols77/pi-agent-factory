@@ -152,9 +152,22 @@ def test_reads_exempt_and_deferred_dispositions(tmp_path):
     nodes = {n.id: n for n in load_nodes(tmp_path)}
 
     assert nodes["T-001"].exempt is True
-    assert nodes["T-001"].deferred is None
-    assert nodes["T-002"].exempt is False
-    assert nodes["T-002"].deferred == "needs SR split"
+
+
+def test_reads_structured_deferral_as_the_same_present_reason(tmp_path):
+    # Reader-first migration (Inc 6 Task 3): a structured trace_deferred
+    # (dict with review_after) must render the SAME node.deferred reason as the
+    # legacy scalar -- the expiring metadata does not change what a trace
+    # reader reports as the deferral reason.
+    _write(
+        tmp_path / "tasks" / "T-003.md",
+        '---\nid: T-003\ntitle: Later\nstatus: todo\ndod: []\n'
+        'trace_deferred:\n  reason: "scheduled later"\n'
+        '  review_after: "2026-09-01T00:00:00Z"\n---\n',
+    )
+
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["T-003"].deferred == "scheduled later"
 
 
 def test_missing_directories_yield_no_nodes(tmp_path):

@@ -105,6 +105,18 @@ def test_set_exempt_and_set_deferred_write_frontmatter(tmp_path):
     post = frontmatter.load(str(root / "tasks" / "T-001.md"))
     assert post["trace_deferred"] == "needs an SR split"
 
+    # Structured write (Inc 6 Task 3): review_after switches trace_deferred to
+    # the expiring dict form; the trace reader still renders the same reason.
+    set_deferred(root, "T-001", "needs an SR split", review_after="2026-09-01T00:00:00Z")
+    post = frontmatter.load(str(root / "tasks" / "T-001.md"))
+    structured = post["trace_deferred"]
+    assert isinstance(structured, dict)
+    assert structured["reason"] == "needs an SR split"
+    assert structured["review_after"] == "2026-09-01T00:00:00Z"
+    from coherence.trace.model import load_nodes
+
+    assert {n.id: n for n in load_nodes(root)}["T-001"].deferred == "needs an SR split"
+
 
 def test_set_deferred_on_a_plan_that_has_no_frontmatter(tmp_path):
     root = _repo(tmp_path)

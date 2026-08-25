@@ -141,7 +141,7 @@ def test_verification_result_obligation_excludes_the_project_scope_ci_gate(tmp_p
         if n.kind == "sr"
         for o in compile_obligations(tmp_path, f"sr:{n.id}", nodes=nodes, edges=edges)
     }
-    assert kinds == {"ci_verification", "verification_result"}
+    assert kinds == {"ci_verification", "verification_result", "human_review"}
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     # 3, not 6: ci_verification obligations are compiled but never counted here.
     assert dims["verification_strategy"].expected == 3
@@ -157,14 +157,17 @@ def test_nonconformance_closure_counts_the_one_open_nc_record(tmp_path):
     assert (nc.satisfied, nc.expected) == (0, 1)
 
 
-# -- Dimension 11: human_review (correctly 0/0 until Increment 6) -----------
+# -- Dimension 11: human_review ----------------------------------------------
 
 
-def test_human_review_reports_zero_over_zero_until_increment_6(tmp_path):
+def test_human_review_counts_the_one_blocking_high_assurance_sr(tmp_path):
+    # Increment 6 lands human_review: only the blocking high_assurance SR
+    # (SR-103) is counted -- the two prototype SRs compile not_applicable
+    # obligations that are excluded from both sides here (spec section 6).
     _seed_main_repo(tmp_path)
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     hr = dims["human_review"]
-    assert (hr.satisfied, hr.expected, hr.exempt) == (0, 0, 0)
+    assert (hr.satisfied, hr.expected, hr.exempt) == (0, 1, 0)
 
 
 # -- query_health wiring -------------------------------------------------
@@ -194,7 +197,7 @@ def test_query_health_exposes_dimensions_json_shaped_and_keeps_percent(tmp_path)
         "name": "nonconformance_closure", "satisfied": 0, "expected": 1, "exempt": 0,
     }
     assert by_name["human_review"] == {
-        "name": "human_review", "satisfied": 0, "expected": 0, "exempt": 0,
+        "name": "human_review", "satisfied": 0, "expected": 1, "exempt": 0,
     }
     # Only demoted (Task 7 stops leading with it), never removed.
     assert "percent" in payload["health"]
