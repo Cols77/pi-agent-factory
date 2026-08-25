@@ -186,3 +186,81 @@ def test_empty_state_cli_exits_zero(tmp_path: Path, capsys) -> None:
     assert out["notes"] == []
     assert out["unreached"] == []
     assert out["ok"] is True
+
+
+# -- Defect 1: a malformed/unrelated spec surfaces SpecError cleanly (exit 1) --
+
+
+def _malformed_spec(root: Path, name: str = "broken") -> None:
+    """A spec with an id-less frontmatter block -> build_graph raises SpecError."""
+    p = root / "docs" / "superpowers" / "specs" / f"{name}.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # missing required frontmatter id/title/status -> deterministic SpecError
+    p.write_text("---\ntitle: Broken\nstatus: approved\n---\nbody\n", encoding="utf-8")
+
+
+def test_malformed_spec_is_surfaced_not_crash(tmp_path):
+    _sr(tmp_path, "SR-001")
+    _add_course(tmp_path, "partial.md")
+    _malformed_spec(tmp_path)
+
+    # must not raise; SpecError is captured into the report's errors channel
+    report = check_course(tmp_path)
+    assert report.ok is False
+    assert any("spec" in e.lower() and "error" in e.lower() for e in report.errors)
+    assert "broken.md" in " ".join(report.errors)
+
+
+def test_malformed_spec_cli_exits_one_cleanly(tmp_path: Path, capsys) -> None:
+    _sr(tmp_path, "SR-001")
+    _add_course(tmp_path, "partial.md")
+    _malformed_spec(tmp_path)
+
+    code = course_main(["check", "--project-root", str(tmp_path), "--json"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert out["ok"] is False
+    assert out["errors"]
+
+
+def test_duplicate_spec_ids_with_differing_content_surface_cleanly(
+    tmp_path: Path, capsys
+) -> None:
+    _spec(tmp_path, "dup")
+    _add_course(tmp_path, "covering_a.md")
+    p2 = tmp_path / "docs" / "superpowers" / "specs" / "dup2.md"
+    p2.parent.mkdir(parents=True, exist_ok=True)
+    p2.write_text(
+        "---\nid: dup\ntitle: Different\nstatus: approved\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    report = check_course(tmp_path)
+    assert report.ok is False
+    assert any("duplicate spec id" in e for e in report.errors)
+
+    code = course_main(["check", "--project-root", str(tmp_path), "--json"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert out["ok"] is False
+    assert any("duplicate spec id" in e for e in out["errors"])
+
+
+# -- Defect 2: a valid spec id outside the SPEC-... grammar is not a false
+# -- unreached (it can never be covered) --
+
+
+def test_non_course_grammar_spec_id_not_false_unreached(tmp_path):
+    _sr(tmp_path, "SR-001")
+    # id contains characters the course grammar cannot reference
+    _spec(tmp_path, "Foo Bar", title="Foo Bar")
+    _add_course(tmp_path, "partial.md")  # covers only SR-001
+
+    report = check_course(tmp_path)
+    # spec:Foo Bar is known but cannot be referenced by any SPEC-... token
+    assert "spec:Foo Bar" in report.non_referenceable
+    # it must NOT be reported unreached (that failure could never be covered)
+    assert "spec:Foo Bar" not in report.unreached
+    # the normal id coverage math still holds for the referenceable node
+    assert "SR-001" not in report.unreached  # covered by partial.md
+    assert report.unreached == []

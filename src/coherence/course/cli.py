@@ -29,6 +29,12 @@ def main(argv: list[str] | None = None, *, prog: str = "coherence-course") -> in
         lines = [f"{len(report.notes)} course note(s)"]
         lines.append(f"{len(report.unreached)} unreached known SR/spec: "
                      f"{', '.join(report.unreached) if report.unreached else '—'}")
+        if report.non_referenceable:
+            lines.append(
+                "non-referenceable spec id(s) (no SPEC-... reference exists in the "
+                "course grammar; not counted unreached): "
+                f"{', '.join(report.non_referenceable)}"
+            )
         for err in report.errors:
             lines.append(f"error: {err}")
         print("\n".join(lines))
