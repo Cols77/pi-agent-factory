@@ -58,12 +58,48 @@ class StatusSnapshot:
 # treated as needing attention (see `_outcome_rank`'s fallback below), so a
 # probe author cannot invent a new outcome string that silently reads as
 # clean.
+def _probe_inbox(project_root: Path) -> StatusLine:
+    """Inbox triage (Inc 6 Task 4): surface an inbox with any pending item.
+
+    Reads the pure `coherence.inbox.list_items` (never writes). A non-empty
+    inbox is a pending triage gate; an empty one is clean. The summary and an
+    ordered resolver are driven off the pure items.
+    """
+    from coherence.inbox import list_items
+
+    items = list_items(project_root, _now_iso())
+    if not items:
+        return StatusLine(
+            source="inbox",
+            outcome="nothing_pending",
+            summary="inbox empty",
+            produced_by="coherence.inbox.list_items",
+            resolve_cmd=None,
+            observation_ref="inbox",
+        )
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.kind] = counts.get(item.kind, 0) + 1
+    kinds = ", ".join(f"{k}:{c}" for k, c in sorted(counts.items()))
+    return StatusLine(
+        source="inbox",
+        outcome="pending_inbox",
+        summary=f"inbox: {len(items)} item(s) ({kinds})",
+        produced_by="coherence.inbox.list_items",
+        resolve_cmd=(
+            (f"coherence status --project-root {project_root}",) if items else None
+        ),
+        observation_ref="inbox",
+    )
+
+
 _PRECEDENCE: tuple[str, ...] = (
     "interrupted_run",
     "probe_error",
     "failing_gate",
     "stale_audit",
     "proposed_backlog",
+    "pending_inbox",
     "nothing_pending",
 )
 _RANK = {name: index for index, name in enumerate(_PRECEDENCE)}
@@ -188,6 +224,11 @@ def _probe_membership_gate(project_root: Path) -> StatusLine:
         resolve_cmd=None,
         observation_ref="bundle:coverage",
     )
+
+
+def _now_iso() -> str:
+    """Wall-clock now as an ISO-8601 UTC string (for inbox expiry checks)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _format_age(delta: timedelta) -> str:
@@ -345,6 +386,7 @@ _PROBES: tuple[tuple[str, Callable[[Path], StatusLine]], ...] = (
     ("run_checkpoint", _probe_run_checkpoint),
     ("audit_age", _probe_audit_age),
     ("membership_gate", _probe_membership_gate),
+    ("inbox", _probe_inbox),
 )
 
 
@@ -407,6 +449,16 @@ def _render_snapshot(snapshot: StatusSnapshot) -> str:
         lines.append(f"  [{line.source}] {line.outcome}: {line.summary}")
         lines.extend(_render_resolve_cmd(line.resolve_cmd, "    "))
     return "\n".join(lines)
+
+
+def inbox_triage(project_root: Path, now: str) -> list[dict]:
+    """Return the pure inbox as JSON-shaped triage items (Inc 6 Task 4).
+
+    The Pi renderer consumes InboxItem JSON only; this is that JSON.
+    """
+    from coherence.inbox import list_items
+
+    return [item.to_dict() for item in list_items(project_root, now)]
 
 
 def main(argv: list[str] | None = None) -> int:

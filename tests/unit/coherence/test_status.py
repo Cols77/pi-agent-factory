@@ -242,21 +242,38 @@ def test_probe_error_outcome_is_never_treated_as_clean():
 # --------------------------------------------------------------------------
 
 
-def test_status_snapshot_on_an_empty_repo_is_clean_with_five_lines(tmp_path: Path):
+def test_status_snapshot_on_an_empty_repo_is_clean_with_six_lines(tmp_path: Path):
     snapshot = status_snapshot(tmp_path)
-    assert len(snapshot.lines) == 5
+    assert len(snapshot.lines) == 6
     assert {line.source for line in snapshot.lines} == {
         "trace_check",
         "register_check",
         "run_checkpoint",
         "audit_age",
         "membership_gate",
+        "inbox",
     }
     assert snapshot.primary.outcome == "nothing_pending"
     assert snapshot.exit_code == 0
 
 
-def test_status_snapshot_reports_interrupted_run(tmp_path: Path):
+def test_status_surfaces_a_pending_inbox_from_a_blocked_coverage_gate(tmp_path: Path):
+    # Inc 6 Task 4 integration: a coverage gate awaiting a decision produces a
+    # pending inbox, and status reports it as its primary line.
+    status_json = tmp_path / "coverage-reviews" / "FEAT-001-r1" / "status.json"
+    status_json.parent.mkdir(parents=True)
+    status_json.write_text(
+        json.dumps(
+            {"phase": "gates_blocked", "needed_items": ["coverage:r1:proposal:SR-999"]}
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = status_snapshot(tmp_path)
+    inbox_line = next(ln for ln in snapshot.lines if ln.source == "inbox")
+    assert inbox_line.outcome == "pending_inbox"
+    assert "pending_inbox" in {ln.outcome for ln in snapshot.lines}
+    assert "1 item" in inbox_line.summary
     run_dir = tmp_path / "sessions" / ".factory-runs" / "by-session" / "run-1"
     run_dir.mkdir(parents=True)
     checkpoint = {
@@ -534,7 +551,7 @@ def test_main_json_flag_prints_valid_json_with_primary_and_lines(tmp_path: Path,
     payload = json.loads(capsys.readouterr().out)
     assert "primary" in payload
     assert "lines" in payload
-    assert len(payload["lines"]) == 5
+    assert len(payload["lines"]) == 6
     assert payload["exit_code"] == 0
 
 
