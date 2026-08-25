@@ -9,6 +9,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Iterable
 
+from substrate.codemap.imports import ReachabilityResult
 from substrate.validators.kb import parse_entry, validate_entry
 
 
@@ -40,9 +41,44 @@ def load_entries(kb_dir: Path, ids: Iterable[str] | None = None) -> list[dict]:
     ]
 
 
-def select_entries(kb_dir: Path, touched_files: list[str], signatures: list[str]) -> list[str]:
-    """Return the sorted ids of active entries whose scope matches either a
-    touched-file glob or a failure signature substring."""
+def select_entries(
+    kb_dir: Path,
+    touched_files: list[str],
+    signatures: list[str],
+    reachable_symbols: Iterable[str] | ReachabilityResult = (),
+    *,
+    diagnostics: list[str] | None = None,
+) -> list[str]:
+    """Return the sorted ids of active entries whose scope matches a
+    touched-file glob, a failure signature substring, or a reachable canonical
+    qualified symbol.
+
+    `reachable_symbols` is either:
+      - an iterable of canonical fully-qualified symbol names (e.g.
+        `factory.module.function`) that were already resolved by the caller, or
+      - a `ReachabilityResult` from `substrate.codemap.imports.reachable_symbols`.
+
+    When a `ReachabilityResult` is supplied and its `status` is NOT
+    "resolved" (stale/missing/unsupported), symbol scope is treated as
+    unmatched: a staleness diagnostic from the result is surfaced via
+    `diagnostics` (if given) and NO symbol hit is claimed. There is NEVER a
+    file-glob/text fallback for a symbol scope -- a stale codemap cannot be
+    papered over by globbing the symbol's name against touched files.
+
+    Legacy `files` globs and `error_signatures` matching are unchanged and
+    still work independently of symbol scope. When `reachable_symbols` is empty
+    (the default), symbol scope is simply never matched.
+    """
+    if isinstance(reachable_symbols, ReachabilityResult):
+        if reachable_symbols.status != "resolved":
+            if diagnostics is not None:
+                diagnostics.extend(list(reachable_symbols.diagnostics))
+            reachable: set[str] = set()
+        else:
+            reachable = set(reachable_symbols.symbols)
+    else:
+        reachable = set(reachable_symbols or ())
+
     hits: set[str] = set()
     for entry in _iter_valid_entries(kb_dir):
         if entry.get("status") != "active":
@@ -50,11 +86,15 @@ def select_entries(kb_dir: Path, touched_files: list[str], signatures: list[str]
         scope = entry.get("scope", {})
         globs = scope.get("files", [])
         sigs = scope.get("error_signatures", [])
+        symbols = scope.get("symbols", [])
 
         file_hit = any(fnmatch(tf, g) for tf in touched_files for g in globs)
         sig_hit = any(s in provided for s in sigs for provided in signatures)
+        # Canonical qualified match ONLY -- a scope symbol must equal a reachable
+        # symbol exactly; never globbed or substring-matched.
+        sym_hit = any(sym in reachable for sym in symbols)
 
-        if file_hit or sig_hit:
+        if file_hit or sig_hit or sym_hit:
             hits.add(str(entry["id"]))
     return sorted(hits)
 

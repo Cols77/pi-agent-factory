@@ -11,6 +11,7 @@ from substrate.kb.retrieval import (
     load_entries,
     select_entries as substrate_select_entries,
 )
+from substrate.codemap.imports import reachable_symbols
 
 pytestmark = pytest.mark.unit
 
@@ -119,3 +120,169 @@ def test_load_entries_skips_invalid_entry_without_crashing(tmp_path):
 
 def test_load_entries_unknown_id_returns_empty():
     assert load_entries(KB_DIR, ids=["kb-9999"]) == []
+
+
+# -- Symbol scope: match canonical qualified names from reachable_symbols. --
+
+
+def _symbol_repo(root: Path) -> None:
+    """Same 'moved symbol' fixture as test_codemap_imports: `factory.function`
+    lives in src/factory/module.py and the edited file client.py reaches it by
+    import. Returns nothing; builds in place under `root`."""
+    (root / "src" / "factory").mkdir(parents=True)
+    (root / "src" / "factory" / "__init__.py").write_text("")
+    (root / "src" / "factory" / "module.py").write_text(
+        '"""Home of the moved symbol."""\n'
+        "def function(value=1):\n"
+        "    return value + 1\n"
+    )
+    (root / "src" / "factory" / "client.py").write_text(
+        "from factory.module import function\n\n"
+        "def call():\n"
+        "    return function(2)\n"
+    )
+
+
+def _fresh_symbol_snapshot(root: Path) -> None:
+    from substrate.codemap.store import ensure_fresh
+
+    ensure_fresh(
+        root,
+        files=[
+            "src/factory/__init__.py",
+            "src/factory/module.py",
+            "src/factory/client.py",
+        ],
+    )
+
+
+def _write_symbol_kb(kb_dir: Path, entry_id: str = "kb-0201") -> None:
+    """Write a KB entry scoped PURELY by a canonical qualified symbol."""
+    kb_dir.mkdir(parents=True, exist_ok=True)
+    (kb_dir / f"{entry_id}-symbol-scope.md").write_text(
+        "---\n"
+        f"id: {entry_id}\n"
+        "title: Moved-symbol issue\n"
+        "status: active\n"
+        "severity: low\n"
+        "tags: []\n"
+        "scope:\n"
+        "  symbols:\n"
+        '    - "factory.module.function"\n'
+        "---\n"
+        "body\n",
+        encoding="utf-8",
+    )
+
+
+def test_select_entries_matches_moved_symbol_via_reachable_symbols(tmp_path):
+    _symbol_repo(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+    reachable = reachable_symbols(tmp_path, ["src/factory/client.py"])
+    assert reachable.status == "resolved"
+
+    kb = tmp_path / "kb"
+    _write_symbol_kb(kb)
+    ids = substrate_select_entries(kb, ["src/factory/client.py"], [], reachable_symbols=reachable)
+    assert ids == ["kb-0201"]
+
+
+def test_select_entries_stale_codemap_diagnostic_and_no_file_glob_fallback(tmp_path):
+    _symbol_repo(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+    # Make the snapshot stale by editing a source file after building it.
+    (tmp_path / "src" / "factory" / "module.py").write_text(
+        "def renamed():\n    return 9\n"
+    )
+    reachable = reachable_symbols(tmp_path, ["src/factory/client.py"])
+    assert reachable.status == "stale"
+    assert reachable.symbols == ()
+
+    kb = tmp_path / "kb"
+    _write_symbol_kb(kb)
+    diagnostics: list[str] = []
+    # The touched file actually addresses the symbol, yet a stale snapshot must
+    # NOT fall back to a file-glob / text match to claim a symbol hit.
+    ids = substrate_select_entries(
+        kb,
+        ["src/factory/client.py"],
+        [],
+        reachable_symbols=reachable,
+        diagnostics=diagnostics,
+    )
+    assert ids == []
+    assert any("stale" in d.lower() for d in diagnostics)
+
+
+def test_select_entries_missing_codemap_diagnostic_and_no_symbol_hit(tmp_path):
+    _symbol_repo(tmp_path)  # code present, no snapshot ever built
+    reachable = reachable_symbols(tmp_path, ["src/factory/client.py"])
+    assert reachable.status == "missing"
+
+    kb = tmp_path / "kb"
+    _write_symbol_kb(kb)
+    diagnostics: list[str] = []
+    ids = substrate_select_entries(
+        kb,
+        ["src/factory/client.py"],
+        [],
+        reachable_symbols=reachable,
+        diagnostics=diagnostics,
+    )
+    assert ids == []
+    assert any("missing" in d.lower() for d in diagnostics)
+
+
+def test_select_entries_symbol_match_is_exact_qualified_name(tmp_path):
+    kb = tmp_path / "kb"
+    _write_symbol_kb(kb)
+
+    # A partial / last-segment name must NOT match -- canonical qualified names only.
+    ids = substrate_select_entries(
+        kb, [], [], reachable_symbols=("module.function",)
+    )
+    assert ids == []
+
+    # The fully-qualified canonical name does match.
+    ids = substrate_select_entries(
+        kb, [], [], reachable_symbols=("factory.module.function",)
+    )
+    assert ids == ["kb-0201"]
+
+
+def test_select_entries_legacy_files_and_signatures_still_work_with_symbols_present(tmp_path):
+    # A symbol-scoped entry can ALSO carry legacy files/error_signatures scope,
+    # and those keep selecting on their own terms (backward compat).
+    kb = tmp_path / "kb"
+    kb.mkdir(parents=True, exist_ok=True)
+    (kb / "kb-0202-hybrid.md").write_text(
+        "---\n"
+        "id: kb-0202\n"
+        "title: Hybrid-scoped issue\n"
+        "status: active\n"
+        "severity: low\n"
+        "tags: []\n"
+        "scope:\n"
+        "  symbols:\n"
+        '    - "factory.module.function"\n'
+        "  files:\n"
+        '    - "src/legacy/handler.py"\n'
+        "  error_signatures:\n"
+        '    - "TimeoutError"\n'
+        "---\n"
+        "body\n",
+        encoding="utf-8",
+    )
+
+    # Legacy match by touched file, with no reachable symbols supplied at all.
+    assert substrate_select_entries(kb, ["src/legacy/handler.py"], []) == ["kb-0202"]
+    # Legacy match by failure signature.
+    assert substrate_select_entries(kb, [], ["boom TimeoutError boom"]) == ["kb-0202"]
+
+    # Legacy selects with an EMPTY reachable set stay unchanged (default value).
+    assert (
+        substrate_select_entries(
+            kb, ["src/legacy/handler.py"], [], reachable_symbols=()
+        )
+        == ["kb-0202"]
+    )

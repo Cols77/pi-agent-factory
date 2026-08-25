@@ -43,9 +43,11 @@ from substrate.codemap.imports import (
     ImportClosure,
     ImportEdge,
     OverlapResult,
+    ReachabilityResult,
     _load_edges,
     build_import_closure,
     compute_overlap,
+    reachable_symbols,
 )
 
 pytestmark = pytest.mark.unit
@@ -579,3 +581,106 @@ def test_factory_coverage_imports_reexports_edge_and_overlap_types() -> None:
     assert shim.ImportClosure is ImportClosure
     assert shim.build_import_closure is build_import_closure
     assert shim.compute_overlap is compute_overlap
+
+
+# -- 4. Canonical-qualified symbol reachability (Task 4). -------------------
+
+
+def _symbol_tree(root: Path) -> None:
+    """The 'moved symbol' fixture for Task 4.
+
+    `factory.function` used to live in the edited file, then MOVED into
+    `src/factory/module.py`. The edited file `client.py` reaches it through an
+    import, so its canonical qualified name `factory.module.function` is still
+    reachable from the changed file across the codemap import graph. KB scope
+    lists that canonical name -- a file-glob on the edited file alone would
+    never find it.
+    """
+    (root / "src" / "factory").mkdir(parents=True)
+    (root / "src" / "factory" / "__init__.py").write_text("")
+    (root / "src" / "factory" / "module.py").write_text(
+        '"""The moved-to home of the symbol."""\n'
+        "def function(value=1):\n"
+        "    return value + 1\n"
+    )
+    (root / "src" / "factory" / "client.py").write_text(
+        "from factory.module import function\n\n"
+        "def call():\n"
+        "    return function(2)\n"
+    )
+
+
+def _fresh_symbol_snapshot(root: Path) -> None:
+    from substrate.codemap.store import ensure_fresh
+
+    ensure_fresh(
+        root,
+        files=[
+            "src/factory/__init__.py",
+            "src/factory/module.py",
+            "src/factory/client.py",
+        ],
+    )
+
+
+def test_reachable_symbols_resolved_fields_the_moved_symbol(tmp_path: Path) -> None:
+    _symbol_tree(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+
+    result = reachable_symbols(tmp_path, ["src/factory/client.py"])
+
+    assert result.status == "resolved"
+    assert isinstance(result, ReachabilityResult)
+    assert "factory.module.function" in result.symbols
+    assert result.snapshot_ref is not None
+    assert result.diagnostics == ()
+
+
+def test_reachable_symbols_missing_snapshot_is_missing_with_diagnostic(tmp_path: Path) -> None:
+    _symbol_tree(tmp_path)  # code exists, but no codemap snapshot has ever been built
+
+    result = reachable_symbols(tmp_path, ["src/factory/client.py"])
+
+    assert result.status == "missing"
+    assert result.symbols == ()
+    assert result.snapshot_ref is None
+    assert any("missing" in d.lower() for d in result.diagnostics)
+
+
+def test_reachable_symbols_stale_snapshot_is_stale_with_diagnostic(tmp_path: Path) -> None:
+    _symbol_tree(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+    # Edit a source file after the snapshot was built -> fingerprint mismatch.
+    (tmp_path / "src" / "factory" / "module.py").write_text(
+        "def renamed():\n    return 9\n"
+    )
+
+    result = reachable_symbols(tmp_path, ["src/factory/client.py"])
+
+    assert result.status == "stale"
+    assert result.symbols == ()  # never claim a symbol hit from a stale snapshot
+    assert result.snapshot_ref is not None
+    assert any("stale" in d.lower() for d in result.diagnostics)
+
+
+def test_reachable_symbols_nonpython_changed_root_is_unsupported(tmp_path: Path) -> None:
+    _symbol_tree(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+    (tmp_path / "src" / "widget.ts").write_text("export const bone = 1;\n")
+
+    result = reachable_symbols(tmp_path, ["src/widget.ts"])
+
+    assert result.status == "unsupported"
+    assert result.symbols == ()
+    assert any("unsupported" in d.lower() for d in result.diagnostics)
+
+
+def test_reachable_symbols_empty_changed_files_is_resolved_with_no_symbols(tmp_path: Path) -> None:
+    _symbol_tree(tmp_path)
+    _fresh_symbol_snapshot(tmp_path)
+
+    result = reachable_symbols(tmp_path, [])
+
+    assert result.status == "resolved"
+    assert result.symbols == ()
+

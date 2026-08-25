@@ -12,13 +12,18 @@
     "occurrences": {"type": "integer", "minimum": 1},
     "tags": {"type": "array", "items": {"type": "string"}},
     "scope": {
-      "type": "object",
-      "required": ["files"],
-      "properties": {
-        "files": {"type": "array", "items": {"type": "string"}},
-        "error_signatures": {"type": "array", "items": {"type": "string"}}
-      }
-    },
+          "type": "object",
+          "minProperties": 1,
+          "properties": {
+            "files": {"type": "array", "items": {"type": "string"}},
+            "error_signatures": {"type": "array", "items": {"type": "string"}},
+            "symbols": {
+              "description": "Canonical, fully-qualified reachable symbols (e.g. package.module.function), matched ONLY against codemap-resolved reachable symbols -- never globbed against files.",
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        },
     "detection": {"type": "string"}
   }
 }

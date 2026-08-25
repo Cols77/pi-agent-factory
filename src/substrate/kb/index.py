@@ -22,6 +22,7 @@ def build_index_payload(kb_dir: Path) -> dict:
         index[str(e["id"])] = {
             "files": scope.get("files", []),
             "error_signatures": scope.get("error_signatures", []),
+            "symbols": scope.get("symbols", []),
             "tags": e.get("tags", []),
             "status": e.get("status"),
         }

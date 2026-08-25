@@ -35,7 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from substrate.codemap.build import fingerprint_for, index_dir
+from substrate.codemap.build import LATEST_STEM, fingerprint_for, index_dir
+from substrate.codemap.store import load_latest
 
 EDGES_LATEST_STEM = "imports-latest.json"
 
@@ -62,6 +63,30 @@ class OverlapResult:
     changed_files: tuple[str, ...]
     overlap: tuple[str, ...]
     unresolved: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReachabilityResult:
+    """Outcome of computing which canonical qualified symbols are reachable
+    from a set of changed files through the codemap import graph.
+
+    `status` is one of:
+      - "resolved": symbols reflect a FRESH codemap snapshot walked across the
+        changed files' import closure. `symbols` is trustworthy.
+      - "stale":   a codemap snapshot exists but its content fingerprint no
+        longer matches the source. Callers must emit a staleness diagnostic and
+        claim NO symbol hit -- do not fall back to a file glob.
+      - "missing": no codemap snapshot has been built. Same conservative rule.
+      - "unsupported": a changed file is not Python (no import traversal).
+        Same conservative rule.
+    `symbols` is canonical fully-qualified names (package.module.name). It is
+    ALWAYS empty when status is not "resolved".
+    """
+
+    status: str
+    symbols: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    snapshot_ref: str | None = None
 
 
 def _import_edges(source: str) -> list[tuple[str, int, str]]:
@@ -343,3 +368,125 @@ def _load_edges(repo_root: Path, files: list[str]) -> tuple[ImportEdge, ...] | N
         )
     except (KeyError, TypeError):
         return None
+
+
+def _module_of(rel: str) -> str:
+    """Canonical dotted module path for a repo-relative source file.
+
+    A `src/` layout contributes no package segment, so `src/factory/module.py`
+    becomes `factory.module` (matching the KB scope convention). `__init__.py`
+    collapses to its package (`pkg/__init__.py` -> `pkg`).
+    """
+    base = rel[:-3] if rel.endswith(".py") else rel
+    parts = [p for p in base.split("/") if p not in ("src", "")]
+    return ".".join(parts)
+
+
+def _qualified_symbols(index, files: Iterable[str]) -> set[str]:
+    """Canonical fully-qualified names for every signature in `files`, drawn
+    from the (fresh) codemap snapshot: `module_of(file).signature_name`."""
+    from substrate.codemap.build import file_signatures
+
+    out: set[str] = set()
+    for rel in files:
+        sigs = file_signatures(index, rel) or []
+        module = _module_of(rel)
+        for s in sigs:
+            name = s.get("name")
+            if name:
+                out.add(f"{module}.{name}")
+    return out
+
+
+def reachable_symbols(
+    repo_root: Path, changed_files: Iterable[str]
+) -> ReachabilityResult:
+    """Return the canonical qualified symbols reachable from the changed files
+    across the codemap import graph.
+
+    The answer is only ever trusted when a FRESH codemap snapshot exists:
+
+      - "missing"  -- no snapshot has been built. A staleness diagnostic is
+        returned and NO symbols are claimed.
+      - "stale"    -- a snapshot exists but its content fingerprint no longer
+        matches the source. Same conservative rule.
+      - "unsupported" -- a changed file is not Python. Same conservative rule.
+      - "resolved" -- the snapshot is fresh; `symbols` holds the fully-qualified
+        names defined in every file reachable (by import) from the changed
+        files, so a symbol that MOVED to another file is still found as long as
+        the changed file reaches it through the import graph.
+
+    Callers (e.g. KB retrieval) must NEVER glob a symbol scope against file
+    paths as a fallback when status is stale/missing/unsupported.
+    """
+    root = Path(repo_root)
+    changed = [_norm(Path(str(c))) for c in changed_files if c]
+    changed = [c for c in changed if c]
+    diagnostics: list[str] = []
+
+    missing_files = [c for c in changed if not (root / c).exists()]
+    for c in missing_files:
+        diagnostics.append(f"selection missing: {c}")
+
+    unsupported = [c for c in changed if Path(c).suffix != ".py"]
+    for c in unsupported:
+        diagnostics.append(f"unsupported source type: {c}")
+
+    index = load_latest(root)
+    if index is None:
+        diagnostics.append(
+            f"codemap snapshot missing: {index_dir(root) / LATEST_STEM}"
+        )
+        return ReachabilityResult(status="missing", diagnostics=tuple(diagnostics))
+
+    from substrate.codemap.build import is_fresh
+
+    if not is_fresh(index, root):
+        diagnostics.append(
+            "codemap snapshot stale (fingerprint mismatch); "
+            "symbol reachability unavailable"
+        )
+        return ReachabilityResult(
+            status="stale",
+            diagnostics=tuple(diagnostics),
+            snapshot_ref=index.fingerprint,
+        )
+
+    # Snapshot is fresh. Unsupported changed roots still block symbol claims.
+    if unsupported:
+        return ReachabilityResult(
+            status="unsupported",
+            diagnostics=tuple(diagnostics),
+            snapshot_ref=index.fingerprint,
+        )
+
+    python_changed = [c for c in changed if Path(c).suffix == ".py"]
+    if not python_changed:
+        return ReachabilityResult(
+            status="resolved",
+            symbols=(),
+            diagnostics=tuple(diagnostics),
+            snapshot_ref=index.fingerprint,
+        )
+
+    closure = build_import_closure(root, python_changed)
+    if closure.status == "unsupported":
+        return ReachabilityResult(
+            status="unsupported",
+            diagnostics=closure.diagnostics + tuple(diagnostics),
+            snapshot_ref=index.fingerprint,
+        )
+
+    if closure.status == "unresolved":
+        # Unresolved imports are surfaced as diagnostics but do not block the
+        # resolved answer: we still trust the closure we were able to walk from
+        # a fresh snapshot. (Only stale/missing/unsupported suppress symbols.)
+        diagnostics.extend(closure.diagnostics)
+
+    symbols = _qualified_symbols(index, closure.files)
+    return ReachabilityResult(
+        status="resolved",
+        symbols=tuple(sorted(symbols)),
+        diagnostics=tuple(diagnostics),
+        snapshot_ref=index.fingerprint,
+    )
