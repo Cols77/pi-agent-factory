@@ -469,7 +469,18 @@ def main(argv: list[str] | None = None) -> int:
 
     snapshot = status_snapshot(args.project_root)
     if args.json:
-        print(json.dumps(_snapshot_payload(snapshot), indent=2))
+        payload = _snapshot_payload(snapshot)
+        try:
+            from coherence.runs.service import list_run_statuses
+
+            rows = list_run_statuses(args.project_root)
+            from coherence.runs.transport import serialize_run_statuses
+
+            runs = serialize_run_statuses(rows)
+            payload["runs"] = runs.get("runs", [])
+        except Exception:  # noqa: BLE001 -- a run-projection fault must not break the snapshot
+            payload["runs"] = []
+        print(json.dumps(payload, indent=2))
     else:
         print(_render_snapshot(snapshot))
     return snapshot.exit_code
