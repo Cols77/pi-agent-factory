@@ -137,3 +137,29 @@ def test_set_exempt_refuses_a_requirement(tmp_path):
 def test_unknown_node_raises(tmp_path):
     with pytest.raises(LookupError):
         set_exempt(_repo(tmp_path), "T-404", "nope")
+
+
+def test_link_satisfies_does_not_rewrite_an_unrelated_spec_document(tmp_path):
+    # Task 1: the link/unlink writers must only touch the requested node (the
+    # task), never rewrite a co-located, unrelated spec document. A spec whose
+    # canonical frontmatter id makes it resolvable must be left byte-identical.
+    root = tmp_path
+    _write(
+        root / "docs" / "superpowers" / "specs" / "coherence.md",
+        "---\nid: SPEC-COHERENCE-001\ntitle: Coherence\nstatus: accepted\n---\n\n# Coherence\n\nbody\n",
+    )
+    spec_path = root / "docs" / "superpowers" / "specs" / "coherence.md"
+    before = spec_path.read_bytes()
+    _write(
+        root / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: Thing\nstatus: todo\ndod: []\n---\n\nbody\n",
+    )
+    _write(
+        root / "requirements" / "SR-001.md",
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+    )
+
+    link_satisfies(root, "T-001", "SR-001")
+
+    assert spec_path.read_bytes() == before

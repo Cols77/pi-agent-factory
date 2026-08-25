@@ -65,6 +65,54 @@ def test_plan_spec_edge_comes_from_a_literal_path_in_the_body(tmp_path):
     assert Edge("plan:p1.md", "spec:2026-07-30-design.md", "spec_ref") in _edges(tmp_path)
 
 
+def test_frontmatter_spec_resolves_body_refs_to_the_canonical_id(tmp_path):
+    # Task 1: when the referenced spec carries a frontmatter id, the plan->spec
+    # edge -- even a literal body path -- targets the canonical id, not the
+    # filename-derived id.
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "coherence.md",
+        "---\nid: SPEC-COHERENCE-001\ntitle: Coherence\nstatus: accepted\n---\n\n# C\n",
+    )
+    _write(
+        tmp_path / "docs" / "superpowers" / "plans" / "p1.md",
+        "# P\n\nSee docs/superpowers/specs/coherence.md.\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert Edge("plan:p1.md", "spec:SPEC-COHERENCE-001", "spec_ref") in edges
+    assert not any(e.dst == "spec:coherence.md" for e in edges if e.kind == "spec_ref")
+
+
+def test_canonical_spec_ref_field_emits_the_exact_edge(tmp_path):
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "coherence.md",
+        "---\nid: SPEC-COHERENCE-001\ntitle: Coherence\nstatus: accepted\n---\n\n# C\n",
+    )
+    _write(
+        tmp_path / "docs" / "superpowers" / "plans" / "p1.md",
+        "---\nspec: SPEC-COHERENCE-001\n---\n\n# P\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert Edge("plan:p1.md", "spec:SPEC-COHERENCE-001", "spec_ref") in edges
+
+
+def test_unknown_spec_ref_field_fails_deterministically(tmp_path):
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "coherence.md",
+        "---\nid: SPEC-COHERENCE-001\ntitle: Coherence\nstatus: accepted\n---\n\n# C\n",
+    )
+    _write(
+        tmp_path / "docs" / "superpowers" / "plans" / "p1.md",
+        "---\nspec: SPEC-NO-SUCH-SPEC\n---\n\n# P\n",
+    )
+
+    with pytest.raises(Exception):
+        _edges(tmp_path)
+
+
 def test_similar_filenames_alone_never_create_an_edge(tmp_path):
     # The core invariant: a plan and a spec sharing a date and stem are NOT linked
     # unless the plan actually writes the path. Spec section 4.2.

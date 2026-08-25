@@ -26,6 +26,18 @@ NodeKind = Literal[
 _HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
 
+class SpecError(ValueError):
+    """Deterministic failure for an invalid frontmatter-authoritative spec.
+
+    Raised when a spec's frontmatter is missing a required field, when two
+    spec documents declare the same canonical id with differing content, or
+    when a plan/spec relation references a spec id that has no node.
+    """
+
+
+_SPEC_REQUIRED_FIELDS = ("id", "title", "status")
+
+
 @dataclass(frozen=True)
 class Node:
     id: str
@@ -37,6 +49,7 @@ class Node:
     proposed: bool = False
     diagram_file: str | None = None
     scope_error: str | None = None
+    migration_hint: str | None = None
 
 
 def _load_post(path: Path) -> frontmatter.Post | None:
@@ -135,6 +148,78 @@ def _file_node(path: Path, kind: NodeKind) -> Node:
     )
 
 
+def _legacy_spec_node(path: Path) -> Node:
+    """A spec file with no frontmatter id degrades to a filename-derived node.
+
+    Compatibility shim for specs that predate the frontmatter-authoritative
+    scheme: still readable, still addressable as ``spec:<filename>``, but it
+    carries a diagnostic/migration hint so a reader knows it is a legacy node.
+    """
+    post = _load_post(path)
+    if post is not None:
+        body = post.content
+        meta = post.metadata
+    else:
+        body = _read_text_or_empty(path)
+        meta = {}
+    exempt, deferred = _disposition(meta)
+    hint = (
+        "legacy filename-derived spec node; migration hint: add "
+        "frontmatter (id, title, status) to promote to a canonical spec:<id> node"
+    )
+    return Node(
+        id=f"spec:{path.name}",
+        kind="spec",
+        title=_first_heading(body, path.name),
+        path=path,
+        exempt=exempt,
+        deferred=deferred,
+        migration_hint=hint,
+    )
+
+
+def _frontmatter_spec_node(path: Path) -> Node:
+    """Parse a spec whose id comes from its YAML frontmatter (canonical source).
+
+    ``id``, ``title`` and ``status`` are all required; a missing field is a
+    deterministic failure, never a silent filename fallback.
+    """
+    post = _load_post(path)
+    if post is None:
+        # Undecodable/malformed frontmatter is NOT a valid frontmatter spec.
+        raise SpecError(f"{path.name}: spec frontmatter is unreadable")
+    meta = post.metadata
+    missing = [field for field in _SPEC_REQUIRED_FIELDS if not meta.get(field)]
+    if missing:
+        raise SpecError(
+            f"{path.name}: spec frontmatter missing required field(s): "
+            f"{', '.join(missing)}"
+        )
+    exempt, deferred = _disposition(meta)
+    return Node(
+        id=f"spec:{meta['id']}",
+        kind="spec",
+        title=str(meta["title"]),
+        path=path,
+        exempt=exempt,
+        deferred=deferred,
+    )
+
+
+def _spec_node(path: Path) -> Node:
+    """Load a spec node, honouring the frontmatter-authoritative contract.
+
+    A spec carrying frontmatter is validated against the required fields
+    (``id``/``title``/``status``) and becomes the canonical node ``spec:<id>``;
+    a missing required field is an error. Only a spec with NO frontmatter block
+    at all is treated as a legacy filename-derived node (with a migration hint).
+    """
+    post = _load_post(path)
+    if post is not None and post.metadata:
+        return _frontmatter_spec_node(path)
+    return _legacy_spec_node(path)
+
+
 def _glob(root: Path, *parts: str, pattern: str) -> list[Path]:
     directory = root.joinpath(*parts)
     if not directory.is_dir():
@@ -160,8 +245,26 @@ def load_nodes(root: Path) -> list[Node]:
         nodes.append(_id_node(path, "task"))
     for path in _glob(root, "docs", "superpowers", "plans", pattern="*.md"):
         nodes.append(_file_node(path, "plan"))
+
+    # Increment 8 Task 1: specs are frontmatter-authoritative. A spec whose
+    # frontmatter declares an id becomes the canonical node spec:<id>; a spec
+    # without a frontmatter id stays a legacy filename-derived node carrying a
+    # migration hint. Duplicate canonical ids with differing content fail
+    # deterministically; identical duplicates are deduped.
+    spec_ids: dict[str, tuple[Path, str]] = {}
     for path in _glob(root, "docs", "superpowers", "specs", pattern="*.md"):
-        nodes.append(_file_node(path, "spec"))
+        node = _spec_node(path)
+        if node.migration_hint is None and node.id in spec_ids:
+            prev_path, prev_content = spec_ids[node.id]
+            current = _read_text_or_empty(path)
+            if prev_content != current:
+                raise SpecError(
+                    f"duplicate spec id {node.id!r}: "
+                    f"{prev_path.name} and {path.name} declare it with differing content"
+                )
+            continue
+        spec_ids.setdefault(node.id, (path, _read_text_or_empty(path)))
+        nodes.append(node)
     return nodes
 
 
@@ -312,8 +415,31 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                 add(edge)
         elif node.kind == "plan":
             post = _load_post(node.path)
+            meta = post.metadata if post is not None else {}
+            spec_nodes = {n.id: n for n in nodes if n.kind == "spec"}
+            # Canonical frontmatter spec refs (`spec:` field naming a spec id)
+            # are the primary check: a relation to an unknown spec id is a
+            # deterministic failure, never a silent dangling edge.
+            for ref in as_str_list(meta.get("spec")):
+                target = str(ref) if str(ref).startswith("spec:") else f"spec:{ref}"
+                if target not in spec_nodes:
+                    raise SpecError(
+                        f"plan {node.id} references unknown spec id {ref!r}"
+                    )
+                add(Edge(node.id, target, "spec_ref"))
+            # Legacy body references resolve against real spec nodes by
+            # filename so the edge targets the canonical (or legacy) node id,
+            # never a bare literal path. A path to a spec that has no node
+            # still renders its legacy filename id (dangling, as before).
             body = post.content if post is not None else _read_text_or_empty(node.path)
+            spec_by_filename = {n.path.name: n.id for n in nodes if n.kind == "spec"}
             for filename in _SPEC_REF_RE.findall(body):
-                add(Edge(node.id, f"spec:{filename}", "spec_ref"))
+                add(
+                    Edge(
+                        node.id,
+                        spec_by_filename.get(filename, f"spec:{filename}"),
+                        "spec_ref",
+                    )
+                )
 
     return edges

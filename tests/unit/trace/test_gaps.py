@@ -56,6 +56,19 @@ def test_plan_without_a_spec_reference_is_a_gap():
     assert "plan_no_spec" in _kinds(find_gaps([_plan("p1.md")], [], {}), "plan:p1.md")
 
 
+def test_plan_with_a_canonical_spec_ref_has_no_plan_no_spec_gap():
+    # Task 1: a plan whose spec_ref targets a canonical frontmatter spec node
+    # (spec:SPEC-COHERENCE-001) satisfies the plan->spec slot exactly like a
+    # legacy filename-derived spec node would.
+    nodes = [
+        _plan("p1.md"),
+        Node("spec:SPEC-COHERENCE-001", "spec", "Coherence", Path("docs/superpowers/specs/coherence.md")),
+    ]
+    edges = [Edge("plan:p1.md", "spec:SPEC-COHERENCE-001", "spec_ref")]
+
+    assert "plan_no_spec" not in _kinds(find_gaps(nodes, edges, {}), "plan:p1.md")
+
+
 def test_dangling_upstream_is_a_gap():
     nodes = [_sr("SR-001")]
     edges = [Edge("SR-001", "BR-002", "upstream")]

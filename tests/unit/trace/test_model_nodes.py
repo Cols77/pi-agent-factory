@@ -174,6 +174,21 @@ def test_missing_directories_yield_no_nodes(tmp_path):
     assert load_nodes(tmp_path) == []
 
 
+def test_frontmatter_spec_uses_the_canonical_id(tmp_path):
+    # Increment 8 Task 1: a spec with frontmatter id is canonical, overriding the
+    # filename-derived id. Legacy filename-only specs remain readable.
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "coherence.md",
+        "---\nid: SPEC-COHERENCE-001\ntitle: Coherence\nstatus: accepted\n---\n\n# C\n",
+    )
+
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+
+    assert "spec:SPEC-COHERENCE-001" in nodes
+    assert nodes["spec:SPEC-COHERENCE-001"].kind == "spec"
+    assert nodes["spec:SPEC-COHERENCE-001"].title == "Coherence"
+
+
 def test_a_requirement_without_a_binding_is_proposed(tmp_path):
     _write(
         tmp_path / "requirements" / "SR-009.md",
