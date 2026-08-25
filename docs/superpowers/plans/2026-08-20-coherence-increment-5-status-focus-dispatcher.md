@@ -24,7 +24,7 @@
 
 ### Task 1: Add a pure status contract
 
-- [ ] **Step 1: Write failing precedence tests.**
+- [x] **Step 1: Write failing precedence tests.**
 
 Define `StatusLine(source, outcome, summary, produced_by, resolve_cmd: tuple[str, ...] | None,
 observation_ref)` and `StatusSnapshot(lines, primary, exit_code)`. Resolver commands use the 2B
@@ -36,11 +36,11 @@ preserved end-to-end; a semicolon-delimited string is invalid. Use fake probe re
 Every line names the producer and resolver command tuple. A stale snapshot must render stale with
 its resolver and never current.
 
-- [ ] **Step 2: Implement concurrent probes.**
+- [x] **Step 2: Implement concurrent probes.**
 
 Implement status_snapshot(project_root) to concurrently run trace check, register check, current run checkpoint, newest audit age, and membership --gate. Each probe returns one StatusLine even on a tool error. Add coherence status and coherence status --json to the group dispatcher.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**
 
 Run:
 
@@ -50,15 +50,15 @@ Run:
 
 ### Task 2: Add focus and explain
 
-- [ ] **Step 1: Write failing atomic focus tests.**
+- [x] **Step 1: Write failing atomic focus tests.**
 
 Test set_focus(session_root, "feat:FEAT-NAV-017"), get_focus, and clear_focus. Invalid refs create no file. Assert the atomic JSON location is sessions/.coherence-focus.json and no repository-tracked file changes. Test explain delegates current vocabulary and rejects unknown values.
 
-- [ ] **Step 2: Implement and wire CLI.**
+- [x] **Step 2: Implement and wire CLI.**
 
 Add coherence focus <scope-ref>, coherence focus --none, and coherence explain <term-or-id>. Explicit command scopes override session focus. The explain implementation reads the existing vocabulary data only.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**
 
 Run:
 
@@ -68,15 +68,15 @@ Run:
 
 ### Task 3: Add deterministic extension status and menu
 
-- [ ] **Step 1: Write TypeScript fixtures.**
+- [x] **Step 1: Write TypeScript fixtures.**
 
 Mock coherence status JSON and assert coherence-status renders primary and resolve command. Mock no-argument probes and assert coherence-command renders the ranked menu, offers “not that? pick from the menu”, and sends no model message.
 
-- [ ] **Step 2: Implement the bridge.**
+- [x] **Step 2: Implement the bridge.**
 
 coherence-status.ts invokes coherence status --json. coherence-command.ts implements the zero-argument menu only. Register /using-coherence in index.ts, add the widget beside the factory widget, and write the skill routing table without write authority.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**
 
 Run:
 
@@ -86,7 +86,7 @@ Run:
 
 ### Task 4: Resolve the direct-classifier capability gate truthfully
 
-- [ ] **Step 1: Verify host support.**
+- [x] **Step 1: Verify host support.**
 
 Add an extension test for a direct structured completion accepting the enum:
 
@@ -95,7 +95,7 @@ Add an extension test for a direct structured completion accepting the enum:
 
 The test must distinguish this capability from session creation. On the present API it demonstrates absence.
 
-- [ ] **Step 2: Implement the only supported outcome.**
+- [x] **Step 2: Implement the only supported outcome.**
 
 If the test finds a verified direct structured-completion API, implement classify_intent(text) returning intent and optional scope ref, print the classification and menu escape hatch, then dispatch.
 
@@ -105,7 +105,7 @@ If it does not, /using-coherence with an argument returns exit 2 and:
 
 Do not create a session and describe it as one constrained classification call.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**
 
 Run:
 
@@ -115,11 +115,11 @@ Run:
 
 ### Task 5: Rename factory diagnostics and verify Increment 5
 
-- [ ] **Step 1: Update alias tests.**
+- [x] **Step 1: Update alias tests.**
 
 Test /factory-selfcheck performs current bootstrap diagnostics. Test /factory-doctor prints one deprecation line and forwards. Test factory.orchestrator.run_cli doctor remains run-recovery only.
 
-- [ ] **Step 2: Implement aliases and run final checks.**
+- [x] **Step 2: Implement aliases and run final checks.**
 
 Rename the registration in factory-init-command.ts while retaining the old forwarder. Then run:
 
@@ -177,7 +177,7 @@ integration test proves that its states affect the returned health count. Increm
 the integration test that may replace the current proxy remain undecided. This addendum does not
 claim dimension 8 is complete or choose that integration boundary.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 Add `tests/unit/coherence/test_health_dimensions.py`. Seed a repo with: one SR whose
 `compile_obligations(root, "sr:<id>")` produces a required `verification_result` obligation
@@ -218,7 +218,7 @@ Run:
 
 Expected: FAIL (ImportError: cannot import name compile_health_dimensions).
 
-- [ ] **Step 2: Implement `compile_health_dimensions` in `src/coherence/navigate/health.py`.**
+- [x] **Step 2: Implement `compile_health_dimensions` in `src/coherence/navigate/health.py`.**
 
 ```python
 @dataclass(frozen=True)
@@ -437,7 +437,7 @@ def compile_health_dimensions(
 
 Wire it into `query_health`'s return dict (`src/coherence/navigate/health.py::query_health`, already-shipped Increment 3 function): add `"dimensions": [asdict(d) for d in compile_health_dimensions(root, nodes=nodes, edges=edges, validation=validation, degraded=degraded)]` alongside the existing keys -- `query_health` already builds a `degraded: list[str] = []` local before its return dict (used today for `ordering_available`); pass that same list through so a human_review resolution failure lands in the one place readers already look for degraded state. Do not remove `health.percent` -- it stays present for existing readers; only `_render_health`'s first line (Task 7) stops leading with it.
 
-- [ ] **Step 3: Run the tests.**
+- [x] **Step 3: Run the tests.**
 
 Run:
 
@@ -445,18 +445,18 @@ Run:
 
 Expected: PASS; every pre-existing `query_health`/`cmd_health` test still passes (this step is additive-only to the returned dict), including `test_health.py::test_query_health_loads_trace_nodes_once_for_a_multi_member_bundle`'s `calls == 1` assertion (`tests/unit/coherence/navigate` is not a real directory in this repo -- the health test suite actually lives under `tests/unit/coherence/` directly and `tests/unit/system/`; every regression command in this addendum has been corrected to name those real paths).
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
     git add src/coherence/navigate/health.py tests/unit/coherence/test_health_dimensions.py
     git commit -m "feat(health): compile_health_dimensions, the 11-dimension health vector"
 
 ### Task 7: Render the worst dimension as the one-line summary
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
 
 `_render_health` is exercised today by `tests/unit/system/test_cli.py::test_health_without_json_flag_prints_human_readable_text` (not a `tests/unit/coherence/navigate` file, which does not exist). Add a new test beside it: seed a repo where one dimension has `satisfied < expected` and every other dimension is fully satisfied, and assert the FIRST line of `_render_health(query_health(root))` names that dimension, not an average across all eleven -- averaging five greens and one red back into a number is exactly the scalar item 5 retires (spec section 6). Add a second test asserting the pre-existing behaviour survives for a payload with no `dimensions` key at all (an older/fixture `query_health`-shaped dict): `_render_health` must fall back to the original percent-based headline, not raise `KeyError`.
 
-- [ ] **Step 2: Implement.**
+- [x] **Step 2: Implement.**
 
 In `src/coherence/navigate/cli.py::_render_health`, this is a MINIMAL diff: only the headline construction branches on whether `dimensions` is present, and the existing `for cls in h["classes"]:` loop and everything after it (bundles, unbundled, degraded) is untouched, not deleted:
 
@@ -512,7 +512,7 @@ def _render_health(result: dict) -> str:
 
 Everything from the `for cls in h["classes"]:` loop onward is copied unchanged from the current implementation -- this task only replaces the headline-construction lines above it.
 
-- [ ] **Step 3: Run the tests.**
+- [x] **Step 3: Run the tests.**
 
 Run:
 
@@ -520,7 +520,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
     git add src/coherence/navigate/cli.py tests/unit/system/test_cli.py
     git commit -m "feat(health): render the worst dimension, not an averaged percent"
