@@ -25,7 +25,7 @@
 
 ### Task 1: Define and persist explicit decisions
 
-- [ ] **Step 1: Write failing DecisionFile tests.**
+- [x] **Step 1: Write failing DecisionFile tests.**
 
 Use:
 
@@ -39,11 +39,11 @@ Use:
 
 Reject an empty decision set, unknown decision, reject/defer without nonblank reason, defer without ISO review_after, duplicate item IDs, and non-atomic/corrupt reload. Existing valid file must short-circuit re-prompt.
 
-- [ ] **Step 2: Implement model/store/service.**
+- [x] **Step 2: Implement model/store/service.**
 
 Implement frozen Decision, DecisionFile, load_decision, write_decision, and resolve_gate. Writes use same-directory temporary replace. resolve_gate returns blocked when no decision and unattended mode is true; --no-gates is the sole explicit opt-out.
 
-- [ ] **Step 3: Verify and commit.**
+- [x] **Step 3: Verify and commit.**  (implementation f60eb55 + review fixes 36f2096)
 
 Run:
 
