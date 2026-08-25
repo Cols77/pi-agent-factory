@@ -244,3 +244,79 @@ def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_
     obligations = compile_obligations(tmp_path, "sr:SR-002")  # project default: prototype
     hr = next(o for o in obligations if o.kind == "human_review")
     assert hr.requiredness == "not_applicable"
+
+
+# --------------------------------------------------------------------------
+# Task 6 addendum: compiled test_marker obligation (profile-aware closure)
+# --------------------------------------------------------------------------
+
+
+def _seed_test_marker_trace(tmp_path, sr_id, *, experiment, profile=None) -> None:
+    (tmp_path / "requirements").mkdir(exist_ok=True)
+    profile_line = f"profile: {profile}\n" if profile else ""
+    (tmp_path / "requirements" / f"{sr_id}.md").write_text(
+        "---\n"
+        f"id: {sr_id}\ntitle: t\nstatement: s\ndomain: d\n"
+        f"{profile_line}"
+        "binding:\n"
+        f"  experiment: {experiment}\n"
+        "  metric: m\n"
+        "  assert: '>= 0.9'\n"
+        "  harness: h\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+
+def test_compile_obligations_test_marker_required_under_default_prototype(tmp_path):
+    # The project default (prototype) compiles the test_marker obligation with
+    # requiredness "required", and a bound experiment test file missing the
+    # marker stays open -- this is exactly the value the closure CHECK reads.
+    experiment = "tests/test_sr_req.py"
+    exp = tmp_path / experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    _seed_test_marker_trace(tmp_path, "SR-011", experiment=experiment)
+    obligations = compile_obligations(tmp_path, "sr:SR-011")  # project default: prototype
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "required"
+    assert tm.state == "open"
+
+
+def test_compile_obligations_test_marker_blocking_under_high_assurance_override(tmp_path):
+    experiment = "tests/test_sr_high_ob.py"
+    exp = tmp_path / experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    _seed_test_marker_trace(tmp_path, "SR-012", experiment=experiment, profile="high_assurance")
+    obligations = compile_obligations(tmp_path, "sr:SR-012")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "blocking"
+    assert tm.state == "open"
+
+
+def test_compile_obligations_test_marker_satisfied_when_marker_present(tmp_path):
+    experiment = "tests/test_sr_sat.py"
+    exp = tmp_path / experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text(
+        '@pytest.mark.sr("SR-013")\n'
+        "def test_x():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    _seed_test_marker_trace(tmp_path, "SR-013", experiment=experiment)
+    obligations = compile_obligations(tmp_path, "sr:SR-013")  # project default: prototype
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "required"
+    assert tm.state == "satisfied"
+
+
+def test_compile_obligations_test_marker_not_applicable_for_command_experiment(tmp_path):
+    # A command / non-file experiment is a separate configuration finding (Task
+    # 3), NOT this obligation's concern: test_marker is not_applicable for it.
+    _seed_test_marker_trace(tmp_path, "SR-014", experiment="patrol")
+    obligations = compile_obligations(tmp_path, "sr:SR-014")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "not_applicable"
+    assert tm.state == "satisfied"

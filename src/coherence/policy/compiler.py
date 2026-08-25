@@ -116,6 +116,7 @@ def compile_obligations(
         obligations.append(
             _human_review_obligation(root, scope_ref, profile, nodes=nodes, edges=edges)
         )
+        obligations.append(_test_marker_obligation(root, scope_ref, profile))
     return obligations
 
 
@@ -251,3 +252,36 @@ def _human_review_obligation(
         state="satisfied" if reviewed else "open",
         resolve_cmd=resolve_cmd,
     )
+
+
+def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligation:
+    """test_marker: a bound SR's experiment, when it resolves to a .py test
+    file, must carry a matching @pytest.mark.sr(sr_id) marker. A command/non-file
+    experiment is a separate configuration finding (Task 3), not this
+    obligation's concern, and this kind is not_applicable for it. The
+    marker-closure CHECK (Task 3) consumes THIS compiled obligation's
+    requiredness rather than re-deriving severity from a raw profile string."""
+    from coherence.register import register as register_module
+    from coherence.register.markers import collect_markers
+    sr_id = scope_ref.partition(":")[2]
+    register = {r.id: r for r in register_module.load_register(root / "requirements")}
+    req = register.get(sr_id)
+    requiredness = "blocking" if profile == "high_assurance" else "required"
+    if req is None or req.binding is None:
+        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+            kind="test_marker", requiredness="not_applicable",
+            reason=f"{sr_id} has no binding to check a marker for",
+            source_policy=profile, state="satisfied", resolve_cmd=None)
+    experiment_path = root / req.binding.experiment
+    if not (experiment_path.suffix == ".py" and experiment_path.is_file()):
+        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+            kind="test_marker", requiredness="not_applicable",
+            reason=f"{sr_id}'s experiment does not resolve to a test file",
+            source_policy=profile, state="satisfied", resolve_cmd=None)
+    markers = collect_markers(experiment_path)
+    present = sr_id in markers
+    return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+        kind="test_marker", requiredness=requiredness,
+        reason=f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on {sr_id}'s bound experiment test file",
+        source_policy=profile, state="satisfied" if present else "open",
+        resolve_cmd=(f'add @pytest.mark.sr("{sr_id}") to {experiment_path.name}',))

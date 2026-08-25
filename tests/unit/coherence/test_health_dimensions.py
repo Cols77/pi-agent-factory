@@ -141,7 +141,11 @@ def test_verification_result_obligation_excludes_the_project_scope_ci_gate(tmp_p
         if n.kind == "sr"
         for o in compile_obligations(tmp_path, f"sr:{n.id}", nodes=nodes, edges=edges)
     }
-    assert kinds == {"ci_verification", "verification_result", "human_review"}
+    # Task 6 addendum lands test_marker on the sr: branch alongside
+    # verification_result and human_review. None of these is the project-scope
+    # ci_verification obligation -- that one is still compiled (every sr: scope
+    # gets it), but is never what dims 4/5 read.
+    assert kinds == {"ci_verification", "verification_result", "human_review", "test_marker"}
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     # 3, not 6: ci_verification obligations are compiled but never counted here.
     assert dims["verification_strategy"].expected == 3
