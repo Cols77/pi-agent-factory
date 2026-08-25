@@ -135,5 +135,10 @@ def set_exempt(root: Path, node_id: str, reason: str) -> Path:
     return _update_meta(node.path, trace_exempt=True, trace_exempt_reason=reason)
 
 
-def set_deferred(root: Path, node_id: str, reason: str) -> Path:
-    return _update_meta(_node_path(root, node_id), trace_deferred=reason)
+def set_deferred(root: Path, node_id: str, reason: str, *, review_after: str | None = None) -> Path:
+    if review_after is None:
+        return _update_meta(_node_path(root, node_id), trace_deferred=reason)
+    return _update_meta(
+        _node_path(root, node_id),
+        trace_deferred={"reason": reason, "review_after": review_after},
+    )

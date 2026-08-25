@@ -106,11 +106,34 @@ def reaffirm(path: Path, reason: str) -> None:
     stamp_checksum(path)
 
 
-def write_deferral(path: Path, reason: str) -> None:
-    """Record a deliberate deferral without changing the checksum."""
+def write_deferral(
+    path: Path,
+    reason: str,
+    *,
+    review_after: str | None = None,
+    decided_at: str | None = None,
+    decided_by: str | None = None,
+) -> None:
+    """Record a deliberate deferral without changing the checksum.
+
+    Bread-and-butter (legacy) write of just a ``reason`` persists the bare
+    scalar ``trace_deferred: <reason>`` unchanged. Supplying any of
+    ``review_after``/``decided_at``/``decided_by`` switches to the structured
+    dict form carrying that expiring/attestation metadata (Inc 6 Task 3).
+    """
     reason = _require_reason(reason)
     post = frontmatter.load(str(path))
-    post["trace_deferred"] = reason
+    if review_after is None and decided_at is None and decided_by is None:
+        post["trace_deferred"] = reason
+    else:
+        structured = {"reason": reason}
+        if review_after is not None:
+            structured["review_after"] = review_after
+        if decided_at is not None:
+            structured["decided_at"] = decided_at
+        if decided_by is not None:
+            structured["decided_by"] = decided_by
+        post["trace_deferred"] = structured
     path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
 

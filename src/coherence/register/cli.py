@@ -165,20 +165,26 @@ def cmd_bind(
     return f"{req_id}  bound to {harness_desc}: {metric} {assert_expr}"
 
 
-def cmd_defer(requirements_dir: Path, req_id: str, reason: str) -> str:
+def cmd_defer(requirements_dir: Path, req_id: str, reason: str, *, review_after: str | None = None) -> str:
     path = requirements_dir / f"{req_id}.md"
     if not path.exists():
         return f"not found: {req_id}"
     try:
-        write_deferral(path, reason)
+        write_deferral(path, reason, review_after=review_after)
     except ReasonRequiredError:
         return f"{req_id}: a reason is required to defer"
+    if review_after:
+        return f"{req_id}  deferred until {review_after}: {reason}"
     return f"{req_id}  deferred: {reason}"
 
 
 def _deferred_reason(req: Requirement) -> str | None:
-    reason = frontmatter.load(str(req.path)).get("trace_deferred")
-    return str(reason) if reason else None
+    from coherence.deferrals import parse_deferral
+
+    raw = frontmatter.load(str(req.path)).get("trace_deferred")
+    if raw is None:
+        return None
+    return parse_deferral(raw).reason
 
 
 def _linked_task_status(tasks: list[Task], req_id: str) -> str | None:
@@ -297,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     p_defer = sub.add_parser("defer", parents=[common])
     p_defer.add_argument("id")
     p_defer.add_argument("--reason", required=True)
+    p_defer.add_argument("--review-after", default=None)
 
     p_check = sub.add_parser("check")
     p_check.add_argument("--project-root", default=Path("."), type=Path)
@@ -330,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     elif args.cmd == "defer":
-        print(cmd_defer(args.requirements_dir, args.id, args.reason))
+        print(cmd_defer(args.requirements_dir, args.id, args.reason, review_after=args.review_after))
     elif args.cmd == "check":
         text, code = cmd_check(args.project_root)
         print(text)
