@@ -99,25 +99,31 @@ Run:
 
 ### Task 4: Compute inbox and route blocked freshness
 
-- [ ] **Step 1: Write source collector tests.**
+- [x] **Step 1: Write source collector tests.**  (tests/unit/coherence/test_inbox.py, test_staleness_routing.py)
 
 Build fixtures for coverage reports, session review suggestions, KB candidates, expired deferrals, and stale register bindings. Assert `InboxItem(id, source, kind, ref, summary, evidence, resolve_cmd: tuple[str, ...] | None, review_after)` is stable-sorted, has no duplicate ID, and creates no new file. Assert authoritative_gate staleness maps to the owning ordered `resolve_cmd` tuple unchanged and provenance_blocked maps to a blocker without resolver execution.
 
-- [ ] **Step 2: Implement pure collectors.**
+- [x] **Step 2: Implement pure collectors.**
 
 Implement coherence.inbox.list_items(root, now) reading all named sources and coherence.staleness.route(result). Inbox does not call doctor, trace, register, or KB writers; resolve_cmd is informational.
 
-- [ ] **Step 3: Integrate status and renderer.**
+- [x] **Step 3: Integrate status and renderer.**
 
 Add inbox triage and status counts from the pure items. The Pi renderer consumes DecisionFile/InboxItem JSON only. Run:
 
     rtk proxy uv run python -m pytest tests/unit/coherence/test_inbox.py tests/unit/coherence/test_staleness_routing.py tests/unit/coherence/test_deferrals.py -q
     rtk proxy npm test --prefix pi-ext/factory-watch -- review-protocol review-model coverage-run-command
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**  (5a84e27)
 
     git add src/coherence/inbox.py src/coherence/staleness.py src/coherence/status.py pi-ext/factory-watch tests/unit/coherence
     git commit -m "feat(coherence): compute triage inbox and stale routing"
+
+    Scoping note: inbox sources wired concretely = coverage gates, expired
+    deferrals, stale register bindings; staleness routing for
+    authoritative_gate/provenance_blocked. "Session review suggestions" and
+    "KB candidates" sources are under-specified in the plan text and are not
+    yet wired; the Pi renderer npm verify passed unchanged (22 tests).
 
 ### Task 5: Verify Increment 6
 
