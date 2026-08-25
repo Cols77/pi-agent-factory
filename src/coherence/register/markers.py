@@ -25,19 +25,36 @@ def _decorator_dotted(dec: ast.AST) -> str | None:
     return ".".join(reversed(parts)) if parts else None
 
 
+class MarkerCollectionError(RuntimeError):
+    """Raised when a resolved test file cannot be read or parsed as Python.
+
+    Distinct from ``SyntaxError``/``OSError`` themselves so callers can tell a
+    file that failed static inspection apart from a file that genuinely lacks
+    the marker. Carries the underlying failure in the message.
+    """
+
+
 def collect_markers(path: Path) -> set[str]:
     """Collect the exact sr marker id strings declared across a test module.
 
     Returns a deduplicated set: multiple distinct markers on one function and
     duplicate marker text across functions both collapse to a single entry per
-    string. Marker text is matched exactly as written -- no case folding or
+    id. Marker text is matched exactly as written -- no case folding or
     normalisation -- so ``SR-0001`` and ``sr-0001`` stay distinct, mirroring the
     requirement-side id comparison.
 
     Only ``@...mark.sr(...)`` decorators are considered; unrelated decorators
     (``skip``, ``parametrize``, a different ``.sr`` symbol) are ignored.
+
+    Raises :class:`MarkerCollectionError` - never the raw IO/parse exception -
+    when the file cannot be read (non-UTF8, permission/IO error -- the latter
+    subsumes ``PermissionError``) or parsed (malformed Python). Callers that
+    cannot tolerate an unreadable fixture must catch it.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SyntaxError, PermissionError) as exc:
+        raise MarkerCollectionError(f"cannot read or parse {path}: {exc}") from exc
     markers: set[str] = set()
     for node in ast.walk(tree):
         decorators = getattr(node, "decorator_list", None)
@@ -53,4 +70,4 @@ def collect_markers(path: Path) -> set[str]:
     return markers
 
 
-__all__ = ["collect_markers"]
+__all__ = ["MarkerCollectionError", "collect_markers"]

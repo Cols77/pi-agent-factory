@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from coherence.register.markers import collect_markers
+from coherence.register.markers import MarkerCollectionError, collect_markers
 from coherence.register.register import Requirement, is_checksum_current
 from substrate.freshness.model import FreshnessSeverity
 
@@ -133,7 +133,19 @@ def verify_sr_marker(req: Requirement, *, project_root: Path) -> ClosureFinding 
                 ".py test file; cannot verify an sr marker -- no marker assumed"
             ),
         )
-    if req.id in collect_markers(path):
+    try:
+        has_marker = req.id in collect_markers(path)
+    except MarkerCollectionError as exc:
+        return ClosureFinding(
+            req_id=req.id,
+            state=RequirementState.CONFIGURATION,
+            severity=FreshnessSeverity.WARNING,
+            detail=(
+                f"{req.id}: experiment file {path.name} could not be inspected "
+                f"for an sr marker: {exc}"
+            ),
+        )
+    if has_marker:
         return None
     return ClosureFinding(
         req_id=req.id,

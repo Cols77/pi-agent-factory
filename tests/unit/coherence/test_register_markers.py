@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from substrate.freshness.model import FreshnessSeverity
@@ -163,3 +164,56 @@ def test_proposed_unbound_requirement_behaviour_is_unchanged(tmp_path: Path):
         path=tmp_path / "requirements" / "SR-0006.md",
     )
     assert verify_sr_marker(proposed, project_root=tmp_path) is None
+
+
+# --------------------------------------------------------------------------
+# graceful degradation on unreadable / malformed / non-UTF8 experiment files
+# --------------------------------------------------------------------------
+
+
+def test_a_malformed_non_parseable_experiment_is_a_configuration_warning(tmp_path: Path):
+    # A resolved .py whose source is not valid Python must NOT crash the closure;
+    # it is an inspection problem, reported as a CONFIGURATION/WARNING finding.
+    experiment = "tests/test_sr_malformed.py"
+    _write_test(tmp_path, experiment, "def broken(:\n    this is not python\n")
+    req = _bound_req(tmp_path, "SR-0007", experiment)
+    finding = verify_sr_marker(req, project_root=tmp_path)
+    assert finding is not None
+    assert finding.state is RequirementState.CONFIGURATION
+    assert finding.severity is FreshnessSeverity.WARNING
+    assert "could not be inspected" in finding.detail.lower()
+
+
+def test_a_non_utf8_experiment_files_is_a_configuration_warning(tmp_path: Path):
+    # The file must satisfy the .py/is_file() pre-check, so write bytes that are
+    # valid "source" but not decodable as UTF-8 (e.g. latin-1 accents). verify
+    # must not raise and must not be treated as a healthy pass.
+    experiment = "tests/test_sr_latin1.py"
+    path = tmp_path / experiment
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"# \xE9\xE9\xE9\nS0\n")  # latin-1 bytes, not UTF-8
+    req = _bound_req(tmp_path, "SR-0008", experiment)
+    finding = verify_sr_marker(req, project_root=tmp_path)
+    assert finding is not None
+    assert finding.state is RequirementState.CONFIGURATION
+    assert finding.severity is FreshnessSeverity.WARNING
+
+
+def test_an_unreadable_experiment_file_is_a_configuration_warning_not_a_crash(tmp_path: Path):
+    # Reading a real file gives no deterministic PermissionError on git-bash /
+    # Windows (chmod 000 is not enforced), and  a directory path would not pass
+    # resolve_experiment_path's .py + is_file() pre-check (a TOCTOU gap). Force
+    # the read to fail with a PermissionError (subclass of OSError) to exercise
+    # the graceful IO path deterministically on every platform.
+    experiment = "tests/test_sr_unreadable.py"
+    _write_test(tmp_path, experiment, "def test_example():\n    assert True\n")
+    req = _bound_req(tmp_path, "SR-0009", experiment)
+    with mock.patch(
+        "pathlib.Path.read_text",
+        side_effect=PermissionError(13, "Permission denied"),
+    ):
+        finding = verify_sr_marker(req, project_root=tmp_path)
+    assert finding is not None
+    assert finding.state is RequirementState.CONFIGURATION
+    assert finding.severity is FreshnessSeverity.WARNING
+    assert "could not be inspected" in finding.detail.lower()
