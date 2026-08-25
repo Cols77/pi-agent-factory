@@ -206,18 +206,39 @@ def _frontmatter_spec_node(path: Path) -> Node:
     )
 
 
+def _has_frontmatter_block(path: Path) -> bool:
+    """Whether ``path`` carries a leading frontmatter delimiter block.
+
+    ``frontmatter.load`` collapses a genuine no-frontmatter file and an
+    explicit empty ``---`` block to the same empty metadata dict, so the two are
+    indistinguishable from parsed metadata. Ask the YAML handler directly
+    whether the raw text actually splits on a frontmatter delimiter: a file
+    that carries a block (even an empty or malformed one) is a
+    frontmatter-bearing spec and must never degrade to a legacy filename node.
+    """
+    text = _read_text_or_empty(path).strip()
+    handler = frontmatter.detect_format(text, frontmatter.handlers)
+    if handler is None:
+        return False
+    try:
+        handler.split(text)
+    except ValueError:
+        return False
+    return True
+
+
 def _spec_node(path: Path) -> Node:
     """Load a spec node, honouring the frontmatter-authoritative contract.
 
     A spec carrying frontmatter is validated against the required fields
     (``id``/``title``/``status``) and becomes the canonical node ``spec:<id>``;
-    a missing required field is an error. Only a spec with NO frontmatter block
-    at all is treated as a legacy filename-derived node (with a migration hint).
+    a missing required field (or undecodable frontmatter) is a deterministic
+    error. Only a spec with NO frontmatter block at all is treated as a legacy
+    filename-derived node (with a migration hint).
     """
-    post = _load_post(path)
-    if post is not None and post.metadata:
-        return _frontmatter_spec_node(path)
-    return _legacy_spec_node(path)
+    if not _has_frontmatter_block(path):
+        return _legacy_spec_node(path)
+    return _frontmatter_spec_node(path)
 
 
 def _glob(root: Path, *parts: str, pattern: str) -> list[Path]:

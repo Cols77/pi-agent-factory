@@ -140,6 +140,31 @@ def test_missing_title_fails_deterministically(tmp_path):
         load_nodes(tmp_path)
 
 
+def test_empty_frontmatter_block_fails_deterministically_not_legacy(tmp_path):
+    # An explicit ``---`` block with no fields is a frontmatter-bearing spec
+    # missing every required field; it must raise, never fall back to a legacy
+    # filename-derived node.
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "empty.md",
+        "---\n---\n# Empty\nno fields\n",
+    )
+
+    with pytest.raises(SpecError):
+        load_nodes(tmp_path)
+
+
+def test_malformed_frontmatter_fails_deterministically_not_legacy(tmp_path):
+    # Undecodable frontmatter is NOT a valid frontmatter spec; it must raise
+    # rather than quietly degrade to a legacy filename-derived node.
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "broken.md",
+        "---\nid: [unclosed\nstatus: accepted\n---\nbody\n",
+    )
+
+    with pytest.raises(SpecError, match="unreadable"):
+        load_nodes(tmp_path)
+
+
 def test_relation_to_an_unknown_spec_id_fails_deterministically(tmp_path):
     _coherence_spec(tmp_path)
     _plan_with_spec_field(tmp_path, "SPEC-DOES-NOT-EXIST")
