@@ -47,9 +47,13 @@ def is_pid_alive(pid: int) -> bool:
     win32/posix branching pattern (e.g. scripts/gates/ext.py's npm.cmd)."""
     if sys.platform == "win32":
         result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
-        return str(pid) in result.stdout
+        return str(pid) in (result.stdout or "")
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

@@ -12,7 +12,6 @@ from factory.orchestrator.backends import (
     GATE_NOT_APPLICABLE,
     ConfigGateRunner,
     GateRun,
-    PYTEST_NO_TESTS_COLLECTED,
 )
 
 pytestmark = pytest.mark.unit
@@ -143,8 +142,13 @@ def test_first_failure_short_circuits_run_detail_too(tmp_path):
 
 
 def test_exit_five_is_a_pass_in_run_detail_too(tmp_path):
+    # pytest returns 5 for "no tests collected" -- a declared gate that matches
+    # nothing must not be a false red. Must be a real `pytest` command for exit 5
+    # to be normalized (mirrors test_exit_five_from_pytest_is_a_pass in
+    # test_config_gate_runner.py); a bare non-pytest exit-5 is a genuine failure.
+    no_tests = GateStep(cmd=f"{sys.executable} -m pytest -q")
     runner = ConfigGateRunner(
-        tmp_path, {"sim": [_fail(PYTEST_NO_TESTS_COLLECTED), _ok("still runs")]},
+        tmp_path, {"sim": [no_tests, _ok("still runs")]},
         log_dir=tmp_path / "logs",
     )
     detail = runner.run_detail("sim")
