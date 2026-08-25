@@ -4,6 +4,7 @@ import sys
 from collections.abc import Sequence
 
 from coherence.audit.cli import main as audit_main
+from coherence.course.cli import main as course_main
 from coherence.doctor.cli import main as doctor_main
 from coherence.explain import main as explain_main
 from coherence.focus import main as focus_main
@@ -18,6 +19,7 @@ from coherence.status import main as status_main
 from coherence.trace.cli import main as trace_main
 
 GROUPS = {
+    "course": course_main,
     "trace": trace_main,
     "register": register_main,
     "doctor": doctor_main,
