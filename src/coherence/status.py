@@ -481,9 +481,18 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001 -- a run-projection fault must not break the snapshot
             payload["runs"] = []
         print(json.dumps(payload, indent=2))
+        # Under --json, a successfully-rendered snapshot is a SUCCESS (exit 0)
+        # regardless of gate state. The exit code is machine-readout semantics
+        # (1 = failing gates) meant for the human/tty/CI gate path; the JSON
+        # payload already carries `exit_code`/`primary.outcome`, so consumers
+        # read the state from the payload, never from the process exit code.
+        # Failing on exit-1 here would make the TS bridge
+        # (factory-watch/src/cli-runner.ts) drop a perfectly good snapshot as
+        # `ok:false`, hiding the menu exactly when it exists to help.
+        return 0
     else:
         print(_render_snapshot(snapshot))
-    return snapshot.exit_code
+        return snapshot.exit_code
 
 
 __all__ = [

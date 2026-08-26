@@ -13,7 +13,21 @@ describe("buildCoherenceRouteCommand", () => {
   test("invokes the modern coherence module directly, with the text as a positional arg", () => {
     expect(buildCoherenceRouteCommand("verify sr:SR-001")).toEqual({
       bin: "uv",
-      args: ["run", "python", "-m", "coherence", "route", "verify sr:SR-001", "--json"],
+      // flags precede the `--` separator; the free text is always the
+      // positional after it, so a text beginning with `-` cannot be swallowed
+      // as an argparse option (see regression test below).
+      args: ["run", "python", "-m", "coherence", "route", "--json", "--", "verify sr:SR-001"],
+    });
+  });
+
+  test("emits the `--` separator so a dash-leading text is a positional, not an option (F3 regression)", () => {
+    expect(buildCoherenceRouteCommand("-weird arg")).toEqual({
+      bin: "uv",
+      args: ["run", "python", "-m", "coherence", "route", "--json", "--", "-weird arg"],
+    });
+    expect(buildCoherenceRouteCommand("--help")).toEqual({
+      bin: "uv",
+      args: ["run", "python", "-m", "coherence", "route", "--json", "--", "--help"],
     });
   });
 });
@@ -36,7 +50,7 @@ describe("loadCoherenceRoute", () => {
     loadCoherenceRoute("/repo", "some text");
     expect(spawnSync).toHaveBeenCalledWith(
       "uv",
-      ["run", "python", "-m", "coherence", "route", "some text", "--json"],
+      ["run", "python", "-m", "coherence", "route", "--json", "--", "some text"],
       expect.objectContaining({ cwd: "/repo" }),
     );
   });

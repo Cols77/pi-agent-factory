@@ -415,13 +415,56 @@ describe("/using-coherence (argument-present routing)", () => {
   });
 
   test("sends no model message on the classified path", async () => {
-    vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
-    vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_ROUTE } });
-    const { commands } = capture();
-    const ctx = fakeCtx();
+      vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+      vi.mocked(loadCoherenceRoute).mockReturnValue({ ok: true, value: { route: MATCHED_ROUTE } });
+      const { commands } = capture();
+      const ctx = fakeCtx();
 
-    await commands.get("using-coherence")!.handler("let's build this", ctx);
+      await commands.get("using-coherence")!.handler("let's build this", ctx);
 
-    expect(ctx.newSession).not.toHaveBeenCalled();
+      expect(ctx.newSession).not.toHaveBeenCalled();
+    });
+
+    test("a shape-drifted status payload missing `primary` errors out the handler cleanly instead of throwing (F2)", async () => {
+      // Force the loaders to hand back a payload that parses as JSON but lacks
+      // the `primary` field the render path depends on. Pre-fix this threw inside
+      // formatCoherenceWidget and swallowed the menu entirely; post-fix it must
+      // produce a clean error notify.
+      vi.mocked(loadCoherenceStatus).mockReturnValue({
+        ok: true,
+        value: { lines: [], exit_code: 1 } as unknown as StatusSnapshot,
+      });
+      const { commands } = capture();
+      const ctx = fakeCtx();
+
+      await commands.get("using-coherence")!.handler("", ctx);
+
+      expect(ctx.ui.notify).toHaveBeenCalledWith(
+        expect.stringContaining("missing a primary line"),
+        "error",
+      );
+      expect(ctx.ui.setWidget).not.toHaveBeenCalled();
+    });
+
+    test("a route payload of `{route: undefined}` shape falls through to the menu, not a throw (F2)", async () => {
+      vi.mocked(loadCoherenceStatus).mockReturnValue({ ok: true, value: SNAPSHOT });
+      // Simulate shape-drift: the bridge parsed an object whose `route` is
+      // `undefined` (not `null`). Strict `!== null` treated this as a real route
+      // and threw in formatRouteClassification; the loose guard must fall back to
+      // the plain menu.
+      vi.mocked(loadCoherenceRoute).mockReturnValue({
+        ok: true,
+        value: { route: undefined as unknown as RouteMatch },
+      });
+      const { commands } = capture();
+      const ctxArg = fakeCtx();
+      const ctxNoArg = fakeCtx();
+
+      await commands.get("using-coherence")!.handler("some text", ctxArg);
+      await commands.get("using-coherence")!.handler("", ctxNoArg);
+
+      expect(ctxArg.ui.notify).toHaveBeenCalled();
+      const notifiedWithArg = vi.mocked(ctxArg.ui.notify).mock.calls[0]?.[0] as string;
+      expect(notifiedWithArg).toContain(NOT_THAT_PICK_FROM_MENU); // menu rendered, no throw
+    });
   });
-});
