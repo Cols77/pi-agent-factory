@@ -102,10 +102,19 @@ export function registerCoherenceCommand(pi: PiApi): void {
         return;
       }
       const snapshot = result.value;
+      // Guard against a shape-drifted payload (reviewer-B F2): if `primary`
+      // is absent, error-notify rather than throwing mid-render and hiding the menu.
+      if (!snapshot.primary?.outcome) {
+        ctx.ui.notify("/using-coherence: status payload was missing a primary line", "error");
+        return;
+      }
       ctx.ui.setWidget(COHERENCE_WIDGET_KEY, formatCoherenceWidget(snapshot));
 
       const menuLines = formatCoherenceMenu(snapshot);
-      const lines = route !== null ? [...formatRouteClassification(route), "", ...menuLines] : menuLines;
+      // Loose `!= null` (not strict `!== null`): a shape-drift payload that
+      // yields `route === undefined` must not be treated as a real route and
+      // throw in formatRouteClassification — fall through to the plain menu.
+      const lines = route != null ? [...formatRouteClassification(route), "", ...menuLines] : menuLines;
       ctx.ui.notify(lines.join("\n"), "info");
     },
   });

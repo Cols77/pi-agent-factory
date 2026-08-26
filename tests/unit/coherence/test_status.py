@@ -567,6 +567,44 @@ def test_main_human_render_shows_primary_and_all_probes(tmp_path: Path, capsys):
         assert source in out
 
 
+def test_main_json_returns_exit_0_even_when_gates_are_failing(tmp_path, monkeypatch, capsys):
+    """Regression for the F1 exit-code bug: `coherence status --json` must exit 0
+    whenever it renders a snapshot successfully, even if that snapshot reports
+    failing gates. A non-zero exit here made the factory-watch TS bridge drop the
+    payload as ok:false and hide the /using-coherence menu exactly when it exists
+    to help (failing gates are the normal, attention-worthy state)."""
+    import coherence.status as status_mod
+    from coherence.status import main
+
+    failing = snapshot_from_lines(
+        (
+            _line("trace", "failing_gate"),
+            _line("inbox", "pending_inbox"),
+        )
+    )
+    monkeypatch.setattr(status_mod, "status_snapshot", lambda project_root: failing)
+
+    code = main(["--project-root", str(tmp_path), "--json"])
+    assert code == 0  # must be 0: the snapshot rendered fine, gates are data not failure
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["primary"]["outcome"] == "failing_gate"
+    assert payload["exit_code"] == 1  # the state is still reported inside the payload
+
+
+def test_main_human_mode_still_exits_nonzero_on_failing_gates(tmp_path, monkeypatch):
+    """Human/tty mode must KEEP gate semantics (exit 1 on failing gates) -- only
+    --json relaxed. Fix F1 must not erase the signal that gates are failing for
+    the interactive/shell-path consumer."""
+    import coherence.status as coherence_mod
+    from coherence.status import main
+
+    failing = snapshot_from_lines((_line("audit", "stale_audit"),))
+    monkeypatch.setattr(coherence_mod, "status_snapshot", lambda project_root: failing)
+
+    code = main(["--project-root", str(tmp_path)])
+    assert code == 1
+
+
 def test_coherence_status_is_registered_in_the_group_dispatcher():
     from coherence import cli
 

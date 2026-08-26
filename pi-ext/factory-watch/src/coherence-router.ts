@@ -20,7 +20,11 @@ export interface RouteResult {
 // established way this extension reaches a Python CLI (a subprocess call,
 // never an embedded reimplementation of `route_text` in TypeScript).
 export function buildCoherenceRouteCommand(text: string): { bin: string; args: string[] } {
-  return { bin: "uv", args: ["run", "python", "-m", "coherence", "route", text, "--json"] };
+  // `--` separator so a free-text argument that begins with `-` (e.g.
+  // `/using-coherence --help ...`) is still treated as the positional `text`
+  // by argparse instead of being swallowed as an unknown option (exit 2, no
+  // JSON). The flags precede the separator; nothing after `--` is option-like.
+  return { bin: "uv", args: ["run", "python", "-m", "coherence", "route", "--json", "--", text] };
 }
 
 export function loadCoherenceRoute(cwd: string, text: string): CliResult<RouteResult> {
