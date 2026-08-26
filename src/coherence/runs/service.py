@@ -76,19 +76,28 @@ def _blocking_for(
             continue
         for ob in obligations:
             if (
-                ob.kind in ("verification_result", "human_review")
+                ob.kind in ("verification_result", "human_review", "test_marker")
                 and ob.requiredness == "blocking"
                 and ob.state != "satisfied"
             ):
                 candidates.append((req_id, ob))
     if not candidates:
         return None, None, False
-    # verification_result wins over human_review (it is the auto-rerunnable one;
-    # a human_review winner must never auto-rerun). Within a kind, deterministic
-    # first pick by (scope_ref, obligation id).
+    # Deterministic precedence over competing blocking obligations:
+    #   verification_result > human_review > test_marker.
+    # verification_result is the only auto-rerunnable kind, so it must win the
+    # tiebreak to ever offer a rerun; human_review and test_marker both need an
+    # external decision/work item and must never auto-rerun, so they sit behind
+    # it. _KIND_PRIORITY yields a total order (any unrecognized kind ranks last),
+    # and within a kind the first pick is fixed by (scope_ref, obligation id).
+    _KIND_PRIORITY = {
+        "verification_result": 0,
+        "human_review": 1,
+        "test_marker": 2,
+    }
     candidates.sort(
         key=lambda item: (
-            item[1].kind != "verification_result",
+            _KIND_PRIORITY.get(item[1].kind, 99),
             item[1].scope_ref,
             item[1].id,
         )
