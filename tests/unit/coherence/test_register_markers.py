@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from substrate.freshness.model import FreshnessSeverity
+from substrate.freshness.model import FreshnessSeverity, GATE_FAILING_SEVERITIES
 
 from coherence.policy.compiler import compile_obligations
 from coherence.register import markers
@@ -132,10 +132,10 @@ def test_collect_markers_ignores_unrelated_decorators(tmp_path: Path):
 #
 # The missing-marker severity is NOT re-derived by the closure check from a raw
 # profile string. It is read OFF the compiled `test_marker` obligation for the
-# SR's scope (Task 6 addendum): the project-default `prototype` profile compiles
-# to requiredness "required"; a `high_assurance` frontmatter override compiles
-# to "blocking". Both assertions compare the finding's severity to the obligation
-# built at that same scope.
+# SR's scope (Task 6 addendum), mapped to a FreshnessSeverity member: the
+# project-default `prototype` profile compiles to requiredness "required" ->
+# FreshnessSeverity.WARNING (visible, non-gating); a `high_assurance` frontmatter
+# override compiles to "blocking" -> FreshnessSeverity.BLOCKING (gates).
 
 
 def _test_marker_requiredness(root: Path, sr_id: str) -> str:
@@ -155,11 +155,13 @@ def test_a_bound_sr_without_the_marker_is_required_under_the_default_profile(tmp
     finding = verify_sr_marker(req, project_root=tmp_path)
     assert finding is not None
     assert finding.req_id == "SR-0001"
-    # Severity comes from the SAME compiled test_marker obligation, not an
-    # independent re-derivation of the raw profile string.
+    # The compiled requiredness string "required" is mapped to a FreshnessSeverity
+    # member (WARNING), which is NOT in GATE_FAILING_SEVERITIES -- visible but
+    # non-gating.
     assert _test_marker_requiredness(tmp_path, "SR-0001") == "required"
-    assert finding.severity == _test_marker_requiredness(tmp_path, "SR-0001")
-    assert finding.severity == "required"
+    assert finding.severity is FreshnessSeverity.WARNING
+    assert finding.severity is not None
+    assert finding.severity not in GATE_FAILING_SEVERITIES
     assert finding.state is RequirementState.PENDING
     assert "marker" in finding.detail.lower()
 
@@ -175,9 +177,11 @@ def test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_prof
     finding = verify_sr_marker(req, project_root=tmp_path)
     assert finding is not None
     assert finding.req_id == "SR-0010"
-    assert finding.severity == FreshnessSeverity.BLOCKING
-    assert finding.severity == _test_marker_requiredness(tmp_path, "SR-0010")
-    assert finding.severity == "blocking"
+    # The compiled requiredness string "blocking" is mapped to the BLOCKING
+    # FreshnessSeverity member, which IS in GATE_FAILING_SEVERITIES (gates).
+    assert _test_marker_requiredness(tmp_path, "SR-0010") == "blocking"
+    assert finding.severity is FreshnessSeverity.BLOCKING
+    assert finding.severity in GATE_FAILING_SEVERITIES
     assert finding.state is RequirementState.PENDING
     assert "marker" in finding.detail.lower()
 
@@ -197,6 +201,43 @@ def test_a_bound_sr_under_an_uncompiled_profile_skips_the_finding_and_degrades(t
     assert errors, "the degrade/errors channel must carry the uncompiled-profile message"
     assert any("exploration" in e for e in errors)
     assert any("not yet compiled" in e or "uncompiled" in e for e in errors)
+
+
+def test_an_uncompiled_profile_without_an_errors_channel_surfaces_the_skip_as_a_finding(tmp_path: Path):
+    # When NO errors channel is supplied, the UncompiledPresetError skip must
+    # NOT be silently discarded: it is surfaced as a visible non-gating finding
+    # so a skipped marker-check is never invisible (fail-closed intent).
+    experiment = "tests/test_sr_explore_none.py"
+    _write_test(tmp_path, experiment, "def test_example():\n    assert True\n")
+    _write_sr(tmp_path, "SR-0012", experiment, profile="exploration")
+    req = _bound_req(tmp_path, "SR-0012", experiment)
+    finding = verify_sr_marker(req, project_root=tmp_path)
+    assert finding is not None, "the skip must be surfaced, never swallowed"
+    assert finding.req_id == "SR-0012"
+    # Non-gating diagnostic: severity None keeps it out of GATE_FAILING_SEVERITIES.
+    assert finding.severity is None
+    assert finding.severity not in GATE_FAILING_SEVERITIES
+    assert finding.state is RequirementState.CONFIGURATION
+    assert "skipped" in finding.detail.lower()
+    assert "exploration" in finding.detail
+
+
+def test_a_not_applicable_requiredness_maps_to_a_non_gating_none_severity(tmp_path: Path):
+    # An obligation whose requiredness is "not_applicable" must map to a None
+    # severity (visible but non-gating) -- never to a raw string that could
+    # mis-gate a GATE_FAILING_SEVERITIES consumer.
+    experiment = "tests/test_sr_na.py"
+    _write_test(tmp_path, experiment, "def test_example():\n    assert True\n")
+    _write_sr(tmp_path, "SR-0013", experiment)
+    req = _bound_req(tmp_path, "SR-0013", experiment)
+    with mock.patch(
+        "coherence.register.closure._test_marker_requiredness",
+        return_value="not_applicable",
+    ):
+        finding = verify_sr_marker(req, project_root=tmp_path)
+    assert finding is not None
+    assert finding.severity is None
+    assert finding.severity not in GATE_FAILING_SEVERITIES
 
 
 def test_a_matching_sr_marker_produces_no_finding(tmp_path: Path):

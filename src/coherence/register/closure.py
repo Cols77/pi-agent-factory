@@ -28,11 +28,11 @@ class ClosureFinding:
     state: RequirementState
     # None for every healthy state: a healthy finding is not a problem report,
     # and giving it a severity would force every consumer to filter one out.
-    # Other findings carry a FreshnessSeverity member (a str subclass); the
-    # missing-marker finding (Task 6 addendum) carries the compiled test_marker
-    # obligation's requiredness string ("required"/"blocking") read off that
-    # obligation -- never a value the closure check re-derives from a raw
-    # profile string.
+    # Other findings carry a FreshnessSeverity member (a str subclass) mapped
+    # from the compiled `test_marker` obligation's requiredness -- never a raw
+    # string nor a value the closure check re-derives from a profile string.
+    # The degraded marker-check diagnostic (UncompiledPresetError skip with no
+    # errors channel) also uses a None severity so it is visible but non-gating.
     severity: str | None
     detail: str
 
@@ -140,18 +140,28 @@ def verify_sr_marker(
     * experiment resolves to an existing ``.py`` test file with the matching
       marker -- ``None`` (healthy).
     * experiment resolves to a ``.py`` file WITHOUT the matching marker -- a
-      finding whose severity is read OFF the compiled ``test_marker``
-      obligation's requiredness for the SR's scope (Task 6 addendum), not a
-      value re-derived from a raw profile string.
+      finding whose severity is the compiled ``test_marker`` obligation's
+      requiredness for the SR's scope (Task 6 addendum) mapped to a
+      ``FreshnessSeverity`` member (``"required"`` -> WARNING,
+      ``"blocking"`` -> BLOCKING, ``"not_applicable"`` -> None),
+      never a raw string value.
     * experiment is a command / non-file -- a CONFIGURATION finding; the closure
       never invents a marker result it could not inspect.
 
     On an ``UncompiledPresetError`` (Increment 2B -- an exploration/product
     profiled scope), the check does NOT silently fall back to the project
-    default: it appends a message to ``errors`` (gaining a bare ``list[str]``
-    channel when none was supplied) and skips the finding entirely rather than
-    fabricating a severity for a profile the compiler could not resolve.
+    default: when an ``errors`` list is supplied, the message is appended there
+    and the finding is skipped; when no channel is supplied, the SKIP is still
+    surfaced as a visible None-severity finding so a skipped marker check is
+    never silently discarded.
     """
+    # NOTE (deferred integration): verify_sr_marker is currently an API-level
+    # check consumed by unit tests only. Wiring it into `coherence register
+    # check` (or any gating consumer) is a DOCUMENTED deferred integration item:
+    # the missing-marker finding (kind="test_marker") must gate on the compiled
+    # requiredness consumed from the compiler, mapped to FreshnessSeverity as
+    # done below. Do NOT wire it into register check / runs as part of a hygiene
+    # pass.
     if req.binding is None:
         return None
     path = resolve_experiment_path(req.binding.experiment, project_root=project_root)
@@ -182,14 +192,34 @@ def verify_sr_marker(
     try:
         requiredness = _test_marker_requiredness(req.id, project_root=project_root)
     except UncompiledPresetError as exc:
-        if errors is None:
-            errors = []
-        errors.append(f"{req.id}: marker-closure check skipped: {exc}")
-        return None
+        skip_reason = f"{req.id}: marker-closure check skipped: {exc}"
+        if errors is not None:
+            # A channel was supplied: keep the degrade path, append the message
+            # so the caller sees exactly why the check was skipped.
+            errors.append(skip_reason)
+            return None
+        # No errors channel supplied. Do NOT swallow the skip: surface it as a
+        # visible non-gating diagnostic so a skipped marker check is never
+        # invisible to a caller that did not pass an errors list.
+        return ClosureFinding(
+            req_id=req.id,
+            state=RequirementState.CONFIGURATION,
+            severity=None,
+            detail=skip_reason,
+        )
+    # Map the compiled requiredness to a proper FreshnessSeverity member so a
+    # consumer gating on GATE_FAILING_SEVERITIES never sees a raw string slip
+    # through ("blocking" -> BLOCKING). Unknown values degrade to None (visible
+    # but non-gating) rather than mis-gating.
+    severity = {
+        "blocking": FreshnessSeverity.BLOCKING,
+        "required": FreshnessSeverity.WARNING,
+        "not_applicable": None,
+    }.get(requiredness)
     return ClosureFinding(
         req_id=req.id,
         state=RequirementState.PENDING,
-        severity=requiredness,
+        severity=severity,
         detail=(
             f"{req.id}: experiment file {path.name} has no "
             f"@pytest.mark.sr({req.id!r}) marker"
