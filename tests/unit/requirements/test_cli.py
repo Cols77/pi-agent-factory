@@ -542,7 +542,7 @@ def test_check_fails_on_an_integrity_finding_not_just_a_blocking_one(tmp_path, m
         req_id="SR-001", state=RequirementState.PENDING,
         severity=FreshnessSeverity.INTEGRITY, detail="SR-001: integrity",
     )
-    monkeypatch.setattr(cli_mod, "_findings", lambda _root: [(req, finding)])
+    monkeypatch.setattr(cli_mod, "_findings", lambda _root, **_kwargs: [(req, finding)])
     report, code = cmd_check(tmp_path)
     assert code == 1, "the more severe tier must not pass the gate silently"
     assert "SR-001" in report
@@ -587,3 +587,91 @@ def test_next_names_the_first_undecided_requirement(tmp_path):
 def test_next_says_so_when_nothing_is_open(tmp_path):
     (tmp_path / "requirements").mkdir()
     assert "nothing" in cmd_next(tmp_path).lower()
+
+
+def _bound_sr_marker_fixture(
+    tmp_path, *, req_id="SR-001", experiment="tests/test_sr.py", profile=None, marker=False,
+):
+    """Write a bound SR with a current checksum and (optionally) a real .py
+    experiment file, so cmd_check's SR test-marker closure wiring is exercised
+    end-to-end rather than against fake classify inputs."""
+    (tmp_path / "requirements").mkdir(parents=True)
+    profile_line = f"profile: {profile}\n" if profile else ""
+    (tmp_path / "requirements" / f"{req_id}.md").write_text(
+        "---\n"
+        f"id: {req_id}\n"
+        "title: Bound requirement\n"
+        "statement: When X, the system shall do Y.\n"
+        "domain: behavioral\n"
+        f"{profile_line}"
+        "binding:\n"
+        f"  experiment: {experiment}\n"
+        "  metric: unit_pass_rate\n"
+        "  assert: '>= 0.90'\n"
+        "  harness: sim-testbench\n"
+        "  trials: 1\n"
+        "checksum: null\n"
+        "---\n"
+        "Rationale.\n",
+        encoding="utf-8",
+    )
+    cmd_index(tmp_path / "requirements")
+    if experiment.endswith(".py"):
+        test_path = tmp_path / experiment
+        test_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_line = f'@pytest.mark.sr("{req_id}")\n' if marker else ""
+        test_path.write_text(
+            f"import pytest\n\n{marker_line}def test_x():\n    assert True\n",
+            encoding="utf-8",
+        )
+
+
+def test_check_gates_a_bound_sr_missing_its_marker_on_a_blocking_profile(tmp_path):
+    _bound_sr_marker_fixture(tmp_path, profile="high_assurance", marker=False)
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 1, "a missing sr marker on a blocking profile must fail the gate"
+    assert "1 measured-passing" in report, "the classify finding still shows"
+    assert "marker" in report.lower()
+    assert "@pytest.mark.sr" in report
+
+
+def test_check_does_not_flag_an_sr_whose_marker_is_present(tmp_path):
+    _bound_sr_marker_fixture(tmp_path, marker=True)
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "1 measured-passing" in report
+    assert "marker" not in report.lower(), "a present marker adds no finding"
+
+
+def test_check_surfaces_a_command_experiment_as_a_non_gating_configuration_warning(tmp_path):
+    _bound_sr_marker_fixture(tmp_path, experiment="patrol")
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "a command experiment is a configuration warning, never a blocker"
+    assert "1 measured-passing" in report
+    assert "patrol" in report
+    assert "unmeasurable" in report.lower(), "the configuration warning is visible in the report"
+
+
+def test_check_surfaces_an_uncompiled_marker_skip_instead_of_silently_swallowing_it(tmp_path):
+    _bound_sr_marker_fixture(tmp_path, profile="exploration")
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "a skipped marker check under an uncompiled profile must not gate"
+    assert "marker-closure skips" in report
+    assert "skipped" in report.lower()
+    assert "exploration" in report

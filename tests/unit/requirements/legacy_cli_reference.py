@@ -101,31 +101,56 @@ def _render(root: Path, command: str) -> tuple[str, int]:
     if command == "defer":
         return "SR-001  deferred: blocked by the next test window\n", 0
     if command == "check":
-        if state in {"proposed", "bound-current", "stale"}:
-            detail = (
-                "SR-001: binding checksum is stale; re-bind to refresh it"
-                if state == "stale"
-                else "SR-001: no measurement, task, or deferral accounts for this requirement"
-            )
+        # The runtime `coherence register check` now also runs the SR test-marker
+        # closure check. The parity fixture's only bound experiment is `patrol` (a
+        # command, not a readable .py test file), so every bound state gains exactly
+        # one CONFIGURATION/WARNING marker finding: `unmeasurable` becomes 1 and the
+        # closure counts 2 findings (classify + marker). Proposed stays unchanged.
+        config_warning = (
+            f"  ~ {'SR-001':<10} SR-001: experiment 'patrol' is not an existing "
+            ".py test file; cannot verify an sr marker -- no marker assumed"
+        )
+        if state == "proposed":
             summary = "1 pending, 0 unmeasurable, 0 measured-passing, 0 measured-failing, 0 declined (0 with no binding)"
             return (
                 "requirements closure: 1 requirement(s) evaluated\n"
                 f"{summary}\n\n"
                 "undecided requirements (the gate fails on these):\n"
+                f"  ! {'SR-001':<10} SR-001: no measurement, task, or deferral accounts for this requirement\n"
+            ), 1
+        if state in {"bound-current", "stale"}:
+            detail = (
+                "SR-001: binding checksum is stale; re-bind to refresh it"
+                if state == "stale"
+                else "SR-001: no measurement, task, or deferral accounts for this requirement"
+            )
+            summary = "1 pending, 1 unmeasurable, 0 measured-passing, 0 measured-failing, 0 declined (0 with no binding)"
+            return (
+                "requirements closure: 2 requirement(s) evaluated\n"
+                f"{summary}\n\n"
+                "undecided requirements (the gate fails on these):\n"
                 f"  ! {'SR-001':<10} {detail}\n"
+                "\nunmeasurable \u2014 warned, not blocking:\n"
+                f"{config_warning}\n"
             ), 1
         if state == "deferred":
-            summary = "0 pending, 0 unmeasurable, 0 measured-passing, 0 measured-failing, 1 declined (0 with no binding)"
-            return "requirements closure: 1 requirement(s) evaluated\n" f"{summary}\n", 0
+            summary = "0 pending, 1 unmeasurable, 0 measured-passing, 0 measured-failing, 1 declined (0 with no binding)"
+            return (
+                "requirements closure: 2 requirement(s) evaluated\n"
+                f"{summary}\n"
+                "\nunmeasurable \u2014 warned, not blocking:\n"
+                f"{config_warning}\n"
+            ), 0
         passing = int(state == "measured-passing")
         failing = int(state == "measured-failing")
-        summary = f"0 pending, 0 unmeasurable, {passing} measured-passing, {failing} measured-failing, 0 declined (0 with no binding)"
-        report = "requirements closure: 1 requirement(s) evaluated\n" f"{summary}\n"
+        summary = f"0 pending, 1 unmeasurable, {passing} measured-passing, {failing} measured-failing, 0 declined (0 with no binding)"
+        report = "requirements closure: 2 requirement(s) evaluated\n" f"{summary}\n"
         if failing:
             report += (
-                "\nmeasured failing — decided and measured; the system does not meet these:\n"
+                "\nmeasured failing \u2014 decided and measured; the system does not meet these:\n"
                 f"  x {'SR-001':<10} SR-001: measured failing\n"
             )
+        report += "\nunmeasurable \u2014 warned, not blocking:\n" f"{config_warning}\n"
         return report, 0
     if command == "next":
         if state in {"proposed", "bound-current", "stale"}:

@@ -7,7 +7,12 @@ from pathlib import Path
 
 import frontmatter
 
-from coherence.register.closure import ClosureFinding, RequirementState, classify
+from coherence.register.closure import (
+    ClosureFinding,
+    RequirementState,
+    classify,
+    verify_sr_marker,
+)
 from coherence.register.register import (
     Requirement,
     content_checksum,
@@ -210,26 +215,47 @@ def _validation_state(manifests: list[dict], req_id: str) -> str | None:
     return None
 
 
-def _findings(project_root: Path) -> list[tuple[Requirement, ClosureFinding]]:
+def _findings(
+    project_root: Path, *, marker_errors: list[str] | None = None
+) -> list[tuple[Requirement, ClosureFinding]]:
     reqs = load_register(project_root / "requirements")
     tasks = load_tasks(project_root / "tasks")
     manifests = list_run_manifests(project_root / "evidence")
-    return [
-        (
-            req,
-            classify(
+    results: list[tuple[Requirement, ClosureFinding]] = []
+    for req in reqs:
+        results.append(
+            (
                 req,
-                validation=_validation_state(manifests, req.id),
-                linked_task_status=_linked_task_status(tasks, req.id),
-                deferred_reason=_deferred_reason(req),
-            ),
+                classify(
+                    req,
+                    validation=_validation_state(manifests, req.id),
+                    linked_task_status=_linked_task_status(tasks, req.id),
+                    deferred_reason=_deferred_reason(req),
+                ),
+            )
         )
-        for req in reqs
-    ]
+        # Wire the SR test-marker closure check into the production `check`.
+        # A bound .py experiment missing its @pytest.mark.sr marker surfaces as
+        # a finding whose severity is the compiled test_marker obligation's
+        # requiredness (BLOCKING -> gates, required -> visible WARNING); a
+        # command / non-file experiment is a CONFIGURATION/WARNING finding the
+        # closure never fabricates into a pass. cmd_check's existing
+        # partitioning already routes BLOCKING -> pending and WARNING -> warning,
+        # so no change there is required. UncompiledPresetError skips are
+        # surfaced on the errors channel below so a skipped marker check stays
+        # visible in cmd_check instead of being silently dropped.
+        skipped: list[str] = []
+        marker_finding = verify_sr_marker(req, project_root=project_root, errors=skipped)
+        if marker_errors is not None:
+            marker_errors.extend(skipped)
+        if marker_finding is not None:
+            results.append((req, marker_finding))
+    return results
 
 
 def cmd_check(project_root: Path) -> tuple[str, int]:
-    results = _findings(project_root)
+    marker_errors: list[str] = []
+    results = _findings(project_root, marker_errors=marker_errors)
     findings = [finding for _, finding in results]
     pending = [f for f in findings if f.severity in GATE_FAILING_SEVERITIES]
     warning = [f for f in findings if f.severity is FreshnessSeverity.WARNING]
@@ -255,6 +281,9 @@ def cmd_check(project_root: Path) -> tuple[str, int]:
     if warning:
         lines += ["", "unmeasurable \u2014 warned, not blocking:"]
         lines.extend(f"  ~ {f.req_id:<10} {f.detail}" for f in warning)
+    if marker_errors:
+        lines += ["", "marker-closure skips \u2014 uncompiled profile; no marker gate applied:"]
+        lines.extend(f"  ~ {message}" for message in marker_errors)
     if declined_unbound:
         lines += ["", "declined with no binding \u2014 deferred, but no measurement was ever decided:"]
         lines.extend(f"  - {f.req_id:<10} {f.detail}" for f in declined_unbound)
