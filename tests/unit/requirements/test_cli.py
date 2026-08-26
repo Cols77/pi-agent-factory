@@ -675,3 +675,18 @@ def test_check_surfaces_an_uncompiled_marker_skip_instead_of_silently_swallowing
     assert "marker-closure skips" in report
     assert "skipped" in report.lower()
     assert "exploration" in report
+
+
+def test_findings_without_an_errors_channel_do_not_silently_drop_a_marker_skip(tmp_path):
+    # cmd_next (and any other `_findings` caller that does NOT request the
+    # marker_errors channel) must still surface an uncompiled-profile marker
+    # skip as a visible non-gating finding -- never a silently dropped one.
+    from factory.requirements.closure import RequirementState
+    from factory.requirements.cli import _findings
+
+    _bound_sr_marker_fixture(tmp_path, profile="exploration")
+    results = _findings(tmp_path)
+    skipped = [f for _, f in results if "marker-closure check skipped" in f.detail]
+    assert skipped, "a caller without the errors channel must still see the skip as a finding"
+    assert skipped[0].state is RequirementState.CONFIGURATION
+    assert skipped[0].severity is None, "the surfaced skip must stay non-gating"

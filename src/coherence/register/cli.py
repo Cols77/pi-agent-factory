@@ -244,10 +244,16 @@ def _findings(
         # so no change there is required. UncompiledPresetError skips are
         # surfaced on the errors channel below so a skipped marker check stays
         # visible in cmd_check instead of being silently dropped.
-        skipped: list[str] = []
+        # Wire a caller errors channel through as verify_sr_marker's `errors`
+        # list ONLY when the caller supplied one. When no channel is requested
+        # (e.g. cmd_next), pass `errors=None` so verify_sr_marker's no-swallow
+        # contract applies: the skip is surfaced as a visible non-gating finding
+        # instead of being silently dropped into a discarded local list. A
+        # caller that renders findings must never lose a skipped marker check.
+        skipped: list[str] | None = [] if marker_errors is not None else None
         marker_finding = verify_sr_marker(req, project_root=project_root, errors=skipped)
         if marker_errors is not None:
-            marker_errors.extend(skipped)
+            marker_errors.extend(skipped or [])
         if marker_finding is not None:
             results.append((req, marker_finding))
     return results
@@ -257,6 +263,7 @@ def cmd_check(project_root: Path) -> tuple[str, int]:
     marker_errors: list[str] = []
     results = _findings(project_root, marker_errors=marker_errors)
     findings = [finding for _, finding in results]
+    n_requirements = len({req.id for req, _ in results})
     pending = [f for f in findings if f.severity in GATE_FAILING_SEVERITIES]
     warning = [f for f in findings if f.severity is FreshnessSeverity.WARNING]
     passing = [f for f in findings if f.state is RequirementState.MEASURED_PASSING]
@@ -267,7 +274,7 @@ def cmd_check(project_root: Path) -> tuple[str, int]:
     ]
 
     lines = [
-        f"requirements closure: {len(findings)} requirement(s) evaluated",
+        f"requirements closure: {n_requirements} requirement(s) evaluated",
         f"{len(pending)} pending, {len(warning)} unmeasurable, "
         f"{len(passing)} measured-passing, {len(failing)} measured-failing, "
         f"{len(declined)} declined ({len(declined_unbound)} with no binding)",

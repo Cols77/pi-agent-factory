@@ -105,7 +105,9 @@ def _render(root: Path, command: str) -> tuple[str, int]:
         # closure check. The parity fixture's only bound experiment is `patrol` (a
         # command, not a readable .py test file), so every bound state gains exactly
         # one CONFIGURATION/WARNING marker finding: `unmeasurable` becomes 1 and the
-        # closure counts 2 findings (classify + marker). Proposed stays unchanged.
+        # closure carries 2 findings (classify + marker). The header counts DISTINCT
+        # requirement ids involved, so it still reads 1 requirement(s) evaluated for
+        # the single bound SR. Proposed stays unchanged (1 finding, 1 requirement).
         config_warning = (
             f"  ~ {'SR-001':<10} SR-001: experiment 'patrol' is not an existing "
             ".py test file; cannot verify an sr marker -- no marker assumed"
@@ -126,7 +128,7 @@ def _render(root: Path, command: str) -> tuple[str, int]:
             )
             summary = "1 pending, 1 unmeasurable, 0 measured-passing, 0 measured-failing, 0 declined (0 with no binding)"
             return (
-                "requirements closure: 2 requirement(s) evaluated\n"
+                "requirements closure: 1 requirement(s) evaluated\n"
                 f"{summary}\n\n"
                 "undecided requirements (the gate fails on these):\n"
                 f"  ! {'SR-001':<10} {detail}\n"
@@ -136,7 +138,7 @@ def _render(root: Path, command: str) -> tuple[str, int]:
         if state == "deferred":
             summary = "0 pending, 1 unmeasurable, 0 measured-passing, 0 measured-failing, 1 declined (0 with no binding)"
             return (
-                "requirements closure: 2 requirement(s) evaluated\n"
+                "requirements closure: 1 requirement(s) evaluated\n"
                 f"{summary}\n"
                 "\nunmeasurable \u2014 warned, not blocking:\n"
                 f"{config_warning}\n"
@@ -144,7 +146,7 @@ def _render(root: Path, command: str) -> tuple[str, int]:
         passing = int(state == "measured-passing")
         failing = int(state == "measured-failing")
         summary = f"0 pending, 1 unmeasurable, {passing} measured-passing, {failing} measured-failing, 0 declined (0 with no binding)"
-        report = "requirements closure: 2 requirement(s) evaluated\n" f"{summary}\n"
+        report = "requirements closure: 1 requirement(s) evaluated\n" f"{summary}\n"
         if failing:
             report += (
                 "\nmeasured failing \u2014 decided and measured; the system does not meet these:\n"

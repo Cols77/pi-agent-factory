@@ -155,13 +155,17 @@ def verify_sr_marker(
     surfaced as a visible None-severity finding so a skipped marker check is
     never silently discarded.
     """
-    # NOTE (deferred integration): verify_sr_marker is currently an API-level
-    # check consumed by unit tests only. Wiring it into `coherence register
-    # check` (or any gating consumer) is a DOCUMENTED deferred integration item:
-    # the missing-marker finding (kind="test_marker") must gate on the compiled
-    # requiredness consumed from the compiler, mapped to FreshnessSeverity as
-    # done below. Do NOT wire it into register check / runs as part of a hygiene
-    # pass.
+    # NOTE (wired, gating): verify_sr_marker is now part of the PRODUCTION
+    # path, not an API-level check consumed by unit tests only. `coherence
+    # register check` (cmd_check) surfaces its findings -- a missing-marker
+    # finding on a bound .py experiment whose severity is the compiled
+    # test_marker obligation's requiredness, mapped to a FreshnessSeverity
+    # member as below (BLOCKING -> pending/gate, required -> visible WARNING) --
+    # and the runs service gates on the compiled BLOCKING test_marker
+    # obligation. Pass an `errors` list when skips must be surfaced on the
+    # caller's errors channel (cmd_check does this so a skipped marker check
+    # stays visible); when no channel is supplied the skip is surfaced as a
+    # visible non-gating finding so it is never silently dropped.
     if req.binding is None:
         return None
     path = resolve_experiment_path(req.binding.experiment, project_root=project_root)
