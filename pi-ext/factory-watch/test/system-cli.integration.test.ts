@@ -11,11 +11,18 @@ import { loadSystemBriefing, loadSystemGuide, loadSystemScopes } from "../src/sy
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 describe("system-cli against the real CLI", () => {
-  test("scope --json returns the legitimate empty state for this repo", () => {
-    // This repo currently has no bundles directory and no requirements
-    // directory, so an empty scope list is correct, not an error.
+  test("scope --json returns the current feature and bundle state for this repo", () => {
     const result = loadSystemScopes(REPO_ROOT);
-    expect(result).toEqual({ ok: true, value: { scopes: [], errors: [] } });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.errors).toEqual([]);
+      expect(result.value.scopes).toEqual(
+        expect.arrayContaining([
+          { kind: "bundle", ref: "bundle:FEAT-017" },
+          { kind: "feat", ref: "feat:FEAT-017" },
+        ]),
+      );
+    }
   }, 60_000);
 
   // "task:" is itself a scope kind `factory.system` recognizes (increment B
