@@ -1,0 +1,11 @@
+{
+  "description": "Declared bundle for feature FEAT-008 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-008",
+  "label": "GOALS-SIMULATION dossier bundle",
+  "members": [
+    "feat:FEAT-008",
+    "sr:SR-025",
+    "sr:SR-026"
+  ]
+}

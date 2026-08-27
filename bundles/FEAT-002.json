@@ -1,0 +1,14 @@
+{
+  "description": "Declared bundle for feature FEAT-002 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-002",
+  "label": "PROGRESSIVE-ASSURANCE dossier bundle",
+  "members": [
+    "feat:FEAT-002",
+    "sr:SR-008",
+    "sr:SR-009",
+    "sr:SR-010",
+    "sr:SR-011",
+    "sr:SR-048"
+  ]
+}

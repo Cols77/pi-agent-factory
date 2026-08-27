@@ -1,0 +1,11 @@
+{
+  "description": "Declared bundle for feature FEAT-004 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-004",
+  "label": "NAVIGATION-UNDERSTANDING dossier bundle",
+  "members": [
+    "feat:FEAT-004",
+    "sr:SR-015",
+    "sr:SR-016"
+  ]
+}

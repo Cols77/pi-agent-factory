@@ -1,0 +1,11 @@
+{
+  "description": "Declared bundle for feature FEAT-015 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements.",
+  "draft": true,
+  "id": "FEAT-015",
+  "label": "POLISH-FLOW dossier bundle",
+  "members": [
+    "feat:FEAT-015",
+    "sr:SR-038",
+    "sr:SR-039"
+  ]
+}

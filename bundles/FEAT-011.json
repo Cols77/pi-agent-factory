@@ -1,0 +1,11 @@
+{
+  "description": "Declared bundle for feature FEAT-011 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-011",
+  "label": "WORKFLOW-ENFORCEMENT dossier bundle",
+  "members": [
+    "feat:FEAT-011",
+    "sr:SR-031",
+    "sr:SR-032"
+  ]
+}

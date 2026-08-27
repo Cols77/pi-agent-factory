@@ -1,0 +1,12 @@
+{
+  "description": "Declared bundle for feature FEAT-009 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-009",
+  "label": "HOST-ADAPTERS dossier bundle",
+  "members": [
+    "feat:FEAT-009",
+    "sr:SR-027",
+    "sr:SR-028",
+    "sr:SR-047"
+  ]
+}

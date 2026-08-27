@@ -1,0 +1,13 @@
+{
+  "description": "Declared bundle for feature FEAT-006 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-006",
+  "label": "EVIDENCE-PROVENANCE dossier bundle",
+  "members": [
+    "feat:FEAT-006",
+    "sr:SR-019",
+    "sr:SR-020",
+    "sr:SR-021",
+    "sr:SR-022"
+  ]
+}

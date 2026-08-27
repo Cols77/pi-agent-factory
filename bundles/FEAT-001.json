@@ -1,0 +1,16 @@
+{
+  "description": "Declared bundle for feature FEAT-001 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-001",
+  "label": "REQ-TRACEABILITY dossier bundle",
+  "members": [
+    "feat:FEAT-001",
+    "sr:SR-002",
+    "sr:SR-003",
+    "sr:SR-004",
+    "sr:SR-005",
+    "sr:SR-006",
+    "sr:SR-007",
+    "sr:SR-001"
+  ]
+}

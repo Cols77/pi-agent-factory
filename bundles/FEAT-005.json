@@ -1,0 +1,13 @@
+{
+  "description": "Declared bundle for feature FEAT-005 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements.",
+  "draft": true,
+  "id": "FEAT-005",
+  "label": "HEALTH-STATUS dossier bundle",
+  "members": [
+    "feat:FEAT-005",
+    "sr:SR-017",
+    "sr:SR-018",
+    "sr:SR-045",
+    "sr:SR-046"
+  ]
+}

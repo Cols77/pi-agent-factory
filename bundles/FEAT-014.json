@@ -1,0 +1,12 @@
+{
+  "description": "Declared bundle for feature FEAT-014 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements.",
+  "draft": true,
+  "id": "FEAT-014",
+  "label": "VALIDATION-GATES dossier bundle",
+  "members": [
+    "feat:FEAT-014",
+    "sr:SR-035",
+    "sr:SR-036",
+    "sr:SR-037"
+  ]
+}
