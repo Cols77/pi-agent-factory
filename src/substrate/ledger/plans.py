@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,7 +114,7 @@ def _already_parsed_task_numbers(tasks_dir: Path, source_plan: str) -> set[int]:
     return done
 
 
-def _write_task_file(tasks_dir: Path, task_id: str, task: ParsedPlanTask, source_plan: str) -> Path:
+def _write_task_file(path: Path, task_id: str, task: ParsedPlanTask, source_plan: str) -> Path:
     dod = list(task.produces)
     dod.append(_FIXED_DOD_ITEM)
     body = f"{task.files_block}\n\nFull steps: {source_plan}, Task {task.number}.\n"
@@ -126,8 +127,17 @@ def _write_task_file(tasks_dir: Path, task_id: str, task: ParsedPlanTask, source
         source_plan=source_plan,
         source_task=task.number,
     )
-    path = tasks_dir / f"{task_id}-{_slugify(task.title)}.md"
-    path.write_text(frontmatter.dumps(post), encoding="utf-8")
+    serialized = frontmatter.dumps(post)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(serialized)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
     return path
 
 
@@ -149,11 +159,18 @@ def run(plan_path: Path, repo_root: Path) -> list[str]:
     next_n = _max_existing_id(tasks_dir) + 1
 
     created: list[str] = []
+    pending: list[tuple[str, ParsedPlanTask, Path]] = []
     for task in parsed:
         if task.number in already_done:
             continue
         task_id = f"T-{next_n:03d}"
         next_n += 1
-        _write_task_file(tasks_dir, task_id, task, source_plan)
+        path = tasks_dir / f"{task_id}-{_slugify(task.title)}.md"
+        if path.exists() or path.is_symlink():
+            raise FileExistsError(f"generated task destination already exists: {path}")
+        pending.append((task_id, task, path))
+
+    for task_id, task, path in pending:
+        _write_task_file(path, task_id, task, source_plan)
         created.append(task_id)
     return created

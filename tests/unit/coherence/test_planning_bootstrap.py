@@ -54,6 +54,37 @@ def test_bootstrap_rejects_existing_generated_task_symlink(tmp_path: Path) -> No
     assert outside.read_text(encoding="utf-8") == "do not overwrite"
 
 
+def test_bootstrap_rejects_preexisting_generated_task_collision(tmp_path: Path) -> None:
+    planning_input = _input(tmp_path)
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    existing = tasks_dir / "T-002-bootstrap.md"
+    existing.write_text("---\nid: T-001\ntitle: Existing\nstatus: todo\nsource_plan: docs/other.md\nsource_task: 99\n---\nORIGINAL\n", encoding="utf-8")
+
+    with pytest.raises(BootstrapPrerequisiteError):
+        bootstrap_planning(tmp_path, planning_input, decompose=True)
+
+    assert existing.read_text(encoding="utf-8").endswith("ORIGINAL\n")
+
+
+def test_bootstrap_rejects_hardlinked_generated_task_collision(tmp_path: Path) -> None:
+    planning_input = _input(tmp_path)
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    outside = tmp_path.parent / "planning-bootstrap-hardlink-target.md"
+    outside.write_text("---\nid: T-001\ntitle: Existing\nstatus: todo\nsource_plan: docs/other.md\nsource_task: 99\n---\nORIGINAL\n", encoding="utf-8")
+    destination = tasks_dir / "T-002-bootstrap.md"
+    try:
+        destination.hardlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("hardlinks unavailable on this platform")
+
+    with pytest.raises(BootstrapPrerequisiteError):
+        bootstrap_planning(tmp_path, planning_input, decompose=True)
+
+    assert outside.read_text(encoding="utf-8").endswith("ORIGINAL\n")
+
+
 def test_bootstrap_rejects_malformed_existing_task_frontmatter(tmp_path: Path) -> None:
     planning_input = _input(tmp_path)
     (tmp_path / "tasks").mkdir()
