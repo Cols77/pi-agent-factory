@@ -311,6 +311,44 @@ def test_four_dash_frontmatter_duplicate_keys_fail_closed(tmp_path: Path) -> Non
     assert any(finding.code == "FRONTMATTER_INVALID" for finding in report.findings)
 
 
+def test_json_frontmatter_duplicate_keys_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        "{\n"
+        "\"id\": \"intent-spec\",\n"
+        "\"id\": \"other-spec\",\n"
+        "\"title\": \"Intent Specification\",\n"
+        "\"status\": \"draft\"\n"
+        "}\n"
+        "The goal and constraint-files are covered.\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "FRONTMATTER_INVALID" for finding in report.findings)
+
+
+def test_yaml_frontmatter_nonfinite_values_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        "---\n"
+        "id: intent-spec\n"
+        "title: Intent Specification\n"
+        "status: draft\n"
+        "nonfinite: .inf\n"
+        "---\n"
+        "The goal and constraint-files are covered.\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "FRONTMATTER_INVALID" for finding in report.findings)
+
+
 def test_unsafe_spec_id_cannot_authorize_unsafe_spec_ref(tmp_path: Path) -> None:
     input_data = _write_fixture(tmp_path, complete_tasks=True)
     input_data.spec_path.write_text(

@@ -12,6 +12,10 @@ _FRONTMATTER_RE = re.compile(
     r"^-{3,}[ \t]*\r?\n(?P<header>.*?)(?:\r?\n)(?:-{3,}|\.\.\.)[ \t]*(?:\r?\n|$)",
     re.DOTALL,
 )
+_JSON_FRONTMATTER_RE = re.compile(
+    r"^\{[ \t]*\r?\n(?P<header>.*?)(?:\r?\n)\}[ \t]*(?:\r?\n|$)",
+    re.DOTALL,
+)
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -78,8 +82,15 @@ def strict_frontmatter_loads(text: str) -> frontmatter.Post:
     match = _FRONTMATTER_RE.match(text)
     if match is not None:
         metadata = yaml.load(match.group("header"), Loader=_UniqueKeyLoader)
+        _reject_nonfinite(metadata)
         if metadata is not None and not isinstance(metadata, dict):
             raise yaml.YAMLError("frontmatter must be a mapping")
+    else:
+        json_match = _JSON_FRONTMATTER_RE.match(text)
+        if json_match is not None:
+            metadata = strict_json_loads("{\n" + json_match.group("header") + "\n}")
+            if not isinstance(metadata, dict):
+                raise ValueError("frontmatter must be a mapping")
     return frontmatter.loads(text)
 
 
