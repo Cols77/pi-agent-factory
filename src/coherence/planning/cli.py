@@ -31,6 +31,8 @@ def _valid_run_id(run_id: object) -> bool:
     return (
         isinstance(run_id, str)
         and bool(run_id.strip())
+        and run_id == run_id.strip()
+        and not any(ord(char) < 32 for char in run_id)
         and run_id not in {".", ".."}
         and "/" not in run_id
         and "\\" not in run_id
@@ -192,8 +194,8 @@ def _check(args: argparse.Namespace) -> int:
     try:
         report = check_planning_input(planning_input)
         write_planning_run(root, report)
-    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        payload = _error_report(args.run_id, "CLI_ERROR", str(exc))
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+        payload = _error_report(args.run_id, "CLI_ERROR", "planning check could not be completed")
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 1
 
@@ -219,8 +221,16 @@ def _bootstrap(args: argparse.Namespace) -> int:
     try:
         report, created = bootstrap_planning(root, planning_input, decompose=args.decompose)
         write_planning_run(root, report)
-    except (BootstrapPrerequisiteError, OSError, UnicodeError, ValueError, TypeError, RuntimeError) as exc:
+    except BootstrapPrerequisiteError as exc:
         print(json.dumps(_blocked(args.run_id, "BOOTSTRAP_PREREQUISITE", str(exc)), indent=2))
+        return 1
+    except (OSError, UnicodeError, ValueError, TypeError, RuntimeError):
+        print(
+            json.dumps(
+                _blocked(args.run_id, "BOOTSTRAP_ERROR", "planning bootstrap could not be completed"),
+                indent=2,
+            )
+        )
         return 1
 
     payload = report.to_dict()
@@ -242,8 +252,11 @@ def _suggest(args: argparse.Namespace) -> int:
     if run_dir is None:
         print(json.dumps(_blocked(args.run_id, "INVALID_RUN_ID", "run_id is outside the planning directory"), indent=2))
         return 1
-    report_path = run_dir / "report.json"
-    decision_path = run_dir / "review-decision.json"
+    report_path = _safe_stored_path(run_dir, "report.json")
+    decision_path = _safe_stored_path(run_dir, "review-decision.json")
+    if report_path is None or decision_path is None:
+        print(json.dumps(_blocked(args.run_id, "REPORT_INVALID", "planning run files are outside the run directory"), indent=2))
+        return 1
     try:
         report = _read_report(report_path, args.run_id)
     except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -291,8 +304,13 @@ def _suggest(args: argparse.Namespace) -> int:
 
     try:
         suggestion = build_downstream_suggestion(report, decision, root=root)
-    except (OSError, UnicodeError, ValueError, TypeError, RuntimeError) as exc:
-        print(json.dumps(_blocked(args.run_id, "SUGGESTION_BLOCKED", str(exc)), indent=2))
+    except (OSError, UnicodeError, ValueError, TypeError, RuntimeError):
+        print(
+            json.dumps(
+                _blocked(args.run_id, "SUGGESTION_BLOCKED", "downstream suggestion could not be evaluated"),
+                indent=2,
+            )
+        )
         return 1
     if suggestion is None:
         print(

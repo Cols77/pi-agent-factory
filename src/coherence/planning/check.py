@@ -48,7 +48,7 @@ def _record_artifact(path: Path, root: Path) -> dict[str, object]:
         return record
     try:
         record["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
+    except (OSError, ValueError):
         record["sha256"] = None
     return record
 
@@ -66,6 +66,8 @@ def _read_text(path: Path, root: Path, findings: list[PlanningFinding]) -> str |
         findings.append(_finding("INPUT_READ_ERROR", subject, "source artifact does not exist"))
     except UnicodeError:
         findings.append(_finding("ARTIFACT_NOT_UTF8", subject, "source artifact is not UTF-8"))
+    except ValueError:
+        findings.append(_finding("INPUT_READ_ERROR", subject, "source artifact path is invalid"))
     except OSError:
         findings.append(_finding("ARTIFACT_UNREADABLE", subject, "source artifact could not be read"))
     return None
@@ -192,7 +194,11 @@ def _check_tasks(
         return
     mappings: dict[int, list[str]] = {}
     tasks_dir = root / "tasks"
-    task_paths = sorted(tasks_dir.glob("T-*.md"), key=lambda path: path.name) if tasks_dir.is_dir() else []
+    try:
+        task_paths = sorted(tasks_dir.glob("T-*.md"), key=lambda path: path.name) if tasks_dir.is_dir() else []
+    except (OSError, ValueError):
+        findings.append(_finding("ARTIFACT_UNREADABLE", "tasks", "generated task directory could not be read"))
+        return
     for task_path in task_paths:
         text = _read_text(task_path, root, findings)
         if text is None:

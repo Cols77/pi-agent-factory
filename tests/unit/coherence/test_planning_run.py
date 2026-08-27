@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -210,13 +212,41 @@ def test_changed_artifact_hash_blocks_approved_suggestion(
     assert build_downstream_suggestion(report, decision) is None
 
 
-def test_run_id_cannot_escape_planning_directory(tmp_path: Path) -> None:
-    from dataclasses import replace
-
+@pytest.mark.parametrize("run_id", ["../escape", "bad\x00id"])
+def test_run_id_cannot_escape_planning_directory(tmp_path: Path, run_id: str) -> None:
     report = check_planning_input(_write_fixture(tmp_path))
 
     with pytest.raises(ValueError):
-        write_planning_run(tmp_path, replace(report, run_id="../escape"))
+        write_planning_run(tmp_path, replace(report, run_id=run_id))
+
+
+def test_symlinked_artifact_outside_root_blocks_approved_suggestion(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path)
+    report = check_planning_input(input_data)
+    outside = tmp_path.parent / "planning-outside-spec.md"
+    outside.write_text(SPEC, encoding="utf-8")
+    linked = tmp_path / "docs" / "specs" / "linked-spec.md"
+    try:
+        linked.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows runner")
+
+    artifacts = tuple(
+        {
+            "path": "docs/specs/linked-spec.md" if artifact["path"] == "docs/specs/intent-spec.md" else artifact["path"],
+            "sha256": hashlib.sha256(outside.read_bytes()).hexdigest()
+            if artifact["path"] == "docs/specs/intent-spec.md"
+            else artifact["sha256"],
+        }
+        for artifact in report.artifacts
+    )
+    report = replace(report, artifacts=artifacts)
+    write_planning_run(tmp_path, report)
+    decision = _approval(report)
+
+    assert build_downstream_suggestion(report, decision, root=tmp_path) is None
+
+
 
 
 __all__ = []

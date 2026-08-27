@@ -299,4 +299,53 @@ def test_plan_bootstrap_requires_factory_configuration(
     assert payload["reason"] == "BOOTSTRAP_PREREQUISITE"
 
 
+def test_plan_suggest_rejects_approved_report_after_spec_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    intent, spec, plan = _write_fixture(tmp_path, complete=False)
+    factory_dir = tmp_path / ".factory"
+    factory_dir.mkdir()
+    (factory_dir / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
+    bootstrap_args = [
+        "plan",
+        "bootstrap",
+        "--project-root",
+        str(tmp_path),
+        "--intent",
+        str(intent),
+        "--spec",
+        str(spec),
+        "--plan",
+        str(plan),
+        "--run-id",
+        "run-001",
+        "--decompose",
+        "--json",
+    ]
+    assert main(bootstrap_args) == 0
+    bootstrap_payload = json.loads(capsys.readouterr().out)
+    decision_path = tmp_path / ".factory" / "planning" / "run-001" / "review-decision.json"
+    decision_path.write_text(json.dumps(_approval(bootstrap_payload)), encoding="utf-8")
+
+    suggest_args = [
+        "plan",
+        "suggest",
+        "--project-root",
+        str(tmp_path),
+        "--run-id",
+        "run-001",
+        "--json",
+    ]
+    assert main(suggest_args) == 0
+    suggestion = json.loads(capsys.readouterr().out)
+    assert suggestion["action"] == "suggest_downstream"
+    assert suggestion["starts_automatically"] is False
+
+    spec.write_text(spec.read_text(encoding="utf-8") + "\nChanged after review.\n", encoding="utf-8")
+    assert main(suggest_args) == 1
+    blocked = json.loads(capsys.readouterr().out)
+    assert blocked["reason"] == "SUGGESTION_BLOCKED"
+    assert blocked["suggestion"] is None
+
+
 __all__ = []

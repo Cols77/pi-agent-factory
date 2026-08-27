@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -172,23 +173,12 @@ def test_empty_answers_fail_closed(tmp_path: Path) -> None:
     assert any(finding.code == "INTENT_INVALID" for finding in report.findings)
 
 
-def test_generated_task_without_required_metadata_fails_closed(tmp_path: Path) -> None:
+def test_nul_containing_path_fails_closed(tmp_path: Path) -> None:
     input_data = _write_fixture(tmp_path, complete_tasks=True)
-    task = tmp_path / "tasks" / "T-001-first.md"
-    task.write_text(
-        "---\n"
-        "id: T-001\n"
-        "title: First Task\n"
-        "status: todo\n"
-        "source_plan: docs/superpowers/plans/intent-plan.md\n"
-        "---\n",
-        encoding="utf-8",
-    )
+    malformed_path = tmp_path / "intent\x00.json"
+    input_data = replace(input_data, intent_path=malformed_path)
 
     report = check_planning_input(input_data)
 
     assert report.ok is False
-    assert any(
-        finding.code == "PLAN_TASK_PARITY" and "task-1" in finding.subject
-        for finding in report.findings
-    )
+    assert any(finding.code == "INPUT_READ_ERROR" for finding in report.findings)

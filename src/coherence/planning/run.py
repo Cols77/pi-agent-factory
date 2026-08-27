@@ -27,6 +27,8 @@ def _valid_run_id(run_id: object) -> bool:
     return (
         isinstance(run_id, str)
         and bool(run_id.strip())
+        and run_id == run_id.strip()
+        and not any(ord(char) < 32 for char in run_id)
         and run_id not in {".", ".."}
         and "/" not in run_id
         and "\\" not in run_id
@@ -45,7 +47,12 @@ def write_planning_run(root: Path, report: PlanningReport) -> Path:
     if not _valid_run_id(report.run_id):
         raise ValueError("run_id must be a non-empty path-safe identifier")
 
-    run_dir = root / ".factory" / "planning" / report.run_id
+    try:
+        resolved_root = root.resolve()
+        run_dir = (resolved_root / ".factory" / "planning" / report.run_id).resolve()
+        run_dir.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("planning run directory must remain inside project_root") from exc
     run_dir.mkdir(parents=True, exist_ok=True)
     report_path = run_dir / "report.json"
     content = json.dumps(report.to_dict(), indent=2, ensure_ascii=False) + "\n"
@@ -78,12 +85,24 @@ def _safe_relative_path(value: object) -> bool:
     if not isinstance(value, str) or not value or value != value.strip():
         return False
     normalized = value.replace("\\", "/")
-    if "\x00" in normalized:
+    if any(ord(char) < 32 for char in normalized):
         return False
     if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
         return False
     parts = normalized.split("/")
     return all(part not in {"", ".", ".."} for part in parts)
+
+
+def _safe_root_path(root: Path, relative: str) -> Path | None:
+    if not _safe_relative_path(relative):
+        return None
+    try:
+        resolved_root = root.resolve()
+        candidate = (resolved_root / Path(relative)).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
 
 
 def _report_artifacts(report: PlanningReport) -> tuple[tuple[str, str], ...] | None:
@@ -205,8 +224,11 @@ def _read_plan(
         return None
 
     plan_path = candidates[0]
+    safe_plan = _safe_root_path(root, plan_path)
+    if safe_plan is None:
+        return None
     try:
-        text = (root / Path(plan_path)).read_text(encoding="utf-8")
+        text = safe_plan.read_text(encoding="utf-8")
         parsed = parse_plan_tasks(text)
     except (OSError, UnicodeError, TypeError, ValueError, RuntimeError):
         return None
@@ -219,7 +241,12 @@ def _read_plan(
 
 
 def _read_task_records(root: Path) -> list[tuple[str, str, int, Path]] | None:
-    tasks_dir = root / "tasks"
+    try:
+        resolved_root = root.resolve()
+        tasks_dir = (resolved_root / "tasks").resolve()
+        tasks_dir.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError):
+        return None
     try:
         paths = sorted(tasks_dir.glob("T-*.md"), key=lambda path: path.name)
     except OSError:
@@ -228,7 +255,12 @@ def _read_task_records(root: Path) -> list[tuple[str, str, int, Path]] | None:
     records: list[tuple[str, str, int, Path]] = []
     for path in paths:
         try:
-            post = frontmatter.loads(path.read_text(encoding="utf-8"))
+            safe_path = path.resolve()
+            safe_path.relative_to(resolved_root)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        try:
+            post = frontmatter.loads(safe_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
             return None
         metadata: dict[str, Any] = dict(post.metadata)
@@ -271,9 +303,12 @@ def _current_task_ids(
 
 def _hashes_current(root: Path, artifacts: tuple[tuple[str, str], ...]) -> bool:
     for relative, expected in artifacts:
+        safe_path = _safe_root_path(root, relative)
+        if safe_path is None:
+            return False
         try:
-            actual = hashlib.sha256((root / Path(relative)).read_bytes()).hexdigest()
-        except OSError:
+            actual = hashlib.sha256(safe_path.read_bytes()).hexdigest()
+        except (OSError, ValueError):
             return False
         if actual != expected:
             return False
@@ -300,7 +335,10 @@ def build_downstream_suggestion(
     if validated is None or validated.get("decision") != "approve":
         return None
 
-    root = Path.cwd().resolve() if root is None else root.resolve()
+    try:
+        root = Path.cwd().resolve() if root is None else root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
     artifact_paths = tuple(path for path, _ in artifacts)
     task_records = _read_task_records(root)
     if task_records is None:
