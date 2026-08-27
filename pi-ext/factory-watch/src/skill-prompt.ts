@@ -11,8 +11,12 @@ export function buildSkillBlock(skill: SkillContent): string {
 export function buildPlanSeedPrompt(topic: string, skillBlocks: string[]): string {
   const instructions = [
     "You're in plan-time for this repo's dev factory. Use the loaded `brainstorming` skill on the topic below.",
-    "When brainstorming reaches its handoff to `writing-plans`, proceed into `writing-plans` as usual; save the plan under `docs/superpowers/plans/`.",
-    'Override writing-plans\' own "Execution Handoff" step: once the plan is saved, do not offer subagent-driven or inline execution. Instead run `uv run python -m factory.orchestrator.plan_to_tasks <plan-file>` and report the task ids it created. Actual execution happens later via /factory-run.',
+    "At the start, persist the user's initial request verbatim in `.intent/intent.json` as schema 1 JSON with `prompt` and an `answers` array. Record every clarification verbatim as a stable, unique answer object with an id and text; do not replace or paraphrase the original prompt.",
+    "Author the authority specification from the captured intent before deriving requirements. Preserve the existing requirement workflow: derived SRs require explicit human consent one at a time; never silently adopt, bulk-approve, or claim that an agent's prose is human approval.",
+    "When brainstorming reaches its handoff to `writing-plans`, proceed into `writing-plans` as usual and save the implementation plan under `docs/superpowers/plans/` using its existing format. Keep the plan's authority-spec reference exact and make every task decomposition traceable to a plan task.",
+    "Override writing-plans' own execution handoff: after saving the plan, run `uv run python -m factory.orchestrator.plan_to_tasks <plan-file>` with the repo root and report the generated task ids. Then run `uv run coherence plan check --intent .intent/intent.json --spec <spec-file> --plan <plan-file> --run-id <run-id> --project-root . --json`. Treat its persisted `.factory/planning/<run-id>/report.json` and deterministic findings as authoritative; fix failures rather than bypassing the gate.",
+    "Planning stops at the human-review seam. Never author approval or `.factory/planning/<run-id>/review-decision.json`, never invent approval, and do not treat `reviewer: agent` as human review. After a real human review decision exists, run `uv run coherence plan suggest --run-id <run-id> --project-root . --json` and display its `suggest_downstream` result, including `starts_automatically: false`; otherwise display the deterministic blocked result and its missing prerequisite.",
+    "This planning workflow only proposes the downstream governed-development workflow. Never start FEAT-13, `/factory-run`, or any development process automatically from plan-time.",
   ].join("\n\n");
   return [...skillBlocks, instructions, `Topic: ${topic}`].join("\n\n");
 }

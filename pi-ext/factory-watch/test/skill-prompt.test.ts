@@ -28,6 +28,18 @@ describe("buildPlanSeedPrompt", () => {
     expect(prompt).toContain("factory.orchestrator.plan_to_tasks");
     expect(prompt).toContain("Topic: add battery-aware RTB");
   });
+
+  test("routes planning through the deterministic intent, review, and downstream gates", () => {
+    const prompt = buildPlanSeedPrompt("add battery-aware RTB", []);
+    expect(prompt).toContain(".intent/intent.json");
+    expect(prompt).toContain("verbatim");
+    expect(prompt).toContain("coherence plan check");
+    expect(prompt).toContain("review-decision.json");
+    expect(prompt.toLowerCase()).toContain("never author approval");
+    expect(prompt).toContain("suggest_downstream");
+    expect(prompt).toContain("starts_automatically");
+    expect(prompt.toLowerCase()).toContain("never start feat-13");
+  });
 });
 
 describe("buildTraceFixSeedPrompt", () => {
