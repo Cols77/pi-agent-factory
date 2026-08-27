@@ -115,10 +115,94 @@ it — FEAT-17 never re-implements registration).
 
 ### 3c. Reuse vs new-LLM
 - **Reuse:** `plan_to_tasks.py`, factory-init, requirement-doctor, `plan` skill, health-resolution
-  SR registration, the `bootstrap` workflow template.
+  SR registration, the `bootstrap` workflow template, and the existing trace/register/obligation
+  readers and writers.
 - **New (thin):** a `coherence plan/init` CLI composition + the `bootstrap` template + progress
-  surfacing; the **Clarify & Align** phase (interactive brainstorming → `spec.md` capture →
-  alignment-review subagent → human escalation); **not** a new plan-generator.
+  surfacing (FEAT-12/10); a deterministic planning contract/gate that reads persisted artifacts,
+  checks cross-artifact consistency, and emits an explicit downstream suggestion.
+
+### 3d. Deterministic planning contract and gates (new)
+
+FEAT-17 is not merely a prompt that happens to call `/plan`. It is a deterministic workflow whose
+agent-authored text is constrained by durable artifacts and whose transitions are backend-gated.
+The canonical artifact chain is:
+
+```text
+intent.json (verbatim prompt + clarified answers)
+    -> spec.md (agreed authority)
+    -> plan.md (implementation plan)
+    -> tasks/T-*.md (decomposition)
+    -> requirements/SR-*.md + docs/features/FEAT-*.md + bundles/*.json
+```
+
+Each planning run writes a schema-versioned run record under a derived/session location, containing
+relative paths and hashes of the artifacts it checked. The source artifacts remain the authority;
+the run record is evidence/projection and is never read as a replacement for them.
+
+The `planning-consistency` gate runs before requirement adoption or downstream development. It is
+pure over files and fails closed. It must verify, at minimum:
+
+1. **Presence and parseability:** intent, spec, plan, and every referenced task/requirement/bundle
+   exist, are UTF-8, and satisfy their required frontmatter/section grammar.
+2. **Reference closure:** plan `spec_ref` resolves to the authority spec; generated tasks point to
+   this plan; each declared FEAT-17 SR is present in the FEAT dossier and FEAT-017 bundle.
+3. **Decision/constraint coverage:** every decision or constraint identifier declared in the intent
+   is represented in the spec and plan; an unreferenced spec decision is a blocking finding.
+4. **Plan/task parity:** every plan task has exactly one generated task identity, and no generated
+   task points at another plan or an unknown plan section.
+5. **Staleness:** hashes in the run record match the files being checked; changed inputs require a
+   fresh planning run rather than a silently reused verdict.
+
+The gate returns a stable JSON report with `schema`, `ok`, `run_id`, `artifacts`, `findings`, and
+`next_actions`. A missing, malformed, contradictory, or stale input yields `ok: false` and a
+non-zero CLI exit; it never degrades to a green result or silently invents a link.
+
+### 3e. Intent alignment and human-review seam
+
+The available deterministic alignment check compares each verbatim answer's explicit stable token
+(or decision/constraint identifier) with the authority spec and records uncovered answers and
+unsupported spec claims as findings. This is a mechanical coverage check, not semantic approval.
+A future alignment-review agent may add a report, but the backend must still require a human decision
+for semantic adoption; an agent cannot self-certify that the spec means what the user meant.
+
+FEAT-17 therefore defines a stable review contract now:
+
+```json
+{
+  "schema": 1,
+  "run_id": "...",
+  "decision": "approve|reject|defer",
+  "reviewed_artifacts": ["intent.json", "spec.md", "plan.md"],
+  "reviewer": "human",
+  "reason": "..."
+}
+```
+
+The current slice may emit `review_required` and a deterministic path/command for this contract.
+It must not write `decision: approve` itself. The later SR human-review browsing/visualization
+feature (for example an Obsidian projection over `requirements/SR-*.md`) can consume and write this
+same contract without changing the planning authority or gate.
+
+### 3f. Downstream development suggestion
+
+After `planning-consistency` passes and before any development command is started, FEAT-17 emits a
+machine-readable suggestion such as:
+
+```json
+{
+  "action": "suggest_downstream",
+  "workflow": "standard",
+  "plan": "docs/superpowers/plans/<name>.md",
+  "tasks": ["T-001"],
+  "prerequisites": ["human_review", "requirement_consent"],
+  "starts_automatically": false
+}
+```
+
+The suggestion is an inspectable boundary, not an implicit call. A host may present a button/command
+for FEAT-13 later, but only a separate explicit user action starts governed development. If the
+human-review surface is deferred or no consent is recorded, the suggestion remains blocked/advisory
+and states exactly which prerequisite is missing.
 
 > **Implementation note (2026-08-27):** the Clarify & Align phase and the bootstrap front-door are
 > **designed here, to be built in a later session** to avoid bloating this session's context. The
@@ -150,19 +234,58 @@ bootstrap` → standard run).
 
 ---
 
+## 4a. Deterministic workflow acceptance matrix
+
+The implementation is accepted only when the following gates are executable and produce inspectable evidence:
+
+| Gate | Deterministic check | Blocking result |
+|---|---|---|
+| `planning-input` | intent/spec/plan exist, are UTF-8, and parse under their declared schemas | missing or malformed source artifact |
+| `planning-references` | `spec_ref`, task `source_plan`/`source_task`, FEAT-017 SR membership, and bundle membership resolve exactly | dangling, duplicate, or contradictory reference |
+| `planning-parity` | every plan task maps to exactly one generated task and every generated task maps back to this plan | missing, duplicate, or foreign task mapping |
+| `planning-alignment` | stable intent answer identifiers are covered by both spec and plan; unsupported explicit `claim:<id>` tokens are reported | uncovered answer or unsupported claim |
+| `planning-freshness` | persisted report hashes match current source artifacts | changed source since report |
+| `planning-human-review` | strict decision file is written by the human review surface and names exactly the reviewed artifacts | absent, malformed, rejected, or self-authored approval |
+
+The first implementation may ship the first five checks and the stable file contract for the sixth.
+Human browsing/visualization is a deferred projection over that contract, not a reason to weaken the
+blocking semantics. All gates return stable JSON findings; no gate invokes a model or silently assumes
+an approval.
+
+## 4b. Downstream handoff boundary
+
+When all deterministic planning gates pass and a valid human decision exists, the planning workflow
+emits `suggest_downstream` for FEAT-13's governed development workflow. It includes the selected plan,
+current task ids, required prerequisites, and `starts_automatically: false`. Planning never invokes
+FEAT-13 itself. This boundary lets a later host render an explicit action while preserving the
+separation between planning (FEAT-17), workflow interpretation (FEAT-16), gates (FEAT-14), and
+execution (FEAT-13).
+
 ## 5. Files likely to change (planned)
 
-- **New:** `coherence plan/init` CLI composition, `bootstrap` workflow template, `requirements/`,
-  `docs/superpowers/plans/` scaffolding, progress surfacing (FEAT-12/10).
+- **New:** `coherence plan` deterministic planning gate/composition, `bootstrap` workflow template,
+  schema-versioned intent/run/review contracts, `docs/superpowers/plans/` scaffolding, progress
+  surfacing (FEAT-12/10).
 - **Reuse:** `plan_to_tasks.py`, factory-init, requirement-doctor, `plan` skill, health-resolution
-  registration/gate.
-- **Modify:** `src/factory/config.py` (load `bootstrap` workflow via FEAT-16).
+  registration/gate, existing trace/register/obligation readers and writers.
+- **Modify:** `src/factory/config.py` (load `bootstrap` workflow via FEAT-16), the thin `/plan` host
+  seed so it invokes the canonical Python check rather than reimplementing it.
+- **Deferred:** SR human-review browsing/visualization (including an Obsidian projection) writes the
+  stable review-decision contract later; FEAT-17 must not fabricate that approval today.
 
 ## 6. Risks & open questions
 
 - **Must reuse, not re-implement** — the trap is shipping an LLM-only "plan generator." The plan
   FORMAT is deterministic files; the pipeline/validation/registration is code. Keep the agent as the
   author of text, not the authority.
+- **Deterministic cross-consistency is a blocking gate** — the authority spec, plan, generated tasks,
+  and derived register artifacts must agree on paths, decision identifiers, task parity, and hashes;
+  missing or contradictory evidence fails closed.
+- **Intent alignment is two-tiered** — deterministic identifier/coverage checks are available now;
+  semantic alignment and SR adoption still require a human decision. No model or host may self-certify
+  the meaning of the user's request.
+- **Downstream development is an explicit suggestion only** — a passing planning run emits a
+  `suggest_downstream` contract for FEAT-13, but never starts it automatically.
 - **Plan-format decision** — honor the review session's verdict (light version: exact paths + verify
   per task, no paste-code micro-TDD) so plan authoring is cheap and execution-obvious.
 - **Human-approval must not be bypassable** — this is coherence's no-self-cert core. The `bootstrap`

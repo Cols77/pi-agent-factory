@@ -21,7 +21,7 @@ _REQUIRED_SPEC_FIELDS = ("id", "title", "status")
 def _resolve(path: Path) -> Path:
     try:
         return path.resolve()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return path.absolute()
 
 
@@ -82,6 +82,14 @@ def _metadata(
     return dict(post.metadata)
 
 
+def _body(text: str) -> str:
+    """Return document content without frontmatter metadata."""
+    try:
+        return frontmatter.loads(text).content
+    except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
+        return text
+
+
 def _valid_intent(
     payload: object, path: Path, root: Path, findings: list[PlanningFinding]
 ) -> list[str]:
@@ -98,7 +106,7 @@ def _valid_intent(
         findings.append(_finding("INTENT_INVALID", subject, "intent prompt must be non-empty"))
         valid = False
     answers = payload.get("answers")
-    if not isinstance(answers, list):
+    if not isinstance(answers, list) or not answers:
         findings.append(_finding("INTENT_INVALID", subject, "intent answers must be a non-empty list"))
         return []
     answer_ids: list[str] = []
@@ -192,6 +200,14 @@ def _check_tasks(
         metadata = _metadata(text, task_path, root, findings)
         if metadata is None or metadata.get("source_plan") != expected_plan:
             continue
+        if any(not isinstance(metadata.get(field), str) or not str(metadata[field]).strip() for field in ("id", "title", "status")):
+            findings.append(
+                _finding(
+                    "PLAN_TASK_PARITY",
+                    _subject(task_path, root),
+                    "generated task must declare non-empty id, title, and status",
+                )
+            )
         source_task = metadata.get("source_task")
         if isinstance(source_task, bool) or not isinstance(source_task, int):
             findings.append(
@@ -300,9 +316,11 @@ def check_planning_input(input: PlanningInput) -> PlanningReport:
             )
 
     _check_tasks(root, input.plan_path, plan_tasks, findings)
-    if answer_ids and spec_text is not None and plan_text is not None:
+    spec_body = _body(spec_text) if spec_text is not None else None
+    plan_body = _body(plan_text) if plan_text is not None else None
+    if answer_ids and spec_body is not None and plan_body is not None:
         for answer_id in answer_ids:
-            if not _has_token(spec_text, answer_id):
+            if not _has_token(spec_body, answer_id):
                 findings.append(
                     _finding(
                         "INTENT_UNCOVERED",
@@ -310,13 +328,13 @@ def check_planning_input(input: PlanningInput) -> PlanningReport:
                         "intent answer id is not represented in the authority spec",
                     )
                 )
-            if not _has_token(plan_text, answer_id):
+            if not _has_token(plan_body, answer_id):
                 findings.append(
                     _finding("INTENT_UNCOVERED", answer_id, "intent answer id is not represented in the plan")
                 )
 
-    if spec_text is not None:
-        for claim_id in sorted(set(_CLAIM_RE.findall(spec_text))):
+    if spec_body is not None:
+        for claim_id in sorted(set(_CLAIM_RE.findall(spec_body))):
             if claim_id not in answer_ids:
                 findings.append(
                     _finding(
