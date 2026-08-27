@@ -5,6 +5,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport
 from coherence.planning.run import (
@@ -26,8 +27,32 @@ _REPORT_KEYS = (
 _FINDING_KEYS = {"code", "severity", "subject", "detail"}
 
 
-def _valid_run_id(run_id: str) -> bool:
-    return bool(run_id.strip()) and run_id not in {".", ".."} and "/" not in run_id and "\\" not in run_id
+def _valid_run_id(run_id: object) -> bool:
+    return (
+        isinstance(run_id, str)
+        and bool(run_id.strip())
+        and run_id not in {".", ".."}
+        and "/" not in run_id
+        and "\\" not in run_id
+    )
+
+
+def _safe_root(value: object) -> Path | None:
+    if not isinstance(value, Path):
+        return None
+    try:
+        return value.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _safe_stored_path(root: Path, *parts: str) -> Path | None:
+    try:
+        candidate = (root.joinpath(*parts)).resolve()
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
 
 
 def _source_path(value: Path, root: Path) -> Path:
@@ -147,7 +172,11 @@ def _read_report(path: Path, run_id: str) -> PlanningReport:
 
 
 def _check(args: argparse.Namespace) -> int:
-    root = args.project_root.resolve()
+    root = _safe_root(args.project_root)
+    if root is None:
+        payload = _error_report(args.run_id, "CLI_INVALID_ARGUMENT", "project_root is invalid")
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 1
     if not _valid_run_id(args.run_id):
         payload = _error_report(args.run_id, "CLI_INVALID_ARGUMENT", "run_id must be a safe path component")
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -172,13 +201,47 @@ def _check(args: argparse.Namespace) -> int:
     return 1 if any(finding.severity == "error" for finding in report.findings) else 0
 
 
+def _bootstrap(args: argparse.Namespace) -> int:
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
+    if not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_RUN_ID", "run_id must be a safe path component"), indent=2))
+        return 1
+    planning_input = PlanningInput(
+        intent_path=_source_path(args.intent, root),
+        spec_path=_source_path(args.spec, root),
+        plan_path=_source_path(args.plan, root),
+        project_root=root,
+        run_id=args.run_id,
+    )
+    try:
+        report, created = bootstrap_planning(root, planning_input, decompose=args.decompose)
+        write_planning_run(root, report)
+    except (BootstrapPrerequisiteError, OSError, UnicodeError, ValueError, TypeError, RuntimeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "BOOTSTRAP_PREREQUISITE", str(exc)), indent=2))
+        return 1
+
+    payload = report.to_dict()
+    payload["created_task_ids"] = list(created)
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 1 if any(finding.severity == "error" for finding in report.findings) else 0
+
+
 def _suggest(args: argparse.Namespace) -> int:
-    root = args.project_root.resolve()
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
     if not _valid_run_id(args.run_id):
         print(json.dumps(_blocked(args.run_id, "INVALID_RUN_ID", "run_id must be a safe path component"), indent=2))
         return 1
 
-    run_dir = root / ".factory" / "planning" / args.run_id
+    run_dir = _safe_stored_path(root, ".factory", "planning", args.run_id)
+    if run_dir is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_RUN_ID", "run_id is outside the planning directory"), indent=2))
+        return 1
     report_path = run_dir / "report.json"
     decision_path = run_dir / "review-decision.json"
     try:
@@ -264,6 +327,15 @@ def _parser() -> argparse.ArgumentParser:
     suggest.add_argument("--run-id", required=True)
     suggest.add_argument("--project-root", required=True, type=Path)
     suggest.add_argument("--json", action="store_true")
+
+    bootstrap = sub.add_parser("bootstrap")
+    bootstrap.add_argument("--intent", required=True, type=Path)
+    bootstrap.add_argument("--spec", required=True, type=Path)
+    bootstrap.add_argument("--plan", required=True, type=Path)
+    bootstrap.add_argument("--run-id", required=True)
+    bootstrap.add_argument("--project-root", default=Path("."), type=Path)
+    bootstrap.add_argument("--decompose", action="store_true")
+    bootstrap.add_argument("--json", action="store_true")
     return parser
 
 
@@ -271,6 +343,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "check":
         return _check(args)
+    if args.command == "bootstrap":
+        return _bootstrap(args)
     return _suggest(args)
 
 

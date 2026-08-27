@@ -236,4 +236,67 @@ def test_installed_coherence_entry_point_dispatches_plan_check(tmp_path: Path) -
     assert json.loads(result.stdout)["ok"] is True
 
 
+def test_plan_bootstrap_decomposes_and_reports_delegated_next_actions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    intent, spec, plan = _write_fixture(tmp_path, complete=False)
+    factory_dir = tmp_path / ".factory"
+    factory_dir.mkdir()
+    (factory_dir / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
+    args = [
+        "plan",
+        "bootstrap",
+        "--project-root",
+        str(tmp_path),
+        "--intent",
+        str(intent),
+        "--spec",
+        str(spec),
+        "--plan",
+        str(plan),
+        "--run-id",
+        "run-001",
+        "--decompose",
+        "--json",
+    ]
+
+    assert main(args) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["created_task_ids"] == ["T-001", "T-002"]
+    assert any(action["action"] == "requirement_consent" for action in payload["next_actions"])
+    assert any(action["action"] == "health_resolution_registration" for action in payload["next_actions"])
+    assert not (tmp_path / "requirements").exists()
+    assert not (tmp_path / "bundles").exists()
+    assert not (tmp_path / ".factory" / "planning" / "run-001" / "review-decision.json").exists()
+
+
+def test_plan_bootstrap_requires_factory_configuration(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    intent, spec, plan = _write_fixture(tmp_path, complete=False)
+    args = [
+        "plan",
+        "bootstrap",
+        "--project-root",
+        str(tmp_path),
+        "--intent",
+        str(intent),
+        "--spec",
+        str(spec),
+        "--plan",
+        str(plan),
+        "--run-id",
+        "run-001",
+        "--json",
+    ]
+
+    assert main(args) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["blocked"] is True
+    assert payload["reason"] == "BOOTSTRAP_PREREQUISITE"
+
+
 __all__ = []
