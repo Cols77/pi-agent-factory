@@ -78,7 +78,9 @@ def _safe_relative_path(value: object) -> bool:
     if not isinstance(value, str) or not value or value != value.strip():
         return False
     normalized = value.replace("\\", "/")
-    if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+    if "\x00" in normalized:
+        return False
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
         return False
     parts = normalized.split("/")
     return all(part not in {"", ".", ".."} for part in parts)
@@ -281,16 +283,24 @@ def _hashes_current(root: Path, artifacts: tuple[tuple[str, str], ...]) -> bool:
 def build_downstream_suggestion(
     report: PlanningReport,
     decision: Mapping[str, object] | None = None,
+    *,
+    root: Path | None = None,
 ) -> dict[str, object] | None:
     """Return an explicit downstream handoff only for a fresh human approval."""
     artifacts = _report_artifacts(report)
     if artifacts is None or decision is None:
         return None
-    validated = _validated_decision(dict(decision), report)
+    if not isinstance(decision, Mapping):
+        return None
+    try:
+        decision_payload = dict(decision)
+    except (TypeError, ValueError):
+        return None
+    validated = _validated_decision(decision_payload, report)
     if validated is None or validated.get("decision") != "approve":
         return None
 
-    root = Path.cwd().resolve()
+    root = Path.cwd().resolve() if root is None else root.resolve()
     artifact_paths = tuple(path for path, _ in artifacts)
     task_records = _read_task_records(root)
     if task_records is None:

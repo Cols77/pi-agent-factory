@@ -132,7 +132,10 @@ def _spec_ref_matches(
 ) -> bool:
     if spec_id is not None and ref in {spec_id, f"spec:{spec_id}"}:
         return True
-    ref_path = Path(ref)
+    try:
+        ref_path = Path(ref)
+    except (OSError, ValueError):
+        return False
     if ref_path.is_absolute():
         return False
     expected = _resolve(spec_path)
@@ -142,7 +145,10 @@ def _spec_ref_matches(
         plan_path.parent / ref_path,
         plan_path.parent.parent / "specs" / ref_path,
     )
-    return any(_resolve(candidate) == expected for candidate in candidates)
+    try:
+        return any(_resolve(candidate) == expected for candidate in candidates)
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _parse_plan(
