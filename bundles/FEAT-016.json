@@ -1,0 +1,12 @@
+{
+  "description": "Declared bundle for feature FEAT-016 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements.",
+  "draft": true,
+  "id": "FEAT-016",
+  "label": "MODULAR-WORKFLOWS dossier bundle",
+  "members": [
+    "feat:FEAT-016",
+    "sr:SR-040",
+    "sr:SR-041",
+    "sr:SR-042"
+  ]
+}

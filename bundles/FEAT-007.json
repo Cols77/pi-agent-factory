@@ -4,6 +4,8 @@
   "id": "FEAT-007",
   "label": "MEASURE-AUDIT dossier bundle",
   "members": [
-    "feat:FEAT-007"
+    "feat:FEAT-007",
+    "sr:SR-023",
+    "sr:SR-024"
   ]
 }

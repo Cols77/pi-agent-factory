@@ -4,6 +4,9 @@
   "id": "FEAT-003",
   "label": "NONCONFORMANCE-CLOSURE dossier bundle",
   "members": [
-    "feat:FEAT-003"
+    "feat:FEAT-003",
+    "sr:SR-012",
+    "sr:SR-013",
+    "sr:SR-014"
   ]
 }

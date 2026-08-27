@@ -2,13 +2,15 @@
 id: FEAT-003
 title: "NONCONFORMANCE-CLOSURE"
 requirements:
-  - SR-004
+  - SR-012
+  - SR-013
+  - SR-014
 ---
 
 # FEAT-003 — NONCONFORMANCE-CLOSURE
 
-Status: declared feature dossier (Inc-9 health-resolution, T-2).
+Status: declared feature dossier (Inc-9 health-resolution, decision-level register).
 
-This feature registers **NONCONFORMANCE-CLOSURE** in the Coherence / pi-agent-factory feature set (see the [Inc-9 session capture](../superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md)). Type: **existing**. It covers: NC-*/FR-*, corrects, deferrals/waivers, suspect-edge review.
+This feature registers **NONCONFORMANCE-CLOSURE** in the Coherence / pi-agent-factory feature set. It covers: NC-*/FR-*, corrects, deferrals/waivers, suspect-edge review.
 
-It maps to owning requirement **SR-004**, which the consent-gated T-3 SR-authoring step turns into an obligation-backed, human-approved requirement sourced from the real specs (toolset D1–D15, progressive-assurance 2B, agentic-I/O D11-13, §5/§6).
+Owned requirements: SR-012, SR-013, SR-014.

@@ -4,6 +4,10 @@
   "id": "FEAT-006",
   "label": "EVIDENCE-PROVENANCE dossier bundle",
   "members": [
-    "feat:FEAT-006"
+    "feat:FEAT-006",
+    "sr:SR-019",
+    "sr:SR-020",
+    "sr:SR-021",
+    "sr:SR-022"
   ]
 }

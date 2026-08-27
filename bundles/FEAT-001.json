@@ -4,6 +4,13 @@
   "id": "FEAT-001",
   "label": "REQ-TRACEABILITY dossier bundle",
   "members": [
-    "feat:FEAT-001"
+    "feat:FEAT-001",
+    "sr:SR-002",
+    "sr:SR-003",
+    "sr:SR-004",
+    "sr:SR-005",
+    "sr:SR-006",
+    "sr:SR-007",
+    "sr:SR-001"
   ]
 }

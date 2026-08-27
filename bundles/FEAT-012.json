@@ -4,6 +4,7 @@
   "id": "FEAT-012",
   "label": "LIVE-RUN-PROGRESS dossier bundle",
   "members": [
-    "feat:FEAT-012"
+    "feat:FEAT-012",
+    "sr:SR-033"
   ]
 }

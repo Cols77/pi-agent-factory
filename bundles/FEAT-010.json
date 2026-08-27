@@ -4,6 +4,8 @@
   "id": "FEAT-010",
   "label": "COHERENCE-CONSOLE dossier bundle",
   "members": [
-    "feat:FEAT-010"
+    "feat:FEAT-010",
+    "sr:SR-029",
+    "sr:SR-030"
   ]
 }

@@ -2,13 +2,14 @@
 id: FEAT-008
 title: "GOALS-SIMULATION"
 requirements:
-  - SR-009
+  - SR-025
+  - SR-026
 ---
 
 # FEAT-008 — GOALS-SIMULATION
 
-Status: declared feature dossier (Inc-9 health-resolution, T-2).
+Status: declared feature dossier (Inc-9 health-resolution, decision-level register).
 
-This feature registers **GOALS-SIMULATION** in the Coherence / pi-agent-factory feature set (see the [Inc-9 session capture](../superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md)). Type: **existing**. It covers: goals, metrics, simulation, scenarios.
+This feature registers **GOALS-SIMULATION** in the Coherence / pi-agent-factory feature set. It covers: goals, metrics, simulation, scenarios.
 
-It maps to owning requirement **SR-009**, which the consent-gated T-3 SR-authoring step turns into an obligation-backed, human-approved requirement sourced from the real specs (toolset D1–D15, progressive-assurance 2B, agentic-I/O D11-13, §5/§6).
+Owned requirements: SR-025, SR-026.

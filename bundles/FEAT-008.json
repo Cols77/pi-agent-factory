@@ -4,6 +4,8 @@
   "id": "FEAT-008",
   "label": "GOALS-SIMULATION dossier bundle",
   "members": [
-    "feat:FEAT-008"
+    "feat:FEAT-008",
+    "sr:SR-025",
+    "sr:SR-026"
   ]
 }

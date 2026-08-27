@@ -2,13 +2,16 @@
 id: FEAT-005
 title: "HEALTH-STATUS"
 requirements:
-  - SR-006
+  - SR-017
+  - SR-018
+  - SR-045
+  - SR-046
 ---
 
 # FEAT-005 — HEALTH-STATUS
 
-Status: declared feature dossier (Inc-9 health-resolution, T-2).
+Status: declared feature dossier (Inc-9 health-resolution, decision-level register).
 
-This feature registers **HEALTH-STATUS** in the Coherence / pi-agent-factory feature set (see the [Inc-9 session capture](../superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md)). Type: **existing**. It covers: status/route/focus/explain, health vector.
+This feature registers **HEALTH-STATUS** in the Coherence / pi-agent-factory feature set. It covers: status/route/focus/explain, health vector.
 
-It maps to owning requirement **SR-006**, which the consent-gated T-3 SR-authoring step turns into an obligation-backed, human-approved requirement sourced from the real specs (toolset D1–D15, progressive-assurance 2B, agentic-I/O D11-13, §5/§6).
+Owned requirements: SR-017, SR-018, SR-045, SR-046.

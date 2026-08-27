@@ -4,6 +4,8 @@
   "id": "FEAT-013",
   "label": "GOVERNED-EXECUTION-DRIVER dossier bundle",
   "members": [
-    "feat:FEAT-013"
+    "feat:FEAT-013",
+    "sr:SR-034",
+    "sr:SR-049"
   ]
 }

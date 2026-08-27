@@ -4,6 +4,11 @@
   "id": "FEAT-002",
   "label": "PROGRESSIVE-ASSURANCE dossier bundle",
   "members": [
-    "feat:FEAT-002"
+    "feat:FEAT-002",
+    "sr:SR-008",
+    "sr:SR-009",
+    "sr:SR-010",
+    "sr:SR-011",
+    "sr:SR-048"
   ]
 }

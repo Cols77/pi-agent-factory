@@ -4,6 +4,8 @@
   "id": "FEAT-004",
   "label": "NAVIGATION-UNDERSTANDING dossier bundle",
   "members": [
-    "feat:FEAT-004"
+    "feat:FEAT-004",
+    "sr:SR-015",
+    "sr:SR-016"
   ]
 }

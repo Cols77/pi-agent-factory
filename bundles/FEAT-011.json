@@ -4,6 +4,8 @@
   "id": "FEAT-011",
   "label": "WORKFLOW-ENFORCEMENT dossier bundle",
   "members": [
-    "feat:FEAT-011"
+    "feat:FEAT-011",
+    "sr:SR-031",
+    "sr:SR-032"
   ]
 }

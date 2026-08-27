@@ -4,6 +4,9 @@
   "id": "FEAT-009",
   "label": "HOST-ADAPTERS dossier bundle",
   "members": [
-    "feat:FEAT-009"
+    "feat:FEAT-009",
+    "sr:SR-027",
+    "sr:SR-028",
+    "sr:SR-047"
   ]
 }
