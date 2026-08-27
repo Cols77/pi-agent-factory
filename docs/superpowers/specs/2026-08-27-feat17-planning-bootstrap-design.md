@@ -1,4 +1,10 @@
-# FEAT-17 — Planning-Bootstrap (PLANNING-BOOTSTRAP)
+---
+id: SPEC-FEAT-017-PLANNING-BOOTSTRAP
+title: "FEAT-017 Planning Bootstrap Design"
+status: draft
+---
+
+# FEAT-17 Planning-Bootstrap (PLANNING-BOOTSTRAP)
 
 _Status: **design dossier** (2026-08-27). Owner: coherence bootstrap + plan pipeline (front door).
 Defines coherence's built-in, recommended way to **start a new system**. Planning/design only.
@@ -90,7 +96,6 @@ it as a grounded authority — otherwise derived SRs are a wish list rather than
 - **Output layering (per user decision, 2026-08-27):** brainstorming first yields `spec.md` (the seed);
   SRs and FEAT dossiers are **derived from `spec.md`** in the subsequent capture/registration steps,
   not invented alongside it. Each derived SR keeps the existing human-approval consent gate.
-```
 
 ### 3b. Ordering
 **PLANNING-BOOTSTRAP sequences EARLY** — it is the front door producing the plans FEAT-13 executes.
@@ -117,9 +122,7 @@ it — FEAT-17 never re-implements registration).
 - **Reuse:** `plan_to_tasks.py`, factory-init, requirement-doctor, `plan` skill, health-resolution
   SR registration, the `bootstrap` workflow template, and the existing trace/register/obligation
   readers and writers.
-- **New (thin):** a `coherence plan/init` CLI composition + the `bootstrap` template + progress
-  surfacing (FEAT-12/10); a deterministic planning contract/gate that reads persisted artifacts,
-  checks cross-artifact consistency, and emits an explicit downstream suggestion.
+- **New (thin):** a `coherence plan` CLI composition plus the post-init `bootstrap` gate and progress surfacing (FEAT-12/10); a deterministic planning contract/gate that reads persisted artifacts, checks cross-artifact consistency, and emits an explicit downstream suggestion.
 
 ### 3d. Deterministic planning contract and gates (new)
 
@@ -172,15 +175,33 @@ FEAT-17 therefore defines a stable review contract now:
   "schema": 1,
   "run_id": "...",
   "decision": "approve|reject|defer",
-  "reviewed_artifacts": ["intent.json", "spec.md", "plan.md"],
+  "reviewed_artifacts": ["<all canonical report artifact paths, sorted>"],
   "reviewer": "human",
-  "reason": "..."
+  "reason": "...",
+  "report_sha256": "<sha256 of the canonical report>"
 }
 ```
 
-The current slice may emit `review_required` and a deterministic path/command for this contract.
-It must not write `decision: approve` itself. The later SR human-review browsing/visualization
-feature (for example an Obsidian projection over `requirements/SR-*.md`) can consume and write this
+The current slice may emit `review_required` and a deterministic path/command for this contract. The
+reviewer surface writes the decision out-of-band; the planner never writes it. The decision must bind to
+the exact canonical report digest and is accepted only through the project-root-bound reader capability,
+so a report cannot be replaced under the same run id after review and a synthesized in-memory mapping
+cannot emit a downstream suggestion. The separate `.factory/planning/<run-id>/requirement-consent.json`
+contract must likewise explicitly approve the exact derived SR set before a downstream suggestion:
+
+```json
+{
+  "schema": 1,
+  "run_id": "...",
+  "decision": "approve",
+  "reviewer": "human",
+  "reason": "...",
+  "requirements": ["SR-043", "SR-044", "SR-050", "SR-051", "SR-052", "SR-053", "SR-054"]
+}
+```
+
+The consent file is read-only input to this workflow; the planning agent never creates it.
+The later SR human-review browsing/visualization feature (for example an Obsidian projection over `requirements/SR-*.md`) can consume and write this
 same contract without changing the planning authority or gate.
 
 ### 3f. Downstream development suggestion
@@ -204,10 +225,7 @@ for FEAT-13 later, but only a separate explicit user action starts governed deve
 human-review surface is deferred or no consent is recorded, the suggestion remains blocked/advisory
 and states exactly which prerequisite is missing.
 
-> **Implementation note (2026-08-27):** the Clarify & Align phase and the bootstrap front-door are
-> **designed here, to be built in a later session** to avoid bloating this session's context. The
-> register it consumes (17 FEATs, 49 SRs, bundles) is already landed on
-> `feat/coherence-health-t1-t2`.
+> **Implementation note (2026-08-27):** The first deterministic slice is now landed: schema-versioned intent/spec/plan/task checking, atomic planning-run evidence, strict external human-review validation bound to the report digest, read-only FEAT-017 dossier/bundle/source closure plus exact-set requirement consent, a suggestion-only downstream handoff, the `coherence plan` CLI (including the thin post-init `bootstrap --decompose` composition), and `/plan` host guidance. SR authoring/adoption and the human browsing/visualization projection remain delegated or deferred; the existing register is the single registration path.
 
 ---
 
@@ -241,13 +259,16 @@ The implementation is accepted only when the following gates are executable and 
 | Gate | Deterministic check | Blocking result |
 |---|---|---|
 | `planning-input` | intent/spec/plan exist, are UTF-8, and parse under their declared schemas | missing or malformed source artifact |
-| `planning-references` | `spec_ref`, task `source_plan`/`source_task`, FEAT-017 SR membership, and bundle membership resolve exactly | dangling, duplicate, or contradictory reference |
+| `planning-references` | `spec_ref`, task `source_plan`/`source_task`, FEAT-017 SR membership, bundle membership, and requirement source links resolve exactly | dangling, duplicate, or contradictory reference |
 | `planning-parity` | every plan task maps to exactly one generated task and every generated task maps back to this plan | missing, duplicate, or foreign task mapping |
 | `planning-alignment` | stable intent answer identifiers are covered by both spec and plan; unsupported explicit `claim:<id>` tokens are reported | uncovered answer or unsupported claim |
 | `planning-freshness` | persisted report hashes match current source artifacts | changed source since report |
-| `planning-human-review` | strict decision file is written by the human review surface and names exactly the reviewed artifacts | absent, malformed, rejected, or self-authored approval |
+| `planning-human-review` | strict decision file is written by the human review surface, names exactly the reviewed artifacts, and binds the report digest | absent, malformed, stale, rejected, or self-authored approval |
 
-The first implementation may ship the first five checks and the stable file contract for the sixth.
+| `planning-requirement-consent` | FEAT-017 dossier, bundle, requirement source links, and external exact-set consent are current | missing registration, source drift, or absent/malformed consent |
+
+The first implementation ships the source checks, task freshness, registration/consent closure, and
+the stable file contract for human review; the browsing/visualization surface remains deferred.
 Human browsing/visualization is a deferred projection over that contract, not a reason to weaken the
 blocking semantics. All gates return stable JSON findings; no gate invokes a model or silently assumes
 an approval.
@@ -268,8 +289,10 @@ execution (FEAT-13).
   surfacing (FEAT-12/10).
 - **Reuse:** `plan_to_tasks.py`, factory-init, requirement-doctor, `plan` skill, health-resolution
   registration/gate, existing trace/register/obligation readers and writers.
-- **Modify:** `src/factory/config.py` (load `bootstrap` workflow via FEAT-16), the thin `/plan` host
-  seed so it invokes the canonical Python check rather than reimplementing it.
+- **Modify:** the thin `/plan` host seed so it instructs the author to use the canonical `/plan-gate`
+  argv adapter rather than reimplementing checks. The existing `/plan` command remains the session/prompt
+  launcher; automatic post-session callback wiring is explicitly deferred until the host exposes a safe
+  completion hook.
 - **Deferred:** SR human-review browsing/visualization (including an Obsidian projection) writes the
   stable review-decision contract later; FEAT-17 must not fabricate that approval today.
 
@@ -309,5 +332,4 @@ skeleton → human-approved SRs → plan file → `plan_to_tasks` decomposition 
 registration (health-resolution) → first `standard`-workflow run via FEAT-13 — all filesystem-first,
 reusing existing machinery, with the SR human-approval consent gate enforced.
 
-**Verdict: YES, a distinct FEAT** — it is the missing front door and the sequencing anchor that makes
-"how does coherence handle a new system" an answered, first-class workflow.
+The full blank-directory front door described above remains a later composition: this increment exposes the deterministic post-init planning slice and its fail-closed gates. It does not invoke factory-init, author/adopt SRs, create feature/bundle registration, or start FEAT-13. A later increment must close those steps before claiming the aggregate criterion.

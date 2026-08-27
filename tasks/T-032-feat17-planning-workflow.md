@@ -4,7 +4,7 @@ dod:
 - "Planning runs persist canonical reports and require an exact external human review decision before downstream suggestion."
 - "The plan CLI exposes check, bootstrap, and suggestion-only commands without starting governed development or writing approval."
 - "The factory-watch plan seed routes authoring through the backend gate and preserves the deferred human-review/consent seam."
-- "Focused tests, lint, type checks, register, health, and trace gates pass; no push or merge occurs."
+- "Focused implementation tests, lint, and type checks pass; available register, health, and trace outputs are recorded with pre-existing gaps preserved; no push or merge occurs."
 id: T-032
 justification:
 - satisfies: SR-043

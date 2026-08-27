@@ -106,6 +106,228 @@ def test_complete_fixture_is_valid_but_requires_review(tmp_path: Path) -> None:
     assert not any(finding.severity == "error" for finding in report.findings)
 
 
+def test_duplicate_generated_task_ids_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    (tmp_path / "tasks" / "T-003-duplicate.md").write_text(
+        "---\n"
+        "id: T-001\n"
+        "title: Duplicate Task\n"
+        "status: todo\n"
+        "source_plan: docs/superpowers/plans/intent-plan.md\n"
+        "source_task: 2\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "PLAN_TASK_PARITY" for finding in report.findings)
+
+
+def test_foreign_generated_task_fails_closed_in_parity_gate(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    (tmp_path / "tasks" / "T-999-foreign.md").write_text(
+        "---\n"
+        "id: T-999\n"
+        "title: Foreign\n"
+        "status: todo\n"
+        "source_plan: docs/other-plan.md\n"
+        "source_task: 1\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(
+        finding.code == "PLAN_TASK_PARITY" and "source_plan" in finding.detail
+        for finding in report.findings
+    )
+
+
+def test_noncanonical_generated_task_id_fails_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    (tmp_path / "tasks" / "T-003-noncanonical.md").write_text(
+        "---\n"
+        "id: T-foo\n"
+        "title: Noncanonical\n"
+        "status: todo\n"
+        "source_plan: docs/superpowers/plans/intent-plan.md\n"
+        "source_task: 1\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any("T-<digits>" in finding.detail for finding in report.findings)
+
+
+
+def test_empty_files_block_fails_plan_contract(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.plan_path.write_text(
+        _PLAN.replace("- Create: `src/first.py`\n", ""),
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "PLAN_INVALID" for finding in report.findings)
+
+
+def test_duplicate_plan_task_numbers_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.plan_path.write_text(
+        _PLAN.replace("### Task 2: Second Task", "### Task 1: Duplicate Task"),
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(
+        finding.code == "PLAN_INVALID" and "unique" in finding.detail
+        for finding in report.findings
+    )
+
+
+def test_fenced_heading_does_not_satisfy_authority_anchor(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        _SPEC.replace(
+            "# Intent Specification",
+            "# Intent Specification\n\n```md\n### goal\n```",
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "bundles").mkdir()
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "docs" / "features" / "FEAT-017.md").write_text(
+        "---\nid: FEAT-017\ntitle: Test feature\nrequirements:\n- SR-001\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "bundles" / "FEAT-017.json").write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements" / "SR-001.md").write_text(
+        "---\n"
+        "id: SR-001\n"
+        "title: Goal\n"
+        "statement: Goal\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "source: docs/superpowers/specs/intent-spec.md#goal\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "PLANNING_REFERENCE_INVALID" for finding in report.findings)
+
+
+def test_boolean_intent_schema_is_not_an_integer_schema(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    payload = json.loads(input_data.intent_path.read_text(encoding="utf-8"))
+    payload["schema"] = True
+    input_data.intent_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "INTENT_INVALID" for finding in report.findings)
+
+
+def test_duplicate_intent_json_keys_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.intent_path.write_text(
+        '{"schema": 1, "prompt": "first", "prompt": "second", '
+        '"answers": [{"id": "goal", "text": "goal"}]}',
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "INTENT_INVALID" for finding in report.findings)
+
+
+def test_overflowed_json_number_fails_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.intent_path.write_text(
+        '{"schema": 1, "prompt": "first", "answers": [{"id": "goal", "text": 1e999}]}',
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "INTENT_INVALID" for finding in report.findings)
+
+
+def test_duplicate_spec_frontmatter_keys_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        "---\n"
+        "id: intent-spec\n"
+        "id: other-spec\n"
+        "title: Intent Specification\n"
+        "status: draft\n"
+        "---\n"
+        "The goal and constraint-files are covered.\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "FRONTMATTER_INVALID" for finding in report.findings)
+
+
+def test_four_dash_frontmatter_duplicate_keys_fail_closed(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        "----\n"
+        "id: intent-spec\n"
+        "id: other-spec\n"
+        "title: Intent Specification\n"
+        "status: draft\n"
+        "----\n"
+        "The goal and constraint-files are covered.\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "FRONTMATTER_INVALID" for finding in report.findings)
+
+
+def test_unsafe_spec_id_cannot_authorize_unsafe_spec_ref(tmp_path: Path) -> None:
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    input_data.spec_path.write_text(
+        _SPEC.replace("id: intent-spec", "id: ../../outside"),
+        encoding="utf-8",
+    )
+    input_data.plan_path.write_text(
+        _PLAN.replace("spec_ref: intent-spec.md", "spec_ref: ../../outside"),
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    assert any(finding.code == "PLAN_SPEC_REF" for finding in report.findings)
+
+
 def test_invalid_intent_is_fail_closed(tmp_path: Path) -> None:
     input_data = _write_fixture(tmp_path, complete_tasks=True)
     payload = json.loads(input_data.intent_path.read_text(encoding="utf-8"))

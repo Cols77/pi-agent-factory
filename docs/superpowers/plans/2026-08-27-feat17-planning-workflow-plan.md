@@ -1,3 +1,10 @@
+---
+id: PLAN-FEAT-017-PLANNING-WORKFLOW
+title: "FEAT-017 Planning Workflow Implementation Plan"
+status: draft
+spec_ref: docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
+---
+
 # FEAT-17 Planning Workflow Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -63,7 +70,7 @@ The report JSON ordering is fixed: `schema`, `run_id`, `ok`, `artifacts`, `findi
 
 ---
 
-## Task 1: Add the pure planning contract and fail-closed checker
+### Task 1: Add the pure planning contract and fail-closed checker
 
 **Objective:** Add the deterministic source-artifact checker without any CLI or host side effects.
 
@@ -150,7 +157,7 @@ git commit -m "feat: add deterministic planning consistency checker"
 
 ---
 
-## Task 2: Add planning run evidence, review seam, and downstream suggestion
+### Task 2: Add planning run evidence, review seam, and downstream suggestion
 
 **Objective:** Persist a derived planning report and expose explicit human-review/consent state without fabricating approval.
 
@@ -162,7 +169,7 @@ git commit -m "feat: add deterministic planning consistency checker"
 
 **Interfaces:**
 - Consumes: Task 1’s `PlanningReport` and `PlanningInput`.
-- Produces: `write_planning_run(root, report) -> Path`, `build_downstream_suggestion(report) -> dict[str, object] | None`, and a strict review-decision reader for `.factory/planning/<run_id>/review-decision.json`.
+- Produces: `write_planning_run(root, report) -> Path`, a capability-bound `ReviewDecision` from `read_review_decision(path, report, project_root)`, and `build_downstream_suggestion(report, decision, root) -> dict[str, object] | None`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -177,7 +184,7 @@ assert list(payload) == ["schema", "run_id", "ok", "artifacts", "findings", "nex
 assert payload["suggestion"] is None
 ```
 
-Write a valid review decision with `decision: approve`, `reviewer: human`, a non-empty `reason`, and exactly the current artifact paths. Assert `build_downstream_suggestion(report)` still returns `None` until the decision is supplied through the function’s explicit decision argument. Then assert an approved decision produces `action == "suggest_downstream"`, `workflow == "standard"`, the plan path and sorted task ids, `starts_automatically is False`, and prerequisites containing `human_review` and `requirement_consent`. Add tests for reject/defer, malformed decision, wrong reviewer, and changed artifact hash; all must produce no suggestion.
+Write a valid review decision with `decision: approve`, `reviewer: human`, a non-empty `reason`, an exact sorted `reviewed_artifacts` list, and `report_sha256` equal to the canonical report digest. Assert `build_downstream_suggestion(report)` still returns `None` until a capability-bound decision is read from the canonical run path. Then assert an approved decision produces `action == "suggest_downstream"`, `workflow == "standard"`, the plan path and sorted task ids, `starts_automatically is False`, and prerequisites containing `human_review` and `requirement_consent`. Add regression cases for changed source/task hashes and a same-run report rewrite after approval. Add tests for reject/defer, malformed decision, wrong reviewer, and changed artifact hash; all must produce no suggestion.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -194,8 +201,8 @@ Expected: FAIL because the run writer and decision-aware suggestion do not exist
 Implement:
 
 - `write_planning_run` under `.factory/planning/<run_id>/report.json` using a temp file in the same directory and `os.replace`; never overwrite a source artifact.
-- A strict `read_review_decision(path, report)`: require JSON object, `schema == 1`, exact `run_id`, `decision in {approve,reject,defer}`, `reviewer == "human"`, non-empty `reason`, and exact sorted `reviewed_artifacts` equal to the report’s source paths. Invalid decisions return a deterministic error state, never approval.
-- `build_downstream_suggestion(report, decision=None)`: return `None` unless report is structurally valid, all findings are non-error, the supplied decision is valid and approved, and all artifact hashes still match. On success derive task ids from current task files and return:
+- A strict `read_review_decision(path, report, project_root)`: require JSON object, `schema == 1`, exact run id and canonical run path, `decision in {approve,reject,defer}`, `reviewer == "human"`, non-empty `reason`, exact sorted `reviewed_artifacts` equal to the report’s source paths, and `report_sha256` equal to the canonical report digest. Invalid decisions return a deterministic error state, never approval; only the capability returned by this reader can be passed to downstream suggestion.
+- `build_downstream_suggestion(report, decision=None)`: re-run the pure checker against the persisted source/task artifacts, require current report/task hashes, require current FEAT-017 dossier/bundle/source closure and an external exact-set `requirement-consent.json`, then return `None` unless the supplied decision is valid and approved. On success derive task ids from current task files and return:
 
 ```python
 {
@@ -231,7 +238,7 @@ git commit -m "feat: add planning review seam and downstream suggestion"
 
 ---
 
-## Task 3: Expose the deterministic planning gate through `coherence plan`
+### Task 3: Expose the deterministic planning gate through `coherence plan`
 
 **Objective:** Make the backend contract usable as a first-class CLI without changing the fixed existing CLI groups beyond adding the planned `plan` group.
 
@@ -269,9 +276,9 @@ Expected: FAIL because the `plan` group is not registered.
 
 - [ ] **Step 3: Write the minimal implementation**
 
-Use argparse. `plan check` constructs `PlanningInput`, runs the pure checker, writes the report, prints stable JSON with `suggestion: null` unless an approved decision is explicitly present, and returns 0 for a structurally valid report or 1 for errors. `plan suggest` reads the stored report and the review decision from the exact run directory, re-checks current hashes before suggesting, prints the suggestion, and returns 1 when no valid approval exists. Catch expected `OSError`, `ValueError`, and JSON errors at the CLI boundary and print a deterministic error report rather than a traceback.
+Use argparse. `plan check` constructs `PlanningInput`, runs the pure checker, writes the report, prints stable JSON with `suggestion: null` unless an approved decision is explicitly present, and returns 0 for a structurally valid report or 1 for errors. `plan suggest` reads the stored report and the review decision from the exact run directory, recomputes the checker and registration/consent closure, re-checks current hashes before suggesting, prints the suggestion, and returns 1 when no valid approval or consent exists. Catch expected `OSError`, `ValueError`, and parser errors and return stable blocked JSON without machine-specific paths.
 
-Register `"plan": planning_main` in `coherence.cli.GROUPS`. Preserve existing group argv unchanged. Do not add a broad `coherence bootstrap` alias yet; `coherence plan check` is the first stable backend front door, while the full init/authoring composition remains a later thin host task.
+Register `"plan": planning_main` in `coherence.cli.GROUPS`. Preserve existing group argv unchanged. The `plan bootstrap --decompose` path is the current thin post-init composition; blank-directory `coherence init` and full workflow interpretation remain delegated to the existing factory-init/FEAT-16 machinery rather than being reimplemented here.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -296,22 +303,24 @@ git add src/coherence/cli.py src/coherence/planning/cli.py tests/unit/coherence/
 
 ---
 
-## Task 4: Wire the existing `/plan` authoring host to the backend gate
+### Task 4: Wire the existing `/plan` authoring host to the backend gate
 
-**Objective:** Ensure the existing planning command invokes the deterministic checker after authoring/decomposition and reports the result, without moving enforcement into TypeScript.
+**Objective:** Ensure the planning host exposes an argv-only `/plan-gate` completion command and instructs the existing `/plan` session to use it, without moving enforcement into TypeScript; automatic post-session callback wiring remains deferred.
 
 **Files:**
+- Create: `pi-ext/factory-watch/src/plan-gate-command.ts`
 - Modify: `pi-ext/factory-watch/src/skill-prompt.ts`
 - Modify: `pi-ext/factory-watch/src/index.ts`
+- Test: `pi-ext/factory-watch/test/plan-gate-command.test.ts`
 - Test: `pi-ext/factory-watch/test/skill-prompt.test.ts` (or the existing test file that covers plan seed prompts)
 
 **Interfaces:**
 - Consumes: Task 3’s CLI contract and the existing `buildPlanSeedPrompt` / `/plan` command.
-- Produces: an instruction in the seed prompt to persist verbatim intent/answers, write the authority spec before SR derivation, run `uv run coherence plan check`, and display but not execute the downstream suggestion.
+- Produces: an instruction in the seed prompt to persist verbatim intent/answers, write the authority spec before SR derivation, invoke `coherence plan bootstrap --decompose` through the backend, and display but not execute the downstream suggestion.
 
 - [ ] **Step 1: Write the failing test**
 
-Add assertions that `buildPlanSeedPrompt` contains all of these exact concepts: `intent.json`, `spec.md`, `coherence plan check`, `plan_to_tasks`, `human`, `requirement_consent`, `starts_automatically`, and `do not start`.
+Add assertions that `buildPlanSeedPrompt` contains all of these exact concepts: `intent.json`, `spec.md`, `coherence plan bootstrap`, `plan_to_tasks`, `human`, `requirement_consent`, `starts_automatically`, and `do not start`.
 
 Add a command-level test that a blank `/plan` argument still rejects without creating a session. Keep the existing skill-loading and session behavior tests green.
 
@@ -327,16 +336,16 @@ Expected: the new seed-prompt assertions fail because the current prompt only ru
 
 - [ ] **Step 3: Write the minimal implementation**
 
-Update only the seed prompt so it instructs the authoring agent to:
+Update the prompt and register the `/plan-gate` host adapter. The adapter invokes `uv run coherence plan bootstrap --decompose --json` using argv (never a shell string), validates root-relative artifact paths/run id before spawning, and renders the canonical result. The existing `/plan` handler remains a session launcher; do not claim an automatic completion callback until the host exposes one.
 
 1. preserve the user’s original prompt and clarified answers in a schema-versioned `intent.json`;
 2. write the agreed authority `spec.md` before deriving SRs/features;
-3. author the existing writing-plans-format plan and run `plan_to_tasks`;
-4. run `uv run coherence plan check ... --json` and treat any error finding as blocking;
+3. author the existing writing-plans-format plan and invoke the host’s `/plan-gate` completion command, which runs the backend’s `plan bootstrap --decompose` composition and reuses `plan_to_tasks`;
+4. treat the backend’s persisted report and deterministic error findings as blocking;
 5. surface the explicit human-review/consent seam and never write an approval itself;
 6. show any `suggest_downstream` output with `starts_automatically: false` and wait for a separate user action.
 
-Do not make TypeScript compute findings, compare hashes, or call FEAT-13 directly. If command-level wiring is needed, invoke the Python CLI through the existing shell/terminal adapter and only render its canonical JSON.
+Do not make TypeScript compute findings, compare hashes, or call FEAT-13 directly. Keep process invocation in the backend/approved host adapter and pass only validated root-relative paths and safe run ids; render the canonical JSON without reinterpreting it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -358,7 +367,7 @@ git add pi-ext/factory-watch/src/skill-prompt.ts pi-ext/factory-watch/src/index.
 
 ---
 
-## Task 5: Add the bootstrap composition and available deterministic gates
+### Task 5: Add the bootstrap composition and available deterministic gates
 
 **Objective:** Reuse existing factory-init, plan-to-tasks, register/check, and health readers in one inspectable bootstrap composition, while deferring full workflow interpretation and human browsing.
 
@@ -427,7 +436,7 @@ git add src/coherence/planning/bootstrap.py src/coherence/planning/cli.py tests/
 
 ---
 
-## Task 6: Register FEAT-17 trace links and prove the feature against the live register
+### Task 6: Register FEAT-17 trace links and prove the feature against the live register
 
 **Objective:** Make every delivered FEAT-17 artifact traceable to the seven FEAT-17 SRs and run the available deterministic Coherence gates.
 
@@ -488,7 +497,7 @@ git add requirements/SR-043.md requirements/SR-044.md requirements/SR-050.md req
 
 ---
 
-## Task 7: Holistic integration review and available-gate deployment
+### Task 7: Holistic integration review and available-gate deployment
 
 **Objective:** Verify all cross-task wiring and run the available deterministic gates without pretending deferred features exist.
 

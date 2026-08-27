@@ -27,6 +27,7 @@ import {
   buildTraceFixSeedPrompt,
   buildVisualExplainSeedPrompt,
 } from "./skill-prompt.js";
+import { runPlanGate } from "./plan-gate-command.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerEngContextTools } from "./eng-context-tools.js";
@@ -1004,6 +1005,13 @@ export default function factoryWatch(pi: PiApi): void {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
         },
       });
+    },
+  });
+
+  pi.registerCommand("plan-gate", {
+    description: "Run the deterministic planning bootstrap gate",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanGate(ctx, args);
     },
   });
 

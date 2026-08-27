@@ -33,7 +33,7 @@ describe("buildPlanSeedPrompt", () => {
     const prompt = buildPlanSeedPrompt("add battery-aware RTB", []);
     expect(prompt).toContain(".intent/intent.json");
     expect(prompt).toContain("verbatim");
-    expect(prompt).toContain("coherence plan check");
+    expect(prompt).toContain("coherence plan bootstrap");
     expect(prompt).toContain("review-decision.json");
     expect(prompt.toLowerCase()).toContain("never author approval");
     expect(prompt).toContain("suggest_downstream");

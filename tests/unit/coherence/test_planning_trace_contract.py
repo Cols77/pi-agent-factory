@@ -2,14 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import frontmatter
 import pytest
+
+from coherence.planning.gates import _source_matches
 
 pytestmark = pytest.mark.unit
 
 _EXPECTED_SRS = {"SR-043", "SR-044", "SR-050", "SR-051", "SR-052", "SR-053", "SR-054"}
 _PLAN = "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
+
+
+def test_feat17_requirement_sources_match_all_live_authority_anchors() -> None:
+    root = Path(__file__).parents[3]
+    spec_path = root / "docs" / "superpowers" / "specs" / "2026-08-27-feat17-planning-bootstrap-design.md"
+
+    for requirement_id in sorted(_EXPECTED_SRS):
+        requirement_path = root / "requirements" / f"{requirement_id}.md"
+        requirement = frontmatter.load(str(requirement_path))
+        assert _source_matches(root, requirement["source"], spec_path), requirement_id
 
 
 def test_feat17_trace_contract_names_all_requirements_and_implementation_task() -> None:
@@ -19,12 +32,15 @@ def test_feat17_trace_contract_names_all_requirements_and_implementation_task() 
     task_path = root / "tasks" / "T-032-feat17-planning-workflow.md"
     task = frontmatter.load(str(task_path))
 
-    assert set(dossier["requirements"]) == _EXPECTED_SRS
-    assert {member.removeprefix("sr:") for member in bundle["members"] if member.startswith("sr:")} == _EXPECTED_SRS
+    requirements = cast(list[str], dossier["requirements"])
+    members = cast(list[str], bundle["members"])
+    justification = cast(list[dict[str, str]], task["justification"])
+    assert set(requirements) == _EXPECTED_SRS
+    assert {member.removeprefix("sr:") for member in members if member.startswith("sr:")} == _EXPECTED_SRS
     assert task["source_plan"] == _PLAN
     assert {
         target
-        for entry in task["justification"]
+        for entry in justification
         for kind, target in entry.items()
         if kind == "satisfies"
     } == _EXPECTED_SRS

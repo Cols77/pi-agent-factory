@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from coherence.cli import main
+from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
 
@@ -26,6 +27,8 @@ title: Intent Specification
 status: draft
 ---
 # Intent Specification
+
+### goal
 
 The goal is to build a deterministic planner.
 The constraint-files rule says files remain canonical.
@@ -79,6 +82,52 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
                 "---\n",
                 encoding="utf-8",
             )
+        requirement_ids = ("SR-001", "SR-002")
+        requirements_dir = root / "requirements"
+        requirements_dir.mkdir()
+        for req_id in requirement_ids:
+            (requirements_dir / f"{req_id}.md").write_text(
+                "---\n"
+                f"id: {req_id}\n"
+                f"title: {req_id} requirement\n"
+                f"statement: {req_id} statement\n"
+                "domain: behavioral\n"
+                "upstream: []\n"
+                "source: docs/superpowers/specs/intent-spec.md#goal\n"
+                "---\n",
+                encoding="utf-8",
+            )
+        feature_path = root / "docs" / "features" / "FEAT-017.md"
+        feature_path.parent.mkdir(parents=True, exist_ok=True)
+        feature_path.write_text(
+            "---\n"
+            "id: FEAT-017\n"
+            "title: Planning Bootstrap\n"
+            "requirements: [SR-001, SR-002]\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        bundle_path = root / "bundles" / "FEAT-017.json"
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001", "sr:SR-002"]}),
+            encoding="utf-8",
+        )
+        consent_path = root / ".factory" / "planning" / "run-001" / "requirement-consent.json"
+        consent_path.parent.mkdir(parents=True, exist_ok=True)
+        consent_path.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "run_id": "run-001",
+                    "decision": "approve",
+                    "reviewer": "human",
+                    "reason": "Reviewed the derived requirements.",
+                    "requirements": list(requirement_ids),
+                }
+            ),
+            encoding="utf-8",
+        )
     return intent, spec, plan
 
 
@@ -142,7 +191,8 @@ def _approval(report: dict[str, object], *, decision: str = "approve") -> dict[s
         "decision": decision,
         "reviewer": "human",
         "reason": "Reviewed the generated planning artifacts.",
-        "reviewed_artifacts": [artifact["path"] for artifact in artifacts],
+        "reviewed_artifacts": sorted(artifact["path"] for artifact in artifacts),
+        "report_sha256": planning_report_digest(report),
     }
 
 
@@ -205,6 +255,21 @@ def test_plan_suggest_emits_only_explicit_approved_downstream_suggestion(
     assert not (tmp_path / ".factory" / "runs").exists()
 
 
+def test_plan_suggest_names_missing_requirement_consent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report = _write_checked_report(tmp_path, capsys)
+    decision_path = tmp_path / ".factory" / "planning" / "run-001" / "review-decision.json"
+    decision_path.write_text(json.dumps(_approval(report)), encoding="utf-8")
+    (tmp_path / ".factory" / "planning" / "run-001" / "requirement-consent.json").unlink()
+
+    assert main(_suggest_args(tmp_path)) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["blocked"] is True
+    assert payload["reason"] == "REQUIREMENT_CONSENT_REQUIRED"
+
+
 def test_plan_suggest_rechecks_artifact_hashes_before_approved_suggestion(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -241,7 +306,7 @@ def test_plan_bootstrap_decomposes_and_reports_delegated_next_actions(
 ) -> None:
     intent, spec, plan = _write_fixture(tmp_path, complete=False)
     factory_dir = tmp_path / ".factory"
-    factory_dir.mkdir()
+    factory_dir.mkdir(exist_ok=True)
     (factory_dir / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
     args = [
         "plan",
@@ -270,6 +335,44 @@ def test_plan_bootstrap_decomposes_and_reports_delegated_next_actions(
     assert not (tmp_path / "requirements").exists()
     assert not (tmp_path / "bundles").exists()
     assert not (tmp_path / ".factory" / "planning" / "run-001" / "review-decision.json").exists()
+
+
+def test_plan_bootstrap_rejects_symlinked_tasks_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    intent, spec, plan = _write_fixture(tmp_path, complete=False)
+    factory_dir = tmp_path / ".factory"
+    factory_dir.mkdir(exist_ok=True)
+    (factory_dir / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
+    outside_tasks = tmp_path.parent / "planning-outside-tasks"
+    outside_tasks.mkdir()
+    tasks_link = tmp_path / "tasks"
+    try:
+        tasks_link.symlink_to(outside_tasks, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows runner")
+
+    args = [
+        "plan",
+        "bootstrap",
+        "--project-root",
+        str(tmp_path),
+        "--intent",
+        str(intent),
+        "--spec",
+        str(spec),
+        "--plan",
+        str(plan),
+        "--run-id",
+        "run-001",
+        "--decompose",
+        "--json",
+    ]
+
+    assert main(args) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["blocked"] is True
+    assert payload["reason"] == "BOOTSTRAP_PREREQUISITE"
 
 
 def test_plan_bootstrap_requires_factory_configuration(
@@ -302,9 +405,9 @@ def test_plan_bootstrap_requires_factory_configuration(
 def test_plan_suggest_rejects_approved_report_after_spec_changes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    intent, spec, plan = _write_fixture(tmp_path, complete=False)
+    intent, spec, plan = _write_fixture(tmp_path, complete=True)
     factory_dir = tmp_path / ".factory"
-    factory_dir.mkdir()
+    factory_dir.mkdir(exist_ok=True)
     (factory_dir / "factory.yaml").write_text("gates: {}\n", encoding="utf-8")
     bootstrap_args = [
         "plan",

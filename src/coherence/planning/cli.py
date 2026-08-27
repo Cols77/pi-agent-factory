@@ -8,9 +8,12 @@ from pathlib import Path
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport
+from coherence.planning.paths import safe_resolve, safe_root
+from coherence.planning.serialization import strict_json_loads
 from coherence.planning.run import (
     build_downstream_suggestion,
     read_review_decision,
+    requirement_consent_status,
     write_planning_run,
 )
 
@@ -43,18 +46,17 @@ def _safe_root(value: object) -> Path | None:
     if not isinstance(value, Path):
         return None
     try:
-        return value.resolve()
+        return safe_root(value)
     except (OSError, RuntimeError, ValueError):
         return None
 
 
 def _safe_stored_path(root: Path, *parts: str) -> Path | None:
     try:
-        candidate = (root.joinpath(*parts)).resolve()
-        candidate.relative_to(root)
-    except (OSError, RuntimeError, ValueError):
+        candidate = root.joinpath(*parts)
+    except (TypeError, ValueError):
         return None
-    return candidate
+    return safe_resolve(root, candidate)
 
 
 def _source_path(value: Path, root: Path) -> Path:
@@ -63,7 +65,7 @@ def _source_path(value: Path, root: Path) -> Path:
 
 
 def _json_report(report: PlanningReport) -> str:
-    return json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
+    return json.dumps(report.to_dict(), indent=2, ensure_ascii=False, allow_nan=False)
 
 
 def _error_report(run_id: str, code: str, detail: str) -> dict[str, object]:
@@ -101,8 +103,8 @@ def _blocked(run_id: str, reason: str, detail: str) -> dict[str, object]:
 
 def _read_report(path: Path, run_id: str) -> PlanningReport:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        payload = strict_json_loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError("stored planning report is missing, unreadable, or invalid JSON") from exc
 
     if not isinstance(payload, dict) or tuple(payload) != _REPORT_KEYS:
@@ -276,7 +278,7 @@ def _suggest(args: argparse.Namespace) -> int:
         )
         return 1
 
-    decision = read_review_decision(decision_path, report)
+    decision = read_review_decision(decision_path, report, project_root=root)
     if decision is None:
         print(
             json.dumps(
@@ -297,6 +299,16 @@ def _suggest(args: argparse.Namespace) -> int:
                     "REVIEW_NOT_APPROVED",
                     f"human review decision is {decision.get('decision')!r}",
                 ),
+                indent=2,
+            )
+        )
+        return 1
+
+    consent_ok, consent_detail = requirement_consent_status(report, root)
+    if not consent_ok:
+        print(
+            json.dumps(
+                _blocked(args.run_id, "REQUIREMENT_CONSENT_REQUIRED", consent_detail),
                 indent=2,
             )
         )
