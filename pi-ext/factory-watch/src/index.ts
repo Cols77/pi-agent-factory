@@ -28,6 +28,7 @@ import {
   buildVisualExplainSeedPrompt,
 } from "./skill-prompt.js";
 import { runPlanGate } from "./plan-gate-command.js";
+import { runPlanBrainstorm } from "./plan-brainstorm-command.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerEngContextTools } from "./eng-context-tools.js";
@@ -974,8 +975,8 @@ export default function factoryWatch(pi: PiApi): void {
   pi.registerCommand("plan", {
     description: "Start an interactive planning session (brainstorming -> writing-plans)",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const topic = args.trim();
-      if (topic === "") {
+      const topic = args;
+      if (topic.trim() === "") {
         ctx.ui.notify("usage: /plan <topic>", "error");
         return;
       }
@@ -999,12 +1000,25 @@ export default function factoryWatch(pi: PiApi): void {
         skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
       }
 
+      // Keep /plan's established session-seeding contract. The host-owned
+      // interactive capture is available explicitly as /plan-brainstorm.
       const seedText = buildPlanSeedPrompt(topic, skillBlocks);
       await ctx.newSession({
         withSession: async (session: ReplacedSessionCtx) => {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
         },
       });
+    },
+  });
+
+  pi.registerCommand("plan-brainstorm", {
+    description: "Capture adaptive planning intent and author a provisional specification",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      if (args.trim() === "") {
+        ctx.ui.notify("usage: /plan-brainstorm <topic>", "error");
+        return;
+      }
+      await runPlanBrainstorm(ctx, args);
     },
   });
 
