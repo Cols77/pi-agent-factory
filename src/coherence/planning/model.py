@@ -63,7 +63,44 @@ class PlanningReport:
         }
 
 
+@dataclass(frozen=True)
+class IntentAnswer:
+    """One verbatim answer captured during planning."""
+
+    id: str
+    question: str
+    text: str
+    source: str
+    sequence: int
+
+
+@dataclass(frozen=True)
+class IntentDocument:
+    """Canonical in-memory representation of schema-one or schema-two intent."""
+
+    schema: int
+    run_id: str | None
+    prompt: str
+    answers: tuple[IntentAnswer, ...]
+    brief: dict[str, list[str]]
+    capture_status: str
+    redactions: list[str]
+
+
+@dataclass(frozen=True)
+class CaptureEvent:
+    """One append-only planning capture event."""
+
+    run_id: str
+    sequence: int
+    kind: str
+    payload: dict[str, object]
+
+
 __all__ = [
+    "CaptureEvent",
+    "IntentAnswer",
+    "IntentDocument",
     "PlanningFinding",
     "PlanningInput",
     "PlanningReport",

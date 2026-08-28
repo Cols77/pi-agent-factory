@@ -68,6 +68,11 @@ def strict_json_loads(text: str) -> Any:
     return value
 
 
+def strict_json_dumps(value: object) -> str:
+    """Serialize JSON without non-finite values or implementation-dependent spacing."""
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -94,4 +99,4 @@ def strict_frontmatter_loads(text: str) -> frontmatter.Post:
     return frontmatter.loads(text)
 
 
-__all__ = ["strict_frontmatter_loads", "strict_json_loads"]
+__all__ = ["strict_frontmatter_loads", "strict_json_dumps", "strict_json_loads"]

@@ -98,25 +98,59 @@ def _body(text: str) -> str:
 
 
 def _valid_intent(
-    payload: object, path: Path, root: Path, findings: list[PlanningFinding]
+    payload: object,
+    path: Path,
+    root: Path,
+    findings: list[PlanningFinding],
+    expected_run_id: str | None = None,
 ) -> list[str]:
     subject = _subject(path, root)
     if not isinstance(payload, dict):
         findings.append(_finding("INTENT_INVALID", subject, "intent must be a JSON object"))
         return []
+    schema = payload.get("schema")
+    if type(schema) is not int or schema not in {1, 2}:
+        findings.append(_finding("INTENT_INVALID", subject, "intent schema must equal 1 or 2"))
+        return []
     valid = True
-    if type(payload.get("schema")) is not int or payload.get("schema") != 1:
-        findings.append(_finding("INTENT_INVALID", subject, "intent schema must equal 1"))
-        valid = False
     prompt = payload.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         findings.append(_finding("INTENT_INVALID", subject, "intent prompt must be non-empty"))
         valid = False
+    if schema == 2:
+        run_id = payload.get("run_id")
+        if not isinstance(run_id, str) or _SAFE_IDENTIFIER_RE.fullmatch(run_id) is None:
+            findings.append(_finding("INTENT_INVALID", subject, "schema-2 intent run_id is invalid"))
+            valid = False
+        elif expected_run_id is not None and run_id != expected_run_id:
+            findings.append(_finding("INTENT_INVALID", subject, "schema-2 intent run_id does not match the planning run"))
+            valid = False
+        brief = payload.get("brief")
+        required_brief = {"goal", "scope", "constraints", "non_goals", "done_when", "open_questions"}
+        if (
+            not isinstance(brief, dict)
+            or set(brief) != required_brief
+            or any(not isinstance(value, list) or any(not isinstance(item, str) for item in value) for value in brief.values())
+        ):
+            findings.append(_finding("INTENT_INVALID", subject, "schema-2 intent brief is invalid"))
+            valid = False
+        if payload.get("capture_status") not in {"provisional", "needs_user", "cancelled"}:
+            findings.append(_finding("INTENT_INVALID", subject, "schema-2 capture_status is invalid"))
+            valid = False
+        redactions = payload.get("redactions")
+        if not isinstance(redactions, list) or any(not isinstance(item, str) for item in redactions):
+            findings.append(_finding("INTENT_INVALID", subject, "schema-2 redactions must be a list of text values"))
+            valid = False
     answers = payload.get("answers")
-    if not isinstance(answers, list) or not answers:
-        findings.append(_finding("INTENT_INVALID", subject, "intent answers must be a non-empty list"))
-        return []
     answer_ids: list[str] = []
+    if not isinstance(answers, list):
+        findings.append(_finding("INTENT_INVALID", subject, "intent answers must be a list"))
+        return []
+    if not answers:
+        if schema == 1:
+            findings.append(_finding("INTENT_INVALID", subject, "intent answers must be a non-empty list"))
+        return answer_ids if valid else []
+    sequences: list[int] = []
     for index, answer in enumerate(answers):
         if not isinstance(answer, dict):
             findings.append(_finding("INTENT_INVALID", subject, f"answer {index} must be an object"))
@@ -128,14 +162,36 @@ def _valid_intent(
             findings.append(_finding("INTENT_INVALID", subject, f"answer {index} id must be non-empty"))
             valid = False
         elif answer_id in answer_ids:
-            findings.append(_finding("INTENT_INVALID", subject, f"duplicate answer id {answer_id!r}"))
+            findings.append(_finding("INTENT_INVALID", subject, f"duplicate answer id {_redact_detail(answer_id)}"))
             valid = False
         else:
             answer_ids.append(answer_id)
         if not isinstance(answer_text, str) or not answer_text.strip():
             findings.append(_finding("INTENT_INVALID", subject, f"answer {index} text must be non-empty"))
             valid = False
+        if schema == 2:
+            for field in ("question", "source"):
+                if not isinstance(answer.get(field), str):
+                    findings.append(_finding("INTENT_INVALID", subject, f"answer {index} {field} must be text"))
+                    valid = False
+            sequence = answer.get("sequence")
+            if type(sequence) is not int or sequence < 1:
+                findings.append(_finding("INTENT_INVALID", subject, f"answer {index} sequence must be positive"))
+                valid = False
+            elif sequence in sequences:
+                findings.append(_finding("INTENT_INVALID", subject, f"duplicate answer sequence {sequence}"))
+                valid = False
+            else:
+                sequences.append(sequence)
     return answer_ids if valid else []
+
+
+def _redact_detail(value: object) -> str:
+    return re.sub(
+        r"(?i)\\b(?:api[_-]?key|secret|password|passwd|token)\\b\\s*[:=]\\s*[^\\s,;]+",
+        "[REDACTED]",
+        str(value),
+    )
 
 
 def _has_token(text: str, token: str) -> bool:
@@ -325,6 +381,9 @@ def _planning_reference_paths(root: Path, run_id: str) -> tuple[Path, ...]:
     consent_path = root / ".factory" / "planning" / run_id / "requirement-consent.json"
     if safe_resolve(root, consent_path) is not None and consent_path.is_file():
         paths.append(consent_path)
+    capture_journal = root / ".factory" / "planning" / run_id / "capture" / "events.jsonl"
+    if safe_resolve(root, capture_journal) is not None and capture_journal.is_file():
+        paths.append(capture_journal)
     return tuple(paths)
 
 
@@ -435,7 +494,7 @@ def check_planning_input(input: PlanningInput) -> PlanningReport:
             intent_payload = strict_json_loads(intent_text)
         except (TypeError, ValueError, json.JSONDecodeError):
             findings.append(_finding("INTENT_INVALID", _subject(input.intent_path, root), "intent is invalid JSON"))
-    answer_ids = _valid_intent(intent_payload, input.intent_path, root, findings)
+    answer_ids = _valid_intent(intent_payload, input.intent_path, root, findings, input.run_id)
     spec_metadata = _metadata(spec_text, input.spec_path, root, findings) if spec_text is not None else None
     if spec_metadata is not None:
         for field in _REQUIRED_SPEC_FIELDS:
