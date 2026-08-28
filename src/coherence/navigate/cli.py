@@ -57,6 +57,7 @@ from coherence.navigate.queries import (
 )
 from coherence.navigate.reverse import query_reverse
 from coherence.navigate.story import query_story
+from coherence.navigate.requirements_context import query_requirements_context
 
 
 
@@ -89,6 +90,11 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
         # The feature dossier is the `brief` for a `feat:` scope (Inc 1).
         return query_feature_context(repo_root, scope)
     return query_brief(repo_root, scope)
+
+
+def cmd_requirements_context(repo_root: Path) -> dict:
+    """Return the complete read-only project requirement context."""
+    return query_requirements_context(repo_root)
 
 
 
@@ -924,6 +930,8 @@ def main(argv: list[str] | None = None) -> int:
     p_dossier = sub.add_parser("dossier", parents=[common])
     p_dossier.add_argument("--scope", required=True)
 
+    sub.add_parser("requirements-context", parents=[common])
+
 
     p_worker = sub.add_parser("worker")
     p_worker.add_argument("--repo-root", default=Path("."), type=Path)
@@ -1051,6 +1059,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "brief":
             result = cmd_brief(args.repo_root, args.scope)
             rendered = _render_brief(result)
+
+        elif args.cmd == "requirements-context":
+            result = cmd_requirements_context(args.repo_root)
+            rendered = json.dumps(result, indent=2, sort_keys=True)
 
         elif args.cmd == "matrix":
             result = cmd_matrix(args.repo_root, args.scope)
