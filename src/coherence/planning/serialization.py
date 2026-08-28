@@ -57,8 +57,10 @@ def _reject_nonfinite(value: object) -> None:
             _reject_nonfinite(item)
 
 
-def strict_json_loads(text: str) -> Any:
+def strict_json_loads(text: str, *, max_bytes: int = 1_048_576) -> Any:
     """Parse JSON while rejecting duplicate keys and non-finite numbers."""
+    if not isinstance(text, str) or len(text.encode("utf-8")) > max_bytes:
+        raise ValueError("JSON input is oversized")
     value = json.loads(
         text,
         object_pairs_hook=_reject_duplicate_keys,

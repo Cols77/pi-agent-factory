@@ -62,6 +62,12 @@ def _record_artifact(path: Path, root: Path) -> dict[str, object]:
     return record
 
 
+def planning_artifact_hashes(root: Path, paths: tuple[Path, ...] | list[Path]) -> tuple[dict[str, object], ...]:
+    """Return sorted, deterministic hash records for safe planning artifacts."""
+    records = [_record_artifact(path, root) for path in paths]
+    return tuple(sorted(records, key=lambda record: str(record["path"])))
+
+
 def _read_text(path: Path, root: Path, findings: list[PlanningFinding]) -> str | None:
     subject = _subject(path, root)
     if "\x00" in str(path):
@@ -551,4 +557,4 @@ def check_planning_input(input: PlanningInput) -> PlanningReport:
     )
 
 
-__all__ = ["check_planning_input"]
+__all__ = ["check_planning_input", "planning_artifact_hashes"]

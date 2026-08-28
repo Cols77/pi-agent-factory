@@ -19,6 +19,16 @@ from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 from coherence.planning.model_policy import ModelCatalogEntry, persist_model_selection
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
+from coherence.planning.semantic import SemanticReviewPacket, SemanticReviewReport, write_review_packet, write_review_report
+
+
+def write_semantic_review(
+    root: Path, packet: SemanticReviewPacket, report: SemanticReviewReport | None = None
+) -> tuple[Path, Path | None]:
+    """Persist review evidence only; this cannot approve or grant consent."""
+    packet_path = write_review_packet(root, packet)
+    report_path = write_review_report(root, report) if report is not None else None
+    return packet_path, report_path
 
 _DECISION_KEYS = frozenset(
     {
@@ -646,4 +656,5 @@ __all__ = [
     "requirement_consent_status",
     "write_planning_run",
     "write_model_selection",
+    "write_semantic_review",
 ]

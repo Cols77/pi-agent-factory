@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from coherence.planning.semantic import SemanticReviewPacket, SemanticReviewReport
+
 PlanningSeverity = Literal["error", "warning"]
 
 
@@ -106,3 +108,5 @@ __all__ = [
     "PlanningReport",
     "PlanningSeverity",
 ]
+
+__all__ += ["SemanticReviewPacket", "SemanticReviewReport"]
