@@ -11,6 +11,7 @@ import type {
   SystemGoal,
   SystemGoalsList,
   SystemVcycle,
+  SystemRequirementsContext,
 } from "../src/system-cli.js";
 
 const CTX = { cwd: "/repo" };
@@ -98,6 +99,11 @@ function deps(overrides: Record<string, unknown> = {}) {
     design: [],
     files: ["src/a.py"],
   };
+  const requirementsContext: SystemRequirementsContext = {
+    schema: "coherence.requirements-context.v1",
+    requirements: [{ id: "SR-001", title: "Alert", statement: "emit one alert", content: "", domain: "behavioral", status: "satisfied", lifecycle: "satisfied", source_anchors: [], relationships: {}, trace_metadata: {} }],
+    diagnostics: [], candidates: { duplicates: [], contradictions: [] }, deferred: { token_efficient_retrieval: true }, context_digest: "sha256:abc",
+  };
   return {
     vcycle: () => ({ ok: true as const, value: vcycle }),
     diagram: () => ({ ok: true as const, value: diagram }),
@@ -111,6 +117,7 @@ function deps(overrides: Record<string, unknown> = {}) {
     goalEvaluate: () => ({ ok: true as const, value: goalEvaluate }),
     present: () => ({ ok: true as const, value: present }),
     traversal: () => ({ ok: true as const, value: traversal }),
+    requirementsContext: () => ({ ok: true as const, value: requirementsContext }),
     ...overrides,
   };
 }
@@ -157,6 +164,12 @@ describe("eng-context tools (unit, mocked deps)", () => {
     expect(out).toContain("vcycle: feat:FEAT-NAV-017");
     expect(out).toContain("SYSTEM_REQUIREMENTS: SR-001");
     expect(out).toContain("goals: GOAL-NAV-003");
+  });
+
+  test("eng_get_requirements_context renders the complete context digest", async () => {
+    const out = await run(findTool("eng_get_requirements_context"), {});
+    expect(out).toContain("requirements context: sha256:abc");
+    expect(out).toContain("SR-001 [satisfied]");
   });
 
   test("eng_get_diagram renders the canonical path", async () => {
