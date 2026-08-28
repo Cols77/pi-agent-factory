@@ -91,6 +91,7 @@ import { freshSessionJsonl, grillResultPath, grillSessionPath, readFreshExplaine
 import { loadNodeRegistry } from "./node-registry.js";
 import { diffBlocked, snapshotStates } from "./pipeline-diff.js";
 import { readContextPacket, renderPacketSlice } from "./context-packet.js";
+import { nativeModelCatalog, modelKey } from "./model-catalog.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -569,6 +570,22 @@ async function runPolishSession(
 }
 
 export default function factoryWatch(pi: PiApi): void {
+  pi.registerCommand("planning-models", {
+    description: "Show the host-native configured model catalog for planning",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const catalog = nativeModelCatalog(ctx);
+      if (catalog.length === 0) {
+        ctx.ui.notify("planning model catalog unavailable; no model fallback was selected", "error");
+        return;
+      }
+      ctx.ui.notify(
+        catalog
+          .map((entry) => `${modelKey(entry)} [${entry.qualityTier}, ${entry.local ? "local" : "remote"}, ${entry.costClass}]`)
+          .join("\n"),
+        "info",
+      );
+    },
+  });
   registerWriteChunkGuard(pi);
   // The deterministic half of /trace-fix: the model reasons, these tools do the
   // enumerating, validating and writing.

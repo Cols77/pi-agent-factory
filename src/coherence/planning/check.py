@@ -12,6 +12,7 @@ from coherence.planning.anchors import authority_anchor_matches
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
+from coherence.planning.model_policy import ModelPolicyError, load_model_policy
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
 
 _CLAIM_RE = re.compile(r"(?<![A-Za-z0-9_-])claim:([A-Za-z0-9][A-Za-z0-9_.-]*)")
@@ -21,6 +22,15 @@ _REQUIRED_SPEC_FIELDS = ("id", "title", "status")
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REQUIREMENT_ID_RE = re.compile(r"^SR-[0-9]+$")
 _TASK_ID_RE = re.compile(r"^T-[0-9]+$")
+
+
+def check_model_policy(root: Path) -> tuple[PlanningFinding, ...]:
+    """Validate the optional project model policy without discovering providers."""
+    try:
+        load_model_policy(root)
+    except ModelPolicyError as exc:
+        return (_finding("MODEL_POLICY_INVALID", ".factory/planning/models.json", str(exc)),)
+    return ()
 
 
 def _relative(path: Path, root: Path) -> str | None:

@@ -17,6 +17,7 @@ from coherence.planning.gates import validate_requirement_consent
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
+from coherence.planning.model_policy import ModelCatalogEntry, persist_model_selection
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
 
 _DECISION_KEYS = frozenset(
@@ -172,6 +173,13 @@ def write_planning_run(root: Path, report: PlanningReport) -> Path:
                 pass
 
     return report_path
+
+
+def write_model_selection(
+    root: Path, run_id: str, classifier: ModelCatalogEntry, reviewer: ModelCatalogEntry
+) -> Path:
+    """Persist the one reviewer choice for a run; credentials never cross this boundary."""
+    return persist_model_selection(root, run_id, classifier, reviewer)
 
 
 def planning_report_digest(report: PlanningReport | Mapping[str, object]) -> str:
@@ -637,4 +645,5 @@ __all__ = [
     "read_review_decision",
     "requirement_consent_status",
     "write_planning_run",
+    "write_model_selection",
 ]
