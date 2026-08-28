@@ -1241,7 +1241,7 @@ export const REMEDIATION_DATA = {
       "headline": "Validation could not run",
       "what_it_means": "This SR's recorded validation state is `error`: the harness ran but produced no pass/fail verdict, only a recorded error (or no error message at all). This requirement already has a binding -- the problem is running validation, not deciding what to measure, so adding a binding is not the fix.",
       "why_it_matters": "An errored harness leaves the requirement's actual status unknown -- it is neither confirmed working nor confirmed broken. If the recorded binding names a harness that isn't actually configured, re-running validation surfaces that configuration error directly rather than silently passing; no command in the current surface repairs a missing harness declaration -- that still requires editing the binding by hand.",
-      "command": "uv run python -m factory.validation run --satisfies {id}",
+      "command": "uv run python -m coherence.measurement run --satisfies {id}",
       "command_kind": "shell",
       "severity": "failure"
     },
@@ -1250,7 +1250,7 @@ export const REMEDIATION_DATA = {
       "headline": "Requirement was never validated",
       "what_it_means": "No entry for this SR exists in the validation report -- it is absent from the report, or recorded as `never_validated`.",
       "why_it_matters": "A bound requirement with no validation entry has never been checked against its own metric, so passing or failing is still unknown.",
-      "command": "uv run python -m factory.validation run --satisfies {id}",
+      "command": "uv run python -m coherence.measurement run --satisfies {id}",
       "command_kind": "shell",
       "severity": "absence"
     },
@@ -1259,7 +1259,7 @@ export const REMEDIATION_DATA = {
       "headline": "Validation result is stale",
       "what_it_means": "The recorded validation result predates a later change to this SR's statement or binding.",
       "why_it_matters": "The passing or failing result on file no longer reflects what the requirement currently says or how it's measured, so it can't be trusted as current evidence.",
-      "command": "uv run python -m factory.validation run --satisfies {id}",
+      "command": "uv run python -m coherence.measurement run --satisfies {id}",
       "command_kind": "shell",
       "severity": "failure"
     },
@@ -1394,7 +1394,7 @@ export const REMEDIATION_DATA = {
       "headline": "Requirement was never validated",
       "what_it_means": "This Matrix row's status is `never-run`: the requirement resolves and has a decided binding, but no entry for it exists yet in the validation report. This is different from an unresolved SR reference, which shows as `unknown` instead.",
       "why_it_matters": "A row that has never run carries no evidence either way -- it is not passing, not failing, simply unchecked.",
-      "command": "uv run python -m factory.validation run --satisfies {id}",
+      "command": "uv run python -m coherence.measurement run --satisfies {id}",
       "command_kind": "shell",
       "severity": "absence"
     },
