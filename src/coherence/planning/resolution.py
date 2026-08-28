@@ -28,7 +28,7 @@ def _safe_id(value: object, field: str) -> str:
 
 
 def _safe_text(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > 65536 or _SECRET.search(value):
+    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 65536 or _SECRET.search(value):
         raise ResolutionError(f"invalid or secret-shaped {field}")
     return value
 
@@ -42,6 +42,17 @@ def _hashes(value: object, field: str) -> dict[str, str]:
     if any(not re.fullmatch(r"[0-9a-f]{64}", item) for item in result.values()):
         raise ResolutionError(f"invalid {field}")
     return result
+
+
+def _validate_timestamp(value: object) -> str:
+    stamp = _safe_text(value, "timestamp")
+    try:
+        parsed = datetime.fromisoformat(stamp[:-1] + "+00:00" if stamp.endswith("Z") else stamp)
+    except ValueError as exc:
+        raise ResolutionError("invalid timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ResolutionError("timestamp must include timezone")
+    return stamp
 
 
 def _validate_event(event: object, run_id: str, sequence: int) -> dict[str, Any]:
@@ -60,12 +71,7 @@ def _validate_event(event: object, run_id: str, sequence: int) -> dict[str, Any]
     _hashes(event["pre_artifact_hashes"], "pre_artifact_hashes")
     _hashes(event["post_artifact_hashes"], "post_artifact_hashes")
     _safe_id(event["actor_kind"], "actor_kind")
-    stamp = event["timestamp"]
-    _safe_text(stamp, "timestamp")
-    try:
-        datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    except (AttributeError, ValueError) as exc:
-        raise ResolutionError("invalid timestamp") from exc
+    _validate_timestamp(event["timestamp"])
     return event
 
 
@@ -110,13 +116,14 @@ def append_resolution_event(root: Path, *, run_id: str, stage: str, iteration: i
     pre = _hashes(pre_artifact_hashes, "pre_artifact_hashes")
     post = _hashes(post_artifact_hashes, "post_artifact_hashes")
     stamp = timestamp or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    _safe_text(stamp, "timestamp")
+    stamp = _validate_timestamp(stamp)
     path = _path(root, run)
     existing = read_resolution_events(root, run)
     event: dict[str, Any] = {"schema": 1, "run_id": run, "sequence": len(existing) + 1,
         "stage": stage, "iteration": iteration, "finding_id": finding, "disposition": disposition,
         "prompt": prompt_value, "answer_or_fix": fix_value, "pre_artifact_hashes": pre,
         "post_artifact_hashes": post, "actor_kind": actor, "timestamp": stamp}
+    _validate_event(event, run, event["sequence"])
     path.parent.mkdir(parents=True, exist_ok=True)
     # O_APPEND ensures this function cannot replace an earlier iteration.
     try:

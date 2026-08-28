@@ -60,3 +60,24 @@ def test_resolution_reader_revalidates_hashes_and_sensitive_text(tmp_path: Path)
     journal.write_text(json.dumps(event) + "\n", encoding="utf-8")
     with pytest.raises(ResolutionError):
         read_resolution_events(tmp_path, "run")
+
+
+def test_resolution_append_rejects_invalid_timestamp_before_creating_journal(tmp_path: Path) -> None:
+    with pytest.raises(ResolutionError):
+        append_resolution_event(
+            tmp_path, run_id="run", stage="spec_alignment", iteration=1,
+            finding_id="f", disposition="informational", actor_kind="agent",
+            prompt="prompt", answer_or_fix="answer", pre_artifact_hashes={},
+            post_artifact_hashes={}, timestamp="not-a-timestamp",
+        )
+    assert not (tmp_path / ".factory" / "planning" / "run" / "resolution-events.jsonl").exists()
+
+
+def test_resolution_text_limits_use_utf8_bytes(tmp_path: Path) -> None:
+    with pytest.raises(ResolutionError):
+        append_resolution_event(
+            tmp_path, run_id="run", stage="spec_alignment", iteration=1,
+            finding_id="f", disposition="informational", actor_kind="agent",
+            prompt="é" * 32769, answer_or_fix="answer", pre_artifact_hashes={},
+            post_artifact_hashes={},
+        )

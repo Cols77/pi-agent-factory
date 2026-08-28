@@ -115,6 +115,12 @@ class SemanticReviewReport:
     stage: str
     iteration: int
     packet_sha256: str
+    artifacts: tuple[dict[str, str], ...]
+    context: dict[str, Any]
+    sr_context_digest: str
+    model: dict[str, Any]
+    reviewer_role: str
+    reviewer_session_id: str | None
     findings: tuple[dict[str, Any], ...]
     human_prompts: tuple[str, ...]
     notes: tuple[str, ...]
@@ -123,6 +129,10 @@ class SemanticReviewReport:
     def to_dict(self) -> dict[str, object]:
         return {"schema": self.schema, "run_id": self.run_id, "stage": self.stage,
                 "iteration": self.iteration, "packet_sha256": self.packet_sha256,
+                "artifacts": list(self.artifacts), "context": self.context,
+                "sr_context_digest": self.sr_context_digest, "model": self.model,
+                "reviewer_role": self.reviewer_role,
+                "reviewer_session_id": self.reviewer_session_id,
                 "findings": list(self.findings), "human_prompts": list(self.human_prompts),
                 "notes": list(self.notes), "verdict": self.verdict}
 
@@ -162,12 +172,49 @@ def _validate_packet(root: Path, packet: SemanticReviewPacket) -> None:
     _digest(packet.sr_context_digest, "SR context digest")
 
 
+def _validate_packet_fields(
+    artifacts: tuple[dict[str, str], ...], model: dict[str, Any],
+    reviewer_role: str, reviewer_session_id: str | None,
+) -> None:
+    if not isinstance(artifacts, tuple):
+        raise SemanticReviewError("report artifacts are invalid")
+    paths: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
+            raise SemanticReviewError("report artifacts are invalid")
+        path = artifact["path"]
+        if not isinstance(path, str) or not path or path.startswith(("/", "\\")) or ".." in Path(path).parts:
+            raise SemanticReviewError("report artifact path is invalid")
+        if path in paths:
+            raise SemanticReviewError("report artifact path is duplicated")
+        _digest(artifact["sha256"], "artifact hash")
+        paths.add(path)
+    if tuple(sorted(paths)) != tuple(paths):
+        raise SemanticReviewError("report artifacts are not sorted")
+    if set(model) - {"provider", "model", "revision", "temperature", "config_digest"}:
+        raise SemanticReviewError("model metadata contains unsupported fields")
+    cleaned = _clean_mapping(model, "model metadata")
+    if "provider" not in cleaned or "model" not in cleaned:
+        raise SemanticReviewError("model provider and model are required")
+    if not isinstance(reviewer_role, str) or not _ID.fullmatch(reviewer_role):
+        raise SemanticReviewError("invalid reviewer role")
+    if reviewer_session_id is not None:
+        _text(reviewer_session_id, "reviewer session")
+
+
 def _validate_report(report: SemanticReviewReport) -> None:
     if report.schema != 1 or _run_id(report.run_id) != report.run_id or report.stage not in REVIEW_STAGES:
         raise SemanticReviewError("report identity is invalid")
     if type(report.iteration) is not int or report.iteration < 1:
         raise SemanticReviewError("report identity is invalid")
     _digest(report.packet_sha256, "packet_sha256")
+    if not isinstance(report.artifacts, tuple) or not isinstance(report.context, dict):
+        raise SemanticReviewError("report binding fields are invalid")
+    _clean_mapping(report.context, "context")
+    _digest(report.sr_context_digest, "SR context digest")
+    if not isinstance(report.model, dict):
+        raise SemanticReviewError("report model metadata is invalid")
+    _validate_packet_fields(report.artifacts, report.model, report.reviewer_role, report.reviewer_session_id)
     payload = report.to_dict()
     if parse_review_report(_canonical(payload)).to_dict() != payload:
         raise SemanticReviewError("report fields are invalid")
@@ -203,7 +250,8 @@ def parse_review_report(text: str, *, packet: SemanticReviewPacket | None = None
         payload = strict_json_loads(text)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise SemanticReviewError("report must be strict JSON") from exc
-    if not isinstance(payload, dict) or set(payload) != {"schema", "run_id", "stage", "iteration", "packet_sha256", "findings", "human_prompts", "notes", "verdict"}:
+    required_fields = {"schema", "run_id", "stage", "iteration", "packet_sha256", "artifacts", "context", "sr_context_digest", "model", "reviewer_role", "reviewer_session_id", "findings", "human_prompts", "notes", "verdict"}
+    if not isinstance(payload, dict) or set(payload) != required_fields:
         raise SemanticReviewError("report fields are invalid")
     if payload["schema"] != 1 or payload["stage"] not in REVIEW_STAGES or type(payload["iteration"]) is not int or payload["iteration"] < 1:
         raise SemanticReviewError("report identity is invalid")
@@ -211,6 +259,20 @@ def parse_review_report(text: str, *, packet: SemanticReviewPacket | None = None
     packet_digest = _digest(payload["packet_sha256"], "packet_sha256")
     if packet is not None and (packet.run_id != run_id or packet.stage != payload["stage"] or packet.iteration != payload["iteration"] or packet.sha256 != packet_digest):
         raise SemanticReviewError("report is not bound to packet")
+    raw_artifacts = payload["artifacts"]
+    if not isinstance(raw_artifacts, list):
+        raise SemanticReviewError("report artifacts must be a list")
+    artifacts = tuple(dict(item) for item in raw_artifacts if isinstance(item, dict))
+    if len(artifacts) != len(raw_artifacts):
+        raise SemanticReviewError("report artifacts are invalid")
+    context = _clean_mapping(payload["context"], "context")
+    sr_digest = _digest(payload["sr_context_digest"], "SR context digest")
+    model = payload["model"]
+    if not isinstance(model, dict):
+        raise SemanticReviewError("report model metadata is invalid")
+    _validate_packet_fields(artifacts, model, payload["reviewer_role"], payload["reviewer_session_id"])
+    if packet is not None and (artifacts != packet.artifacts or context != packet.context or sr_digest != packet.sr_context_digest or model != packet.model or payload["reviewer_role"] != packet.reviewer_role or payload["reviewer_session_id"] != packet.reviewer_session_id):
+        raise SemanticReviewError("report binding fields do not match packet")
     raw_findings = payload["findings"]
     if not isinstance(raw_findings, list):
         raise SemanticReviewError("findings must be a list")
@@ -240,7 +302,9 @@ def parse_review_report(text: str, *, packet: SemanticReviewPacket | None = None
     if verdict not in _VERDICTS or (verdict == "clean" and findings):
         raise SemanticReviewError("verdict does not match findings")
     return SemanticReviewReport(1, run_id, payload["stage"], payload["iteration"], packet_digest,
-                                tuple(findings), texts("human_prompts"), texts("notes"), verdict)
+                                artifacts, context, sr_digest, model, payload["reviewer_role"],
+                                payload["reviewer_session_id"], tuple(findings),
+                                texts("human_prompts"), texts("notes"), verdict)
 
 
 def _atomic(path: Path, content: str) -> Path:
