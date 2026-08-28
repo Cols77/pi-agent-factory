@@ -1,603 +1,1583 @@
 ---
-id: PLAN-FEAT-017-PLANNING-WORKFLOW
-title: "FEAT-017 Planning Workflow Implementation Plan"
+id: PLAN-FEAT-017-MATURE-PLANNING-WORKFLOW
+title: "FEAT-017 Mature Planning Workflow Implementation Plan"
 status: draft
 spec_ref: docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
 ---
 
-# FEAT-17 Planning Workflow Implementation Plan
+# FEAT-017 Mature Planning Workflow Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For Hermes:** Use subagent-driven-development to implement this plan task-by-task. This document is the implementation plan; it is not itself permission to execute, commit, push, or merge.
 
-**Goal:** Make FEAT-17 a deterministic, inspectable planning workflow that captures user intent, verifies intent/spec/plan/task/register consistency, preserves a deferred human-review seam, and suggests—but never silently starts—the governed development workflow.
+**Goal:** Mature FEAT-017 from the existing deterministic planning/bootstrap slice into a resumable, host-portable planning workflow that conducts adaptive intent discovery, authors a provisional authority specification, runs three bounded semantic-review checkpoints with fresh verification after every fix, preserves human escalation and explicit SR consent, and emits a verified handoff for a separately started downstream workflow.
 
-**Architecture:** The Python backend owns the canonical planning contract and deterministic gates. User/agent interaction only authors bounded source files: `intent.json`, an authority `spec.md`, and a writing-plans-format plan. A pure checker derives a stable report from those files and the existing register/trace/plan parsers; a thin CLI adapter writes only run evidence and reports. The existing `/plan` host command remains a thin authoring adapter and later consumes this contract rather than reimplementing checks.
+**Architecture:** Keep the Python Coherence/substrate layer authoritative for canonical artifacts, schemas, state transitions, hashes, path safety, registration, traceability, and fail-closed gates. Add host-neutral planning-review contracts and dedicated agent roles, but obtain agent execution and model catalog information from the host through the existing `AgentBackend` seam. Pi and Hermes remain thin adapters: they conduct the conversational interaction, ask the user to select a reviewer model once per run, render the text summary, and create a new session from the validated handoff; they do not reimplement planning rules.
 
-**Tech Stack:** Python 3.11–3.12, dataclasses, `pathlib`, JSON, PyYAML/frontmatter already in the repo, argparse, pytest, ruff, pyright. No new runtime dependency. TypeScript host wiring is a later task only after the Python contract is proven.
-
-## Global Constraints
-
-- Canonical source artifacts are files; indexes, reports, and UI projections are derived and disposable.
-- The checker is pure/read-only over inputs; it never invokes an LLM, adopts an SR, writes a decision, starts development, or silently falls back.
-- Missing, malformed, contradictory, stale, or unresolvable input is a failed gate with deterministic findings and a non-zero CLI exit.
-- Semantic SR authoring and semantic alignment approval remain human-consent operations; `human_review` cannot be self-certified.
-- FEAT-17 owns planning composition and gate output; FEAT-16 owns general workflow interpretation; FEAT-13 owns governed execution; FEAT-14 owns gate taxonomy; registration is delegated to health-resolution.
-- Use exact relative paths in persisted records and stable sorted output. Never persist absolute machine-specific paths in the contract.
-- Never push or merge. Commits are scoped to the task’s files.
+**Tech Stack:** Python 3.11, dataclasses, pathlib, strict JSON/YAML/frontmatter parsing, argparse, pytest, Ruff, Pyright, TypeScript, Pi/Hermes host APIs, existing agent subprocess/backend seams, filesystem-first artifacts, and the existing Coherence trace/navigate/gate substrate. No new runtime dependency unless a host’s native model-catalog API requires a reviewed adapter dependency.
 
 ---
 
-## Contract checkpoint (must land before parallel work)
+## 1. Scope and approved design baseline
 
-Before implementation, agree these exact interfaces. Later tasks must not rename them without updating all consumers and tests:
+This plan supersedes the earlier maturation proposal. The following decisions were explicitly confirmed during design review and must not be silently changed during implementation.
 
-```python
-@dataclass(frozen=True)
-class PlanningInput:
-    intent_path: Path
-    spec_path: Path
-    plan_path: Path
-    project_root: Path
-    run_id: str
+### 1.0 Current planning materialization
 
-@dataclass(frozen=True)
-class PlanningFinding:
-    code: str
-    severity: Literal["error", "warning"]
-    subject: str
-    detail: str
+The current repository state is materialized with the tools available today before the mature
+implementation lands:
 
-@dataclass(frozen=True)
-class PlanningReport:
-    schema: int
-    run_id: str
-    ok: bool
-    artifacts: tuple[dict[str, object], ...]
-    findings: tuple[PlanningFinding, ...]
-    next_actions: tuple[dict[str, object], ...]
-    review_required: bool
-    suggestion: dict[str, object] | None
+- `.intent/intent.json` uses the existing schema-one contract and preserves the latest planning
+  request plus the approved decision answers;
+- the current `coherence.planning` checker validates source presence, frontmatter, safe paths,
+  intent-token coverage, FEAT-017 closure, source anchors, and plan/task parity;
+- current Coherence trace, register, health, and gate commands provide the available evidence;
+- no proposed SR is treated as human-consented, no approval is fabricated, and no downstream
+  workflow is started;
+- the stable intent identifiers are `host-neutral`, `adaptive-brainstorming`, `provisional-spec`,
+  `three-checkpoints`, `complete-sr-context`, `selected-review-model`, `fresh-review-loop`,
+  `append-only-journal`, `human-escalation`, `explicit-sr-consent`, `text-summary-handoff`,
+  `deferred-browser`, `canonical-spec-authority`, `no-auto-execution`, and
+  `current-tooling-boundary`.
 
-def check_planning_input(input: PlanningInput) -> PlanningReport: ...
-def write_planning_run(root: Path, report: PlanningReport) -> Path: ...
-def build_downstream_suggestion(
-    report: PlanningReport,
-    decision: Mapping[str, object] | None = None,
-) -> dict[str, object] | None: ...
-```
+This current materialization is evidence that the planning artifacts are coherent under today’s
+contracts; it is not evidence that the future mature runtime behavior has already been implemented.
 
-The report JSON ordering is fixed: `schema`, `run_id`, `ok`, `artifacts`, `findings`, `next_actions`, `review_required`, `suggestion`. Findings sort by severity (`error` first), then code, then subject, then detail. Artifact records sort by relative path. A suggestion is non-null only when `report.ok` is true; `starts_automatically` is always `false`.
+### 1.1 Host boundary
 
----
+- Implement one host-neutral workflow over the existing Coherence/substrate and factory-orchestrator seams.
+- Pi and Hermes provide thin adapters for conversation, model discovery/selection, agent backend injection, text rendering, and new-session handoff.
+- Do not build a Hermes-only planning implementation or a second Pi-only planning implementation.
+- Do not put provider discovery, credentials, shell execution, or model invocation into the Python planning CLI.
 
-### Task 1: Add the pure planning contract and fail-closed checker
+### 1.2 Brainstorming behavior
 
-**Objective:** Add the deterministic source-artifact checker without any CLI or host side effects.
+- Brainstorming is adaptive and conversational, inspired by the upstream Superpowers `brainstorming` skill and Matt Pocock-style `grill-me`/`grilling` interaction.
+- The inspiration governs questioning style only: inspect repository facts when discoverable, ask focused questions, surface trade-offs, and avoid silently assuming unresolved design choices.
+- The user’s initial request and answers are preserved verbatim.
+- The agent may author a provisional authority spec from an incomplete/provisional conversation. There is no separate blanket approval of the intent summary before spec generation.
+- Missing intent, infeasibility, contradictions, and unresolved decisions are semantic-review findings that can escalate to the user later.
 
-**Files:**
-- Create: `src/coherence/planning/__init__.py`
-- Create: `src/coherence/planning/model.py`
-- Create: `src/coherence/planning/check.py`
-- Test: `tests/unit/coherence/test_planning_check.py`
+### 1.3 Semantic-review checkpoints
 
-**Interfaces:**
-- Consumes: `substrate.ledger.plans.parse_plan_tasks`, `coherence.trace.model`/existing register readers only where needed, and `pathlib.Path`.
-- Produces: `PlanningInput`, `PlanningFinding`, `PlanningReport`, `check_planning_input`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create a temporary project with:
+Semantic review runs at all three lifecycle points:
 
 ```text
-.intent/intent.json
- docs/superpowers/specs/intent-spec.md
- docs/superpowers/plans/intent-plan.md
- tasks/T-001-first.md
+Pass 1: provisional intent -> authority specification
+Pass 2: intent/specification -> implementation plan and generated tasks
+Pass 3: specification/plan -> derived SRs, FEAT dossier, and bundle
 ```
 
-The intent file must contain:
+The third pass is separate because SRs are thin, independently governable projections of the authority spec, not a mechanical copy of every paragraph.
 
-```json
-{
-  "schema": 1,
-  "prompt": "Build a deterministic planner",
-  "answers": [
-    {"id": "goal", "text": "Build a deterministic planner"},
-    {"id": "constraint-files", "text": "Files remain canonical"}
-  ]
-}
+### 1.4 Review and fix loops
+
+For every checkpoint:
+
+```text
+deterministic preflight
+-> use the reviewer model selected for this run
+-> dedicated semantic reviewer
+-> reviewer classifies each finding as resolve_in_loop or escalate_to_human
+-> agent directly fixes only its permitted planning artifacts
+-> append the resolution/fix evidence for this run
+-> deterministic reread and gates
+-> fresh dedicated reviewer invocation
+-> repeat until every finding is fixed or escalated
 ```
 
-The spec must have frontmatter `id`, `title`, `status`, and body containing `goal` and `constraint-files`. The plan must have frontmatter `spec_ref: intent-spec.md`, both `### Task 1:` and `### Task 2:` sections, and each task’s `**Files:**` block. The generated task must carry `source_plan: docs/superpowers/plans/intent-plan.md` and `source_task: 1`.
+- A reviewer may choose what it can resolve and what needs human input.
+- A reviewer cannot self-certify its own edits. Every fix is followed by a fresh reviewer invocation and deterministic gates.
+- Human escalation answers become prompts/inputs to the next agentic loop iteration.
+- The workflow does not stop merely because an agent says it is done.
+- The human loop ends only when all escalations are resolved and the next agentic loop reaches a clean result.
+- Informational notes may remain; unresolved semantic findings and deterministic warnings may not.
 
-Assert the checker returns `ok is False` for a missing generated task, with an `error` finding code `PLAN_TASK_PARITY`. Add a second test with a complete fixture and assert `ok is True`, `review_required is True`, and no suggestion is emitted by the pure checker until the explicit review/consent seam is resolved.
+### 1.5 Human review and consent
 
-- [ ] **Step 2: Run test to verify it fails**
+- Human review is primarily escalation-driven: the system presents specific unresolved questions and asks the user to resolve them.
+- After a clean pass, the user may optionally inspect artifacts one by one using normal editor/tools. This is not a mandatory new artifact-review workbench.
+- Browser-based `/system` planning projection is deferred to a later requirement; the first mature workflow presents a text summary and stable handoff.
+- For SR derivation, semantic cleanliness is not consent. After the derivation escalation has been resolved, the workflow must request an explicit consent phrase before adopting the candidate SR set.
+- A free-text answer alone does not grant SR consent.
+- Existing consent and review artifacts remain hash-bound and fail closed; compatibility with existing `review-decision.json` runs must be preserved or explicitly migrated.
 
-Run:
+### 1.6 Requirement model
 
-```bash
-uv run pytest tests/unit/coherence/test_planning_check.py -q
+Keep both specifications and SRs:
+
+```text
+authority spec = canonical semantic/design authority
+SR             = thin, human-consented, machine-addressable obligation projection
 ```
 
-Expected: FAIL because `coherence.planning` does not exist.
+Only independently governable obligations become SRs. An SR is appropriate when it needs independent verification, ownership, task/code traceability, an obligation, evidence, lifecycle/consent, feature/bundle membership, or separate health state. Explanatory prose, alternatives, rationale, and non-binding context stay in the spec.
 
-- [ ] **Step 3: Write the minimal implementation**
+### 1.7 Current requirement context
 
-Implement these rules in `check.py`:
+Every semantic reviewer receives the full current project requirement context for the initial reliable implementation:
 
-1. Read every input as UTF-8; catch `OSError`, `UnicodeError`, JSON errors, YAML/frontmatter errors, and parser errors into stable findings.
-2. Require intent JSON `schema == 1`, non-empty `prompt`, and an `answers` list whose entries have non-empty `id` and `text`.
-3. Require the authority spec frontmatter fields `id`, `title`, `status`; record its relative path and SHA-256 hash.
-4. Require the plan’s `spec_ref` to resolve to the exact authority spec path or canonical spec id, and require at least one task section. Use `parse_plan_tasks` for task grammar; do not duplicate its regex.
-5. Load tasks from `project_root/tasks`; for every plan task require exactly one task with matching `source_plan` and `source_task`; report missing and duplicate mappings as `PLAN_TASK_PARITY`.
-6. For each intent answer id, require the id to occur as a token in the spec and plan text; report uncovered answers as `INTENT_UNCOVERED`. Report a deterministic `SPEC_UNSUPPORTED_CLAIM` only for explicit `claim:<id>` tokens in the spec that have no intent answer id—do not pretend to solve unrestricted semantic entailment.
-7. Emit `review_required: True` for every otherwise valid report. Do not write review files or a positive suggestion in this task.
+- every non-deleted SR;
+- full requirement content;
+- proposed, deferred, satisfied, and active lifecycle/status labels;
+- source anchors and available trace context.
 
-Use deterministic relative paths (`Path.relative_to(project_root).as_posix()`), stable hashes, and sorted findings. Do not use shell commands or model calls.
+Where an SR lacks a source status field, the labels are derived from the current Coherence trace/register state rather than fabricated. This deliberately accepts scale and token cost so duplicate requirements and contradictions are not hidden. The context is supplied through a read-only Coherence context interface, not ad-hoc model-directed globbing. A better retrieval/indexing technique is a deferred requirement, not an unimplemented promise in this feature.
 
-- [ ] **Step 4: Run test to verify it passes**
+### 1.8 Model selection
 
-Run:
+One reviewer model is selected for the entire FEAT-017 run:
 
-```bash
-uv run pytest tests/unit/coherence/test_planning_check.py -q
-uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_check.py
-uv run pyright src/coherence/planning
+```text
+configured inexpensive classifier
+-> complexity estimate
+-> concrete provider:model recommendations with cost/capability metadata
+-> user chooses a reviewer model
+-> selected model is reused for all three checkpoints and retries
 ```
 
-Expected: focused tests pass; ruff and pyright report no new errors.
+- The classifier model is configured by the project policy file.
+- The host validates configured models against its native model API.
+- The user sees concrete `provider:model` choices with non-secret quality/capability tier, local/remote status, cost class, and free/low-cost marker.
+- If the classifier, catalog, or configured model is unavailable, the workflow pauses and asks for an explicit configured choice. It never silently falls back.
+- Model selection is FEAT-017-local for now. A later separate feature may generalize it across all workflows.
 
-- [ ] **Step 5: Commit**
+### 1.9 Persistence and handoff
 
-```bash
-git add src/coherence/planning tests/unit/coherence/test_planning_check.py
-git commit -m "feat: add deterministic planning consistency checker"
+All loop history is append-only within one workflow execution:
+
+```text
+.factory/planning/<run-id>/resolution-events.jsonl
 ```
+
+Prior iterations must never be replaced. Derived current-state views may be regenerated from the journal.
+
+After all three semantic passes and deterministic gates are clean:
+
+```text
+.factory/planning/<run-id>/handoff.json
+.factory/planning/<run-id>/handoff.md
+```
+
+`handoff.json` is the schema-versioned, hash-bound source. `handoff.md` is a concise copyable prompt for a new session. The selected downstream workflow is never started automatically; the new session revalidates the handoff before acting.
 
 ---
 
-### Task 2: Add planning run evidence, review seam, and downstream suggestion
+## 2. Existing substrate and dependencies to reuse
 
-**Objective:** Persist a derived planning report and expose explicit human-review/consent state without fabricating approval.
+The implementation must map each new capability to the existing machinery before introducing a new abstraction.
 
-**Files:**
-- Modify: `src/coherence/planning/model.py`
-- Modify: `src/coherence/planning/check.py`
-- Create: `src/coherence/planning/run.py`
-- Test: `tests/unit/coherence/test_planning_run.py`
+### Canonical planning/artifact machinery
 
-**Interfaces:**
-- Consumes: Task 1’s `PlanningReport` and `PlanningInput`.
-- Produces: `write_planning_run(root, report) -> Path`, a capability-bound `ReviewDecision` from `read_review_decision(path, report, project_root)`, and `build_downstream_suggestion(report, decision, root) -> dict[str, object] | None`.
+- `src/coherence/planning/model.py`
+- `src/coherence/planning/check.py`
+- `src/coherence/planning/serialization.py`
+- `src/coherence/planning/paths.py`
+- `src/coherence/planning/run.py`
+- `src/coherence/planning/bootstrap.py`
+- `src/coherence/planning/gates.py`
+- `src/coherence/planning/cli.py`
+- `.intent/intent.json` as the existing intent source path
+- `.factory/planning/<run-id>/report.json` as the existing planning evidence location
+- `src/substrate/ledger/plans.py` for canonical plan parsing and collision-safe task creation
 
-- [ ] **Step 1: Write the failing test**
+### Coherence context, trace, and gate machinery
 
-Add tests that:
+- `src/coherence/trace/model.py` for canonical SR/node loading and declared relations
+- `src/coherence/trace/graph.py` for graph-derived relationships
+- `src/coherence/navigate/queries.py` for brief, matrix, traversal, and feature context
+- `src/coherence/navigate/cli.py` for the stable navigator interface
+- `src/coherence/navigate/obligations.py` for declared obligation context where applicable
+- `src/coherence/gate/model.py` for validated `DecisionFile` decisions
+- `src/coherence/gate/store.py` for atomic decision writes/reads
+- `src/coherence/gate/service.py` for fail-closed gate resolution
+- existing `trace` writers rather than hand-editing trace metadata
 
-```python
-report = check_planning_input(valid_input)
-path = write_planning_run(root, report)
-assert path == root / ".factory" / "planning" / "run-001" / "report.json"
-payload = json.loads(path.read_text(encoding="utf-8"))
-assert list(payload) == ["schema", "run_id", "ok", "artifacts", "findings", "next_actions", "review_required", "suggestion"]
-assert payload["suggestion"] is None
-```
+### Agent/orchestration machinery
 
-Write a valid review decision with `decision: approve`, `reviewer: human`, a non-empty `reason`, an exact sorted `reviewed_artifacts` list, and `report_sha256` equal to the canonical report digest. Assert `build_downstream_suggestion(report)` still returns `None` until a capability-bound decision is read from the canonical run path. Then assert an approved decision produces `action == "suggest_downstream"`, `workflow == "standard"`, the plan path and sorted task ids, `starts_automatically is False`, and prerequisites containing `human_review` and `requirement_consent`. Add regression cases for changed source/task hashes and a same-run report rewrite after approval. Add tests for reject/defer, malformed decision, wrong reviewer, and changed artifact hash; all must produce no suggestion.
+- `src/factory/orchestrator/backends.py` `AgentBackend` protocol
+- `src/factory/orchestrator/types.py` `AgentRole`
+- `src/factory/orchestrator/roles.py` role scopes and prompts
+- `src/factory/orchestrator/pi_backend.py` composition wrapper
+- `src/substrate/agents/backend.py` bounded agent process execution
+- `src/substrate/agents/model.py` neutral `AgentResult`
+- `pi-ext/factory-watch/src/subagent-tool.ts` only where a shared bounded host invocation seam is required
+- `pi-ext/factory-watch/src/cli-runner.ts` and existing argv builders for safe backend calls
+- `pi-ext/factory-watch/src/session-transcript.ts` for host session provenance where useful
+- `pi-ext/factory-watch/src/pi-types.ts` host model/UI/session types
 
-- [ ] **Step 2: Run test to verify it fails**
+### Host/project configuration
 
-Run:
+- New non-secret project policy: `.factory/planning/models.json`
+- Native Pi/Hermes model APIs validate the project policy and provide the available configured catalog.
+- No credentials or provider tokens may enter the policy, packet, report, journal, or handoff.
 
-```bash
-uv run pytest tests/unit/coherence/test_planning_run.py -q
-```
+### Explicitly deferred dependencies
 
-Expected: FAIL because the run writer and decision-aware suggestion do not exist.
+These are not hidden blockers; they remain visible as deferred scope:
 
-- [ ] **Step 3: Write the minimal implementation**
-
-Implement:
-
-- `write_planning_run` under `.factory/planning/<run_id>/report.json` using a temp file in the same directory and `os.replace`; never overwrite a source artifact.
-- A strict `read_review_decision(path, report, project_root)`: require JSON object, `schema == 1`, exact run id and canonical run path, `decision in {approve,reject,defer}`, `reviewer == "human"`, non-empty `reason`, exact sorted `reviewed_artifacts` equal to the report’s source paths, and `report_sha256` equal to the canonical report digest. Invalid decisions return a deterministic error state, never approval; only the capability returned by this reader can be passed to downstream suggestion.
-- `build_downstream_suggestion(report, decision=None)`: re-run the pure checker against the persisted source/task artifacts, require current report/task hashes, require current FEAT-017 dossier/bundle/source closure and an external exact-set `requirement-consent.json`, then return `None` unless the supplied decision is valid and approved. On success derive task ids from current task files and return:
-
-```python
-{
-    "action": "suggest_downstream",
-    "workflow": "standard",
-    "plan": "docs/superpowers/plans/intent-plan.md",
-    "tasks": ["T-001", "T-002"],
-    "prerequisites": ["human_review", "requirement_consent"],
-    "starts_automatically": False,
-}
-```
-
-Do not call FEAT-13. Do not write an approve decision. Keep review browsing/visualization deferred; this task only stabilizes the file contract.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_run.py -q
-uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_run.py
-uv run pyright src/coherence/planning
-```
-
-Expected: focused tests pass and no new lint/type errors.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/coherence/planning tests/unit/coherence/test_planning_run.py
-git commit -m "feat: add planning review seam and downstream suggestion"
-```
+- a better token-efficient SR retrieval/indexing strategy;
+- a `/system`-style interactive planning/artifact review projection;
+- repository-wide cross-workflow model-selection policy;
+- full blank-directory `factory-init`/FEAT-16 composition if its ownership is not yet safely available;
+- automatic FEAT-13 execution.
 
 ---
 
-### Task 3: Expose the deterministic planning gate through `coherence plan`
+## 3. Target workflow
 
-**Objective:** Make the backend contract usable as a first-class CLI without changing the fixed existing CLI groups beyond adding the planned `plan` group.
-
-**Files:**
-- Modify: `src/coherence/cli.py`
-- Create: `src/coherence/planning/cli.py`
-- Test: `tests/unit/coherence/test_planning_cli.py`
-
-**Interfaces:**
-- Consumes: `check_planning_input`, `write_planning_run`, and `build_downstream_suggestion`.
-- Produces: `coherence plan check --intent <path> --spec <path> --plan <path> --run-id <id> [--project-root <dir>] [--json]`, plus `coherence plan suggest --run-id <id> --project-root <dir> [--json]`.
-
-- [ ] **Step 1: Write the failing test**
-
-Test the Python function directly and through the installed entry point:
-
-```python
-assert main(["plan", "check", "--project-root", str(root), "--intent", str(intent), "--spec", str(spec), "--plan", str(plan), "--run-id", "run-001", "--json"]) == 1
-payload = json.loads(capsys.readouterr().out)
-assert payload["ok"] is False
-assert "findings" in payload
+```text
+host starts/resumes planning run
+  |
+  v
+adaptive brainstorming
+  -> .intent/intent.json (schema 2)
+  -> .factory/planning/<run-id>/capture/events.jsonl
+  -> .factory/planning/<run-id>/state.json
+  |
+  v
+agent authors provisional authority spec
+  |
+  v
+Pass 1: PLANNING_ALIGNMENT
+  -> full SR context + intent/spec packet
+  -> resolve/escalate loop until clean
+  |
+  v
+agent authors implementation plan and generated tasks
+  |
+  v
+Pass 2: PLANNING_PLAN_REVIEW
+  -> full intent/spec/plan/task chain + full SR context
+  -> resolve/escalate loop until clean
+  |
+  v
+agent derives candidate thin SRs, FEAT dossier, bundle
+  |
+  v
+Pass 3: PLANNING_DERIVATION
+  -> spec/plan/candidate derivation + full current SR context
+  -> resolve/escalate loop until clean
+  -> explicit human consent phrase for candidate SR set
+  |
+  v
+deterministic final gates
+  -> exact syntax, anchors, IDs, links, hashes, registration, parity, freshness
+  |
+  v
+text summary + explicit downstream menu
+  -> standard development
+  -> health recovery
+  -> another feature-planning workflow
+  |
+  v
+hash-bound handoff.json + rendered handoff.md
+  -> new session revalidates before acting
 ```
 
-Add a valid fixture test asserting `plan check --json` returns exit 0 only if the report is structurally valid (even though `review_required` remains true). Add `plan suggest` tests for no decision (exit 1), rejected decision (exit 1), and approved decision (exit 0 with `action == "suggest_downstream"`). Assert the CLI never starts a child process by monkeypatching the process API or, preferably, by checking that the suggestion is only JSON output and no status/run files appear outside `.factory/planning/`.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_cli.py -q
-```
-
-Expected: FAIL because the `plan` group is not registered.
-
-- [ ] **Step 3: Write the minimal implementation**
-
-Use argparse. `plan check` constructs `PlanningInput`, runs the pure checker, writes the report, prints stable JSON with `suggestion: null` unless an approved decision is explicitly present, and returns 0 for a structurally valid report or 1 for errors. `plan suggest` reads the stored report and the review decision from the exact run directory, recomputes the checker and registration/consent closure, re-checks current hashes before suggesting, prints the suggestion, and returns 1 when no valid approval or consent exists. Catch expected `OSError`, `ValueError`, and parser errors and return stable blocked JSON without machine-specific paths.
-
-Register `"plan": planning_main` in `coherence.cli.GROUPS`. Preserve existing group argv unchanged. The `plan bootstrap --decompose` path is the current thin post-init composition; blank-directory `coherence init` and full workflow interpretation remain delegated to the existing factory-init/FEAT-16 machinery rather than being reimplemented here.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_cli.py tests/unit/coherence/test_cli.py -q
-uv run coherence plan --help
-uv run coherence plan check --help
-uv run ruff check src/coherence/planning src/coherence/cli.py tests/unit/coherence/test_planning_cli.py
-uv run pyright src/coherence/planning src/coherence/cli.py
-```
-
-Expected: focused tests pass, help shows both subcommands, and no new lint/type errors.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/coherence/cli.py src/coherence/planning/cli.py tests/unit/coherence/test_planning_cli.py
- git commit -m "feat: expose deterministic planning gate"
-```
+At every boundary the run can stop and resume without losing source intent, review evidence, model selection, resolution history, or the reason it is blocked.
 
 ---
 
-### Task 4: Wire the existing `/plan` authoring host to the backend gate
+## 4. Task plan
 
-**Objective:** Ensure the planning host exposes an argv-only `/plan-gate` completion command and instructs the existing `/plan` session to use it, without moving enforcement into TypeScript; automatic post-session callback wiring remains deferred.
+Each implementation task must follow strict TDD: write the failing test, run it and observe RED, implement the smallest change, run GREEN, then perform focused static checks. Commits are task-scoped and must not include unrelated parent-worktree changes.
 
-**Files:**
-- Create: `pi-ext/factory-watch/src/plan-gate-command.ts`
-- Modify: `pi-ext/factory-watch/src/skill-prompt.ts`
-- Modify: `pi-ext/factory-watch/src/index.ts`
-- Test: `pi-ext/factory-watch/test/plan-gate-command.test.ts`
-- Test: `pi-ext/factory-watch/test/skill-prompt.test.ts` (or the existing test file that covers plan seed prompts)
+### Task 1: Freeze the approved contracts and trace the design decisions
 
-**Interfaces:**
-- Consumes: Task 3’s CLI contract and the existing `buildPlanSeedPrompt` / `/plan` command.
-- Produces: an instruction in the seed prompt to persist verbatim intent/answers, write the authority spec before SR derivation, invoke `coherence plan bootstrap --decompose` through the backend, and display but not execute the downstream suggestion.
-
-- [ ] **Step 1: Write the failing test**
-
-Add assertions that `buildPlanSeedPrompt` contains all of these exact concepts: `intent.json`, `spec.md`, `coherence plan bootstrap`, `plan_to_tasks`, `human`, `requirement_consent`, `starts_automatically`, and `do not start`.
-
-Add a command-level test that a blank `/plan` argument still rejects without creating a session. Keep the existing skill-loading and session behavior tests green.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-npm test --prefix pi-ext/factory-watch -- --runInBand
-```
-
-Expected: the new seed-prompt assertions fail because the current prompt only runs `plan_to_tasks` and does not describe the deterministic gate.
-
-- [ ] **Step 3: Write the minimal implementation**
-
-Update the prompt and register the `/plan-gate` host adapter. The adapter invokes `uv run coherence plan bootstrap --decompose --json` using argv (never a shell string), validates root-relative artifact paths/run id before spawning, and renders the canonical result. The existing `/plan` handler remains a session launcher; do not claim an automatic completion callback until the host exposes one.
-
-1. preserve the user’s original prompt and clarified answers in a schema-versioned `intent.json`;
-2. write the agreed authority `spec.md` before deriving SRs/features;
-3. author the existing writing-plans-format plan and invoke the host’s `/plan-gate` completion command, which runs the backend’s `plan bootstrap --decompose` composition and reuses `plan_to_tasks`;
-4. treat the backend’s persisted report and deterministic error findings as blocking;
-5. surface the explicit human-review/consent seam and never write an approval itself;
-6. show any `suggest_downstream` output with `starts_automatically: false` and wait for a separate user action.
-
-Do not make TypeScript compute findings, compare hashes, or call FEAT-13 directly. Keep process invocation in the backend/approved host adapter and pass only validated root-relative paths and safe run ids; render the canonical JSON without reinterpreting it.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run:
-
-```bash
-npm test --prefix pi-ext/factory-watch -- --runInBand
-npm run build --prefix pi-ext/factory-watch
-```
-
-Expected: extension tests and build pass.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add pi-ext/factory-watch/src/skill-prompt.ts pi-ext/factory-watch/src/index.ts pi-ext/factory-watch/test/skill-prompt.test.ts
- git commit -m "feat: route plan authoring through coherence gate"
-```
-
----
-
-### Task 5: Add the bootstrap composition and available deterministic gates
-
-**Objective:** Reuse existing factory-init, plan-to-tasks, register/check, and health readers in one inspectable bootstrap composition, while deferring full workflow interpretation and human browsing.
+**Objective:** Update the FEAT-017 authority/design documents so the approved three-pass, host-neutral, model-selected, escalation-driven workflow is the canonical scope.
 
 **Files:**
-- Create: `src/coherence/planning/bootstrap.py`
-- Modify: `src/coherence/planning/cli.py`
-- Test: `tests/unit/coherence/test_planning_bootstrap.py`
-- Modify: `docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md` only if implementation facts require an update.
 
-**Interfaces:**
-- Consumes: Task 3 CLI, Task 4 host contract, `substrate.ledger.plans.run`, existing `coherence register check`, and existing health readers.
-- Produces: `coherence plan bootstrap --project-root <dir> --intent <path> --spec <path> --plan <path> --run-id <id> [--decompose] [--json]`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create a blank temporary project with a minimal `.factory/factory.yaml`, `intent.json`, authority spec, and two-task plan. Run the composition with `--decompose` and assert:
-
-- the task files are created by `substrate.ledger.plans.run`;
-- the output contains the deterministic planning report and exact task ids;
-- it returns non-zero if the plan/spec link or task parity is broken;
-- it does not write `requirements/SR-*.md`, FEAT dossiers, bundles, or a review approval automatically;
-- the output includes a `next_actions` entry naming the delegated health-resolution registration/consent step.
-
-Add a test that a project with no `.factory/factory.yaml` returns a clear bootstrap prerequisite error rather than claiming readiness.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_bootstrap.py -q
-```
-
-Expected: FAIL because no bootstrap composition exists.
-
-- [ ] **Step 3: Write the minimal implementation**
-
-Implement the composition as a thin Python function:
-
-1. validate the project root and required `.factory/factory.yaml`;
-2. run `substrate.ledger.plans.run` only when `--decompose` is explicit;
-3. invoke Task 3’s planning check after decomposition;
-4. append deterministic next actions for human consent and delegated registration; do not create SRs/features/bundles in this layer;
-5. return the canonical report and task ids.
-
-Do not implement FEAT-16’s general interpreter here. The bootstrap name is a workflow contract; the minimal `bootstrap` template can be added only when the workflow model exists. Do not run the first governed task automatically; emit a suggestion only.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_bootstrap.py -q
-uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_bootstrap.py
-uv run pyright src/coherence/planning
-```
-
-Expected: focused tests pass and no new lint/type errors.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/coherence/planning/bootstrap.py src/coherence/planning/cli.py tests/unit/coherence/test_planning_bootstrap.py docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
- git commit -m "feat: compose planning bootstrap workflow"
-```
-
----
-
-### Task 6: Register FEAT-17 trace links and prove the feature against the live register
-
-**Objective:** Make every delivered FEAT-17 artifact traceable to the seven FEAT-17 SRs and run the available deterministic Coherence gates.
-
-**Files:**
-- Modify: `requirements/SR-043.md`
-- Modify: `requirements/SR-044.md`
-- Modify: `requirements/SR-050.md`
-- Modify: `requirements/SR-051.md`
-- Modify: `requirements/SR-052.md`
-- Modify: `requirements/SR-053.md`
-- Modify: `requirements/SR-054.md`
-- Modify: `bundles/FEAT-017.json`
+- Modify: `docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md`
+- Modify: `docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md`
 - Modify: `docs/features/FEAT-017.md`
-- Create: `tasks/T-<allocated>-feat17-planning-workflow.md`
+- Modify: `bundles/FEAT-017.json`
 - Test: `tests/unit/coherence/test_planning_trace_contract.py`
 
 **Interfaces:**
-- Consumes: the implemented planning files and existing register/bundle grammar.
-- Produces: task-level `satisfies`/`source_plan` links, FEAT-017 membership, and a test proving the produced planning artifacts are named in the trace contract.
 
-- [ ] **Step 1: Write the failing test**
+- The shared Coherence/substrate contract and the host boundary described in this task.
 
-Assert that the FEAT-017 dossier lists `SR-043`, `SR-044`, and `SR-050` through `SR-054`, that `bundles/FEAT-017.json` lists the same seven SR refs, and that a task satisfying FEAT-017 has a source plan. Assert the test fails before the task and trace links are added.
+**Step 1: Write failing contract tests**
 
-- [ ] **Step 2: Run test to verify it fails**
+Add source-contract assertions for:
+
+- adaptive brainstorming and provisional spec authoring;
+- three semantic checkpoints and their exact artifact coverage;
+- full non-deleted SR context for the first implementation;
+- model classifier, one reviewer-model selection per run, and fail-closed catalog behavior;
+- direct but role-scoped agent artifact edits followed by fresh review;
+- append-only resolution history;
+- explicit human consent phrase for candidate SR adoption;
+- text-only first milestone and deferred `/system` planning projection;
+- explicit downstream menu and hash-bound new-session handoff;
+- deterministic gate ownership of exact syntax, paths, keywords, links, and hashes.
 
 Run:
 
 ```bash
-uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q
+uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
 ```
 
-Expected: FAIL because no implementation task accounts for the new FEAT-17 SRs.
+Expected: RED because the current design and trace anchors do not contain the approved mature contracts.
 
-- [ ] **Step 3: Write the minimal trace declarations**
+**Step 2: Update the source contracts**
 
-Create the allocated task file with frontmatter containing `satisfies` or the repository’s canonical justification shape for `SR-043`, `SR-044`, `SR-050`, `SR-051`, `SR-052`, `SR-053`, and `SR-054`, plus `source_plan` pointing at this plan and a non-empty DoD. Add implementation file references in the task body exactly as the repository’s trace parser expects. Keep semantic SR acceptance human-approved; do not add bindings or fake measurements.
+Add the approved design sections and acceptance rows. Keep these distinctions explicit:
 
-- [ ] **Step 4: Run test to verify it passes**
+- implementation not yet present;
+- agent review pending;
+- human escalation pending;
+- explicit SR consent pending;
+- formal Coherence defer/waiver;
+- deferred browser/retrieval/cross-workflow scope.
 
-Run:
+Do not mark a requirement satisfied because its contract was written.
+
+**Step 3: Verify**
 
 ```bash
-uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q
-uv run coherence register check --project-root .
-uv run coherence navigate health --json
+uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
 uv run coherence trace check --project-root .
 ```
 
-Expected: the new FEAT-17 task is discoverable and its links are structurally valid. Existing unrelated health gaps may remain; record them rather than claiming the repository is green.
+Expected: the contract tests pass; any new SRs remain proposed/pending until the existing consent and registration paths are exercised.
 
-- [ ] **Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
-git add requirements/SR-043.md requirements/SR-044.md requirements/SR-050.md requirements/SR-051.md requirements/SR-052.md requirements/SR-053.md requirements/SR-054.md bundles/FEAT-017.json docs/features/FEAT-017.md tasks/T-<allocated>-feat17-planning-workflow.md tests/unit/coherence/test_planning_trace_contract.py
- git commit -m "chore: trace planning workflow artifacts to FEAT-017"
+git add docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md \
+  docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md \
+  docs/features/FEAT-017.md bundles/FEAT-017.json \
+  tests/unit/coherence/test_planning_trace_contract.py
+git commit -m "docs: define mature host-neutral planning workflow"
 ```
+
+Do not allocate or consent new SRs in this task. SR allocation remains a later explicit human boundary.
 
 ---
 
-### Task 7: Holistic integration review and available-gate deployment
+### Task 2: Add schema-versioned intent capture and append-only capture events
 
-**Objective:** Verify all cross-task wiring and run the available deterministic gates without pretending deferred features exist.
+**Objective:** Extend the existing `.intent/intent.json` contract for durable, resumable, verbatim intent capture while preserving schema-1 reads.
 
 **Files:**
-- No production file changes expected unless review findings require a scoped fix.
-- Reports: `.factory/planning/<run-id>/report.json` is derived evidence and must remain ignored/disposable if the project’s ignore policy requires it.
+
+- Modify: `src/coherence/planning/model.py`
+- Create: `src/coherence/planning/intent.py`
+- Modify: `src/coherence/planning/serialization.py`
+- Modify: `src/coherence/planning/check.py`
+- Modify: `src/coherence/planning/__init__.py`
+- Test: `tests/unit/coherence/test_planning_intent.py`
+- Modify: `tests/unit/coherence/test_planning_check.py`
 
 **Interfaces:**
-- Consumes: all prior tasks.
-- Produces: verified CLI help/output, test/lint/type reports, and a reviewer-confirmed statement of deferred human browsing/visualization.
 
-- [ ] **Step 1: Write the failing integration test**
+- The shared Coherence/substrate contract and the host boundary described in this task.
 
-Add an end-to-end fixture test that executes `coherence plan bootstrap --decompose --json`, reads the report, modifies the spec, and asserts the next `plan suggest` refuses the stale report. Assert the approved review path only suggests and never starts a governed run.
+**Contract:** Schema-2 intent remains at the existing caller-selected `.intent/intent.json` path and contains:
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run:
-
-```bash
-uv run pytest tests/unit/coherence/test_planning_integration.py -q
+```json
+{
+  "schema": 2,
+  "run_id": "run-001",
+  "prompt": "<initial request exactly as received>",
+  "answers": [
+    {
+      "id": "goal",
+      "question": "<question asked>",
+      "text": "<answer exactly as captured>",
+      "source": "user",
+      "sequence": 1
+    }
+  ],
+  "brief": {
+    "goal": ["goal"],
+    "scope": [],
+    "constraints": [],
+    "non_goals": [],
+    "done_when": [],
+    "open_questions": []
+  },
+  "capture_status": "provisional|needs_user|cancelled",
+  "redactions": []
+}
 ```
 
-Expected: FAIL until all prior layers are wired.
+The run-local capture journal is:
 
-- [ ] **Step 3: Implement only integration fixes**
+```text
+.factory/planning/<run-id>/capture/events.jsonl
+```
 
-Fix only real cross-task defects: CLI dispatch, path normalization, stale-hash handling, report ordering, missing trace link, or a false green. Do not add the deferred Obsidian/review browser or a full FEAT-16 interpreter as scope creep.
+**Step 1: Write failing tests**
 
-- [ ] **Step 4: Run all available gates**
+Cover:
 
-Run:
+- exact prompt and answer preservation;
+- stable unique answer IDs and sequence numbers;
+- adaptive questions rather than an imposed fixed-order questionnaire;
+- schema-1 backward-compatible read and canonical internal normalization;
+- incomplete/resumable capture;
+- cancellation and explicit user-deferred questions;
+- append-only journal behavior and duplicate sequence rejection;
+- malformed events, invalid transitions, duplicate JSON keys, non-finite values, invalid UTF-8, unsafe paths, and secret-redaction diagnostics;
+- state/hash records identify the intent and capture journal sources.
+
+**Step 2: Run RED**
 
 ```bash
-uv run pytest tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_run.py tests/unit/coherence/test_planning_cli.py tests/unit/coherence/test_planning_bootstrap.py tests/unit/coherence/test_planning_trace_contract.py tests/unit/coherence/test_planning_integration.py -q
-uv run ruff check src tests
-uv run pyright
+uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_check.py -q -o addopts=''
+```
+
+Expected: RED because schema-2 intent and event persistence do not exist.
+
+**Step 3: Implement minimally**
+
+Implement pure readers/validators and atomic append/materialization functions, for example:
+
+```python
+read_intent(path: Path, *, project_root: Path) -> IntentDocument
+validate_intent(document: IntentDocument) -> tuple[PlanningFinding, ...]
+append_capture_event(root: Path, run_id: str, event: CaptureEvent) -> Path
+materialize_intent(root: Path, run_id: str, destination: Path) -> Path
+```
+
+Use strict serializers and `coherence.planning.paths`; do not invoke a model or subprocess. Preserve all source text exactly at the capture boundary.
+
+**Step 4: Run GREEN and static checks**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_check.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_check.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning tests/unit/coherence/test_planning_intent.py \
+  tests/unit/coherence/test_planning_check.py
+git commit -m "feat: add durable versioned planning intent capture"
+```
+
+---
+
+### Task 3: Add resumable planning state and deterministic brainstorming commands
+
+**Objective:** Expose a host-neutral state machine for starting/resuming capture and progressing to provisional spec authoring without allowing invalid transitions.
+
+The existing repository contains task records generated from many different plans. The selected-plan checker must enforce exact parity only for records whose `source_plan` equals the selected plan; unrelated task records must not become false FEAT-017 parity errors.
+
+**Files:**
+
+- Create: `src/coherence/planning/session.py`
+- Modify: `src/coherence/planning/model.py`
+- Modify: `src/coherence/planning/run.py`
+- Modify: `src/coherence/planning/bootstrap.py`
+- Modify: `src/coherence/planning/cli.py`
+- Test: `tests/unit/coherence/test_planning_session.py`
+- Modify: `tests/unit/coherence/test_planning_cli.py`
+- Modify: `tests/unit/coherence/test_planning_integration.py`
+
+**State projection:**
+
+```text
+capture -> intent_provisional -> spec_pending ->
+pass1_pending -> pass1_escalated | pass1_clean ->
+plan_pending -> pass2_pending -> pass2_escalated | pass2_clean ->
+ derivation_pending -> pass3_pending -> pass3_escalated | pass3_clean ->
+consent_pending -> handoff_ready | blocked
+```
+
+The state file is:
+
+```text
+.factory/planning/<run-id>/state.json
+```
+
+It is a derived projection, never an authority source. Every state read recomputes or validates the state against canonical files and report/journal hashes.
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test:
+
+- start/resume with a safe run ID;
+- append arbitrary user text through a safe file/input boundary;
+- interruption and restart at the first incomplete capture event;
+- provisional completion without requiring blanket intent approval;
+- cancellation and explicit unresolved state;
+- stale or contradictory state rejection;
+- mismatched run IDs, unsafe paths, and attempts to skip required semantic checkpoints;
+- stable JSON output for every command.
+
+Use symbolic command names only after checking the existing `coherence plan` parser. Do not add a new top-level CLI group.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_cli.py -q -o addopts=''
+```
+
+Expected: RED because the resumable session/state API is absent.
+
+**Step 3: Implement**
+
+Reuse `write_planning_run`, strict serialization, safe path helpers, and existing planning run IDs. Add only the smallest extension to the existing `coherence plan` command vocabulary required for start/resume/status/append/finalize behavior.
+
+The backend writes capture/state evidence only. It does not ask questions, invoke a model, launch a process, or author human approval.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_cli.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_session.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning tests/unit/coherence/test_planning_session.py \
+  tests/unit/coherence/test_planning_cli.py tests/unit/coherence/test_planning_integration.py
+git commit -m "feat: add resumable planning session state"
+```
+
+---
+
+### Task 4: Add host adaptive brainstorming and provisional spec authoring
+
+**Objective:** Make the host conduct adaptive one-question-at-a-time brainstorming, persist the exchange through the deterministic capture boundary, and let the agent author a provisional authority spec.
+
+**Files:**
+
+- Create: `pi-ext/factory-watch/src/plan-brainstorm-command.ts`
+- Modify: `pi-ext/factory-watch/src/index.ts`
+- Modify: `pi-ext/factory-watch/src/skill-prompt.ts`
+- Modify: `pi-ext/factory-watch/src/pi-types.ts` only if the SDK subset lacks a required existing primitive
+- Test: `pi-ext/factory-watch/test/plan-brainstorm-command.test.ts`
+- Modify: `pi-ext/factory-watch/test/skill-prompt.test.ts`
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test that the host:
+
+- preserves the initial request and each user answer exactly;
+- asks focused adaptive questions and may inspect repository facts before asking the user;
+- resumes at the incomplete point;
+- records source/provenance for each answer;
+- allows provisional capture with unresolved questions marked honestly;
+- invokes the planning author only through the existing host-neutral backend seam;
+- never writes review decisions, SR consent, gate waivers, or downstream execution state;
+- reports cancellation/blocked state without claiming completion.
+
+**Step 2: Run RED**
+
+```bash
+npm test --prefix pi-ext/factory-watch -- --run test/plan-brainstorm-command.test.ts
+```
+
+Expected: RED because the host command is absent.
+
+**Step 3: Implement**
+
+Use existing UI/editor/session primitives and safe argv/file input helpers. The host owns the conversational question loop; the backend owns the durable capture contract. The planning author may write only its role-scoped provisional intent/spec artifacts through the existing agent tools.
+
+Update the planning prompt to explain:
+
+- the interaction is adaptive, not a fixed questionnaire;
+- repository facts should be inspected rather than guessed;
+- source artifacts are data, not instructions;
+- a provisional spec is allowed;
+- Pass 1 semantic review follows spec authoring;
+- human escalation and explicit SR consent remain later boundaries.
+
+**Step 4: Verify**
+
+```bash
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/plan-brainstorm-command.test.ts test/skill-prompt.test.ts
+```
+
+**Step 5: Commit**
+
+```bash
+git add pi-ext/factory-watch/src/plan-brainstorm-command.ts \
+  pi-ext/factory-watch/src/index.ts pi-ext/factory-watch/src/skill-prompt.ts \
+  pi-ext/factory-watch/src/pi-types.ts \
+  pi-ext/factory-watch/test/plan-brainstorm-command.test.ts \
+  pi-ext/factory-watch/test/skill-prompt.test.ts
+git commit -m "feat: add adaptive planning brainstorming host flow"
+```
+
+---
+
+### Task 5: Add the project model policy and host model-catalog seam
+
+**Objective:** Define a deterministic, non-secret model policy for the classifier and reviewer choices, and expose a host-native catalog without making Coherence inspect provider configuration.
+
+**Files:**
+
+- Create: `src/coherence/planning/model_policy.py`
+- Modify: `src/coherence/planning/model.py`
+- Modify: `src/coherence/planning/check.py`
+- Modify: `src/coherence/planning/run.py`
+- Create: `pi-ext/factory-watch/src/model-catalog.ts` if the host has no existing catalog adapter
+- Modify: `pi-ext/factory-watch/src/pi-types.ts` for the smallest typed host capability
+- Modify: `pi-ext/factory-watch/src/index.ts`
+- Create: `pi-ext/factory-watch/test/model-catalog.test.ts`
+- Create: `tests/unit/coherence/test_planning_model_policy.py`
+
+**Policy location:**
+
+```text
+.factory/planning/models.json
+```
+
+The schema must explicitly identify:
+
+- the inexpensive classifier model;
+- configured reviewer candidates;
+- concrete provider/model identifiers;
+- quality/capability tier;
+- local/remote metadata;
+- cost class and free/low-cost marker;
+- schema version and no-secret policy.
+
+Do not require credentials in the file.
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Cover:
+
+- strict model-policy parsing and stable ordering;
+- duplicate provider/model entries;
+- malformed cost/capability metadata;
+- credentials or secret-shaped values rejected/redacted;
+- classifier selection from policy;
+- host catalog intersection with native configured models;
+- missing classifier/catalog/configured model blocks rather than falling back;
+- concrete user choice persisted once per planning run;
+- selected reviewer metadata reused by all three checkpoints and retries.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_model_policy.py -q -o addopts=''
+npm test --prefix pi-ext/factory-watch -- --run test/model-catalog.test.ts
+```
+
+Expected: RED because the policy and host catalog seam do not exist.
+
+**Step 3: Implement**
+
+Keep policy parsing and validation in Python. The host supplies native catalog entries and validates that the policy’s concrete entries are actually configured. Persist only non-secret catalog/selection metadata under the run directory, for example:
+
+```text
+.factory/planning/<run-id>/model-selection.json
+```
+
+The classifier is run using the configured inexpensive classifier model. The user is asked once to choose the reviewer model for the whole run. A missing classifier/catalog requires an explicit user-selected configured model path; it never silently inherits the active session model.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_model_policy.py -q -o addopts=''
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/model-catalog.test.ts
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_model_policy.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning pi-ext/factory-watch/src pi-ext/factory-watch/test \
+  tests/unit/coherence/test_planning_model_policy.py
+git commit -m "feat: add planning model policy and host catalog seam"
+```
+
+---
+
+### Task 6: Add full project requirement context through Coherence
+
+**Objective:** Give every semantic reviewer complete, status-labelled current SR context through a read-only Coherence interface so duplicate and contradictory requirements are visible.
+
+**Files:**
+
+- Create: `src/coherence/navigate/requirements_context.py` or the existing query module selected after import-boundary inspection
+- Modify: `src/coherence/navigate/queries.py` only if needed to compose existing loaders
+- Create/modify: `pi-ext/factory-watch/src/eng-context-tools.ts`
+- Create/modify: `pi-ext/factory-watch/src/eng-context-tool-format.ts`
+- Create/modify: `pi-ext/factory-watch/src/system-cli.ts` only if the host already uses it for Python navigator calls
+- Test: `tests/unit/coherence/test_requirements_context.py`
+- Test: `pi-ext/factory-watch/test/eng-context-tools.test.ts`
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Contract:** The read-only context operation must return every non-deleted SR with:
+
+- exact SR ID and statement;
+- lifecycle/status including proposed/deferred/satisfied/active;
+- source anchor(s);
+- declared upstream/downstream/feature/task relationships available from the graph;
+- enough trace metadata to flag likely duplicates/contradictions;
+- stable deterministic ordering;
+- a context digest for packet binding.
+
+The first version may include the full content of every SR. Do not add a second register or graph implementation. Reuse `coherence.trace.model`, `coherence.trace.graph`, and existing `coherence.navigate` query paths.
+
+**Step 1: Write failing tests**
+
+Test:
+
+- all non-deleted SRs are included, including proposed/deferred/satisfied;
+- deleted/missing/invalid SRs fail closed or are explicitly diagnosed;
+- status and source anchors are preserved;
+- output ordering and digest are deterministic;
+- context reads are read-only and do not write state;
+- duplicate and contradiction candidates are not silently omitted;
+- host tool output has bounded encoding behavior but does not truncate the canonical persisted packet;
+- tool never accepts an arbitrary file path or model-authored command.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_requirements_context.py -q -o addopts=''
+npm test --prefix pi-ext/factory-watch -- --run test/eng-context-tools.test.ts
+```
+
+Expected: RED because the project-wide requirement-context operation is absent.
+
+**Step 3: Implement**
+
+Expose the operation through the existing read-only engineering context-tool pattern. For reliability, the semantic-review packet may materialize the complete context once per checkpoint, while the agent may use the tool for exact trace details. Record the context digest in every review packet.
+
+Record the stronger token-efficient retrieval/indexing idea as a deferred requirement; do not claim it is implemented.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_requirements_context.py -q -o addopts=''
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/eng-context-tools.test.ts
+uv run ruff check src/coherence/navigate tests/unit/coherence/test_requirements_context.py
+uv run pyright src/coherence/navigate
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/navigate pi-ext/factory-watch/src/eng-context-tools.ts \
+  pi-ext/factory-watch/src/eng-context-tool-format.ts \
+  tests/unit/coherence/test_requirements_context.py \
+  pi-ext/factory-watch/test/eng-context-tools.test.ts
+git commit -m "feat: expose full Coherence requirement context"
+```
+
+---
+
+### Task 7: Add semantic-review packet, report, and append-only resolution contracts
+
+**Objective:** Define strict, hash-bound semantic-review evidence for three stages and persist every agentic/human resolution without overwriting prior iterations.
+
+**Files:**
+
+- Create: `src/coherence/planning/semantic.py`
+- Create: `src/coherence/planning/resolution.py`
+- Modify: `src/coherence/planning/model.py`
+- Modify: `src/coherence/planning/serialization.py`
+- Modify: `src/coherence/planning/check.py`
+- Modify: `src/coherence/planning/run.py`
+- Test: `tests/unit/coherence/test_planning_semantic.py`
+- Test: `tests/unit/coherence/test_planning_resolution.py`
+- Modify: `tests/unit/coherence/test_planning_run.py`
+
+**Review stages:**
+
+```text
+spec_alignment
+plan_task_alignment
+derivation_alignment
+```
+
+Each packet/report must include:
+
+- schema and run ID;
+- stage and iteration number;
+- exact sorted artifact paths and SHA-256 hashes;
+- intent/spec/plan/task/SR/FEAT/bundle context as applicable;
+- full-SR-context digest;
+- selected provider/model and non-secret configuration metadata;
+- reviewer role and child session ID if available;
+- findings with stable IDs, evidence, confidence, and disposition;
+- questions/prompts for human escalation;
+- informational notes;
+- report verdict;
+- no credentials or arbitrary source instructions treated as commands.
+
+Each finding disposition is one of:
+
+```text
+resolve_in_loop
+escalate_to_human
+informational
+```
+
+Resolution events append to:
+
+```text
+.factory/planning/<run-id>/resolution-events.jsonl
+```
+
+Each event records stage, iteration, finding ID, disposition, exact prompt/answer or fix summary, pre/post artifact hashes, actor kind, and timestamp. A derived current view may be written, but prior events remain immutable history.
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Cover:
+
+- deterministic packet ordering and artifact hashes;
+- all three stage contracts;
+- full SR context binding;
+- strict JSON-only report parsing;
+- confidence and evidence requirements;
+- valid/invalid dispositions;
+- report freshness invalidation after any relevant artifact/context/model change;
+- append-only event sequencing and no replacement of prior iterations;
+- malformed JSON, duplicate keys, oversized fields, path traversal, forged reviewer identity, and secret redaction;
+- a report never becomes human approval or SR consent.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_semantic.py \
+  tests/unit/coherence/test_planning_resolution.py \
+  tests/unit/coherence/test_planning_run.py -q -o addopts=''
+```
+
+Expected: RED because stage-specific semantic packets/reports and the resolution journal do not exist.
+
+**Step 3: Implement**
+
+Use strict serializers, existing SHA-256 helpers where available, safe-root checks, atomic file writes, and immutable report semantics. Do not call a model or subprocess in these modules.
+
+Ensure that any changed artifact, requirement context, selected model, or review policy invalidates the affected report and downstream state.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_semantic.py \
+  tests/unit/coherence/test_planning_resolution.py \
+  tests/unit/coherence/test_planning_run.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_semantic.py \
+  tests/unit/coherence/test_planning_resolution.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning tests/unit/coherence/test_planning_semantic.py \
+  tests/unit/coherence/test_planning_resolution.py \
+  tests/unit/coherence/test_planning_run.py
+git commit -m "feat: add hash-bound semantic review and resolution contracts"
+```
+
+---
+
+### Task 8: Add dedicated planning agent roles and restricted direct-write scopes
+
+**Objective:** Extend the existing host-neutral agent role catalogue with dedicated planning roles while preserving direct-write boundaries and fresh-review verification.
+
+**Files:**
+
+- Modify: `src/factory/orchestrator/types.py`
+- Modify: `src/factory/orchestrator/roles.py`
+- Modify: `src/factory/orchestrator/backends.py` only if the protocol needs a non-breaking typed extension
+- Modify: `src/factory/orchestrator/pi_backend.py` only for role composition
+- Modify: `src/substrate/agents/backend.py` only if role transport requires a neutral extension
+- Modify: `pi-ext/factory-watch/src/subagent-tool.ts` only for generic bounded invocation support
+- Create/modify: role prompt/skill fixtures under the existing role-skill locations
+- Test: `tests/unit/factory/orchestrator/test_roles.py` or the existing role test module
+- Test: `pi-ext/factory-watch/test/subagent-tool.test.ts`
+
+**Roles:**
+
+- `PLANNING_COMPLEXITY`: classifier only; read-only; emits strict complexity/recommendation JSON.
+- `PLANNING_ALIGNMENT`: spec alignment review and scoped intent/spec revisions.
+- `PLANNING_PLAN_REVIEW`: plan/task alignment review and scoped plan/task revisions.
+- `PLANNING_DERIVATION`: SR/FEAT/bundle derivation review and scoped derived-artifact revisions.
+
+The reviewer invocation and fixer invocation must be fresh runs even when the same role and model are reused.
+
+Role scopes must be explicit and minimal:
+
+- no arbitrary shell execution;
+- no project config edits;
+- no gate-decision or requirement-consent fabrication;
+- no writes outside the current run’s approved planning paths and the role’s artifact class;
+- derived SR/FEAT/bundle edits remain subject to the existing writers/gates and later explicit human consent.
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test:
+
+- each role has a prompt and scope;
+- classifier/review roles cannot recurse or invoke arbitrary shell commands;
+- alignment role cannot modify requirements/bundles;
+- plan role cannot modify requirements/consent files;
+- derivation role cannot modify source intent/spec/plan;
+- direct edits are followed by new invocation in the orchestrator contract;
+- role output must be structured and validated;
+- the existing roles retain their behavior.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/factory/orchestrator -q -o addopts=''
+npm test --prefix pi-ext/factory-watch -- --run test/subagent-tool.test.ts
+```
+
+Expected: RED because the planning roles and scope rules do not exist.
+
+**Step 3: Implement**
+
+Add the roles to the shared enum/catalogue and compose them through the existing `ROLE_SCOPE` mechanism. Keep semantic reviewers read-only during the review invocation; the same dedicated role may perform a subsequent scoped revision invocation, but no invocation may self-certify without a fresh review.
+
+Do not make Python planning code launch a process. Use the injected `AgentBackend`; Pi/Hermes remain responsible for providing the implementation.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/factory/orchestrator -q -o addopts=''
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/subagent-tool.test.ts
+uv run pyright src/factory/orchestrator src/substrate/agents
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/factory/orchestrator src/substrate/agents \
+  pi-ext/factory-watch/src/subagent-tool.ts \
+  pi-ext/factory-watch/test/subagent-tool.test.ts \
+  tests/unit/factory/orchestrator
+git commit -m "feat: add scoped planning semantic agent roles"
+```
+
+---
+
+### Task 9: Implement the fresh-review agentic resolution loop
+
+**Objective:** Orchestrate reviewer output, direct scoped fixes, append-only resolution evidence, deterministic rereads, and fresh reviewer invocations until all findings are fixed or escalated.
+
+**Files:**
+
+- Create: `src/coherence/planning/loop.py`
+- Modify: `src/coherence/planning/semantic.py`
+- Modify: `src/coherence/planning/resolution.py`
+- Modify: `src/coherence/planning/run.py`
+- Modify: `src/coherence/planning/check.py`
+- Test: `tests/unit/coherence/test_planning_loop.py`
+- Modify: `tests/unit/coherence/test_planning_integration.py`
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test the loop sequence:
+
+1. deterministic preflight;
+2. reviewer call using selected model;
+3. strict report validation;
+4. agent disposition per finding;
+5. scoped direct artifact edit for `resolve_in_loop`;
+6. append resolution event with pre/post hashes;
+7. deterministic reread/gates;
+8. fresh reviewer call;
+9. escalation prompt emission for `escalate_to_human`;
+10. repeat until clean or user escalation is required.
+
+Also test:
+
+- repeated findings;
+- malformed reviewer output;
+- stale writes and changed artifacts;
+- timeout, provider error, output overflow, and interruption;
+- iteration/budget limits;
+- invalid direct writes;
+- informational-only findings;
+- no false clean result while a deterministic gate is red;
+- no replacement of prior `resolution-events.jsonl` entries.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_loop.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+```
+
+Expected: RED because no fresh-review loop exists.
+
+**Step 3: Implement**
+
+Implement the loop as a host-neutral coordinator over `AgentBackend`, deterministic planning checks, and the resolution journal. The loop may direct the agent to edit its permitted artifacts, but it must read back the files and recompute hashes before accepting the iteration.
+
+If the loop cannot verify a fix, it escalates instead of silently accepting it. If the same finding recurs or the budget is exhausted, append the escalation evidence and stop at the human boundary.
+
+Human answers are stored as the next-loop prompt/input. They do not directly mutate canonical artifacts; the next scoped planning-agent invocation applies them.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_loop.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_loop.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning tests/unit/coherence/test_planning_loop.py \
+  tests/unit/coherence/test_planning_integration.py
+git commit -m "feat: add fresh semantic review resolution loop"
+```
+
+---
+
+### Task 10: Wire the three semantic checkpoints into the planning lifecycle
+
+**Objective:** Make spec, plan/task, and SR/FEAT/bundle derivation review occur in the approved order and prevent later stages from bypassing earlier clean results.
+
+**Files:**
+
+- Create: `src/coherence/planning/workflow.py`
+- Modify: `src/coherence/planning/model.py`
+- Modify: `src/coherence/planning/bootstrap.py`
+- Modify: `src/coherence/planning/run.py`
+- Modify: `src/coherence/planning/gates.py`
+- Modify: `src/coherence/planning/cli.py`
+- Test: `tests/unit/coherence/test_planning_workflow.py`
+- Modify: `tests/unit/coherence/test_planning_bootstrap.py`
+- Modify: `tests/unit/coherence/test_planning_integration.py`
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test:
+
+- Pass 1 cannot be skipped before plan/task authoring;
+- Pass 2 sees intent, spec, plan, generated tasks, and full current SR context;
+- Pass 3 sees spec, plan, candidate SRs, FEAT dossier, bundle, and full current SR context;
+- each pass uses the same selected reviewer model for the run;
+- changed artifacts invalidate only the affected and downstream stages;
+- a clean pass is based on fresh report hashes and green deterministic preflight/postflight;
+- unresolved questions stop progression;
+- informational notes do not block;
+- deterministic warnings block unless explicitly accepted by a human decision;
+- a semantic report cannot create human approval, SR consent, or downstream execution.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_workflow.py \
+  tests/unit/coherence/test_planning_bootstrap.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+```
+
+Expected: RED because the lifecycle currently has only the deterministic bootstrap/check path.
+
+**Step 3: Implement**
+
+Compose the existing `bootstrap`, `check`, `run`, `gates`, and canonical plan parser rather than duplicating their rules. The workflow coordinator should expose stable stage/status JSON for hosts.
+
+The second semantic pass runs after plan authoring and task decomposition. The third runs after candidate derived artifacts are written. Each stage’s packet and report is immutable evidence; a later artifact change creates a fresh required stage.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_workflow.py \
+  tests/unit/coherence/test_planning_bootstrap.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_workflow.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning tests/unit/coherence/test_planning_workflow.py \
+  tests/unit/coherence/test_planning_bootstrap.py \
+  tests/unit/coherence/test_planning_integration.py
+git commit -m "feat: compose three planning semantic checkpoints"
+```
+
+---
+
+### Task 11: Integrate explicit human escalation, warnings, and SR consent
+
+**Objective:** Route unresolved semantic decisions to the user, persist answers for the next loop, reuse shared gate decisions for deterministic warnings, and require an explicit consent phrase for candidate SR adoption.
+
+**Files:**
+
+- Modify: `src/coherence/planning/run.py`
+- Modify: `src/coherence/planning/gates.py`
+- Modify: `src/coherence/planning/cli.py`
+- Modify: `src/coherence/gate/model.py` only if a `planning:` item family is required
+- Modify: `src/coherence/gate/store.py` only if path binding needs a compatible extension
+- Modify: `src/coherence/gate/service.py` only if resolution needs a compatible extension
+- Create/modify: `pi-ext/factory-watch/src/plan-review-command.ts`
+- Modify: `pi-ext/factory-watch/src/index.ts`
+- Test: `tests/unit/coherence/test_planning_review_resolution.py`
+- Modify: `tests/unit/coherence/test_planning_integration.py`
+- Test: `pi-ext/factory-watch/test/plan-review-command.test.ts`
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test these rules:
+
+- an unresolved semantic escalation emits exact user prompts and blocks advancement;
+- a human answer is persisted and supplied to the next loop iteration;
+- no answer is inferred from silence, a model response, or a malformed file;
+- an explicit consent phrase is required after clean derivation before candidate SR adoption;
+- semantic cleanliness alone never grants SR consent;
+- a free-text escalation answer alone never grants SR consent;
+- explicit human consent binds to the exact candidate SR set, run ID, derivation report hash, and artifact hashes;
+- deterministic warnings use the shared `DecisionFile` mechanism and require human reason/hash binding;
+- malformed/replayed/stale decisions fail closed;
+- old valid review/consent records remain readable where compatibility is promised.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_review_resolution.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+npm test --prefix pi-ext/factory-watch -- --run test/plan-review-command.test.ts
+```
+
+Expected: RED because the current path has one human review decision model but no multi-stage escalation/resolution flow.
+
+**Step 3: Implement**
+
+Use the existing gate decision store for explicit accepted deterministic warnings. Add a planning item prefix only if the existing validated vocabulary requires it; do not create another warning/waiver store.
+
+Keep semantic resolution events in the planning journal because they contain iteration prompts/fixes and are not interchangeable with a gate decision.
+
+The host presents:
+
+- stage and iteration;
+- exact unresolved finding IDs;
+- concise reason/evidence;
+- the prompt requiring a human answer;
+- what the next loop will receive;
+- explicit SR-consent request when applicable;
+- current artifact/report hashes;
+- legal next actions.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_review_resolution.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/plan-review-command.test.ts
+uv run pyright src/coherence/planning src/coherence/gate
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning src/coherence/gate \
+  pi-ext/factory-watch/src/plan-review-command.ts \
+  pi-ext/factory-watch/src/index.ts \
+  tests/unit/coherence/test_planning_review_resolution.py \
+  tests/unit/coherence/test_planning_integration.py \
+  pi-ext/factory-watch/test/plan-review-command.test.ts
+git commit -m "feat: add explicit planning escalation and consent flow"
+```
+
+---
+
+### Task 12: Add the text summary, downstream workflow menu, and validated handoff
+
+**Objective:** Present the clean result without forcing a browser workbench, offer explicit downstream workflow choices, and emit a new-session handoff that is revalidated before execution.
+
+**Files:**
+
+- Create: `src/coherence/planning/handoff.py`
+- Modify: `src/coherence/planning/run.py`
+- Modify: `src/coherence/planning/cli.py`
+- Modify: `src/coherence/planning/bootstrap.py`
+- Modify: `pi-ext/factory-watch/src/plan-gate-command.ts`
+- Modify: `pi-ext/factory-watch/src/skill-prompt.ts`
+- Modify: `pi-ext/factory-watch/src/index.ts`
+- Test: `tests/unit/coherence/test_planning_handoff.py`
+- Modify: `tests/unit/coherence/test_planning_integration.py`
+- Modify: `pi-ext/factory-watch/test/plan-gate-command.test.ts`
+
+**Handoff contract:**
+
+`handoff.json` must include:
+
+- schema and run ID;
+- selected downstream workflow identifier;
+- exact canonical artifact paths and hashes;
+- clean semantic-stage report hashes;
+- resolution-journal digest;
+- model-selection metadata without secrets;
+- deterministic gate result summary;
+- explicit `starts_automatically: false`;
+- creation metadata.
+
+`handoff.md` is a derived, concise prompt containing the run ID, selected workflow, validated artifact references, current status, and instruction to revalidate before acting.
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing tests**
+
+Test:
+
+- final text summary includes semantic notes, unresolved state, hashes, and gate state;
+- clean result offers a stable explicit menu including standard development, health recovery, and another feature-planning workflow;
+- no menu choice starts a process in the planning CLI;
+- invalid workflow identifiers fail closed;
+- handoff paths remain inside the run directory;
+- changed artifacts invalidate the handoff;
+- the rendered prompt matches the canonical JSON content;
+- a new-session consumer must revalidate before acting;
+- browser projection is not required for completion.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_handoff.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+npm test --prefix pi-ext/factory-watch -- --run test/plan-gate-command.test.ts
+```
+
+Expected: RED because no durable handoff contract exists.
+
+**Step 3: Implement**
+
+Reuse existing host `newSession`/session APIs where available. The host may create a new session or present the copyable prompt, but the backend writes and validates the canonical handoff. Downstream workflows remain separately invoked; the handoff is a clean bridge, not an implicit process launcher.
+
+**Step 4: Verify**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_handoff.py \
+  tests/unit/coherence/test_planning_integration.py -q -o addopts=''
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run test/plan-gate-command.test.ts
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_handoff.py
+uv run pyright src/coherence/planning
+```
+
+**Step 5: Commit**
+
+```bash
+git add src/coherence/planning pi-ext/factory-watch/src \
+  tests/unit/coherence/test_planning_handoff.py \
+  tests/unit/coherence/test_planning_integration.py \
+  pi-ext/factory-watch/test/plan-gate-command.test.ts
+git commit -m "feat: add explicit planning workflow handoff"
+```
+
+---
+
+### Task 13: Register mature FEAT-017 requirements and prove semantic/trace coverage
+
+**Objective:** Record the accepted mature design decisions as thin, human-consented SRs and prove that no independently governable obligation is missing or invented.
+
+**Files:**
+
+- Modify/create: `requirements/SR-<allocated>-*.md`
+- Modify: `docs/features/FEAT-017.md`
+- Modify: `bundles/FEAT-017.json`
+- Modify: `tests/unit/coherence/test_planning_trace_contract.py`
+- Modify: existing register/obligation/evidence records only through their writers
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing trace tests**
+
+Enumerate every mature design decision and assert:
+
+- obligations needing independent governance have exactly one SR;
+- explanatory/non-binding prose does not become unnecessary SR duplication;
+- each SR has an exact spec anchor;
+- each SR has FEAT-017 ownership;
+- each candidate SR has a deterministic derivation report reference;
+- each adopted SR has explicit consent provenance;
+- each SR has appropriate task/plan/feature/bundle relationships;
+- the review context includes pre-existing SRs so duplicates/contradictions are visible;
+- formal deferral is distinguishable from merely unimplemented work.
+
+Include a completeness baseline: enumerate the revised spec decisions and verify that every independently governable obligation is represented or explicitly classified as non-SR prose/deferred scope.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
 uv run coherence register check --project-root .
-uv run coherence navigate health --json
 uv run coherence trace check --project-root .
 ```
 
-Expected: all new focused tests, ruff, and pyright pass. Register/health/trace output is recorded verbatim, including pre-existing unrelated gaps. No push or merge occurs.
+Expected: RED or pending output until the explicit human consent/allocation path is exercised.
 
-- [ ] **Step 5: Independent holistic review**
+**Step 3: Implement the registration path**
 
-Dispatch two fresh reviewers in parallel:
+Use existing register/health-resolution writers. Do not hand-edit trace links when a command exists. Candidate SRs remain proposed until the derivation review is clean and the explicit consent phrase is recorded.
 
-1. **Spec-compliance:** compare every FEAT-17 design section and SR-043/SR-044/SR-050–054 against the full diff; require coverage of cross-artifact consistency, intent alignment, deferred review seam, explicit downstream suggestion, and delegated registration.
-2. **Code-quality/security fail-closed:** inspect path traversal/absolute-path persistence, malformed UTF-8/JSON/frontmatter, stale hash bypass, error handling, shell/process invocation, and accidental automatic development/approval. Any silent fallback or unhandled I/O error is a blocker.
+Do not use formal defer to hide missing implementation. Record deferred browser/retrieval/cross-workflow work only with the project’s normal explicit defer semantics.
 
-If either reviewer fails, use a fresh fixer, re-run the relevant tests/gates, and re-review until both are silent. Finish with a holistic cross-task wiring check that verifies the CLI calls Python backend code and no TypeScript module reimplements the gate.
-
-- [ ] **Step 6: Commit any review fix and prepare handoff**
-
-Use scoped adds and an exact message such as:
+**Step 4: Verify**
 
 ```bash
-git add <reviewed-files>
-git commit -m "fix: harden deterministic planning gate"
+uv run pytest tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
+uv run coherence navigate health --repo-root . --json
+uv run coherence register check --project-root .
+uv run coherence trace check --project-root .
 ```
 
-Report branch, commits, focused gate output, live register/health output, and explicitly state that the human SR browsing/visualization surface and full FEAT-16 workflow interpreter remain deferred. Wait for explicit `yes push`/`merge`.
+Record live repository-wide debt honestly; do not claim FEAT-017 has healed unrelated register/trace debt.
+
+**Step 5: Commit**
+
+```bash
+git add requirements docs/features/FEAT-017.md bundles/FEAT-017.json \
+  tests/unit/coherence/test_planning_trace_contract.py
+git commit -m "feat: register mature planning workflow requirements"
+```
+
+Use the existing human allocation/consent surface; never fabricate consent in tests or in the agent loop.
 
 ---
 
-## Acceptance matrix
+### Task 14: Dogfood the complete workflow on a clean fixture and this repository
 
-| Requirement | Deterministic acceptance evidence |
+**Objective:** Demonstrate that the mature workflow works end to end rather than merely exposing isolated contracts.
+
+**Files:**
+
+- Create: `tests/fixtures/planning-dogfood/` or the repository’s established fixture location
+- Create: `tests/integration/coherence/test_planning_dogfood.py`
+- Modify: `docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md` only with verified facts
+- Modify: `docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md` only with verified completion/deferred scope
+
+**Interfaces:**
+
+- The shared Coherence/substrate contract and the host boundary described in this task.
+
+**Step 1: Write failing dogfood tests**
+
+Exercise the backend with deterministic fake agent backends and explicit test decision fixtures:
+
+1. a clean initialized consumer fixture with a small planning request;
+2. the repository’s own FEAT-017 planning artifacts as a self-hosting case.
+
+Exercise:
+
+```text
+adaptive capture
+-> provisional spec
+-> Pass 1 review/fix/escalation loop
+-> plan/task authoring
+-> Pass 2 review/fix/escalation loop
+-> candidate SR/FEAT/bundle derivation
+-> Pass 3 review/fix/escalation loop
+-> explicit consent fixture
+-> deterministic final gates
+-> downstream menu
+-> handoff artifact
+```
+
+Test at least one agentic fix, one human escalation prompt/resolution, one repeated/stale finding, one duplicate/contradictory SR context case, one accepted deterministic warning, and one interrupted/resumed run.
+
+Fixtures must be labelled test fixtures. They are not real human approval.
+
+**Step 2: Run RED**
+
+```bash
+uv run pytest tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
+```
+
+Expected: RED until every mature state transition and gate dependency is connected.
+
+**Step 3: Implement fixture harness only**
+
+Do not weaken production gates. When real providers are unavailable in CI, inject `FakeAgentBackend`/fixture reports at the host/backend seam and separately test actual report validation and hash invalidation. Do not replace the real workflow with a test-only parallel implementation.
+
+**Step 4: Verify all relevant gates**
+
+```bash
+uv run pytest tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
+uv run pytest tests/unit/coherence -q -o addopts=''
+uv run pytest tests/unit/factory/orchestrator -q -o addopts=''
+uv run pytest tests/unit -q -o addopts=''
+npm run typecheck --prefix pi-ext/scope-guard
+npm test --prefix pi-ext/scope-guard -- --run
+npm run typecheck --prefix pi-ext/factory-watch
+npm test --prefix pi-ext/factory-watch -- --run
+uv run ruff check src tests
+uv run pyright src/coherence/planning src/coherence/navigate src/factory/orchestrator src/substrate/agents
+uv run coherence navigate health --repo-root . --json
+uv run coherence register check --project-root .
+uv run coherence trace check --project-root .
+python scripts/gates/ext.py
+python scripts/gates/watch_ext.py
+```
+
+The full repository Pyright result must distinguish new diagnostics from known unrelated legacy diagnostics. Existing repository-wide register/trace debt must be reported rather than hidden.
+
+**Step 5: Commit**
+
+```bash
+git add tests/ docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md \
+  docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
+git commit -m "test: dogfood mature planning workflow"
+```
+
+---
+
+## 5. Deterministic acceptance matrix
+
+The implementation is not complete unless the following are exercised and verified.
+
+| Area | Required result |
 |---|---|
-| SR-043 | `plan bootstrap --decompose` composes init prerequisite → plan → tasks → check and emits delegated next actions without auto-running development |
-| SR-044 | no SR adoption or approve decision is written by the planner; only a strict human review file can authorize suggestion |
-| SR-050 | schema-versioned intent stores verbatim prompt/answers and is hashed in the report |
-| SR-051 | missing/malformed/stale/cross-reference/task parity defects produce stable error findings and non-zero exit |
-| SR-052 | uncovered answer ids and explicit unsupported claim ids are reported; unrestricted semantic alignment remains human-reviewed |
-| SR-053 | approved, fresh report emits `suggest_downstream` with `workflow`, plan, tasks, prerequisites, and `starts_automatically: false` |
-| SR-054 | strict `review-decision.json` contract exists now; browsing/visualization is a future projection and never fabricated |
-
-## Explicit deferrals
-
-- Obsidian/SR review workbench and browser visualization are not implemented in this increment; the review decision contract is stable so that surface can write it later.
-- Full FEAT-16 modular workflow model/interpreter and the complete `bootstrap` template library are not implemented here; FEAT-17 ships the planning contract and a thin composition first.
-- FEAT-13 governed execution is not started by this workflow; the downstream suggestion is an explicit handoff only.
-- Health-resolution feature/bundle registration remains the single registration path; FEAT-17 does not clone it.
-
-## Verification baseline
-
-Before finalizing, compare against live `main`/feature branch outputs, not stale handoff numbers. `coherence register check` currently has no `--json` option in this checkout; use its human-readable exit/result for that gate, while `navigate health --json` is the machine-readable health contract.
-
-## Plan self-review
-
-- Every design delta is covered by Tasks 1–7 or explicitly deferred above.
-- All new interfaces are named in the contract checkpoint and reused consistently.
-- Tests require RED before production implementation and are scoped to the vertical slice.
-- The plan does not introduce a second register, evidence engine, workflow authority, or host-side gate implementation.
-- The implementation task’s SR trace links are included before claiming FEAT-17 progress.
-- Review gates are independent, fail-closed, and run after integration.
-- All task steps contain concrete implementation instructions; no unfinished implementation instruction is present.
+| Intent source | `.intent/intent.json` preserves the original request and verbatim answers; schema 1 reads remain compatible |
+| Capture history | `.factory/planning/<run-id>/capture/events.jsonl` is append-only and resumable |
+| Provisional spec | Agent may author it before all intent questions are resolved; unsupported/unclear content is caught by Pass 1 |
+| Pass 1 | Dedicated `PLANNING_ALIGNMENT` review runs after spec authoring |
+| Pass 2 | Dedicated `PLANNING_PLAN_REVIEW` review runs after plan/task authoring |
+| Pass 3 | Dedicated `PLANNING_DERIVATION` review runs after SR/FEAT/bundle derivation |
+| Requirement context | Every non-deleted SR is supplied with labelled lifecycle/status and trace context |
+| Model selection | Classifier estimates complexity; user selects one concrete reviewer model for the run; no silent fallback |
+| Model metadata | Provider/model/cost/capability metadata is recorded without secrets |
+| Fix loop | Agent may directly fix only scoped artifacts; every fix gets a fresh review and deterministic reread |
+| Resolution history | Every iteration is appended to the current run journal; previous execution history is never replaced |
+| Human escalation | Specific unresolved prompts are shown; answers become next-loop inputs |
+| SR consent | Only an explicit consent phrase after clean derivation can adopt candidate SRs |
+| Warnings | Deterministic warnings are fixed or explicitly human-accepted through shared `DecisionFile` machinery |
+| Freshness | Any relevant artifact/context/model/policy change invalidates affected reports and handoff |
+| Syntax/links | Exact IDs, keywords, source anchors, paths, plan/task parity, registration, hashes, and trace links are deterministic gates |
+| Presentation | First milestone presents text summary, escalation state, hashes, and legal next actions; no browser workbench required |
+| Downstream | Explicit workflow menu; no planning command starts FEAT-13 or another workflow |
+| Handoff | Hash-bound `handoff.json` plus rendered `handoff.md`; new session revalidates before acting |
+| Dogfood | Clean consumer fixture and repository self-hosting case both exercise the complete backend path |
 
 ---
 
-**Saved as:** `docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md`
-**Execution:** use the `subagent-driven-development` workflow task-by-task; do not push or merge without explicit user instruction.
+## 6. Execution/review protocol after this plan is accepted
+
+When implementation is explicitly requested:
+
+1. Work only in `C:/coding/pi-agent-factory-wt/feat17-planning` on `feat/coherence-feat17-planning`.
+2. Do not touch unrelated parent-worktree design changes.
+3. Use strict TDD for every code task: failing test, observed RED, minimal implementation, GREEN.
+4. Keep the Python layer deterministic and host-neutral; all agent invocation remains behind injected host backends.
+5. Use parallel development only for disjoint file sets after Task 1 contract freeze.
+6. For each implementation task, run two independent reviews:
+   - spec/contract-compliance and completeness;
+   - code quality/security/fail-closed behavior.
+7. Use fresh-context fixers for findings, then repeat both reviews until silent; verify the files themselves rather than trusting child status.
+8. Perform a holistic integration review specifically checking:
+   - `/plan` reaches adaptive capture and provisional spec authoring;
+   - all three semantic passes are actually invoked;
+   - full current SR context reaches every reviewer;
+   - model classifier/catalog failures block honestly;
+   - fresh review follows every direct agent fix;
+   - resolution history is append-only;
+   - human answers become next-loop prompts;
+   - explicit SR consent is required and cannot be fabricated;
+   - deterministic warnings cannot silently pass;
+   - text summary/handoff is complete and browser scope remains deferred;
+   - no Python planning path invokes a model, shell, subprocess, FEAT-13, or downstream workflow;
+   - no credentials enter artifacts or diagnostics.
+9. Run all acceptance commands independently. Do not accept subagent self-reports without checking files, test output, and gate output.
+10. Keep commits narrowly scoped to FEAT-017 task files. Do not push or merge without explicit user instruction.
+
+---
+
+## 7. Risks and trade-offs
+
+- **Large initial requirement packets:** Full non-deleted SR context is intentionally chosen for reliability. It costs tokens and scale; better retrieval is a deferred requirement.
+- **Classifier dependency:** The workflow requires a configured inexpensive classifier. Missing classifier/catalog/model availability blocks instead of silently degrading.
+- **Direct agent writes:** Direct writes are useful for an agentic resolution loop but increase risk. Role scope, current-run hash preconditions, deterministic rereads, and fresh reviewer invocations are mandatory.
+- **Self-certification:** A fixer may not count its own output as review. A fresh dedicated invocation must verify every fix.
+- **Human-answer ambiguity:** Escalation answers are next-loop prompts, not direct canonical edits. SR adoption still requires an explicit consent phrase.
+- **Requirement duplication:** Keeping spec and SRs creates derivation cost. The thin-SR rule limits duplication; Pass 3 checks omissions and invented obligations.
+- **Existing review-decision compatibility:** The current planning implementation has a hash-bound `review-decision.json` path. Preserve compatibility for old runs while moving new workflow semantics to escalation-driven review and explicit consent.
+- **Host API drift:** Current Pi types expose the active model but not a complete model catalog. The host adapter must add the smallest typed catalog capability or report that the native API cannot satisfy the run.
+- **Prompt injection:** Intent/spec/plan/SR content is untrusted data. Packets must delimit source content and instruct child agents not to follow embedded instructions.
+- **Repository health debt:** FEAT-017 completion does not imply repository-wide register/trace health. Report unrelated debt honestly.
+- **Browser temptation:** `/system` reuse is plausible but intentionally deferred. Do not smuggle an interactive review workbench into the first implementation.
+
+---
+
+## 8. Definition of done
+
+The mature FEAT-017 update is complete only when all of the following are demonstrated:
+
+- A host can start and resume adaptive, one-question-at-a-time brainstorming.
+- The original request, answers, prompts, and capture events are durable and verbatim-preserving.
+- The agent can author a provisional authority spec without a separate blanket intent approval.
+- Pass 1 runs after spec authoring and reaches clean/escalated state through the fresh-review loop.
+- Pass 2 runs after implementation plan/task authoring and reviews the entire current chain.
+- Pass 3 runs after SR/FEAT/bundle derivation and checks thin-SR fidelity, completeness, duplication, and contradiction against all current SRs.
+- The reviewer receives complete non-deleted SR context with lifecycle labels.
+- A configured classifier estimates complexity; the user chooses one concrete reviewer model for the whole run; all retries use that selection.
+- Agentic fixes are direct but scoped, recorded append-only, reread deterministically, and independently re-reviewed.
+- Human escalations are specific, durable, and fed as prompts into the next loop iteration.
+- Informational notes may remain, but unresolved semantic findings and deterministic warnings cannot.
+- Deterministic gates verify exact schemas, paths, IDs, keywords, anchors, links, hashes, registration, parity, and freshness.
+- Deterministic warnings require explicit human acceptance through the shared gate decision mechanism.
+- Candidate SR adoption requires an explicit human consent phrase after clean derivation.
+- The first milestone presents a text summary and legal next actions; no browser workbench is required.
+- The clean result offers explicit downstream workflow choices and writes a hash-bound handoff for a new session.
+- No planning command starts FEAT-13, a health workflow, development, a shell, or a model without the host/user-selected workflow boundary.
+- The mature FEAT-017 requirements are thin, source-anchored, complete for independently governable obligations, and registered through existing Coherence paths.
+- Dogfood passes on a clean consumer fixture and on the repository’s own FEAT-017 planning artifacts.
+- Full available tests, lint, type checks, extension checks, and Coherence gates are run and reported honestly, including unrelated pre-existing debt.
+
+**Canonical plan:** `docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md`
+
+**Design provenance:** `.hermes/plans/2026-08-28_115844-feat17-mature-bootstrap.md`
+
+**Execution:** Do not execute until explicitly requested. When requested, use the repository’s subagent-driven development and review protocol task-by-task; do not push or merge without explicit instruction.
