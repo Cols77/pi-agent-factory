@@ -7,6 +7,14 @@ from pathlib import Path
 
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
+from coherence.planning.session import (
+    SessionError,
+    append_session_answer,
+    finalize_session,
+    resume_session,
+    start_session,
+    status_session,
+)
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_loads
@@ -341,6 +349,32 @@ def _suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _session_command(args: argparse.Namespace) -> int:
+    try:
+        if args.command == "start":
+            session = start_session(args.project_root, args.run_id, args.prompt)
+        elif args.command == "resume":
+            session = resume_session(args.project_root, args.run_id)
+        elif args.command == "status":
+            session = status_session(args.project_root, args.run_id)
+        elif args.command == "append":
+            session = append_session_answer(
+                args.project_root,
+                args.run_id,
+                args.answer_id,
+                args.question,
+                args.text,
+                source=args.source,
+            )
+        else:
+            session = finalize_session(args.project_root, args.run_id, args.status)
+    except SessionError as exc:
+        print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
+        return 1
+    print(json.dumps({"schema": 1, "ok": True, **session.to_dict()}, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coherence plan")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -366,6 +400,21 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--project-root", default=Path("."), type=Path)
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
+
+    for name in ("start", "resume", "status", "append", "finalize"):
+        command = sub.add_parser(name)
+        command.add_argument("--run-id", required=True)
+        command.add_argument("--project-root", default=Path("."), type=Path)
+        command.add_argument("--json", action="store_true")
+        if name == "start":
+            command.add_argument("--prompt", required=True)
+        elif name == "append":
+            command.add_argument("--answer-id", required=True)
+            command.add_argument("--question", required=True)
+            command.add_argument("--text", required=True)
+            command.add_argument("--source", default="user")
+        elif name == "finalize":
+            command.add_argument("--status", choices=("provisional", "cancelled", "needs_user"), required=True)
     return parser
 
 
@@ -375,6 +424,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _check(args)
     if args.command == "bootstrap":
         return _bootstrap(args)
+    if args.command in {"start", "resume", "status", "append", "finalize"}:
+        return _session_command(args)
     return _suggest(args)
 
 
