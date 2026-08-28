@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import coherence.planning.intent as planning_intent
 from coherence.planning.intent import (
     CaptureEvent,
     append_capture_event,
@@ -192,6 +193,39 @@ def test_materialize_intent_replays_capture_events_verbatim(tmp_path: Path) -> N
     assert document.prompt == "  exact prompt\n"
     assert document.capture_status == "provisional"
     assert [(answer.question, answer.text) for answer in document.answers] == [("Exact question?", "  exact answer\n")]
+
+
+def test_materialize_atomic_replace_failure_preserves_last_known_good_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    append_capture_event(
+        tmp_path,
+        "run-001",
+        CaptureEvent("run-001", 1, "capture_started", {"prompt": "request"}),
+    )
+    destination = tmp_path / ".intent" / "intent.json"
+    materialize_intent(tmp_path, "run-001", destination)
+    before = destination.read_bytes()
+
+    append_capture_event(
+        tmp_path,
+        "run-001",
+        CaptureEvent(
+            "run-001",
+            2,
+            "answer_captured",
+            {"id": "goal", "question": "Question?", "text": "Answer", "source": "user"},
+        ),
+    )
+
+    def fail_replace(*args: object) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(planning_intent.os, "replace", fail_replace)
+    with pytest.raises(ValueError, match="materialized"):
+        materialize_intent(tmp_path, "run-001", destination)
+
+    assert destination.read_bytes() == before
 
 
 @pytest.mark.parametrize(

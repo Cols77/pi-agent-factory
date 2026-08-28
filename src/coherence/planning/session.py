@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from coherence.planning.intent import CaptureEvent, append_capture_event, materialize_intent
+from coherence.planning.intent import CaptureEvent, IntentError, append_capture_event, materialize_intent
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_dumps, strict_json_loads
 
@@ -67,6 +67,14 @@ def _state_path(root: Path, run_id: str) -> Path:
 
 def _intent_path(root: Path) -> Path:
     return _inside(root, ".intent", "intent.json")
+
+
+def _materialize(root: Path, run_id: str) -> None:
+    """Materialize the journal without replacing the last good snapshot on failure."""
+    try:
+        materialize_intent(root, run_id, _intent_path(root))
+    except IntentError as exc:
+        raise SessionError(str(exc)) from exc
 
 
 def _events(path: Path, run_id: str) -> list[CaptureEvent]:
@@ -150,6 +158,7 @@ def start_session(project_root: Path, run_id: str, prompt: str) -> PlanningSessi
         run_id,
         CaptureEvent(run_id, 1, "capture_started", {"prompt": prompt}),
     )
+    _materialize(root, run_id)
     session = _project(root, run_id, _events(journal, run_id))
     _write_state(root, session)
     return session
@@ -158,6 +167,7 @@ def start_session(project_root: Path, run_id: str, prompt: str) -> PlanningSessi
 def resume_session(project_root: Path, run_id: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
+    _materialize(root, run_id)
     session = _project(root, run_id, _events(_journal(root, run_id), run_id))
     _write_state(root, session)
     return session
@@ -207,6 +217,7 @@ def append_session_answer(
             {"id": answer_id, "question": question, "text": text, "source": source},
         ),
     )
+    _materialize(root, run_id)
     session = _project(root, run_id, _events(journal, run_id))
     _write_state(root, session)
     return session
@@ -226,8 +237,7 @@ def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSe
         run_id,
         CaptureEvent(run_id, len(events) + 1, "capture_status", {"status": status}),
     )
-    if status in {"provisional", "cancelled"}:
-        materialize_intent(root, run_id, _intent_path(root))
+    _materialize(root, run_id)
     session = _project(root, run_id, _events(journal, run_id))
     _write_state(root, session)
     return session
