@@ -59,6 +59,7 @@ from coherence.navigate.reverse import query_reverse
 from coherence.navigate.story import query_story
 
 
+
 def _print_error(exc: Exception) -> None:
     print(json.dumps({"error": str(exc), "kind": type(exc).__name__}), file=sys.stderr)
 
@@ -88,6 +89,7 @@ def cmd_brief(repo_root: Path, scope_raw: str) -> dict:
         # The feature dossier is the `brief` for a `feat:` scope (Inc 1).
         return query_feature_context(repo_root, scope)
     return query_brief(repo_root, scope)
+
 
 
 def cmd_vcycle(repo_root: Path, scope_raw: str) -> dict:
@@ -922,6 +924,7 @@ def main(argv: list[str] | None = None) -> int:
     p_dossier = sub.add_parser("dossier", parents=[common])
     p_dossier.add_argument("--scope", required=True)
 
+
     p_worker = sub.add_parser("worker")
     p_worker.add_argument("--repo-root", default=Path("."), type=Path)
 
@@ -1048,6 +1051,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "brief":
             result = cmd_brief(args.repo_root, args.scope)
             rendered = _render_brief(result)
+
         elif args.cmd == "matrix":
             result = cmd_matrix(args.repo_root, args.scope)
             rendered = _render_matrix(result)

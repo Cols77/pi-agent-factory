@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from coherence.navigate import cli
 from coherence.navigate.requirements_context import query_requirements_context
 
 pytestmark = pytest.mark.unit
@@ -69,3 +72,35 @@ def test_invalid_sr_is_diagnosed_without_hiding_valid_context(tmp_path: Path) ->
     assert [item["id"] for item in result["requirements"]] == ["SR-001"]
     assert result["diagnostics"]
     assert "SR-999.md" in result["diagnostics"][0]["path"]
+
+
+def test_requirements_context_cli_emits_query_json(tmp_path: Path, monkeypatch, capsys) -> None:
+    payload = {"schema": "coherence.requirements-context.v1", "requirements": []}
+    monkeypatch.setattr(cli, "query_requirements_context", lambda _root: payload)
+
+    assert cli.main(["requirements-context", "--repo-root", str(tmp_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == payload
+
+
+def test_factory_system_module_emits_requirements_context_json(tmp_path: Path) -> None:
+    _write_sr(tmp_path, "SR-001", statement="The system shall expose context.")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "factory.system",
+            "requirements-context",
+            "--repo-root",
+            str(tmp_path),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "coherence.requirements-context.v1"
+    assert [item["id"] for item in payload["requirements"]] == ["SR-001"]
