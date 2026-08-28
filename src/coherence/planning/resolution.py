@@ -15,6 +15,8 @@ _DISPOSITIONS = {"resolve_in_loop", "escalate_to_human", "informational"}
 _STAGES = {"spec_alignment", "plan_task_alignment", "derivation_alignment"}
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SECRET = re.compile(r"(?i)(api[_-]?key|secret|password|passwd|token|bearer|credential)")
+_MAX_HASH_ENTRIES = 4096
+_MAX_HASH_BYTES = 262144
 
 
 class ResolutionError(ValueError):
@@ -36,6 +38,11 @@ def _safe_text(value: object, field: str) -> str:
 def _hashes(value: object, field: str) -> dict[str, str]:
     if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
         raise ResolutionError(f"invalid {field}")
+    if len(value) > _MAX_HASH_ENTRIES:
+        raise ResolutionError(f"oversized {field}")
+    encoded_size = sum(len(key.encode("utf-8")) + len(item.encode("utf-8")) for key, item in value.items())
+    if encoded_size > _MAX_HASH_BYTES:
+        raise ResolutionError(f"oversized {field}")
     result = {key: value[key] for key in sorted(value)}
     if any(_SECRET.search(key) for key in result):
         raise ResolutionError(f"secret-shaped {field} rejected")

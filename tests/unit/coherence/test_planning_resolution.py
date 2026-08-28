@@ -81,3 +81,15 @@ def test_resolution_text_limits_use_utf8_bytes(tmp_path: Path) -> None:
             prompt="é" * 32769, answer_or_fix="answer", pre_artifact_hashes={},
             post_artifact_hashes={},
         )
+
+
+def test_resolution_append_rejects_oversized_hash_maps(tmp_path: Path) -> None:
+    hashes = {f"artifact-{index}": "0" * 64 for index in range(20_000)}
+    with pytest.raises(ResolutionError):
+        append_resolution_event(
+            tmp_path, run_id="run", stage="spec_alignment", iteration=1,
+            finding_id="f", disposition="informational", actor_kind="agent",
+            prompt="prompt", answer_or_fix="answer", pre_artifact_hashes=hashes,
+            post_artifact_hashes={},
+        )
+    assert not (tmp_path / ".factory" / "planning" / "run" / "resolution-events.jsonl").exists()
