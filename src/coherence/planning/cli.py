@@ -367,14 +367,27 @@ def _handoff(args: argparse.Namespace) -> int:
         return 1
     try:
         report = _read_report(report_path, args.run_id)
+        existing_path = _safe_stored_path(root, ".factory", "planning", args.run_id, "handoff.json")
+        if existing_path is not None and existing_path.is_file():
+            # A new session must validate the persisted handoff before acting.
+            validate_handoff(root, existing_path)
         payload = build_handoff(root, report, workflow=args.workflow)
         json_path, md_path = write_handoff(root, payload)
         validate_handoff(root, json_path)
     except (HandoffError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         print(json.dumps(_blocked(args.run_id, "HANDOFF_BLOCKED", str(exc)), indent=2))
         return 1
+    menu = payload.get("menu", [])
+    menu_ids = (
+        [item["id"] for item in menu if isinstance(item, dict) and "id" in item]
+        if isinstance(menu, list)
+        else []
+    )
     print(json.dumps({"action": "handoff", "handoff": json_path.relative_to(root).as_posix(),
-                      "prompt": md_path.relative_to(root).as_posix(), "starts_automatically": False}, indent=2))
+                      "prompt": md_path.relative_to(root).as_posix(),
+                      "summary": payload["summary"],
+                      "menu": menu_ids,
+                      "starts_automatically": False}, indent=2, ensure_ascii=False))
     return 0
 
 
