@@ -178,7 +178,7 @@ def _validate_packet_fields(
 ) -> None:
     if not isinstance(artifacts, tuple):
         raise SemanticReviewError("report artifacts are invalid")
-    paths: set[str] = set()
+    paths: list[str] = []
     for artifact in artifacts:
         if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
             raise SemanticReviewError("report artifacts are invalid")
@@ -188,7 +188,7 @@ def _validate_packet_fields(
         if path in paths:
             raise SemanticReviewError("report artifact path is duplicated")
         _digest(artifact["sha256"], "artifact hash")
-        paths.add(path)
+        paths.append(path)
     if tuple(sorted(paths)) != tuple(paths):
         raise SemanticReviewError("report artifacts are not sorted")
     if set(model) - {"provider", "model", "revision", "temperature", "config_digest"}:

@@ -218,3 +218,37 @@ def test_scoped_fix_rejects_collateral_artifact_mutation(tmp_path: Path) -> None
     assert result.status is LoopStatus.ESCALATED
     assert "outside finding scope" in (result.error or "")
     assert len(backend.calls) == 1
+
+
+def test_human_finding_is_recorded_before_escalation(tmp_path: Path) -> None:
+    source = tmp_path / "artifact.md"
+    source.write_text("needs-human", encoding="utf-8")
+    backend = Backend([])
+    finding = _finding(disposition="escalate_to_human")
+    loop = FreshReviewLoop(project_root=tmp_path, backend=backend, model={"provider": "p", "model": "m"})
+    packet = loop.build_packet("run-1", "spec_alignment", 1, [source], {}, "a" * 64)
+    backend.reports = iter([_packet_report(packet, findings=[finding], verdict="findings")])
+
+    result = loop.run(packet)
+
+    assert result.status is LoopStatus.ESCALATED
+    events = (tmp_path / ".factory" / "planning" / "run-1" / "resolution-events.jsonl").read_text().splitlines()
+    assert len(events) == 1
+    assert json.loads(events[0])["disposition"] == "escalate_to_human"
+
+
+def test_informational_finding_is_recorded_before_clean_gate(tmp_path: Path) -> None:
+    source = tmp_path / "artifact.md"
+    source.write_text("note", encoding="utf-8")
+    backend = Backend([])
+    finding = _finding(disposition="informational")
+    loop = FreshReviewLoop(project_root=tmp_path, backend=backend, model={"provider": "p", "model": "m"})
+    packet = loop.build_packet("run-1", "spec_alignment", 1, [source], {}, "a" * 64)
+    backend.reports = iter([_packet_report(packet, findings=[finding], verdict="findings")])
+
+    result = loop.run(packet)
+
+    assert result.status is LoopStatus.CLEAN
+    event = json.loads((tmp_path / ".factory" / "planning" / "run-1" / "resolution-events.jsonl").read_text())
+    assert event["disposition"] == "informational"
+    assert event["pre_artifact_hashes"] == event["post_artifact_hashes"]

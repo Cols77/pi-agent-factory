@@ -123,11 +123,20 @@ class FreshReviewLoop:
                     return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), gate_error)
                 return FreshReviewResult(LoopStatus.CLEAN, len(reports), tuple(reports), tuple(prompts))
             if report.verdict == "escalate":
+                for finding in report.findings:
+                    self._append_disposition(
+                        current, finding, finding["disposition"], "reviewer escalation"
+                    )
                 prompts.extend(report.human_prompts or ("Human decision required for semantic review.",))
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "reviewer escalation")
             unresolved = [item for item in report.findings if item["disposition"] == "resolve_in_loop"]
             human = [item for item in report.findings if item["disposition"] == "escalate_to_human"]
+            informational = [item for item in report.findings if item["disposition"] == "informational"]
+            for finding in informational:
+                self._append_disposition(current, finding, "informational", "informational finding recorded")
             if human:
+                for finding in human:
+                    self._append_disposition(current, finding, "escalate_to_human", "human resolution required")
                 prompts.extend(report.human_prompts or ("Resolve the semantic findings before continuing.",))
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "human escalation")
             repeated = [item for item in unresolved if item["id"] in seen_findings]
@@ -221,12 +230,21 @@ class FreshReviewLoop:
         return changed
 
     def _append_escalation(self, packet: SemanticReviewPacket, finding: dict[str, Any], reason: str) -> None:
+        self._append_disposition(packet, finding, "escalate_to_human", reason)
+
+    def _append_disposition(
+        self,
+        packet: SemanticReviewPacket,
+        finding: dict[str, Any],
+        disposition: str,
+        answer_or_fix: str,
+    ) -> None:
         hashes = {item["path"]: item["sha256"] for item in packet.artifacts}
         append_resolution_event(
             self.project_root, run_id=packet.run_id, stage=packet.stage,
             iteration=packet.iteration, finding_id=finding["id"],
-            disposition="escalate_to_human", actor_kind="planning-agent",
-            prompt=finding["evidence"], answer_or_fix=reason,
+            disposition=disposition, actor_kind="planning-agent",
+            prompt=finding["evidence"], answer_or_fix=answer_or_fix,
             pre_artifact_hashes=hashes, post_artifact_hashes=hashes,
         )
 
