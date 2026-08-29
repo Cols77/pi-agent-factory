@@ -59,3 +59,19 @@ def test_handoff_round_trip_is_hash_bound_and_paths_stay_in_run(tmp_path: Path) 
 def test_invalid_workflow_fails_closed() -> None:
     with pytest.raises(HandoffError):
         build_downstream_menu("run-process")
+
+
+def test_validator_rejects_tampered_workflow_menu_and_unsafe_run_id(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    (tmp_path / ".factory/planning/run-001").mkdir(parents=True)
+    payload = build_handoff(tmp_path, report)
+    path, _ = write_handoff(tmp_path, payload)
+
+    tampered = json.loads(path.read_text(encoding="utf-8"))
+    tampered["selected_workflow"] = "launch-process"
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(HandoffError):
+        validate_handoff(tmp_path, path)
+
+    with pytest.raises(HandoffError):
+        build_handoff(tmp_path, _report(tmp_path), workflow=".")

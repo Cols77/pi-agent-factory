@@ -27,7 +27,15 @@ def _sha(data: bytes) -> str:
 
 
 def _safe_run_dir(root: Path, run_id: str) -> Path:
-    if not isinstance(run_id, str) or not run_id or run_id != run_id.strip() or "/" in run_id or "\\" in run_id:
+    if (
+        not isinstance(run_id, str)
+        or not run_id
+        or run_id != run_id.strip()
+        or run_id in {".", ".."}
+        or "/" in run_id
+        or "\\" in run_id
+        or any(ord(char) < 32 or ord(char) == 127 for char in run_id)
+    ):
         raise HandoffError("invalid run_id")
     safe = safe_root(root)
     if safe is None:
@@ -188,6 +196,15 @@ def validate_handoff(root: Path, path: Path) -> dict[str, object]:
     run_id = payload.get("run_id")
     if not isinstance(run_id, str) or _safe_run_dir(safe, run_id) != path.resolve().parent:
         raise HandoffError("handoff identity/path is invalid")
+    selected = payload.get("selected_workflow")
+    if not isinstance(selected, str):
+        raise HandoffError("handoff workflow is invalid")
+    try:
+        expected_menu = build_downstream_menu(selected)
+    except HandoffError as exc:
+        raise HandoffError("handoff workflow is invalid") from exc
+    if payload.get("menu") != expected_menu:
+        raise HandoffError("handoff menu is invalid")
     artifacts = payload.get("canonical_artifacts")
     if not isinstance(artifacts, list):
         raise HandoffError("handoff artifacts are invalid")
