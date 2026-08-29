@@ -28,6 +28,7 @@ import {
   buildVisualExplainSeedPrompt,
 } from "./skill-prompt.js";
 import { runPlanGate } from "./plan-gate-command.js";
+import { runPlanReview } from "./plan-review-command.js";
 import { runPlanBrainstorm } from "./plan-brainstorm-command.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
@@ -1043,6 +1044,13 @@ export default function factoryWatch(pi: PiApi): void {
     description: "Run the deterministic planning bootstrap gate",
     handler: async (args: string, ctx: ExtCommandCtx) => {
       runPlanGate(ctx, args);
+    },
+  });
+
+  pi.registerCommand("plan-review", {
+    description: "Show the explicit planning escalation and consent boundary",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanReview(ctx, args);
     },
   });
 

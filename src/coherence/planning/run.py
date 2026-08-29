@@ -82,6 +82,40 @@ _REPORT_DIGEST_KEYS = (
 _REVIEW_CAPABILITY = object()
 
 
+def build_escalation(
+    run_id: str,
+    report: Mapping[str, object],
+    *,
+    next_loop_input: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the host-neutral, fail-closed human escalation projection.
+
+    Only finding identifiers, evidence, and the reviewer's prompts cross this
+    boundary.  Answers are supplied separately on the next loop; neither
+    silence nor a reviewer response is an answer.
+    """
+    findings_raw = report.get("findings", ())
+    findings = [item for item in findings_raw if isinstance(item, Mapping)] if isinstance(findings_raw, (list, tuple)) else []
+    projected = [
+        {key: finding[key] for key in ("id", "detail", "evidence") if key in finding}
+        for finding in findings
+    ]
+    prompts_raw = report.get("human_prompts", ())
+    prompts = [prompt for prompt in prompts_raw if isinstance(prompt, str)] if isinstance(prompts_raw, (list, tuple)) else []
+    return {
+        "schema": 1,
+        "run_id": run_id,
+        "stage": report.get("stage"),
+        "iteration": report.get("iteration"),
+        "finding_ids": [item["id"] for item in projected if isinstance(item.get("id"), str)],
+        "findings": projected,
+        "prompts": prompts,
+        "next_loop_input": dict(next_loop_input or {}),
+        "legal_actions": ["answer", "revise", "defer", "cancel"],
+        "blocked": True,
+    }
+
+
 class ReviewDecision(Mapping[str, object]):
     """Immutable capability minted only after validating a decision file."""
 
@@ -674,6 +708,7 @@ def build_downstream_suggestion(
 
 __all__ = [
     "ReviewDecision",
+    "build_escalation",
     "build_downstream_suggestion",
     "planning_report_digest",
     "read_review_decision",

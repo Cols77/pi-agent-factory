@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,13 @@ from coherence.planning.serialization import strict_frontmatter_loads, strict_js
 
 _REQUIRED_FEATURE_ID = "FEAT-017"
 _CONSENT_KEYS = frozenset({"schema", "run_id", "decision", "reviewer", "reason", "requirements"})
+_SR_CONSENT_KEYS = frozenset({
+    "schema", "run_id", "decision", "reviewer", "phrase", "candidate_srs",
+    "derivation_report_sha256", "artifact_hashes",
+})
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
 
 
 def _safe_relative(value: object) -> bool:
@@ -137,4 +145,51 @@ def validate_requirement_consent(
     return True, "requirement consent and FEAT-017 registration are current"
 
 
-__all__ = ["validate_requirement_consent"]
+def validate_sr_consent(
+    root: Path,
+    run_id: str,
+    candidate_srs: list[str] | tuple[str, ...],
+    derivation_report_sha256: str,
+    artifact_hashes: dict[str, str],
+) -> tuple[bool, str]:
+    """Validate the explicit, exact-set consent required after derivation.
+
+    This deliberately uses a separate schema from the legacy FEAT-017
+    registration record.  Legacy records remain readable, while adoption is
+    never inferred from a clean report or an unbound free-text answer.
+    """
+    if not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None or not isinstance(candidate_srs, (list, tuple)):
+        return False, "SR consent identity is invalid"
+    expected_srs = list(candidate_srs)
+    if expected_srs != sorted(expected_srs) or len(expected_srs) != len(set(expected_srs)) or not all(
+        isinstance(item, str) and item.startswith("SR-") for item in expected_srs
+    ):
+        return False, "candidate SR set is invalid"
+    if not isinstance(derivation_report_sha256, str) or _SHA256.fullmatch(derivation_report_sha256) is None:
+        return False, "derivation report hash is invalid"
+    if not isinstance(artifact_hashes, dict) or list(artifact_hashes) != sorted(artifact_hashes) or any(
+        not isinstance(key, str) or not _safe_relative(key) or not isinstance(value, str)
+        or _SHA256.fullmatch(value) is None
+        for key, value in artifact_hashes.items()
+    ):
+        return False, "artifact hashes are invalid"
+    path = root / ".factory" / "planning" / run_id / "sr-consent.json"
+    try:
+        payload = strict_json_loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+        return False, "explicit SR consent is missing or invalid"
+    if not isinstance(payload, dict) or set(payload) != _SR_CONSENT_KEYS:
+        return False, "explicit SR consent has an invalid schema"
+    if (
+        payload.get("schema") != 2 or payload.get("run_id") != run_id
+        or payload.get("decision") != "approve" or payload.get("reviewer") != "human"
+        or payload.get("phrase") != _CONSENT_PHRASE
+        or payload.get("candidate_srs") != expected_srs
+        or payload.get("derivation_report_sha256") != derivation_report_sha256
+        or payload.get("artifact_hashes") != artifact_hashes
+    ):
+        return False, "explicit SR consent is not bound to the exact derivation"
+    return True, "explicit SR consent is current and exact"
+
+
+__all__ = ["validate_requirement_consent", "validate_sr_consent"]

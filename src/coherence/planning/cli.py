@@ -21,6 +21,7 @@ from coherence.planning.model import PlanningFinding, PlanningInput, PlanningRep
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_loads
 from coherence.planning.run import (
+    build_escalation,
     build_downstream_suggestion,
     read_review_decision,
     requirement_consent_status,
@@ -351,6 +352,35 @@ def _suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _review(args: argparse.Namespace) -> int:
+    """Render a persisted planning review without approving or advancing it."""
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    report_path = _safe_stored_path(root, ".factory", "planning", args.run_id, "report.json")
+    if report_path is None:
+        print(json.dumps(_blocked(args.run_id, "REPORT_INVALID", "planning report path is unsafe"), indent=2))
+        return 1
+    try:
+        report = _read_report(report_path, args.run_id)
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "REPORT_INVALID", str(exc)), indent=2))
+        return 1
+    escalation = build_escalation(
+        args.run_id,
+        {"stage": "planning", "iteration": 1,
+         "findings": [finding.to_dict() for finding in report.findings],
+         "human_prompts": [action.get("detail", "") for action in report.next_actions
+                           if isinstance(action, dict)]},
+        next_loop_input={"answers_persisted_in": f".factory/planning/{args.run_id}/resolution-events.jsonl"},
+    )
+    escalation["hashes"] = {str(item["path"]): str(item["sha256"]) for item in report.artifacts}
+    escalation["ok"] = report.ok
+    print(json.dumps(escalation, indent=2, ensure_ascii=False))
+    return 1 if not report.ok or report.findings else 0
+
+
 def _session_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "start":
@@ -406,6 +436,11 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--project-root", default=Path("."), type=Path)
     check.add_argument("--json", action="store_true")
 
+    review = sub.add_parser("review")
+    review.add_argument("--run-id", required=True)
+    review.add_argument("--project-root", required=True, type=Path)
+    review.add_argument("--json", action="store_true")
+
     suggest = sub.add_parser("suggest")
     suggest.add_argument("--run-id", required=True)
     suggest.add_argument("--project-root", required=True, type=Path)
@@ -448,6 +483,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _check(args)
     if args.command == "bootstrap":
         return _bootstrap(args)
+    if args.command == "review":
+        return _review(args)
     if args.command in {"start", "resume", "status", "append", "resolve", "finalize"}:
         return _session_command(args)
     return _suggest(args)
