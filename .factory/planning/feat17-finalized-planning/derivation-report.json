@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "run_id": "feat17-finalized-planning",
+  "ok": true,
+  "artifacts": [
+    {
+      "path": ".intent/intent.json",
+      "sha256": "c428d5fbeecf09b3e9a288e0f0923e6d6b37305902ba39a7a13ecd400081c79f"
+    },
+    {
+      "path": "bundles/FEAT-017.json",
+      "sha256": "1659f9800d8fcc78cb7160340cdf31cf4ece0e2cb482a8be93772f997c67284b"
+    },
+    {
+      "path": "docs/features/FEAT-017.md",
+      "sha256": "0be24dcf613d3e44a5d8288532b11681dcba48c62620750ecda045ea7f574e66"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+      "sha256": "653ffaed971c926ea5468e05a1a7c4522ae1b695c54fdeaa86c917a8b6e1e9d9"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+      "sha256": "8570399733347d660c8540aef200c529039254ede125c3200d18a2bd123bcda2"
+    },
+    {
+      "path": "requirements/SR-043.md",
+      "sha256": "0cd01e3d19002227e75c8b197180ced40c578af0339892f3e8c1dfa886d21889"
+    },
+    {
+      "path": "requirements/SR-044.md",
+      "sha256": "38d3d980ba7ffcc1ba817d16287980de989c8f19d7bb607d0c5569273085bae1"
+    },
+    {
+      "path": "requirements/SR-050.md",
+      "sha256": "855f8e03336f5f07ebace46d6a66dce258a38a0cba2033d4d65769319be4f99a"
+    },
+    {
+      "path": "requirements/SR-051.md",
+      "sha256": "fa8992549b24fdd51441733f6a7678e21e418cc6f5d3c093b36e594c174254dc"
+    },
+    {
+      "path": "requirements/SR-052.md",
+      "sha256": "9c54881a9894e9568b13980cd4331104551121de94b0a08cd7bfcb32d4aecedb"
+    },
+    {
+      "path": "requirements/SR-053.md",
+      "sha256": "64452f1021fa386bafe0dbea6bdee37f7a412e1ba0b13d594504d4dcb7749d98"
+    },
+    {
+      "path": "requirements/SR-054.md",
+      "sha256": "df199c605e56b7ec0c042d354ba9f9bd672790aa1cc366728522e9dcb62dde17"
+    },
+    {
+      "path": "tasks/T-032-feat17-planning-workflow.md",
+      "sha256": "295fff4e34bfe68046f83980c79450d0edd38e7778842fff1e48a83d3d083760"
+    },
+    {
+      "path": "tasks/T-033-add-planning-run-evidence-review-seam-and-downstream-suggestion.md",
+      "sha256": "fd55ca4e2db9d1c75adc0d966b3357ea4ba0f4c526c8c125440f8c8abc816d5c"
+    },
+    {
+      "path": "tasks/T-034-expose-the-deterministic-planning-gate-through-coherence-plan.md",
+      "sha256": "5e606f4e4dcc974d31c251394ff3f5cda2d119818e2d3a5eaebc131d0d1b5ad0"
+    },
+    {
+      "path": "tasks/T-035-wire-the-existing-plan-authoring-host-to-the-backend-gate.md",
+      "sha256": "c2bf2138545a3d76a21f420ffd44aa29f74663b13781bdafc561a224bff5b2cb"
+    },
+    {
+      "path": "tasks/T-036-add-the-bootstrap-composition-and-available-deterministic-gates.md",
+      "sha256": "470b69be533ed334a4ba38d637fe028adb74fe38d87ab983586d2b9fea01f4b2"
+    },
+    {
+      "path": "tasks/T-037-register-feat-17-trace-links-and-prove-the-feature-against-the-live-register.md",
+      "sha256": "8fc0c09d6f171769b0f7b4bb905d32fe6d1c37003c25704ecd4b771a8d0d63de"
+    },
+    {
+      "path": "tasks/T-038-holistic-integration-review-and-available-gate-deployment.md",
+      "sha256": "601d61a2bced02e06031356832a613353ad7681c0b6214c4976a79dbb87e4337"
+    },
+    {
+      "path": "tasks/T-039-add-dedicated-planning-agent-roles-and-restricted-direct-write-scopes.md",
+      "sha256": "ba8660360029a2c82bd5e8ba5023a60cf462dcc37fc357cb92e4b6967157b6e5"
+    },
+    {
+      "path": "tasks/T-040-implement-the-fresh-review-agentic-resolution-loop.md",
+      "sha256": "8a5aa062b1d52fe5dc255077e0da967b2fbf665a9b9a2f41c77832217f35c169"
+    },
+    {
+      "path": "tasks/T-041-wire-the-three-semantic-checkpoints-into-the-planning-lifecycle.md",
+      "sha256": "8afe8000f2e808148ccf03a31565626ea192af7d05a264270821dfc1b45a72d4"
+    },
+    {
+      "path": "tasks/T-042-integrate-explicit-human-escalation-warnings-and-sr-consent.md",
+      "sha256": "a317310f020e75d6557788898e2d4ef0b0f097f87aa0b480ffe78414e02d71c0"
+    },
+    {
+      "path": "tasks/T-043-add-the-text-summary-downstream-workflow-menu-and-validated-handoff.md",
+      "sha256": "f859a028096d7cd7458cf0e4b1e4d45f378eecd16fe058180d086a3957af3e61"
+    },
+    {
+      "path": "tasks/T-044-register-mature-feat-017-requirements-and-prove-semantic-trace-coverage.md",
+      "sha256": "3a020c725ef49f4374472096c10ca7f5deb99eb5be2963757f6965fef0787fd2"
+    },
+    {
+      "path": "tasks/T-045-dogfood-the-complete-workflow-on-a-clean-fixture-and-this-repository.md",
+      "sha256": "b3715701de274229c9cf98e83cc9eae8fe4580d18f32a6e9e4495db910107abb"
+    }
+  ],
+  "findings": [],
+  "next_actions": [],
+  "review_required": true,
+  "suggestion": null
+}

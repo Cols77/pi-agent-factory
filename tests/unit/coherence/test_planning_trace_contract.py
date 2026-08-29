@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import cast
 
 import frontmatter
 import pytest
 
-from coherence.planning.gates import _source_matches
+from coherence.planning.gates import _source_matches, validate_requirement_consent, validate_sr_consent
+from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
 
@@ -204,3 +206,38 @@ def test_feat17_feature_acceptance_rows_preserve_implementation_and_consent_boun
     assert bundle["draft"] is True
     assert "human consent" in bundle["description"]
     assert "implementation evidence" in bundle["description"]
+
+
+def test_feat17_adopted_srs_bind_consent_to_clean_derivation() -> None:
+    root = Path(__file__).parents[3]
+    run_dir = root / ".factory" / "planning" / "feat17-finalized-planning"
+    derivation = json.loads((run_dir / "derivation-report.json").read_text(encoding="utf-8"))
+    consent = json.loads((run_dir / "sr-consent.json").read_text(encoding="utf-8"))
+
+    assert derivation["ok"] is True
+    assert derivation["findings"] == []
+    assert consent["schema"] == 2
+    assert consent["run_id"] == "feat17-finalized-planning"
+    assert consent["decision"] == "approve"
+    assert consent["reviewer"] == "human"
+    assert consent["phrase"] == "I explicitly consent to adopt exactly these candidate SRs."
+    assert consent["candidate_srs"] == sorted(_EXPECTED_SRS)
+    assert consent["derivation_report_sha256"] == planning_report_digest(derivation)
+    expected_hashes = {
+        artifact["path"]: artifact["sha256"] for artifact in derivation["artifacts"]
+    }
+    assert consent["artifact_hashes"] == expected_hashes
+    assert validate_sr_consent(
+        root,
+        "feat17-finalized-planning",
+        sorted(_EXPECTED_SRS),
+        consent["derivation_report_sha256"],
+        expected_hashes,
+    ) == (True, "explicit SR consent is current and exact")
+    assert validate_requirement_consent(
+        root,
+        "feat17-finalized-planning",
+        root / "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+    ) == (True, "requirement consent and FEAT-017 registration are current")
+    for path, digest in expected_hashes.items():
+        assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
