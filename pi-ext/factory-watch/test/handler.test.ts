@@ -130,6 +130,29 @@ describe("factory-watch commands", () => {
     stopDocsServer();
   });
 
+  test("registered /plan-handoff fails closed without spawning for invalid workflow", async () => {
+    const { commands } = capture();
+    const ctx = fakeCtx();
+    await commands.get("plan-handoff")!.handler("run-001 launch-process", ctx);
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(vi.mocked(ctx.ui.notify)).toHaveBeenCalledWith(
+      "usage: /plan-handoff <run-id> <workflow>", "error",
+    );
+  });
+
+  test("registered /plan-handoff dispatches valid backend command", async () => {
+    const { commands } = capture();
+    vi.mocked(spawnSync).mockReturnValue({ stdout: "handoff-result", stderr: "", status: 0 } as never);
+    const ctx = fakeCtx({ cwd: "C:/repo" });
+    await commands.get("plan-handoff")!.handler("run-001 health-recovery", ctx);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "uv",
+      expect.arrayContaining(["plan", "handoff", "--workflow", "health-recovery"]),
+      expect.objectContaining({ cwd: expect.any(String) }),
+    );
+    expect(vi.mocked(ctx.ui.notify)).toHaveBeenCalledWith("handoff-result", "info");
+  });
+
   test("registers factory, factory-stop, factory-tasks, factory-run, factory-watch, and plan", () => {
     const { commands } = capture();
     expect(commands.has("factory")).toBe(true);

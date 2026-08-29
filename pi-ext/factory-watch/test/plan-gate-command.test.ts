@@ -1,12 +1,19 @@
 import { resolve } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   buildPlanGateCommand,
   buildPlanHandoffCommand,
   parsePlanGateArgs,
   parsePlanHandoffArgs,
   validatePlanGatePath,
+  runPlanHandoff,
 } from "../src/plan-gate-command.js";
+
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  return { ...actual, spawnSync: vi.fn() };
+});
 
 describe("plan-gate command", () => {
   test("parses four safe root-relative arguments", () => {
@@ -75,5 +82,20 @@ describe("plan-gate command", () => {
         "--run-id", "run-001", "--workflow", "feature-planning", "--json",
       ],
     });
+  });
+
+  test("public handoff handler fails closed without launching invalid workflow", async () => {
+    const notify = vi.fn();
+    runPlanHandoff({ cwd: "C:/repo", ui: { notify } } as never, "run-001 launch-process");
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith("usage: /plan-handoff <run-id> <workflow>", "error");
+  });
+
+  test("public handoff handler dispatches valid argv and reports backend output", () => {
+    const notify = vi.fn();
+    vi.mocked(spawnSync).mockReturnValue({ stdout: '{"action":"handoff"}', stderr: "", status: 0 } as never);
+    runPlanHandoff({ cwd: "C:/repo", ui: { notify } } as never, "run-001 feature-planning");
+    expect(spawnSync).toHaveBeenCalledWith("uv", expect.arrayContaining(["plan", "handoff", "--workflow", "feature-planning"]), expect.objectContaining({ cwd: expect.any(String) }));
+    expect(notify).toHaveBeenCalledWith('{"action":"handoff"}', "info");
   });
 });

@@ -32,3 +32,21 @@ def test_plan_check_to_review_to_suggest_is_end_to_end(
     assert suggestion["action"] == "suggest_downstream"
     assert suggestion["starts_automatically"] is False
     assert not (tmp_path / ".factory" / "runs").exists()
+
+
+def test_public_check_to_handoff_emits_summary_menu_and_artifacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    intent, spec, plan = _write_fixture(tmp_path, complete=True)
+    assert main(_check_args(tmp_path, intent, spec, plan)) == 0
+    capsys.readouterr()
+
+    assert main([
+        "plan", "handoff", "--project-root", str(tmp_path), "--run-id", "run-001",
+        "--workflow", "standard-development", "--json",
+    ]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert "Semantic notes:" in output["summary"]
+    assert output["menu"] == ["standard-development", "health-recovery", "feature-planning"]
+    assert (tmp_path / ".factory" / "planning" / "run-001" / "handoff.json").is_file()
+    assert (tmp_path / ".factory" / "planning" / "run-001" / "handoff.md").is_file()
