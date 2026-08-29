@@ -171,3 +171,50 @@ def test_repeated_finding_escalates_and_preserves_journal(tmp_path: Path) -> Non
     assert result.status is LoopStatus.ESCALATED
     assert "repeated" in (result.error or "")
     assert len((tmp_path / ".factory" / "planning" / "run-1" / "resolution-events.jsonl").read_text().splitlines()) == 2
+
+
+def test_terminal_gate_failure_escalates_fail_closed(tmp_path: Path) -> None:
+    source = tmp_path / "artifact.md"
+    source.write_text("original", encoding="utf-8")
+    backend = Backend([])
+    loop = FreshReviewLoop(
+        project_root=tmp_path,
+        backend=backend,
+        model={"provider": "p", "model": "m"},
+        gate=lambda _root: (_ for _ in ()).throw(RuntimeError("gate unavailable")),
+    )
+    packet = loop.build_packet("run-1", "spec_alignment", 1, [source], {}, "a" * 64)
+    backend.reports = iter([_packet_report(packet)])
+
+    result = loop.run(packet)
+
+    assert result.status is LoopStatus.ESCALATED
+    assert result.error == "gate unavailable"
+
+
+def test_scoped_fix_rejects_collateral_artifact_mutation(tmp_path: Path) -> None:
+    source = tmp_path / "artifact.md"
+    other = tmp_path / "other.md"
+    source.write_text("bad", encoding="utf-8")
+    other.write_text("untouched", encoding="utf-8")
+    finding = _finding(path="artifact.md")
+    backend = Backend([])
+
+    def collateral_fixer(path: Path, _finding: dict) -> None:
+        path.write_text("good", encoding="utf-8")
+        other.write_text("collateral", encoding="utf-8")
+
+    loop = FreshReviewLoop(
+        project_root=tmp_path,
+        backend=backend,
+        model={"provider": "p", "model": "m"},
+        fixer=collateral_fixer,
+    )
+    packet = loop.build_packet("run-1", "spec_alignment", 1, [source, other], {}, "a" * 64)
+    backend.reports = iter([_packet_report(packet, findings=[finding], verdict="findings")])
+
+    result = loop.run(packet)
+
+    assert result.status is LoopStatus.ESCALATED
+    assert "outside finding scope" in (result.error or "")
+    assert len(backend.calls) == 1

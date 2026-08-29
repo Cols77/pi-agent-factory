@@ -118,8 +118,9 @@ class FreshReviewLoop:
             if not report_is_fresh(self.project_root, current, report):
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "stale review report")
             if report.verdict == "clean":
-                if self.gate is not None and not self.gate(self.project_root):
-                    return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "deterministic gate failed")
+                gate_error = self._run_gate()
+                if gate_error is not None:
+                    return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), gate_error)
                 return FreshReviewResult(LoopStatus.CLEAN, len(reports), tuple(reports), tuple(prompts))
             if report.verdict == "escalate":
                 prompts.extend(report.human_prompts or ("Human decision required for semantic review.",))
@@ -137,8 +138,9 @@ class FreshReviewLoop:
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "repeated finding")
             seen_findings.update(item["id"] for item in unresolved)
             if not unresolved:
-                if self.gate is not None and not self.gate(self.project_root):
-                    return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "deterministic gate failed")
+                gate_error = self._run_gate()
+                if gate_error is not None:
+                    return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), gate_error)
                 return FreshReviewResult(LoopStatus.CLEAN, len(reports), tuple(reports), tuple(prompts))
             if self.fixer is None:
                 prompts.append("A scoped artifact fix is required.")
@@ -147,8 +149,9 @@ class FreshReviewLoop:
                 changed = self._apply_fixes(current, report, unresolved)
                 if not changed:
                     raise RuntimeError("scoped fix did not change an artifact")
-                if self.gate is not None and not self.gate(self.project_root):
-                    raise RuntimeError("deterministic gate failed after fix")
+                gate_error = self._run_gate()
+                if gate_error is not None:
+                    raise RuntimeError(gate_error)
             except Exception as exc:
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), str(exc))
             if iteration == self.max_iterations:
@@ -166,6 +169,14 @@ class FreshReviewLoop:
             except OSError:
                 return False
         return True
+
+    def _run_gate(self) -> str | None:
+        if self.gate is None:
+            return None
+        try:
+            return None if self.gate(self.project_root) else "deterministic gate failed"
+        except Exception as exc:
+            return str(exc)
 
     def _prompt(self, packet: SemanticReviewPacket, prior: str | None) -> str:
         payload = json.dumps(packet.to_dict(), sort_keys=True, ensure_ascii=False)
@@ -194,6 +205,9 @@ class FreshReviewLoop:
                 except (TypeError, ValueError):
                     fixer(path, finding)
                 after = self._hash_paths(before)
+                changed_paths = {name for name in before if after[name] != before[name]}
+                if not changed_paths.issubset(scope):
+                    raise RuntimeError("fixer changed an artifact outside finding scope")
                 if after[path_text] != before[path_text]:
                     changed = True
                 append_resolution_event(
