@@ -287,6 +287,43 @@ def test_plan_suggest_rechecks_artifact_hashes_before_approved_suggestion(
     assert payload["reason"] == "SUGGESTION_BLOCKED"
 
 
+def _handoff_args(root: Path, workflow: str = "standard-development") -> list[str]:
+    return [
+        "plan", "handoff", "--project-root", str(root), "--run-id", "run-001",
+        "--workflow", workflow, "--json",
+    ]
+
+
+def test_plan_handoff_emits_summary_menu_and_revalidates_existing_handoff(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_checked_report(tmp_path, capsys)
+
+    assert main(_handoff_args(tmp_path)) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert "Semantic notes:" in output["summary"]
+    assert "standard-development" in output["summary"]
+    assert output["menu"] == [
+        "standard-development", "health-recovery", "feature-planning"
+    ]
+
+    (tmp_path / "docs" / "superpowers" / "plans" / "intent-plan.md").write_text(
+        PLAN + "\nChanged in a new session.\n", encoding="utf-8"
+    )
+    assert main(_handoff_args(tmp_path)) == 1
+    blocked = json.loads(capsys.readouterr().out)
+    assert blocked["blocked"] is True
+    assert blocked["reason"] == "HANDOFF_BLOCKED"
+
+
+def test_plan_handoff_rejects_unknown_workflow_without_writing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write_checked_report(tmp_path, capsys)
+    assert main(_handoff_args(tmp_path, "launch-process")) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["blocked"] is True
+    assert not (tmp_path / ".factory" / "planning" / "run-001" / "handoff.json").exists()
+
+
 def test_installed_coherence_entry_point_dispatches_plan_check(tmp_path: Path) -> None:
     intent, spec, plan = _write_fixture(tmp_path, complete=True)
     result = subprocess.run(

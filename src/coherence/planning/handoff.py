@@ -99,6 +99,20 @@ def build_handoff(
     forbidden = {"api_key", "secret", "password", "token", "credential"}
     if any(any(word in str(key).lower() for word in forbidden) for key in model):
         raise HandoffError("secret-shaped model metadata rejected")
+    semantic_notes = tuple(
+        finding.detail for finding in report.findings if finding.severity == "warning"
+    )
+    unresolved = tuple(
+        str(action.get("detail", ""))
+        for action in report.next_actions
+        if isinstance(action, dict) and action.get("detail")
+    )
+    summary = render_summary(
+        report,
+        semantic_notes=semantic_notes,
+        unresolved=unresolved,
+        gate_summary=gate_summary or {"status": "pass"},
+    )
     return {
         "schema": 1,
         "run_id": report.run_id,
@@ -109,6 +123,7 @@ def build_handoff(
         "resolution_journal_sha256": _resolution_digest(safe, report.run_id),
         "model_metadata": model,
         "gate_summary": dict(gate_summary or {"status": "pass" if report.ok else "fail"}),
+        "summary": summary,
         "starts_automatically": False,
         "creation": {"source": "coherence-planning", "report_run_id": report.run_id},
     }
@@ -140,11 +155,12 @@ def write_handoff(root: Path, payload: Mapping[str, object]) -> tuple[Path, Path
     json_path = run_dir / "handoff.json"
     md_path = run_dir / "handoff.md"
     encoded = json.dumps(dict(payload), indent=2, ensure_ascii=False, sort_keys=False, allow_nan=False) + "\n"
-    prompt = (f"Planning handoff for run {run_id}\n\n"
+    prompt = (f"{payload.get('summary', f'Planning handoff for run {run_id}')}\n\n"
               f"Selected workflow: {payload.get('selected_workflow')}\n"
               f"Validated artifacts: {json.dumps(payload.get('canonical_artifacts', []), sort_keys=True)}\n"
               "Current status: validated\n\n"
-              "Revalidate this handoff and all current source hashes before acting.\n")
+              "Revalidate this handoff and all current source hashes before acting.\n"
+              "Downstream choices: standard-development, health-recovery, feature-planning\n")
     for destination, content in ((json_path, encoded), (md_path, prompt)):
         fd, temporary = tempfile.mkstemp(prefix=".handoff-", dir=str(run_dir))
         try:

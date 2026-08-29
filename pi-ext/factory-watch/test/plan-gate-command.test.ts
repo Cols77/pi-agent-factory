@@ -2,7 +2,9 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   buildPlanGateCommand,
+  buildPlanHandoffCommand,
   parsePlanGateArgs,
+  parsePlanHandoffArgs,
   validatePlanGatePath,
 } from "../src/plan-gate-command.js";
 
@@ -49,6 +51,28 @@ describe("plan-gate command", () => {
         "run-001",
         "--decompose",
         "--json",
+      ],
+    });
+  });
+
+  test("parses only the stable plan-handoff menu identifiers", () => {
+    expect(parsePlanHandoffArgs("run-001 health-recovery")).toEqual({
+      runId: "run-001",
+      workflow: "health-recovery",
+    });
+    expect(parsePlanHandoffArgs("run-001 launch-process")).toBeNull();
+    expect(parsePlanHandoffArgs("../run-001 standard-development")).toBeNull();
+  });
+
+  test("builds an explicit argv-only handoff command", () => {
+    expect(buildPlanHandoffCommand("C:/repo", {
+      runId: "run-001",
+      workflow: "feature-planning",
+    })).toEqual({
+      bin: "uv",
+      args: [
+        "run", "coherence", "plan", "handoff", "--project-root", resolve("C:/repo"),
+        "--run-id", "run-001", "--workflow", "feature-planning", "--json",
       ],
     });
   });
