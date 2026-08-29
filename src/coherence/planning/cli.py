@@ -22,10 +22,14 @@ from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_loads
 from coherence.planning.run import (
     build_escalation,
+    build_handoff,
     build_downstream_suggestion,
+    HandoffError,
     read_review_decision,
     requirement_consent_status,
     write_planning_run,
+    write_handoff,
+    validate_handoff,
 )
 
 _REPORT_KEYS = (
@@ -352,6 +356,28 @@ def _suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handoff(args: argparse.Namespace) -> int:
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    report_path = _safe_stored_path(root, ".factory", "planning", args.run_id, "report.json")
+    if report_path is None:
+        print(json.dumps(_blocked(args.run_id, "REPORT_INVALID", "planning report path is unsafe"), indent=2))
+        return 1
+    try:
+        report = _read_report(report_path, args.run_id)
+        payload = build_handoff(root, report, workflow=args.workflow)
+        json_path, md_path = write_handoff(root, payload)
+        validate_handoff(root, json_path)
+    except (HandoffError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "HANDOFF_BLOCKED", str(exc)), indent=2))
+        return 1
+    print(json.dumps({"action": "handoff", "handoff": json_path.relative_to(root).as_posix(),
+                      "prompt": md_path.relative_to(root).as_posix(), "starts_automatically": False}, indent=2))
+    return 0
+
+
 def _review(args: argparse.Namespace) -> int:
     """Render a persisted planning review without approving or advancing it."""
     root = _safe_root(args.project_root)
@@ -446,6 +472,12 @@ def _parser() -> argparse.ArgumentParser:
     suggest.add_argument("--project-root", required=True, type=Path)
     suggest.add_argument("--json", action="store_true")
 
+    handoff = sub.add_parser("handoff")
+    handoff.add_argument("--run-id", required=True)
+    handoff.add_argument("--project-root", required=True, type=Path)
+    handoff.add_argument("--workflow", default="standard-development")
+    handoff.add_argument("--json", action="store_true")
+
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--intent", required=True, type=Path)
     bootstrap.add_argument("--spec", required=True, type=Path)
@@ -485,6 +517,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _bootstrap(args)
     if args.command == "review":
         return _review(args)
+    if args.command == "handoff":
+        return _handoff(args)
     if args.command in {"start", "resume", "status", "append", "resolve", "finalize"}:
         return _session_command(args)
     return _suggest(args)

@@ -21,6 +21,14 @@ from coherence.planning.model_policy import ModelCatalogEntry, persist_model_sel
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
 from coherence.planning.semantic import SemanticReviewPacket, SemanticReviewReport, write_review_packet, write_review_report
 from coherence.planning.workflow import PlanningWorkflow, WorkflowStatus
+from coherence.planning.handoff import (
+    HandoffError,
+    build_downstream_menu,
+    build_handoff,
+    render_summary,
+    validate_handoff,
+    write_handoff,
+)
 
 
 def execute_planning_workflow(
@@ -699,6 +707,7 @@ def build_downstream_suggestion(
     return {
         "action": "suggest_downstream",
         "workflow": "standard",
+
         "plan": plan_path,
         "tasks": task_ids,
         "prerequisites": ["human_review", "requirement_consent"],
@@ -707,9 +716,15 @@ def build_downstream_suggestion(
 
 
 __all__ = [
+    "HandoffError",
     "ReviewDecision",
     "build_escalation",
     "build_downstream_suggestion",
+    "build_downstream_menu",
+    "build_handoff",
+    "render_summary",
+    "validate_handoff",
+    "write_handoff",
     "planning_report_digest",
     "read_review_decision",
     "requirement_consent_status",

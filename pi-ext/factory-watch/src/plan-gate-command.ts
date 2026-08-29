@@ -14,6 +14,11 @@ export interface PlanGateCommand {
   args: string[];
 }
 
+export interface PlanHandoffArgs {
+  runId: string;
+  workflow: string;
+}
+
 const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function validatePlanGatePath(value: string): boolean {
@@ -64,6 +69,26 @@ export function buildPlanGateCommand(root: string, args: PlanGateArgs): PlanGate
       "--json",
     ],
   };
+}
+
+export function parsePlanHandoffArgs(raw: string): PlanHandoffArgs | null {
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) return null;
+  if (!SAFE_RUN_ID.test(parts[0]) || !["standard-development", "health-recovery", "feature-planning"].includes(parts[1])) return null;
+  return { runId: parts[0], workflow: parts[1] };
+}
+
+export function buildPlanHandoffCommand(root: string, args: PlanHandoffArgs): PlanGateCommand {
+  return { bin: "uv", args: ["run", "coherence", "plan", "handoff", "--project-root", resolve(root), "--run-id", args.runId, "--workflow", args.workflow, "--json"] };
+}
+
+export function runPlanHandoff(ctx: ExtCommandCtx, rawArgs: string): void {
+  const args = parsePlanHandoffArgs(rawArgs);
+  if (args === null) { ctx.ui.notify("usage: /plan-handoff <run-id> <workflow>", "error"); return; }
+  try {
+    const result = spawnSync("uv", buildPlanHandoffCommand(ctx.cwd, args).args, { cwd: resolve(ctx.cwd), encoding: "utf-8", timeout: 120000 });
+    ctx.ui.notify(String(result.stdout || result.stderr || "plan-handoff returned no output").trim(), result.status === 0 ? "info" : "error");
+  } catch (error) { ctx.ui.notify(`plan-handoff failed: ${String(error)}`, "error"); }
 }
 
 export function runPlanGate(ctx: ExtCommandCtx, rawArgs: string): void {

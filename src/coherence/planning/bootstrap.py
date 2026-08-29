@@ -101,6 +101,11 @@ def bootstrap_planning(
             "status": "delegated",
             "detail": "register approved requirements and feature membership through health-resolution",
         },
+        {
+            "action": "downstream_handoff",
+            "status": "available_after_review",
+            "detail": "present the explicit downstream menu and write a hash-bound handoff; do not auto-start work",
+        },
     )
     report = replace(report, next_actions=next_actions)
     if workflow is not None:

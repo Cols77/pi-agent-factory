@@ -27,7 +27,7 @@ import {
   buildTraceFixSeedPrompt,
   buildVisualExplainSeedPrompt,
 } from "./skill-prompt.js";
-import { runPlanGate } from "./plan-gate-command.js";
+import { runPlanGate, runPlanHandoff } from "./plan-gate-command.js";
 import { runPlanReview } from "./plan-review-command.js";
 import { runPlanBrainstorm } from "./plan-brainstorm-command.js";
 import { registerTraceTools } from "./trace-tools.js";
@@ -1051,6 +1051,13 @@ export default function factoryWatch(pi: PiApi): void {
     description: "Show the explicit planning escalation and consent boundary",
     handler: async (args: string, ctx: ExtCommandCtx) => {
       runPlanReview(ctx, args);
+    },
+  });
+
+  pi.registerCommand("plan-handoff", {
+    description: "Validate and write an explicit planning handoff",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanHandoff(ctx, args);
     },
   });
 
