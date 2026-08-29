@@ -279,7 +279,7 @@ def parse_review_report(text: str, *, packet: SemanticReviewPacket | None = None
     findings: list[dict[str, Any]] = []
     seen: set[str] = set()
     for finding in raw_findings:
-        if not isinstance(finding, dict) or set(finding) != {"id", "evidence", "confidence", "disposition"}:
+        if not isinstance(finding, dict) or set(finding) != {"id", "evidence", "confidence", "disposition", "artifact_paths"}:
             raise SemanticReviewError("finding fields are invalid")
         identifier = _text(finding["id"], "finding id", max_len=128)
         if identifier in seen or not _ID.fullmatch(identifier):
@@ -292,7 +292,15 @@ def parse_review_report(text: str, *, packet: SemanticReviewPacket | None = None
         disposition = finding["disposition"]
         if disposition not in _DISPOSITIONS:
             raise SemanticReviewError("invalid finding disposition")
-        findings.append({"id": identifier, "evidence": evidence, "confidence": confidence, "disposition": disposition})
+        normalized: dict[str, Any] = {"id": identifier, "evidence": evidence, "confidence": confidence, "disposition": disposition}
+        if "artifact_paths" in finding:
+            paths = finding["artifact_paths"]
+            if not isinstance(paths, list) or not paths or any(not isinstance(path, str) or not path for path in paths):
+                raise SemanticReviewError("finding artifact scope is invalid")
+            if len(set(paths)) != len(paths) or paths != sorted(paths):
+                raise SemanticReviewError("finding artifact scope is invalid")
+            normalized["artifact_paths"] = paths
+        findings.append(normalized)
     def texts(field: str) -> tuple[str, ...]:
         values = payload[field]
         if not isinstance(values, list):

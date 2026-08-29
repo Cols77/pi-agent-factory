@@ -9,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from coherence.planning.resolution import ResolutionError, append_resolution_event
+from coherence.planning.resolution import append_resolution_event
 from coherence.planning.semantic import (
     SemanticReviewError,
     SemanticReviewPacket,
@@ -87,6 +87,7 @@ class FreshReviewLoop:
     def run(self, packet: SemanticReviewPacket) -> FreshReviewResult:
         reports: list[SemanticReviewReport] = []
         prompts: list[str] = []
+        seen_findings: set[str] = set()
         current = packet
         if self.preflight is not None:
             try:
@@ -111,7 +112,7 @@ class FreshReviewLoop:
                     raise SemanticReviewError("reviewer did not return a valid report")
                 report = parse_review_report(raw, packet=current)
                 write_review_report(self.project_root, report)
-            except (SemanticReviewError, OSError, ValueError, TypeError, StopIteration) as exc:
+            except Exception as exc:
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), str(exc))
             reports.append(report)
             if not report_is_fresh(self.project_root, current, report):
@@ -128,6 +129,13 @@ class FreshReviewLoop:
             if human:
                 prompts.extend(report.human_prompts or ("Resolve the semantic findings before continuing.",))
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "human escalation")
+            repeated = [item for item in unresolved if item["id"] in seen_findings]
+            if repeated:
+                for finding in repeated:
+                    self._append_escalation(current, finding, "repeated finding requires human resolution")
+                prompts.append("A semantic finding recurred after a fresh review; human resolution is required.")
+                return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "repeated finding")
+            seen_findings.update(item["id"] for item in unresolved)
             if not unresolved:
                 if self.gate is not None and not self.gate(self.project_root):
                     return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "deterministic gate failed")
@@ -136,8 +144,12 @@ class FreshReviewLoop:
                 prompts.append("A scoped artifact fix is required.")
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), "no fixer configured")
             try:
-                self._apply_fixes(current, report, unresolved)
-            except (OSError, RuntimeError, ResolutionError, ValueError, TypeError) as exc:
+                changed = self._apply_fixes(current, report, unresolved)
+                if not changed:
+                    raise RuntimeError("scoped fix did not change an artifact")
+                if self.gate is not None and not self.gate(self.project_root):
+                    raise RuntimeError("deterministic gate failed after fix")
+            except Exception as exc:
                 return FreshReviewResult(LoopStatus.ESCALATED, len(reports), tuple(reports), tuple(prompts), str(exc))
             if iteration == self.max_iterations:
                 prompts.append("Review budget exhausted; human resolution is required.")
@@ -159,15 +171,19 @@ class FreshReviewLoop:
         payload = json.dumps(packet.to_dict(), sort_keys=True, ensure_ascii=False)
         return "Fresh semantic review. Return only the validated JSON report for this packet.\n" + payload + ("\nPrior escalation: " + prior if prior else "")
 
-    def _apply_fixes(self, packet: SemanticReviewPacket, report: SemanticReviewReport, findings: list[dict[str, Any]]) -> None:
+    def _apply_fixes(self, packet: SemanticReviewPacket, report: SemanticReviewReport, findings: list[dict[str, Any]]) -> bool:
         before = {item["path"]: item["sha256"] for item in packet.artifacts}
         if not self._packet_current(packet):
             raise RuntimeError("artifact changed before scoped fix")
         fixer = self.fixer
         if fixer is None:
             raise RuntimeError("no fixer configured")
+        changed = False
         for finding in findings:
-            for path_text in before:
+            scope = finding.get("artifact_paths", list(before))
+            if not isinstance(scope, list) or not scope or any(path not in before for path in scope):
+                raise ValueError("finding artifact scope is invalid")
+            for path_text in scope:
                 path = self.project_root / path_text
                 try:
                     signature = inspect.signature(fixer)
@@ -178,6 +194,8 @@ class FreshReviewLoop:
                 except (TypeError, ValueError):
                     fixer(path, finding)
                 after = self._hash_paths(before)
+                if after[path_text] != before[path_text]:
+                    changed = True
                 append_resolution_event(
                     self.project_root, run_id=packet.run_id, stage=packet.stage,
                     iteration=packet.iteration, finding_id=finding["id"],
@@ -186,6 +204,17 @@ class FreshReviewLoop:
                     pre_artifact_hashes=before, post_artifact_hashes=after,
                 )
                 before = after
+        return changed
+
+    def _append_escalation(self, packet: SemanticReviewPacket, finding: dict[str, Any], reason: str) -> None:
+        hashes = {item["path"]: item["sha256"] for item in packet.artifacts}
+        append_resolution_event(
+            self.project_root, run_id=packet.run_id, stage=packet.stage,
+            iteration=packet.iteration, finding_id=finding["id"],
+            disposition="escalate_to_human", actor_kind="planning-agent",
+            prompt=finding["evidence"], answer_or_fix=reason,
+            pre_artifact_hashes=hashes, post_artifact_hashes=hashes,
+        )
 
     def _hash_paths(self, paths: dict[str, str]) -> dict[str, str]:
         return {name: hashlib.sha256((self.project_root / name).read_bytes()).hexdigest() for name in paths}
