@@ -6,6 +6,8 @@ import pytest
 
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.model import PlanningInput
+from coherence.planning.semantic import SemanticReviewReport
+from coherence.planning.workflow import PlanningWorkflow, WorkflowStage
 
 
 def _input(root: Path) -> PlanningInput:
@@ -92,3 +94,23 @@ def test_bootstrap_rejects_malformed_existing_task_frontmatter(tmp_path: Path) -
 
     with pytest.raises(BootstrapPrerequisiteError):
         bootstrap_planning(tmp_path, planning_input, decompose=True)
+
+def test_bootstrap_can_invoke_ordered_semantic_checkpoints(tmp_path: Path) -> None:
+    planning_input = _input(tmp_path)
+    calls: list[str] = []
+
+    def review(packet):
+        calls.append(packet.stage)
+        return SemanticReviewReport(
+            1, packet.run_id, packet.stage, packet.iteration, packet.sha256,
+            packet.artifacts, packet.context, packet.sr_context_digest, packet.model,
+            packet.reviewer_role, packet.reviewer_session_id, (), (), (), "clean",
+        )
+
+    workflow = PlanningWorkflow(
+        tmp_path, planning_input.run_id, reviewer_model={"provider": "test", "model": "reviewer"},
+        reviewer=review,
+    )
+    bootstrap_planning(tmp_path, planning_input, workflow=workflow)
+
+    assert calls == [WorkflowStage.SPEC_ALIGNMENT.value, WorkflowStage.PLAN_TASK_ALIGNMENT.value]

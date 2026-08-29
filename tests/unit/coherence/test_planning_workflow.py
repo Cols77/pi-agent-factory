@@ -80,3 +80,59 @@ def test_unresolved_and_warning_block_but_note_does_not(tmp_path: Path) -> None:
     workflow.run_stage(WorkflowStage.SPEC_ALIGNMENT, [path], context={}, sr_context={})
     assert workflow.status().blocked is True
     assert workflow.status().to_dict()["reason"] == "semantic_review_escalation"
+
+
+def test_reviewer_failure_is_fail_closed_and_changed_stage_can_rerun(tmp_path: Path) -> None:
+    path = _artifact(tmp_path, "spec.md", "spec")
+    attempts = 0
+
+    def review(packet):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise Exception("provider unavailable")
+        return _report(packet)
+
+    workflow = PlanningWorkflow(tmp_path, "run-1", reviewer_model={"provider": "t", "model": "m"}, reviewer=review)
+    assert workflow.run_stage(WorkflowStage.SPEC_ALIGNMENT, [path], context={}, sr_context={}) is None
+    assert workflow.status().blocked is True
+    assert workflow.run_stage(WorkflowStage.SPEC_ALIGNMENT, [path], context={}, sr_context={}) is not None
+    _artifact(tmp_path, "spec.md", "changed")
+    assert workflow.status().to_dict()["stages"][0]["status"] == "invalidated"
+    assert workflow.run_stage(WorkflowStage.SPEC_ALIGNMENT, [path], context={}, sr_context={}) is not None
+
+
+def test_lifecycle_composes_all_stages_and_reruns_after_invalidation(tmp_path: Path) -> None:
+    paths = [_artifact(tmp_path, name, name) for name in ("intent.json", "spec.md", "plan.md", "tasks/T-001.md")]
+    derived = [_artifact(tmp_path, name, name) for name in ("docs/features/FEAT-017.md", "bundles/FEAT-017.json")]
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    def review(packet):
+        seen.append((packet.stage, packet.context))
+        return _report(packet)
+
+    workflow = PlanningWorkflow(
+        tmp_path, "run-1", reviewer_model={"provider": "test", "model": "reviewer"},
+        reviewer=review,
+    )
+    status = workflow.run_lifecycle(
+        spec_artifacts=paths[:3], plan_artifacts=paths, derivation_artifacts=paths + derived,
+        intent_context={"intent": "intent"},
+        plan_context={"intent": "intent", "spec": "spec", "plan": "plan", "tasks": ["T-001"]},
+        derivation_context={"spec": "spec", "plan": "plan", "candidate_srs": ["SR-1"], "feature": "FEAT-017", "bundle": "FEAT-017"},
+        sr_context={"SR-1": {"status": "proposed", "statement": "full"}},
+    )
+    assert status.ok is True
+    assert [stage for stage, _ in seen] == [stage.value for stage in WorkflowStage]
+    assert seen[1][1]["tasks"] == ["T-001"]
+    assert seen[2][1]["candidate_srs"] == ["SR-1"]
+
+    _artifact(tmp_path, "spec.md", "changed")
+    rerun = workflow.run_lifecycle(
+        spec_artifacts=paths[:3], plan_artifacts=paths, derivation_artifacts=paths + derived,
+        intent_context={"intent": "intent"},
+        plan_context={"intent": "intent", "spec": "spec", "plan": "plan", "tasks": ["T-001"]},
+        derivation_context={"spec": "spec", "plan": "plan", "candidate_srs": ["SR-1"], "feature": "FEAT-017", "bundle": "FEAT-017"},
+        sr_context={"SR-1": {"status": "proposed", "statement": "full"}},
+    )
+    assert rerun.ok is True

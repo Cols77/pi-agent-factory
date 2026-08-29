@@ -20,6 +20,30 @@ from coherence.planning.serialization import strict_frontmatter_loads, strict_js
 from coherence.planning.model_policy import ModelCatalogEntry, persist_model_selection
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
 from coherence.planning.semantic import SemanticReviewPacket, SemanticReviewReport, write_review_packet, write_review_report
+from coherence.planning.workflow import PlanningWorkflow, WorkflowStatus
+
+
+def execute_planning_workflow(
+    workflow: PlanningWorkflow,
+    *,
+    spec_artifacts: list[Path] | tuple[Path, ...],
+    plan_artifacts: list[Path] | tuple[Path, ...],
+    derivation_artifacts: list[Path] | tuple[Path, ...],
+    intent_context: dict[str, Any],
+    plan_context: dict[str, Any],
+    derivation_context: dict[str, Any],
+    sr_context: Mapping[str, Any],
+) -> WorkflowStatus:
+    """Run the host-injected reviewer through all planning checkpoints."""
+    return workflow.run_lifecycle(
+        spec_artifacts=spec_artifacts,
+        plan_artifacts=plan_artifacts,
+        derivation_artifacts=derivation_artifacts,
+        intent_context=intent_context,
+        plan_context=plan_context,
+        derivation_context=derivation_context,
+        sr_context=sr_context,
+    )
 
 
 def write_semantic_review(

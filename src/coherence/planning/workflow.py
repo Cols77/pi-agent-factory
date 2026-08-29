@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -123,6 +124,46 @@ class PlanningWorkflow:
     def accept_warning(self, finding_id: str) -> None:
         self._accepted_warnings.add(finding_id)
 
+    def _next_iteration(self, requested: int) -> int:
+        """Choose an immutable evidence slot after an invalidated rerun."""
+        prefix = "semantic-review-packet"
+        directory = self.project_root / ".factory" / "planning" / self.run_id
+        pattern = re.compile(rf"{re.escape(prefix)}(?:-(\d+))?\.json$")
+        used: list[int] = []
+        try:
+            for path in directory.glob(f"{prefix}*.json"):
+                match = pattern.fullmatch(path.name)
+                if match:
+                    used.append(int(match.group(1) or 1))
+        except OSError:
+            pass
+        candidate = max(requested, 1)
+        while candidate in used:
+            candidate += 1
+        return candidate
+
+    def run_lifecycle(
+        self,
+        *,
+        spec_artifacts: list[Path] | tuple[Path, ...],
+        plan_artifacts: list[Path] | tuple[Path, ...],
+        derivation_artifacts: list[Path] | tuple[Path, ...],
+        intent_context: dict[str, Any],
+        plan_context: dict[str, Any],
+        derivation_context: dict[str, Any],
+        sr_context: Mapping[str, Any],
+    ) -> WorkflowStatus:
+        """Run the three checkpoints in their only permitted lifecycle order."""
+        stages = (
+            (WorkflowStage.SPEC_ALIGNMENT, spec_artifacts, intent_context),
+            (WorkflowStage.PLAN_TASK_ALIGNMENT, plan_artifacts, plan_context),
+            (WorkflowStage.DERIVATION_ALIGNMENT, derivation_artifacts, derivation_context),
+        )
+        for stage, artifacts, context in stages:
+            if self.run_stage(stage, artifacts, context=context, sr_context=sr_context) is None:
+                break
+        return self.status()
+
     def run_stage(
         self,
         stage: WorkflowStage | str,
@@ -158,7 +199,13 @@ class PlanningWorkflow:
                 self._stages[stage].detail = str(exc)
                 self._blocked_reason = "deterministic_gate_failed"
                 return None
-        effective_iteration = iteration + index
+        effective_iteration = self._next_iteration(iteration + index)
+        evidence_dir = self.project_root / ".factory" / "planning" / self.run_id
+        while (
+            evidence_dir
+            / ("semantic-review-packet.json" if effective_iteration == 1 else f"semantic-review-packet-{effective_iteration}.json")
+        ).exists():
+            effective_iteration += 1
         try:
             hashes = self._hashes(artifact_paths)
             digest = hashlib.sha256(
@@ -186,7 +233,7 @@ class PlanningWorkflow:
             write_review_report(self.project_root, report)
             if not report_is_fresh(self.project_root, packet, report):
                 raise ValueError("reviewer report is not fresh against current artifacts")
-        except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        except Exception as exc:
             self._stages[stage].status = "blocked"
             self._stages[stage].detail = str(exc)
             self._blocked_reason = "semantic_review_invalid"

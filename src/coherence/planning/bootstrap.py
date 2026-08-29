@@ -8,6 +8,7 @@ import yaml
 from coherence.planning.check import check_planning_input
 from coherence.planning.model import PlanningInput, PlanningReport
 from coherence.planning.paths import safe_resolve, safe_root
+from coherence.planning.workflow import PlanningWorkflow, WorkflowStage
 from substrate.ledger.plans import NoTasksFoundError, run as decompose_plan
 
 
@@ -34,6 +35,8 @@ def bootstrap_planning(
     planning_input: PlanningInput,
     *,
     decompose: bool = False,
+    workflow: PlanningWorkflow | None = None,
+    sr_context: dict[str, object] | None = None,
 ) -> tuple[PlanningReport, tuple[str, ...]]:
     """Compose plan decomposition and deterministic checking without authoring approvals."""
     project_root = _resolved(root)
@@ -99,7 +102,27 @@ def bootstrap_planning(
             "detail": "register approved requirements and feature membership through health-resolution",
         },
     )
-    return replace(report, next_actions=next_actions), created
+    report = replace(report, next_actions=next_actions)
+    if workflow is not None:
+        workflow.run_stage(
+            WorkflowStage.SPEC_ALIGNMENT,
+            [intent_path, spec_path],
+            context={"intent": intent_path.as_posix(), "spec": spec_path.as_posix()},
+            sr_context=sr_context or {},
+        )
+        if plan_path.is_file() and (not decompose or created):
+            workflow.run_stage(
+                WorkflowStage.PLAN_TASK_ALIGNMENT,
+                [intent_path, spec_path, plan_path],
+                context={
+                    "intent": intent_path.as_posix(),
+                    "spec": spec_path.as_posix(),
+                    "plan": plan_path.as_posix(),
+                    "tasks": list(created),
+                },
+                sr_context=sr_context or {},
+            )
+    return report, created
 
 
 __all__ = ["BootstrapPrerequisiteError", "bootstrap_planning"]
