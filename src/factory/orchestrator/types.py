@@ -25,6 +25,12 @@ class AgentRole(str, Enum):
     # Read-only per-SR semantic audit child for the coverage-review workflow
     # (factory.coverage.runner). Scope: read-only, no bash; emits a JSON verdict.
     COVERAGE_AUDIT = "coverage-audit"
+    # Dedicated FEAT-017 planning roles; invocation and validation remain
+    # host-neutral responsibilities of their callers.
+    PLANNING_COMPLEXITY = "planning-complexity"
+    PLANNING_ALIGNMENT = "planning-alignment"
+    PLANNING_PLAN_REVIEW = "planning-plan-review"
+    PLANNING_DERIVATION = "planning-derivation"
 
 
 class NodeOutcome(str, Enum):

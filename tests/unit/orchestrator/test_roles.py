@@ -1,6 +1,6 @@
 import pytest
 from factory.orchestrator.types import AgentRole
-from factory.orchestrator.roles import ROLE_SKILLS, ROLE_SCOPE, ROLE_PROMPTS
+from factory.orchestrator.roles import ROLE_SKILLS, ROLE_SCOPE, ROLE_PROMPTS, Scope
 
 pytestmark = pytest.mark.unit
 
@@ -40,3 +40,39 @@ def test_session_review_role_names_session_report_skill():
 
 def test_session_writer_role_no_longer_exists():
     assert not hasattr(AgentRole, "SESSION_WRITER")
+
+
+def test_planning_roles_have_minimal_artifact_scopes():
+    assert ROLE_SCOPE[AgentRole.PLANNING_COMPLEXITY] == Scope(allow=[], bash="deny")
+    assert ROLE_SCOPE[AgentRole.PLANNING_ALIGNMENT].allow == [
+        ".intent/**",
+        "docs/superpowers/specs/**",
+    ]
+    assert ROLE_SCOPE[AgentRole.PLANNING_PLAN_REVIEW].allow == [
+        "docs/superpowers/plans/**",
+        "tasks/**",
+    ]
+    assert ROLE_SCOPE[AgentRole.PLANNING_DERIVATION].allow == [
+        "requirements/**",
+        "docs/features/**",
+        "bundles/**",
+    ]
+    for role in (
+        AgentRole.PLANNING_ALIGNMENT,
+        AgentRole.PLANNING_PLAN_REVIEW,
+        AgentRole.PLANNING_DERIVATION,
+    ):
+        assert ROLE_SCOPE[role].bash == "deny"
+
+
+def test_planning_roles_exclude_other_artifact_classes_and_sensitive_writes():
+    alignment = ROLE_SCOPE[AgentRole.PLANNING_ALIGNMENT].allow
+    plan = ROLE_SCOPE[AgentRole.PLANNING_PLAN_REVIEW].allow
+    derivation = ROLE_SCOPE[AgentRole.PLANNING_DERIVATION].allow
+    assert "requirements/**" not in alignment
+    assert "bundles/**" not in alignment
+    assert "requirements/**" not in plan
+    assert "consent/**" not in plan
+    assert "src/**" not in derivation
+    assert "docs/superpowers/specs/**" not in derivation
+    assert "docs/superpowers/plans/**" not in derivation
