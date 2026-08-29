@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "prompt": "Build a deterministic planner",
+  "answers": [
+    {"id": "goal", "text": "Build a deterministic planner"},
+    {"id": "constraint-files", "text": "Files remain canonical"}
+  ]
+}

@@ -307,6 +307,15 @@ used. Writing this specification, plan, or task records does not make them satis
 
 ## 5. Scope and explicit deferrals
 
+### 5.1 Verified dogfood coverage
+
+The Task 14 integration fixture exercises the host-neutral session, semantic-review,
+consent, gate, downstream-menu, and handoff contracts in an isolated labelled consumer
+project. It also runs the deterministic planning checker against this repository's own
+FEAT-017 artifacts. The self-hosting check records existing repository-wide parity and
+traceability debt as findings; it does not claim that debt is fixed or that test fixtures
+constitute human approval.
+
 In scope for mature FEAT-017:
 
 - host-neutral planning contracts and lifecycle state;

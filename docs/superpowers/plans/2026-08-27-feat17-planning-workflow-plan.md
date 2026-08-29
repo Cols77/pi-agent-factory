@@ -1473,6 +1473,13 @@ git add tests/ docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-desig
 git commit -m "test: dogfood mature planning workflow"
 ```
 
+**Verified completion record:** The labelled integration fixture now covers isolated
+consumer capture and self-hosting checks, three checkpoint ordering, a scoped agent fix
+followed by fresh review, human escalation without fabricated resolution, repeated
+findings, interrupted/resumed capture, explicit consent validation, accepted warning
+projection, deterministic report hashing, downstream menu, and hash-bound handoff. The
+self-hosting assertion preserves known repository-wide parity/traceability debt honestly.
+
 ---
 
 ## 5. Deterministic acceptance matrix
