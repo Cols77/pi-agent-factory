@@ -6,7 +6,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from coherence.planning.model import CaptureEvent, IntentAnswer, IntentDocument, PlanningFinding
+from coherence.planning.model import CaptureEvent, IntentAnswer, IntentDocument, PlanningChallenge, PlanningFinding
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_dumps, strict_json_loads
 
@@ -16,7 +16,7 @@ _SECRET_RE = re.compile(
 )
 _BRIEF_FIELDS = ("goal", "scope", "constraints", "non_goals", "done_when", "open_questions")
 _STATUSES = {"provisional", "needs_user", "cancelled"}
-_EVENT_KINDS = {"capture_started", "answer_captured", "capture_status", "question_deferred"}
+_EVENT_KINDS = {"capture_started", "answer_captured", "capture_status", "question_deferred", "challenge_raised", "challenge_resolved"}
 
 
 class IntentError(ValueError):
@@ -143,7 +143,57 @@ def read_intent(path: Path, *, project_root: Path) -> IntentDocument:
         brief=_brief(payload.get("brief")),
         capture_status=capture_status,
         redactions=redactions,
+        challenges=tuple(_challenge(item, index) for index, item in enumerate(payload.get("challenges", []))) if isinstance(payload.get("challenges", []), list) else (),
     )
+
+
+def _challenge(value: object, index: int) -> PlanningChallenge:
+    if not isinstance(value, dict):
+        raise IntentError(f"challenge {index} must be an object")
+    fields = ("id", "kind", "claim", "rationale", "provenance", "evidence_needed")
+    if any(not isinstance(value.get(field), str) for field in fields):
+        raise IntentError(f"challenge {index} fields must be text")
+    return PlanningChallenge(
+        id=value["id"], kind=value["kind"], claim=value["claim"],
+        rationale=value["rationale"], provenance=value["provenance"],
+        evidence_needed=value["evidence_needed"], status=value.get("status", "unresolved"),
+        response=value.get("response", ""), response_provenance=value.get("response_provenance", ""),
+    )
+
+
+def detect_challenges(answers: tuple[IntentAnswer, ...]) -> tuple[PlanningChallenge, ...]:
+    """Find deterministic, evidence-seeking challenges in captured user claims."""
+    challenges: list[PlanningChallenge] = []
+    for answer in answers:
+        text = answer.text.lower()
+        if any(marker in text for marker in ("always", "never", "guaranteed", "obviously", "everyone")):
+            challenges.append(PlanningChallenge(
+                f"challenge-{answer.id}-evidence", "unsupported_claim", answer.text,
+                "This consequential claim is asserted without supporting evidence.", answer.source,
+                "repository inspection or a cited external source",
+            ))
+        if "only" in text or "must use" in text or "choose" in text:
+            challenges.append(PlanningChallenge(
+                f"challenge-{answer.id}-tradeoff", "tradeoff", answer.text,
+                "This exclusive choice has unstated costs and plausible alternatives.", answer.source,
+                "comparison of alternatives and their trade-offs",
+            ))
+    for left in answers:
+        for right in answers:
+            if left.sequence >= right.sequence:
+                continue
+            left_words = set(re.findall(r"[a-z][a-z0-9_-]{2,}", left.text.lower()))
+            right_words = set(re.findall(r"[a-z][a-z0-9_-]{2,}", right.text.lower()))
+            shared = sorted(left_words & right_words - {"must", "should", "the", "and"})
+            if shared and (("must" in left.text.lower() and "must not" in right.text.lower()) or
+                           ("must not" in left.text.lower() and "must" in right.text.lower())):
+                challenges.append(PlanningChallenge(
+                    f"challenge-{left.id}-{right.id}-contradiction", "contradiction",
+                    f"{left.text} / {right.text}",
+                    f"The choices conflict on {', '.join(shared)}.", left.source,
+                    "human clarification of which constraint governs",
+                ))
+    return tuple(challenges)
 
 
 def _text_values(document: IntentDocument) -> list[str]:
@@ -275,6 +325,7 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
     answer_ids: set[str] = set()
     brief = {field: [] for field in _BRIEF_FIELDS}
     status = "provisional"
+    challenges: list[PlanningChallenge] = []
     for event in events[1:]:
         if event.run_id != run_id:
             raise IntentError("capture event run_id does not match requested run")
@@ -302,6 +353,27 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
         elif event.kind == "question_deferred":
             question_id = _as_text(payload.get("id"), "question_deferred.id")
             brief["open_questions"].append(question_id)
+        elif event.kind == "challenge_raised":
+            challenge = _challenge({**payload, "status": "unresolved", "response": ""}, len(challenges))
+            if any(item.id == challenge.id for item in challenges):
+                raise IntentError("duplicate challenge id in capture journal")
+            challenges.append(challenge)
+        elif event.kind == "challenge_resolved":
+            challenge_id = _as_text(payload.get("id"), "challenge_resolved.id")
+            for index, challenge in enumerate(challenges):
+                if challenge.id == challenge_id:
+                    response = _as_text(payload.get("response"), "challenge_resolved.response")
+                    resolution = _as_text(payload.get("resolution"), "challenge_resolved.resolution")
+                    if resolution not in {"resolve", "revise", "defer", "accept"}:
+                        raise IntentError("challenge resolution is invalid")
+                    status = {"resolve": "resolved", "revise": "revised", "defer": "deferred", "accept": "accepted"}[resolution]
+                    challenges[index] = PlanningChallenge(
+                        challenge.id, challenge.kind, challenge.claim, challenge.rationale,
+                        challenge.provenance, challenge.evidence_needed, status, response, _as_text(payload.get("provenance"), "challenge_resolved.provenance"),
+                    )
+                    break
+            else:
+                raise IntentError("challenge resolution references an unknown challenge")
     return IntentDocument(
         schema=2,
         run_id=run_id,
@@ -310,7 +382,24 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
         brief=brief,
         capture_status=status,
         redactions=[],
+        challenges=tuple(challenges),
     )
+
+
+def resolve_capture_challenge(root: Path, run_id: str, challenge_id: str, resolution: str, response: str, provenance: str) -> Path:
+    """Append an explicit human challenge resolution, preserving verbatim response/provenance."""
+    project_root = _safe_project_root(root)
+    journal = _journal_path(project_root, run_id)
+    events = _read_events(journal, run_id)
+    document = _replay_events(events, run_id)
+    if resolution not in {"resolve", "revise", "defer", "accept"} or not all(isinstance(value, str) and value for value in (challenge_id, response, provenance)):
+        raise IntentError("challenge resolution fields are invalid")
+    if not any(challenge.id == challenge_id for challenge in document.challenges):
+        raise IntentError("challenge resolution references an unknown challenge")
+    return append_capture_event(project_root, run_id, CaptureEvent(
+        run_id, len(events) + 1, "challenge_resolved",
+        {"id": challenge_id, "resolution": resolution, "response": response, "provenance": provenance},
+    ))
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -365,6 +454,13 @@ def materialize_intent(root: Path, run_id: str, destination: Path) -> Path:
         "brief": document.brief,
         "capture_status": document.capture_status,
         "redactions": document.redactions,
+        "challenges": [
+            {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
+             "rationale": challenge.rationale, "provenance": challenge.provenance,
+             "evidence_needed": challenge.evidence_needed, "status": challenge.status,
+             "response": challenge.response, "response_provenance": challenge.response_provenance}
+            for challenge in document.challenges
+        ],
     }
     _atomic_write(target, strict_json_dumps(payload) + "\n")
     return target
@@ -377,6 +473,8 @@ __all__ = [
     "IntentError",
     "append_capture_event",
     "materialize_intent",
+    "detect_challenges",
+    "resolve_capture_challenge",
     "read_intent",
     "validate_intent",
 ]

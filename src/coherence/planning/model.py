@@ -77,6 +77,21 @@ class IntentAnswer:
 
 
 @dataclass(frozen=True)
+class PlanningChallenge:
+    """A challenge that must be explicitly resolved by the human."""
+
+    id: str
+    kind: str
+    claim: str
+    rationale: str
+    provenance: str
+    evidence_needed: str
+    status: str = "unresolved"
+    response: str = ""
+    response_provenance: str = ""
+
+
+@dataclass(frozen=True)
 class IntentDocument:
     """Canonical in-memory representation of schema-one or schema-two intent."""
 
@@ -87,6 +102,7 @@ class IntentDocument:
     brief: dict[str, list[str]]
     capture_status: str
     redactions: list[str]
+    challenges: tuple[PlanningChallenge, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +119,7 @@ __all__ = [
     "CaptureEvent",
     "IntentAnswer",
     "IntentDocument",
+    "PlanningChallenge",
     "PlanningFinding",
     "PlanningInput",
     "PlanningReport",

@@ -43,4 +43,23 @@ describe("planning brainstorm command", () => {
     expect(result.status).toBe("provisional");
     expect(ctx.newSession).toHaveBeenCalled();
   });
+
+  test("blocks when a challenge has no explicit human resolution response", async () => {
+    const notify = vi.fn();
+    const select = vi.fn(async () => "Resolve");
+    const editor = vi.fn()
+      .mockResolvedValueOnce("always safe")
+      .mockResolvedValueOnce(undefined);
+    const ui = { notify, select, editor } as unknown as UiApi;
+    const ctx = { cwd: "C:/repo", ui, hasUI: true, model: undefined, reload: vi.fn(), newSession: vi.fn() } as unknown as ExtCommandCtx;
+    const backend = vi.fn()
+      .mockReturnValueOnce({ ok: true, value: { run_id: "run-1", state: "capture", next_sequence: 2, events: [] } })
+      .mockReturnValueOnce({ ok: true, value: { run_id: "run-1", state: "capture", next_sequence: 3, events: [], challenges: [{ id: "c-1", kind: "unsupported_claim", claim: "always safe", rationale: "needs evidence", evidence_needed: "repository inspection", status: "unresolved" }] } });
+
+    const result = await runPlanBrainstorm(ctx, "initial request", { runId: "run-1", runBackend: backend });
+
+    expect(result.status).toBe("blocked");
+    expect(backend).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("blocked"), "error");
+  });
 });

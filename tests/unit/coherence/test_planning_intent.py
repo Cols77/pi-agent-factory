@@ -13,6 +13,7 @@ from coherence.planning.intent import (
     read_intent,
     validate_intent,
 )
+from coherence.planning.model import IntentAnswer
 
 pytestmark = pytest.mark.unit
 
@@ -276,3 +277,48 @@ def test_secret_shaped_validation_diagnostics_are_redacted(tmp_path: Path) -> No
 
     assert "[REDACTED]" in rendered
     assert "super-secret-value" not in rendered
+
+
+def test_detect_challenges_flags_contradictory_and_unsupported_claims() -> None:
+    from coherence.planning.intent import detect_challenges
+
+    answers = (
+        IntentAnswer("scope", "What is in scope?", "It must include the API", "user", 1),
+        IntentAnswer("constraint", "What is excluded?", "The API must not change", "user", 2),
+        IntentAnswer("reliability", "Why?", "This is always safe and guaranteed", "user", 3),
+    )
+
+    challenges = detect_challenges(answers)
+
+    assert {challenge.kind for challenge in challenges} >= {"contradiction", "unsupported_claim"}
+    assert all(challenge.status == "unresolved" for challenge in challenges)
+    assert all(challenge.provenance == "user" for challenge in challenges)
+
+
+def test_detect_challenges_surfaces_alternatives_and_tradeoffs() -> None:
+    from coherence.planning.intent import detect_challenges
+
+    challenges = detect_challenges((IntentAnswer(
+        "storage", "Which storage?", "We must only use SQLite", "user", 1,
+    ),))
+
+    assert any(challenge.kind == "tradeoff" for challenge in challenges)
+    assert any("alternative" in challenge.evidence_needed.lower() for challenge in challenges)
+
+
+def test_challenge_resolution_is_preserved_in_materialized_intent(tmp_path: Path) -> None:
+    from coherence.planning.intent import resolve_capture_challenge
+
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}))
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 2, "challenge_raised", {
+        "id": "challenge-1", "kind": "unsupported_claim", "claim": "always safe",
+        "rationale": "no evidence", "provenance": "user", "evidence_needed": "repository inspection",
+    }))
+    resolve_capture_challenge(tmp_path, "run-001", "challenge-1", "accept", "Accepted pending evidence", "user:pi")
+    materialize_intent(tmp_path, "run-001", tmp_path / ".intent/intent.json")
+
+    document = read_intent(tmp_path / ".intent/intent.json", project_root=tmp_path)
+    assert document.challenges[0].status == "accepted"
+    assert document.challenges[0].response == "Accepted pending evidence"
+    assert document.challenges[0].provenance == "user"
+    assert document.challenges[0].response_provenance == "user:pi"

@@ -8,7 +8,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from coherence.planning.intent import CaptureEvent, IntentError, append_capture_event, materialize_intent
+from coherence.planning.intent import (
+    CaptureEvent,
+    IntentError,
+    append_capture_event,
+    detect_challenges,
+    materialize_intent,
+    read_intent,
+    resolve_capture_challenge,
+)
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_dumps, strict_json_loads
 
@@ -218,6 +226,36 @@ def append_session_answer(
         ),
     )
     _materialize(root, run_id)
+    document = read_intent(_intent_path(root), project_root=root)
+    known = {challenge.id for challenge in document.challenges}
+    for challenge in detect_challenges(document.answers):
+        if challenge.id not in known:
+            current_events = _events(journal, run_id)
+            append_capture_event(root, run_id, CaptureEvent(
+                run_id, len(current_events) + 1, "challenge_raised",
+                {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
+                 "rationale": challenge.rationale, "provenance": challenge.provenance,
+                 "evidence_needed": challenge.evidence_needed},
+            ))
+    _materialize(root, run_id)
+    session = _project(root, run_id, _events(journal, run_id))
+    _write_state(root, session)
+    return session
+
+
+def resolve_session_challenge(
+    project_root: Path, run_id: str, challenge_id: str, resolution: str,
+    response: str, provenance: str = "user",
+) -> PlanningSession:
+    """Record an explicit human resolution and refresh the durable snapshot."""
+    root = _root(project_root)
+    _validate_run_id(run_id)
+    try:
+        resolve_capture_challenge(root, run_id, challenge_id, resolution, response, provenance)
+        _materialize(root, run_id)
+    except IntentError as exc:
+        raise SessionError(str(exc)) from exc
+    journal = _journal(root, run_id)
     session = _project(root, run_id, _events(journal, run_id))
     _write_state(root, session)
     return session
@@ -249,6 +287,7 @@ __all__ = [
     "append_session_answer",
     "finalize_session",
     "resume_session",
+    "resolve_session_challenge",
     "start_session",
     "status_session",
 ]

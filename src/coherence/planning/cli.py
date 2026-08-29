@@ -7,11 +7,13 @@ from pathlib import Path
 
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
+from coherence.planning.intent import read_intent
 from coherence.planning.session import (
     SessionError,
     append_session_answer,
     finalize_session,
     resume_session,
+    resolve_session_challenge,
     start_session,
     status_session,
 )
@@ -366,12 +368,29 @@ def _session_command(args: argparse.Namespace) -> int:
                 args.text,
                 source=args.source,
             )
+        elif args.command == "resolve":
+            session = resolve_session_challenge(
+                args.project_root, args.run_id, args.challenge_id, args.resolution,
+                args.response, args.provenance,
+            )
         else:
             session = finalize_session(args.project_root, args.run_id, args.status)
     except SessionError as exc:
         print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
         return 1
-    print(json.dumps({"schema": 1, "ok": True, **session.to_dict()}, indent=2, ensure_ascii=False))
+    payload: dict[str, object] = {"schema": 1, "ok": True, **session.to_dict()}
+    try:
+        intent = read_intent(args.project_root / ".intent" / "intent.json", project_root=args.project_root)
+        payload["challenges"] = [
+            {"id": item.id, "kind": item.kind, "claim": item.claim, "rationale": item.rationale,
+             "provenance": item.provenance, "evidence_needed": item.evidence_needed,
+             "status": item.status, "response": item.response,
+             "response_provenance": item.response_provenance}
+            for item in intent.challenges
+        ]
+    except (OSError, UnicodeError, ValueError, TypeError):
+        payload["challenges"] = []
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -401,7 +420,7 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
 
-    for name in ("start", "resume", "status", "append", "finalize"):
+    for name in ("start", "resume", "status", "append", "resolve", "finalize"):
         command = sub.add_parser(name)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=Path("."), type=Path)
@@ -415,6 +434,11 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--source", default="user")
         elif name == "finalize":
             command.add_argument("--status", choices=("provisional", "cancelled", "needs_user"), required=True)
+        elif name == "resolve":
+            command.add_argument("--challenge-id", required=True)
+            command.add_argument("--resolution", choices=("resolve", "revise", "defer", "accept"), required=True)
+            command.add_argument("--response", required=True)
+            command.add_argument("--provenance", default="user")
     return parser
 
 
@@ -424,7 +448,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _check(args)
     if args.command == "bootstrap":
         return _bootstrap(args)
-    if args.command in {"start", "resume", "status", "append", "finalize"}:
+    if args.command in {"start", "resume", "status", "append", "resolve", "finalize"}:
         return _session_command(args)
     return _suggest(args)
 

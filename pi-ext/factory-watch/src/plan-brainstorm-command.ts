@@ -7,6 +7,7 @@ export interface PlanningSessionResponse {
   state: string;
   next_sequence: number;
   events: Array<{ id: string; question: string; text: string; source: string }>;
+  challenges?: Array<{ id: string; kind: string; claim: string; rationale: string; evidence_needed: string; status: string }>;
 }
 
 export type PlanningBackend = (command: { bin: string; args: string[] }) =>
@@ -30,7 +31,7 @@ function safeRunId(value: string): boolean {
 
 export function buildPlanningSessionCommand(
   root: string,
-  operation: "start" | "resume" | "append" | "finalize",
+  operation: "start" | "resume" | "append" | "resolve" | "finalize",
   args: string[],
 ): { bin: string; args: string[] } {
   if (!safeRunId(args[args.indexOf("--run-id") + 1] ?? "")) {
@@ -134,6 +135,30 @@ export async function runPlanBrainstorm(
     if (!response.ok) {
       ctx.ui.notify(`planning blocked: ${response.error}`, "error");
       return { status: "blocked", runId };
+    }
+    for (const challenge of response.value.challenges ?? []) {
+      if (challenge.status !== "unresolved") continue;
+      const resolution = await ctx.ui.select(
+        `Challenge: ${challenge.rationale} Evidence needed: ${challenge.evidence_needed}`,
+        ["Resolve", "Revise", "Defer", "Consciously accept"],
+      );
+      const mapping: Record<string, string> = {
+        Resolve: "resolve", Revise: "revise", Defer: "defer", "Consciously accept": "accept",
+      };
+      const responseText = await ctx.ui.editor("Explain your resolution (required; silence is not acceptance).")
+      if (responseText === undefined) {
+        ctx.ui.notify("planning blocked: an explicit challenge resolution is required", "error");
+        return { status: "blocked", runId };
+      }
+      const resolved = backend(buildPlanningSessionCommand(ctx.cwd, "resolve", [
+        "--run-id", runId, "--challenge-id", challenge.id, "--resolution", mapping[resolution ?? "Defer"] ?? "defer",
+        "--response", responseText, "--provenance", "user:pi-editor",
+      ]));
+      if (!resolved.ok) {
+        ctx.ui.notify(`planning blocked: ${resolved.error}`, "error");
+        return { status: "blocked", runId };
+      }
+      response = resolved;
     }
     sequence += 1;
   }
