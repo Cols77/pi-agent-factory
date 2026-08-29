@@ -152,7 +152,7 @@ def _validate_packet(root: Path, packet: SemanticReviewPacket) -> None:
     for artifact in packet.artifacts:
         if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
             raise SemanticReviewError("packet artifacts are invalid")
-        relative = _safe_rel(Path(artifact["path"]), root)
+        relative = _safe_rel(root / artifact["path"], root)
         if relative != artifact["path"] or relative in paths:
             raise SemanticReviewError("packet artifact path is invalid")
         _digest(artifact["sha256"], "artifact hash")
@@ -327,7 +327,8 @@ def write_review_packet(root: Path, packet: SemanticReviewPacket) -> Path:
     if safe is None:
         raise SemanticReviewError("unsafe project root")
     _validate_packet(safe, packet)
-    path = safe / ".factory" / "planning" / packet.run_id / "semantic-review-packet.json"
+    filename = "semantic-review-packet.json" if packet.iteration == 1 else f"semantic-review-packet-{packet.iteration}.json"
+    path = safe / ".factory" / "planning" / packet.run_id / filename
     if path.exists():
         raise SemanticReviewError("packet already exists; use a new iteration")
     return _atomic(path, json.dumps(packet.to_dict(), indent=2, ensure_ascii=False, allow_nan=False) + "\n")
@@ -338,7 +339,8 @@ def write_review_report(root: Path, report: SemanticReviewReport) -> Path:
     if safe is None:
         raise SemanticReviewError("unsafe project root")
     _validate_report(report)
-    path = safe / ".factory" / "planning" / report.run_id / "semantic-review-report.json"
+    filename = "semantic-review-report.json" if report.iteration == 1 else f"semantic-review-report-{report.iteration}.json"
+    path = safe / ".factory" / "planning" / report.run_id / filename
     if path.exists():
         raise SemanticReviewError("report already exists; use a new iteration")
     return _atomic(path, json.dumps(report.to_dict(), indent=2, ensure_ascii=False, allow_nan=False) + "\n")
@@ -355,7 +357,8 @@ def report_is_fresh(root: Path, packet: SemanticReviewPacket, report: SemanticRe
             path = safe_resolve(safe, safe / artifact["path"])
             if path is None or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != artifact["sha256"]:
                 return False
-        path = safe / ".factory" / "planning" / report.run_id / "semantic-review-report.json"
+        filename = "semantic-review-report.json" if report.iteration == 1 else f"semantic-review-report-{report.iteration}.json"
+        path = safe / ".factory" / "planning" / report.run_id / filename
         return parse_review_report(path.read_text(encoding="utf-8"), packet=packet).to_dict() == report.to_dict()
     except (OSError, UnicodeError, SemanticReviewError):
         return False
