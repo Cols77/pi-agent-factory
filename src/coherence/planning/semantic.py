@@ -148,7 +148,7 @@ def _validate_packet(root: Path, packet: SemanticReviewPacket) -> None:
         raise SemanticReviewError("packet identity is invalid")
     if not isinstance(packet.artifacts, tuple):
         raise SemanticReviewError("packet artifacts are invalid")
-    paths: set[str] = set()
+    paths: list[str] = []
     for artifact in packet.artifacts:
         if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
             raise SemanticReviewError("packet artifacts are invalid")
@@ -156,7 +156,7 @@ def _validate_packet(root: Path, packet: SemanticReviewPacket) -> None:
         if relative != artifact["path"] or relative in paths:
             raise SemanticReviewError("packet artifact path is invalid")
         _digest(artifact["sha256"], "artifact hash")
-        paths.add(relative)
+        paths.append(relative)
     if tuple(sorted(paths)) != tuple(paths):
         raise SemanticReviewError("packet artifacts are not sorted")
     _clean_mapping(packet.context, "context")
