@@ -12,13 +12,21 @@ def test_the_factory_declares_its_own_gates():
     cfg = load_config(factory_root())
     assert "unit" in cfg.gates
     assert "full" in cfg.gates
+    assert "sim" not in cfg.gates
+    assert "agent" not in cfg.gates
     assert cfg.gates["unit"], "unit gate must have at least one step"
 
 
-def test_the_unit_gate_still_ignores_the_all_gate_test():
-    # Without --ignore the unit gate recurses into the test that runs the full gate.
+def test_the_unit_gate_does_not_reference_the_removed_all_gate_test():
     cmds = " ".join(s.cmd for s in load_config(factory_root()).gates["unit"])
-    assert "tests/gates/test_all_gate.py" in cmds or "test_all_gate" in cmds
+    assert "tests/gates/test_all_gate.py" not in cmds
+    assert "test_all_gate" not in cmds
+
+
+def test_the_full_gate_runs_extension_checks_directly():
+    cmds = [s.cmd for s in load_config(factory_root()).gates["full"]]
+    assert "{python} scripts/gates/ext.py" in cmds
+    assert "{python} scripts/gates/watch_ext.py" in cmds
 
 
 def test_require_gates_rejects_a_project_that_declares_none(tmp_path):

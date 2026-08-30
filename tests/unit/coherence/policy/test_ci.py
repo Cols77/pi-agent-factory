@@ -14,16 +14,15 @@ def _seed(root: Path) -> None:
     (root / ".factory" / "factory.yaml").write_text(
         "gates:\n"
         "  unit:\n"
-        "    - { cmd: \"{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py\" }\n"
-        "  sim:\n"
-        "    - { cmd: \"{python} -m pytest -m sim -q\" }\n"
+        "    - { cmd: \"{python} -m pytest -m unit -q\" }\n"
         "  integration:\n"
         "    - { cmd: \"{python} -m pytest tests/integration/ -q -m integration\" }\n"
         "  full:\n"
         "    - { cmd: \"{python} -m ruff check .\" }\n"
         "    - { cmd: \"{python} -m pyright\" }\n"
-        "    - { cmd: \"{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py\" }\n"
-        "    - { cmd: \"{python} -m pytest -m agent -q\" }\n",
+        "    - { cmd: \"{python} -m pytest -m unit -q\" }\n"
+        "    - { cmd: \"{python} scripts/gates/ext.py\" }\n"
+        "    - { cmd: \"{python} scripts/gates/watch_ext.py\" }\n",
         encoding="utf-8",
     )
 
@@ -38,13 +37,13 @@ def test_includes_every_declared_gate_command_in_order_with_python_substituted(t
     assert not any("{python}" in command for command in commands)
     assert all(sys.executable in command for command in configured)
     assert configured == [
-        f"{sys.executable} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py",
-        f"{sys.executable} -m pytest -m sim -q",
+        f"{sys.executable} -m pytest -m unit -q",
         f"{sys.executable} -m pytest tests/integration/ -q -m integration",
         f"{sys.executable} -m ruff check .",
         f"{sys.executable} -m pyright",
-        f"{sys.executable} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py",
-        f"{sys.executable} -m pytest -m agent -q",
+        f"{sys.executable} -m pytest -m unit -q",
+        f"{sys.executable} scripts/gates/ext.py",
+        f"{sys.executable} scripts/gates/watch_ext.py",
     ]
 
 

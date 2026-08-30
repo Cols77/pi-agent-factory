@@ -1,13 +1,12 @@
 # The factory's own gates. It uses the same mechanism it offers other projects.
 gates:
   unit:
-    - { cmd: "{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py" }
-  sim:
-    - { cmd: "{python} -m pytest -m sim -q" }
+    - { cmd: "{python} -m pytest -m unit -q" }
   integration:
     - { cmd: "{python} -m pytest tests/integration/ -q -m integration" }
   full:
     - { cmd: "{python} -m ruff check ." }
     - { cmd: "{python} -m pyright" }
-    - { cmd: "{python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py" }
-    - { cmd: "{python} -m pytest -m agent -q" }
+    - { cmd: "{python} -m pytest -m unit -q" }
+    - { cmd: "{python} scripts/gates/ext.py" }
+    - { cmd: "{python} scripts/gates/watch_ext.py" }
