@@ -20,6 +20,49 @@ from coherence.planning.kanban import (
 pytestmark = pytest.mark.unit
 
 
+class TestGateVerifier:
+    def verify_gate(
+        self, *, card: object, gate: dict[str, object]
+    ) -> dict[str, object]:
+        return dict(gate)
+
+
+class ToggleGateVerifier(TestGateVerifier):
+    def __init__(self) -> None:
+        self.allow = True
+
+    def verify_gate(
+        self, *, card: object, gate: dict[str, object]
+    ) -> dict[str, object] | None:
+        return dict(gate) if self.allow else None
+
+
+class TestHumanDecisionVerifier:
+    def verify_human_decision(
+        self, *, card: object, decision: dict[str, object], context: dict[str, object]
+    ) -> dict[str, object]:
+        return dict(decision)
+
+
+class TestFreshReviewVerifier:
+    def verify_fresh_review(
+        self, *, card: object, review: dict[str, object], context: dict[str, object]
+    ) -> dict[str, object]:
+        return dict(review)
+
+
+_RAW_MATERIALIZE = PlanningKanban.materialize
+
+
+def trusted_materialize(root: Path, run_id: str, **kwargs: object):
+    kwargs.setdefault("assignee", "worker-1")
+    kwargs.setdefault("authorized_assignees", {kwargs["assignee"]})
+    kwargs.setdefault("gate_verifier", TestGateVerifier())
+    kwargs.setdefault("human_decision_verifier", TestHumanDecisionVerifier())
+    kwargs.setdefault("fresh_review_verifier", TestFreshReviewVerifier())
+    return _RAW_MATERIALIZE(root, run_id, **kwargs)
+
+
 @pytest.fixture(autouse=True)
 def trusted_state_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PI_AGENT_FACTORY_KANBAN_STATE_KEY", "k" * 64)
@@ -60,9 +103,9 @@ def resume_evidence(context: dict[str, object]) -> dict[str, object]:
 
 
 def materialize_ready_capture(tmp_path: Path):
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1", assignee="worker-1")
     root = run.cards[0]
-    run.claim(root.id, worker="coordinator")
+    run.claim(root.id, worker="worker-1")
     run.complete(root.id, evidence=coherence_gate("root-graph"))
     return run
 
@@ -72,8 +115,8 @@ def state_path(tmp_path: Path, run_id: str = "run-1") -> Path:
 
 
 def test_materializes_root_and_exact_canonical_graph_and_is_idempotent(tmp_path: Path) -> None:
-    first = PlanningKanban.materialize(tmp_path, "run-1", assignee="planner")
-    second = PlanningKanban.materialize(tmp_path, "run-1", assignee="planner")
+    first = trusted_materialize(tmp_path, "run-1", assignee="planner")
+    second = trusted_materialize(tmp_path, "run-1", assignee="planner")
 
     assert first == second
     assert [card.stage for card in first.cards] == ["planning-run", *PLANNING_STAGES]
@@ -98,7 +141,7 @@ def test_materializes_root_and_exact_canonical_graph_and_is_idempotent(tmp_path:
 
 
 def test_dependency_gating_requires_completed_parent_and_valid_gate(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     root, capture = run.cards[:2]
     with pytest.raises(StageBlocked, match="parent"):
         run.claim(capture.id, worker="worker-1")
@@ -113,8 +156,173 @@ def test_dependency_gating_requires_completed_parent_and_valid_gate(tmp_path: Pa
     assert claim.attempt == 1
 
 
+def test_claim_rejects_worker_not_in_card_assignee_allowlist(tmp_path: Path) -> None:
+    run = trusted_materialize(tmp_path, "run-1", assignee="worker-1")
+
+    with pytest.raises(StageBlocked, match="assignee|worker"):
+        run.claim(run.cards[0].id, worker="spoofed-worker")
+
+
+def test_materialize_rejects_an_assignee_outside_the_authorized_allowlist(tmp_path: Path) -> None:
+    with pytest.raises(PlanningKanbanError, match="assignee|authorized|allowlist"):
+        PlanningKanban.materialize(tmp_path, "run-1", assignee="untrusted-worker")
+
+
+def test_fresh_unleased_instance_cannot_mutate_non_running_block_or_gate(
+    tmp_path: Path,
+) -> None:
+    run = trusted_materialize(tmp_path / "block", "run-1")
+    fresh = PlanningKanban.load(tmp_path / "block", "run-1")
+    with pytest.raises(StageBlocked, match="coordinator|authority|instance"):
+        fresh.block(run.cards[0].id, reason="unauthorized")
+
+    run = materialize_ready_capture(tmp_path / "gate")
+    fresh = PlanningKanban.load(tmp_path / "gate", "run-1")
+    with pytest.raises(StageBlocked, match="coordinator|authority|instance"):
+        fresh.mark_gate(run.cards[0].id, passed=False, detail="unauthorized")
+
+
+def test_expired_owner_cannot_heartbeat_complete_or_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import coherence.planning.kanban as kanban_module
+
+    for operation in ("heartbeat", "complete", "block"):
+        run = materialize_ready_capture(tmp_path / operation)
+        capture = run.cards[1]
+        run.claim(capture.id, worker="worker-1")
+        with monkeypatch.context() as patcher:
+            patcher.setattr(kanban_module, "_now_ms", lambda: 10**15)
+
+            with pytest.raises(StageBlocked, match="expired|lease|ownership"):
+                if operation == "heartbeat":
+                    run.heartbeat(capture.id)
+                elif operation == "complete":
+                    run.complete(capture.id, evidence=coherence_gate("expired"))
+                else:
+                    run.block(capture.id, reason="expired")
+
+
+def test_structural_gate_evidence_without_authoritative_verification_is_rejected(
+    tmp_path: Path,
+) -> None:
+    run = _RAW_MATERIALIZE(
+        tmp_path,
+        "run-1",
+        assignee="worker-1",
+        authorized_assignees={"worker-1"},
+    )
+    root = run.cards[0]
+    run.claim(root.id, worker="worker-1")
+    forged = coherence_gate("forged-structural-gate")
+    with pytest.raises(StageBlocked, match="authoritative|verified|gate"):
+        run.complete(root.id, evidence=forged)
+
+    assert run.card(root.id).status == "running"
+    assert run.card(run.cards[1].id).status == "pending"
+
+
+def test_mark_gate_requires_authoritative_verification_for_a_passing_gate(
+    tmp_path: Path,
+) -> None:
+    verifier = ToggleGateVerifier()
+    run = _RAW_MATERIALIZE(
+        tmp_path,
+        "run-1",
+        assignee="worker-1",
+        authorized_assignees={"worker-1"},
+        gate_verifier=verifier,
+    )
+    root = run.cards[0]
+    run.claim(root.id, worker="worker-1")
+    run.complete(root.id, evidence=coherence_gate("root"))
+    verifier.allow = False
+
+    with pytest.raises(StageBlocked, match="authoritative|verified|gate"):
+        run.mark_gate(root.id, passed=True, detail=run.card(root.id).output["gate"])
+
+
+def test_resume_rejects_self_asserted_human_decision_and_fresh_review(
+    tmp_path: Path,
+) -> None:
+    run = _RAW_MATERIALIZE(
+        tmp_path,
+        "run-1",
+        assignee="worker-1",
+        authorized_assignees={"worker-1"},
+        gate_verifier=TestGateVerifier()
+    )
+    root, capture = run.cards[:2]
+    run.claim(root.id, worker="worker-1")
+    run.complete(root.id, evidence=coherence_gate("root"))
+    context = resume_context()
+    run.block(capture.id, reason="needs answer", needs_input=True, evidence=context)
+
+    with pytest.raises(StageBlocked, match="authoritative|verified|resume"):
+        run.resume(capture.id, evidence=resume_evidence(context))
+
+    assert run.card(capture.id).status == "needs_input"
+
+
+def test_gate_revocation_recursively_blocks_running_and_completed_descendants(
+    tmp_path: Path,
+) -> None:
+    run = materialize_ready_capture(tmp_path)
+    root, capture, spec_alignment = run.cards[:3]
+    run.claim(capture.id, worker="worker-1")
+    run.complete(capture.id, evidence=coherence_gate("capture"))
+    run.claim(spec_alignment.id, worker="worker-1")
+
+    revoked = run.mark_gate(root.id, passed=False, detail="root evidence revoked")
+
+    assert revoked.status == "blocked"
+    assert run.card(capture.id).status == "blocked"
+    assert run.card(spec_alignment.id).status == "blocked"
+    with pytest.raises(StageBlocked, match="blocked|parent|gate|ownership|capability|claimed"):
+        run.complete(spec_alignment.id, evidence=coherence_gate("late"))
+
+
+def test_gate_revocation_releases_a_running_writer_descendant(tmp_path: Path) -> None:
+    run = materialize_ready_capture(tmp_path)
+    root, capture = run.cards[:2]
+    run.claim(capture.id, worker="worker-1")
+
+    revoked = run.mark_gate(root.id, passed=False, detail="root evidence revoked")
+
+    assert revoked.status == "blocked"
+    assert run.card(capture.id).status == "blocked"
+    assert run.card(capture.id).lease_token is None
+    assert not (tmp_path / ".factory" / "planning" / ".planning-writer.lock").exists()
+
+
+def test_fresh_unleased_instance_cannot_resume_a_needs_input_card(tmp_path: Path) -> None:
+    run = _RAW_MATERIALIZE(
+        tmp_path,
+        "run-1",
+        assignee="worker-1",
+        authorized_assignees={"worker-1"},
+        gate_verifier=TestGateVerifier(),
+        human_decision_verifier=TestHumanDecisionVerifier(),
+        fresh_review_verifier=TestFreshReviewVerifier(),
+    )
+    root, capture = run.cards[:2]
+    run.claim(root.id, worker="worker-1")
+    run.complete(root.id, evidence=coherence_gate("root"))
+    context = resume_context()
+    run.block(capture.id, reason="needs answer", needs_input=True, evidence=context)
+    fresh = PlanningKanban.load(
+        tmp_path,
+        "run-1",
+        human_decision_verifier=TestHumanDecisionVerifier(),
+        fresh_review_verifier=TestFreshReviewVerifier(),
+    )
+
+    with pytest.raises(StageBlocked, match="coordinator|authority|instance"):
+        fresh.resume(capture.id, evidence=resume_evidence(context))
+
+
 def test_invalid_gate_evidence_is_rejected_and_never_releases_child(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     root, capture = run.cards[:2]
     run.claim(root.id, worker="worker-1")
 
@@ -159,7 +367,7 @@ def test_reclaim_reuses_card_preserves_attempt_evidence_and_cleans_lock(tmp_path
     assert reclaimed.attempt == 1
     assert reclaimed.attempts[-1]["reason"] == "worker interrupted"
     assert not (tmp_path / ".factory" / "planning" / ".planning-writer.lock").exists()
-    assert run.claim(capture.id, worker="worker-2").attempt == 2
+    assert run.claim(capture.id, worker="worker-1").attempt == 2
 
 
 def test_heartbeat_preserves_the_current_attempt_evidence(tmp_path: Path) -> None:
@@ -186,7 +394,7 @@ def test_fresh_instance_recovers_dead_owner_same_attempt_with_higher_fence(
         "from pathlib import Path; "
         "from coherence.planning.kanban import PlanningKanban; "
         "r = PlanningKanban.load(Path(sys.argv[1]), 'run-1'); "
-        "r.claim(r.cards[1].id, worker='crashed-worker')"
+        "r.claim(r.cards[1].id, worker='worker-1')"
     )
     subprocess.run(
         [sys.executable, "-c", owner_script, str(tmp_path)],
@@ -215,40 +423,40 @@ def test_fresh_instance_recovers_dead_owner_same_attempt_with_higher_fence(
 
 
 def test_writer_paths_are_exact_and_shared_writers_are_serialized(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1", workspace_mode="dir")
+    run = trusted_materialize(tmp_path, "run-1", workspace_mode="dir")
     capture = run.card(run.cards[1].id)
     assert ".intent" in capture.allowed_paths
     assert "docs/superpowers/plans" not in capture.allowed_paths
-    run.claim(run.cards[0].id, worker="worker-0")
+    run.claim(run.cards[0].id, worker="worker-1")
     run.complete(run.cards[0].id, evidence=coherence_gate("root"))
     run.claim(capture.id, worker="worker-1")
 
-    other = PlanningKanban.materialize(tmp_path, "run-2", workspace_mode="dir")
+    other = trusted_materialize(tmp_path, "run-2", workspace_mode="dir")
     other_root = other.cards[0]
-    other.claim(other_root.id, worker="worker-0")
+    other.claim(other_root.id, worker="worker-1")
     other.complete(other_root.id, evidence=coherence_gate("root-2"))
     with pytest.raises(WorkspacePolicyError):
-        other.claim(other.cards[1].id, worker="worker-2")
+        other.claim(other.cards[1].id, worker="worker-1")
 
 
 def test_stale_in_memory_claim_reconciles_before_mutating(tmp_path: Path) -> None:
-    stale = PlanningKanban.materialize(tmp_path, "run-1")
+    stale = trusted_materialize(tmp_path, "run-1")
     current = PlanningKanban.load(tmp_path, "run-1")
     root = stale.cards[0]
     current.claim(root.id, worker="worker-1")
 
     with pytest.raises(StageBlocked, match="stale|running"):
-        stale.claim(root.id, worker="worker-2")
+        stale.claim(root.id, worker="worker-1")
     assert PlanningKanban.load(tmp_path, "run-1").card(root.id).attempt == 1
 
 
 def test_stale_in_memory_completion_cannot_fence_a_new_attempt(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     root = run.cards[0]
     run.claim(root.id, worker="worker-1")
     stale = PlanningKanban.load(tmp_path, "run-1")
     run.reclaim(root.id, reason="worker interrupted")
-    run.claim(root.id, worker="worker-2")
+    run.claim(root.id, worker="worker-1")
 
     with pytest.raises(StageBlocked, match="stale|ownership"):
         stale.complete(root.id, evidence=coherence_gate("stale"))
@@ -267,7 +475,7 @@ def test_persisted_writer_policy_cannot_be_bypassed_by_stale_card_fields(tmp_pat
 
 
 def test_load_rejects_tampered_contract_and_exact_graph_variants(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     original = json.loads(path.read_text(encoding="utf-8"))
 
@@ -290,7 +498,7 @@ def test_load_rejects_tampered_contract_and_exact_graph_variants(tmp_path: Path)
 
 
 def test_load_rejects_invalid_status_and_ready_child_without_gate(tmp_path: Path) -> None:
-    PlanningKanban.materialize(tmp_path, "run-1")
+    trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["cards"][0]["status"] = "complete"
@@ -299,7 +507,7 @@ def test_load_rejects_invalid_status_and_ready_child_without_gate(tmp_path: Path
     with pytest.raises(PlanningKanbanError):
         PlanningKanban.load(tmp_path, "run-1")
 
-    PlanningKanban.materialize(tmp_path, "run-2")
+    trusted_materialize(tmp_path, "run-2")
     path = state_path(tmp_path, "run-2")
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["cards"][1]["status"] = "ready"
@@ -309,9 +517,9 @@ def test_load_rejects_invalid_status_and_ready_child_without_gate(tmp_path: Path
 
 
 def test_load_rejects_tampered_gate_detail_and_missing_resume_context(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     root = run.cards[0]
-    run.claim(root.id, worker="coordinator")
+    run.claim(root.id, worker="worker-1")
     run.complete(root.id, evidence=coherence_gate("root"))
     path = state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -320,9 +528,9 @@ def test_load_rejects_tampered_gate_detail_and_missing_resume_context(tmp_path: 
     with pytest.raises(PlanningKanbanError):
         PlanningKanban.load(tmp_path, "run-1")
 
-    run = PlanningKanban.materialize(tmp_path, "run-2")
+    run = trusted_materialize(tmp_path, "run-2")
     root = run.cards[0]
-    run.claim(root.id, worker="coordinator")
+    run.claim(root.id, worker="worker-1")
     run.complete(root.id, evidence=coherence_gate("root"))
     context = resume_context()
     run.block(run.cards[1].id, reason="needs answer", needs_input=True, evidence=context)
@@ -381,7 +589,7 @@ def test_materialization_refuses_an_active_state_lock(tmp_path: Path) -> None:
     )
 
     with pytest.raises(WorkspacePolicyError):
-        PlanningKanban.materialize(tmp_path, "run-1")
+        trusted_materialize(tmp_path, "run-1")
 
 
 def test_unsafe_run_ids_are_rejected_before_path_creation(tmp_path: Path) -> None:
@@ -403,7 +611,7 @@ def test_unsafe_run_ids_are_rejected_before_path_creation(tmp_path: Path) -> Non
     )
     for run_id in unsafe_ids:
         with pytest.raises(PlanningKanbanError):
-            PlanningKanban.materialize(tmp_path, run_id)
+            trusted_materialize(tmp_path, run_id)
     assert not (tmp_path / ".factory" / "planning").exists()
 
 
@@ -442,12 +650,12 @@ def test_loaded_instance_cannot_replay_a_persisted_lease_capability(tmp_path: Pa
 
 
 def test_stale_instance_cannot_mutate_reclaimed_card_after_a_new_attempt(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     root = run.cards[0]
     run.claim(root.id, worker="worker-1")
     stale = PlanningKanban.load(tmp_path, "run-1")
     run.reclaim(root.id, reason="worker interrupted")
-    run.claim(root.id, worker="worker-2")
+    run.claim(root.id, worker="worker-1")
     stale.card(root.id).lease_token = run.card(root.id).lease_token
 
     with pytest.raises(StageBlocked, match="ownership|capability"):
@@ -461,11 +669,11 @@ def test_stale_instance_cannot_mutate_reclaimed_card_after_a_new_attempt(tmp_pat
     current = PlanningKanban.load(tmp_path, "run-1").card(root.id)
     assert current.status == "running"
     assert current.attempt == 2
-    assert current.attempts[-1] == {"attempt": 2, "worker": "worker-2", "event": "claimed"}
+    assert current.attempts[-1] == {"attempt": 2, "worker": "worker-1", "event": "claimed"}
 
 
 def test_load_rejects_mutable_state_forgery_with_an_unchanged_contract(tmp_path: Path) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     original = json.loads(path.read_text(encoding="utf-8"))
     forged_gate = coherence_gate("forged")["gate"]
@@ -490,14 +698,25 @@ def test_load_rejects_mutable_state_forgery_with_an_unchanged_contract(tmp_path:
         mutate(payload)
         assert payload["contract_sha256"] == run.contract_sha256
         path.write_text(json.dumps(payload), encoding="utf-8")
-        with pytest.raises(PlanningKanbanError, match="state integrity|authentication|hash"):
+        with pytest.raises(PlanningKanbanError, match="state integrity|authentication|hash|attempt"):
             PlanningKanban.load(tmp_path, "run-1")
 
     path.write_text(json.dumps(original), encoding="utf-8")
 
 
+def test_load_rejects_replay_of_a_valid_authenticated_old_snapshot(tmp_path: Path) -> None:
+    run = trusted_materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    old_snapshot = path.read_text(encoding="utf-8")
+    run.claim(run.cards[0].id, worker="worker-1")
+
+    path.write_text(old_snapshot, encoding="utf-8")
+    with pytest.raises(PlanningKanbanError, match="replay|generation|high.?water"):
+        PlanningKanban.load(tmp_path, "run-1")
+
+
 def test_load_rejects_a_state_hash_mismatch(tmp_path: Path) -> None:
-    PlanningKanban.materialize(tmp_path, "run-1")
+    trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["state_hmac_sha256"] = "0" * 64
@@ -510,7 +729,7 @@ def test_load_rejects_a_state_hash_mismatch(tmp_path: Path) -> None:
 def test_load_rejects_mutable_forgery_even_when_an_attacker_recomputes_old_hash(
     tmp_path: Path,
 ) -> None:
-    run = PlanningKanban.materialize(tmp_path, "run-1")
+    run = trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["cards"][0]["output"] = {"forged": True}
@@ -528,7 +747,7 @@ def test_load_rejects_mutable_forgery_even_when_an_attacker_recomputes_old_hash(
 
 
 def test_load_rejects_unknown_state_and_card_fields(tmp_path: Path) -> None:
-    PlanningKanban.materialize(tmp_path, "run-1")
+    trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     original = json.loads(path.read_text(encoding="utf-8"))
 
@@ -544,7 +763,7 @@ def test_load_rejects_unknown_state_and_card_fields(tmp_path: Path) -> None:
 
 
 def test_load_rejects_missing_required_card_operational_fields(tmp_path: Path) -> None:
-    PlanningKanban.materialize(tmp_path, "run-1")
+    trusted_materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     original = json.loads(path.read_text(encoding="utf-8"))
 
@@ -556,10 +775,40 @@ def test_load_rejects_missing_required_card_operational_fields(tmp_path: Path) -
             PlanningKanban.load(tmp_path, "run-1")
 
 
+def test_stage_card_rejects_malformed_attempt_events_and_status_mismatch(tmp_path: Path) -> None:
+    run = trusted_materialize(tmp_path, "run-1")
+    card = run.cards[0]
+    payload = card.to_dict()
+
+    payload["attempts"] = [
+        {"attempt": 1, "event": "claimed", "worker": "planning-worker", "unexpected": True}
+    ]
+    with pytest.raises(PlanningKanbanError, match="attempt|event|schema"):
+        from coherence.planning.kanban import StageCard
+
+        StageCard.from_dict(payload)
+
+    payload = card.to_dict()
+    payload.update(
+        {
+            "status": "running",
+            "attempt": 1,
+            "attempts": [{"attempt": 1, "event": "completed", "evidence": coherence_gate("x")}],
+            "lease_token": "lease",
+            "lease_owner_pid": os.getpid(),
+            "lease_started_at": 1,
+            "lease_expires_at": 2,
+            "fencing_token": 1,
+        }
+    )
+    with pytest.raises(PlanningKanbanError, match="attempt|status|running"):
+        StageCard.from_dict(payload)
+
+
 def test_load_fails_closed_when_trusted_state_key_is_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    PlanningKanban.materialize(tmp_path, "run-1")
+    trusted_materialize(tmp_path, "run-1")
     monkeypatch.delenv("PI_AGENT_FACTORY_KANBAN_STATE_KEY")
 
     with pytest.raises(PlanningKanbanError, match="authenticated kanban state"):
