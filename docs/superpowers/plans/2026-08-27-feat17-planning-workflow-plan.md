@@ -116,6 +116,17 @@ Known repository-wide register, trace, type, or test debt must be reported separ
 FEAT-017 failures. A fixture or current dirty artifact is not human consent or implementation
 evidence.
 
+### 1.4 Documentary obligations versus implemented behavior
+
+The requirements, schemas, registries, lease/capability formats, guard APIs, transaction ordering,
+and recovery rules below are documentary runtime obligations for the implementation tasks; writing
+them in this plan does not implement, authorize, accept, or validate them. The only current-behavior
+claims in this document are the explicitly labelled baseline observations in §1.3 and the command
+results produced during a later implementation review. A task may be marked implemented only after
+the named runtime path is exercised and the required tests and evidence prove it. Plan prose,
+fixtures, dirty artifacts, model/provider output, Kanban state, or a successful import never count as
+runtime behavior, consent, adoption, acceptance, or human validation.
+
 ## 2. Inputs, artifacts, and target contracts
 
 ### 2.1 Run inputs and evidence paths
@@ -301,6 +312,15 @@ records use `pass|fail|invalid`; DecisionFile records use only the following val
 | `sr-consent` | `consent_granted|consent_withheld|deferred|invalid` | exact candidate SR IDs and boundary IDs; candidate artifact hash; candidate and cross-artifact clean report/gate hashes; current input manifest; exact phrase |
 | `canonical-adoption` | `adopted|withheld|deferred|invalid` | exact adopted IDs and boundary IDs; valid SR-consent and feature-boundary hashes; candidate hash; authorized target pre/post hashes |
 
+For the authority table's canonical-adoption target binding, the exact kind-specific member is the
+ordered `target_bindings` array, with exactly one object per locked canonical target and no other
+members: `{path, pre_sha256, post_sha256}`. Paths are the exact registered canonical SR, FEAT, and
+bundle paths in canonical path order; `pre_sha256` is the handle-bound preimage hash and
+`post_sha256` is the expected hash of the exact intended bytes staged before DecisionFile
+publication. This is a schema-defined `canonical-adoption` binding, not an extension bag or a
+transaction record. The immutable DecisionFile therefore contains both hashes before it can be
+published; the subsequent target read-back proves the published bytes equal `post_sha256`.
+
 `fixed` and `accepted_risk` are not self-certifying and do not erase a warning or finding. Each requires a
 fresh independent review of the exact warning scope against current input/artifact hashes, followed by a
 current deterministic gate; the finding, decision, review, and hash transitions remain append-only. An
@@ -371,8 +391,14 @@ structured identifiers have separate grammars: `decision-id := D-[1-9][0-9]*` (`
 `tasks/T-<task-number>-<task-slug>.md` as required by the authority. A newly allocated task number is
 canonical positive decimal `[1-9][0-9]*`; an existing target such as `T-001` is accepted only when it
 is an exact byte-for-byte entry in the immutable canonical target registry, never normalized to `T-1`
-or accepted merely because a lookup succeeds. The `D-` and `T-` prefixes are therefore not generic
-safe IDs, and all revision/attempt/decision allocations are strictly non-leading-zero.
+or accepted merely because a lookup succeeds. Existing authority identifiers are preserved byte-for-byte:
+`D-1` remains the first valid decision ID and an existing `tasks/T-001-<registered-slug>.md` remains
+that exact target when present in the canonical target registry. Neither is rewritten to `D-01` or
+`T-1`, and a lookup success never converts a non-canonical source token into a valid one. Newly
+allocated decision IDs, task numbers, revisions, and attempts use their own positive no-leading-zero
+allocators; the exact `D-` decision grammar is never reused for a `T-` task target grammar. The `D-`
+and `T-` prefixes are therefore not generic safe IDs, and all revision/attempt/decision allocations
+are strictly non-leading-zero.
 
 `run_id`, stage IDs, decision IDs, canonical names, task targets, and task slugs are validated as
 supplied: Unicode is NFC-checked, but a token that changes under normalization, case-folding, trimming,
@@ -402,6 +428,11 @@ post-hash, and records the pre/post pair before releasing the lock. A CAS mismat
 alias/reparse discovery, or failed durable publish leaves prior bytes untouched and appends an
 invalidation/failure record. Check-then-write path validation is insufficient, especially on Windows;
 if handle-based no-follow/reparse-safe atomicity is unavailable, fail closed without writing evidence.
+Per-file atomic replace is not a multi-target atomicity claim: the canonical SR/FEAT/bundle set is
+governed only by Task 8's one-lock target-set transaction. The implementation must either use a true
+cross-file atomic commit or prove handle-bound restoration/quarantine of every touched target before
+any adoption journal event or pointer CAS; a successful write of only one target is never a visible
+partial adoption.
 
 ### 2.5.1 Host authorization, capability confinement, and egress guards
 
@@ -431,10 +462,7 @@ check against the producer and fixer capabilities; a self-attested `independent_
 insufficient and cannot mint a clean report.
 
 The planning-run coordinator always acquires an explicit standalone lease, even when Hermes Kanban is
-disabled. The lease has `lease_id`, `owner_id`, `fencing_token`, `acquired_at`, `heartbeat_at`,
-`expires_at`, and `attempt`; acquire, renew, reclaim, DecisionFile publication, journal append,
-pointer CAS, canonical publication, and completion all require CAS under the lease/target lock. A
-strictly increasing fence is required for every step. This standalone lease is transaction control,
+disabled. The exact host-owned lease and recovery contract is §2.5.2 below. It is transaction control,
 not an added DecisionFile member or a new evidence record family; the exact authority DecisionFile and
 resolution-event schemas remain unchanged. Missing, expired, ambiguous, or lost ownership fails closed
 and recovery records invalidation. Kanban leases, when present, must satisfy the same contract rather
@@ -448,6 +476,318 @@ mismatch, scan failure, or unverified sink and never falls back to raw data; it 
 non-secret bytes exactly. Raw ingress buffers and raw backend/provider responses never reach a sink,
 log, hash, or error. Egress failures append only safe invalidation/failure evidence and block the
 stage. Tests must inspect every listed sink, not only the ingress capture event.
+
+### 2.5.2 Standalone lease, fencing, and crash-recovery handoff
+
+The standalone planning lease is a durable host-control object, not an
+`EvidenceRecordSchema` record, a `DecisionFile`, or a new journal family. Its file-backed host store is
+the existing `.factory/planning/<run-id>/state.json` lease slot; a host lease service may back the
+same slot, but the service is authoritative and the state projection must read back the same lease
+hash. The exact canonical object has no fields beyond:
+
+```json
+{
+  "schema": 1,
+  "lease_id": "feat17/<run-id>/lease/<lease-id>/v1",
+  "owner_id": "<authenticated-host-owner>",
+  "issuer": {
+    "kind": "host_lease_issuer",
+    "key_id": "<trusted-host-key-id>",
+    "algorithm": "Ed25519",
+    "authn_event_id": "<host-authentication-event>",
+    "signature": "<base64url-signature>"
+  },
+  "run_id": "<safe-id>",
+  "attempt": 1,
+  "fencing_token": 1,
+  "previous_fencing_token": null,
+  "acquired_at": "<UTC-RFC3339>",
+  "heartbeat_at": "<UTC-RFC3339>",
+  "expires_at": "<UTC-RFC3339>",
+  "lease_state": "active",
+  "scope": {
+    "journal_path": ".factory/planning/<run-id>/resolution-events.jsonl",
+    "pointer_paths": [".factory/planning/<run-id>/current/<stage-id>.json"],
+    "temporary_paths": [".factory/planning/<run-id>/staging/<transaction-scope>"],
+    "canonical_target_paths": ["<exact-registered-feat-sr-bundle-path>" ]
+  },
+  "lease_hash": "<sha256>"
+}
+```
+
+`scope` arrays are sorted exact repository-relative paths with no globs, prefixes, or caller-added
+paths; they must cover the resolution journal, every current pointer touched by the operation, every
+same-directory temporary/staging path, and every canonical FEAT/SR/bundle target. `lease_hash` is the
+SHA-256 of canonical strict JSON with `lease_hash` and `issuer.signature` omitted. The issuer signs
+`host-lease-v1 || lease_id || lease_hash` with the authenticated host key. `lease_state` is closed to
+`active|expired|reclaimed|released|invalidated`; no transport state is substituted for it.
+
+The host lease verifier authenticates `issuer.kind`, key ID, algorithm, authentication event,
+signature, owner, run, attempt, scope, timestamps, and hash against the non-caller-supplied trust
+root. It rejects extra/unknown fields, an expired lease, an owner mismatch, a scope mismatch, a
+non-monotonic token, or a token whose stored CAS value changed. A new lease starts at token 1; every
+successful renew/transfer mutation writes exactly `new_fencing_token = current_fencing_token + 1`
+under the host store CAS. A renew compares `(lease_id, owner_id, attempt, fencing_token, lease_hash)`
+and preserves the owner. A crash/expiry reclaim atomically compares the same old tuple, authenticates
+the new owner, writes a new `lease_id` and `owner_id`, preserves the run/stage attempt, and uses the
+exact higher token `old + 1` with `previous_fencing_token=old`. No writer may use an old token after
+the CAS succeeds: all subsequent journal, pointer, temporary, canonical-target, DecisionFile, and
+completion operations acquire the current lease snapshot and use the new token. Recovery therefore
+never requires the old fence after reacquire; the old token is only the CAS compare value for the
+handoff.
+
+Every mutation revalidates the authenticated current lease and exact scope while holding the relevant
+target/journal/pointer lock. A lost heartbeat, lease CAS mismatch, or ambiguous store read stops all
+writes, leaves prior bytes/current pointers untouched where provable, and records only a safe
+invalidation through an existing evidence family. Recovery first reacquires a current host lease,
+then revalidates the existing run/stage/lineage/revision/attempt and DecisionFile replay tuple. It
+appends the authority-defined `crash_reclaim` revision-index transition exactly once and either
+continues an unambiguous operation, restores/quarantines it under the new fence, or invalidates the
+current and descendant pointers. It never invents a lease evidence record, duplicates a resolution
+event, or requires the reclaimed owner/fence to sign the handoff. When Kanban is present, its existing
+`kanban_run.lease` value is this same object and hash; it is not a second lease authority.
+
+### 2.5.3 Host capability token, trust root, and handle binding
+
+All producer, reviewer, decision-writer, gate, handoff, and optional Kanban actions require a
+host-issued signed capability. The exact transport format is
+`HCAP-1.<base64url(canonical-payload)>.<base64url(signature)>`; base64url has no padding, the
+payload is UTF-8 canonical strict JSON, and the signature is Ed25519 over
+`HCAP-1 || canonical-payload`. The payload has exactly these fields:
+
+```json
+{
+  "schema": 1,
+  "token_type": "host-invocation-capability",
+  "capability_id": "feat17/<run-id>/<invocation-id>/v1",
+  "issuer": {"kind": "coherence-host", "key_id": "<trusted-key-id>", "algorithm": "Ed25519"},
+  "subject": {"kind": "authenticated-host-owner", "id": "<owner-id>"},
+  "issued_at": "<UTC-RFC3339>",
+  "expires_at": "<UTC-RFC3339>",
+  "operation": "<closed-action-registry-id>",
+  "run_id": "<safe-id>",
+  "stage_id": "<exact-stage-id>",
+  "lineage_id": "feat17/<run-id>/<stage-id>/v1",
+  "revision": 1,
+  "attempt": 1,
+  "invocation_id": "<host-invocation-id>",
+  "producer_role": "<closed-role-registry-id>",
+  "backend": {"id": "<closed-backend-id>", "version": "<semantic-version>"},
+  "role_registry": {"path": "<exact-registry-source>", "sha256": "<registry-hash>"},
+  "target_registry": {"path": "<exact-registry-source>", "sha256": "<registry-hash>"},
+  "input_manifest_sha256": "<sha256>",
+  "expected_pre_hashes": [{"path": "<exact-relative-path>", "sha256": "<sha256-or-null>"}],
+  "allowed_paths": ["<exact-relative-path>"],
+  "prohibited_paths": ["<exact-relative-path>"],
+  "scope": {
+    "journal_path": "<exact-relative-path-or-null>",
+    "pointer_paths": ["<exact-relative-path>"],
+    "temporary_paths": ["<exact-relative-path>"],
+    "canonical_target_paths": ["<exact-relative-path>"]
+  },
+  "lease_id": "<current-lease-id>",
+  "fencing_token": 1,
+  "handle_challenge": "<fresh-random-nonce>"
+}
+```
+
+The capability trust root is host configuration, not repository or caller input: it pins the
+`coherence-host` Ed25519 public key ID, algorithm, validity interval, and revocation state. The
+verifier rejects an unknown/revoked key, bad signature, expired token, non-canonical JSON, duplicate
+or extra field, wrong closed operation/role/backend, run or stage mismatch, registry path/hash
+mismatch, input-manifest mismatch, non-current lease/fence, or a path not exactly present in the
+declared scope. It reads the immutable role, target, backend, reviewer, check, workflow, and action
+registry bytes itself and recomputes each pinned hash before allowing an action. It never trusts a
+caller-supplied copy, path prefix, wildcard, provider name, role, allowlist, or pre-hash.
+
+Before any filesystem effect, the host's no-follow/reparse-safe opener returns a handle binding for
+each path in the selected scope:
+
+```text
+handle_binding := {capability_id, handle_challenge, path, file_identity, open_mode,
+                   no_follow=true, reparse_rejected=true, pre_sha256, byte_length}
+```
+
+The writer accepts the handle only when its capability ID/challenge, exact path, file identity,
+open mode, pre-hash, and declared journal/pointer/temporary/canonical scope match; it rechecks the
+current lease/fence on the opened handle immediately before write, append, rename, or pointer CAS.
+Directory and temporary handles are bound as well as target-file handles. A missing target has an
+explicit null expected pre-hash and is created only beneath its declared regular parent. A handle
+binding is runtime authorization, not a new persisted evidence record, and its safe hash/path
+reference is retained only through existing authority `provenance`, `input_manifest_ref`, target, and
+`ProducedArtifact` fields. No capability or handle binding may be added to a DecisionFile or used as
+an extension bag.
+
+### 2.5.4 Complete immutable registries and per-action authorization
+
+At run start the host snapshots and hash-pins the following complete registries. Each registry is
+canonical strict JSON (UTF-8, sorted object keys, schema-declared array order, no duplicate/unknown
+fields, no extension bag), immutable for the run, and referenced by its exact source path and SHA-256
+in the input manifest. An action is authorized only by the intersection of these registries; a
+consumer re-reads and re-hashes them before every action, not only at capability issuance.
+
+**Role registry (closed FEAT-017 role IDs):**
+`planning-run-coordinator`, `intent-capture`, `provisional-spec-producer`, `spec-alignment-reviewer`,
+`candidate-sr-derivation-producer`, `candidate-sr-alignment-reviewer`,
+`implementation-plan-producer`, `task-materializer`, `cross-artifact-reviewer`,
+`planning-fixer`, `human-decision-writer`, `canonical-adoption-writer`, `final-gate-runner`, and
+`handoff-writer`. Each entry has exactly `id`, `kind`, `read_paths`, `write_paths`, `prohibited_paths`,
+`backend_class`, `reviewer_separation`, and `allowed_actions`; no role may grant itself a new action.
+
+**Target registry (complete FEAT-017 target classes):** `intent-envelope`, `planning-state`,
+`revision-index`, `capture-events`, `stage-evidence`, `current-pointer`, `resolution-journal`,
+`decision-file`, `approved-spec`, `approved-plan`, `task-target`, `handoff-output`, `canonical-sr`, `canonical-feat`,
+and `canonical-bundle`. Each entry has exactly `id`, `path_template`, `artifact_kind`, `writer_roles`,
+`read_roles`, `allow_missing`, `allow_replace`, `requires_expected_pre_hash`, and `same_directory_temp`;
+canonical target entries contain exact repository-relative paths resolved from the authoritative
+register and never a glob. `canonical-sr`, `canonical-feat`, and `canonical-bundle` are separate
+entries and are locked as one adoption target set.
+
+**Backend registry:** the host-validated model/provider catalog is a closed snapshot of every backend
+permitted for this run. Each entry has exactly `id`, `version`, `provider`, `capability_class`,
+`operations`, `credential_free_metadata`, `trust_state`, and `allowed_roles`; credentials and mutable
+provider configuration are excluded. An empty or unavailable catalog is an explicit capability block,
+not an implicit backend. The provider used for a retry is the same pinned entry unless a new attempt
+revalidates a new registry hash.
+
+**Reviewer registry:** each permitted reviewer entry has exactly `reviewer_id`, `role`, `backend_id`,
+`backend_version`, `session_id`, `invocation_id`, `checkpoint_ids`, `read_only`, `producer_ids`,
+`fixer_ids`, `separation_proof`, and `registry_hash`. The host issues it only after checking that
+reviewer, producer, and fixer identities are distinct and that the reviewer has no write capability;
+the report reads these values back and cannot self-attest independence.
+
+**Deterministic-check registry:** the complete required IDs are:
+
+```text
+FEAT017.spec_alignment.intent-provenance.v1
+FEAT017.spec_alignment.spec-schema-anchors.v1
+FEAT017.spec_alignment.unsupported-claims.v1
+FEAT017.spec_alignment.contradictions.v1
+FEAT017.spec_alignment.feasibility-security-operability.v1
+FEAT017.spec_alignment.complete-sr-context.v1
+FEAT017.spec_alignment.current-hashes.v1
+FEAT017.candidate_sr_alignment.duplicate-conflict.v1
+FEAT017.candidate_sr_alignment.unsupported-claims.v1
+FEAT017.candidate_sr_alignment.schema-register-compatibility.v1
+FEAT017.candidate_sr_alignment.missing-obligation.v1
+FEAT017.candidate_sr_alignment.non-sr-rationale.v1
+FEAT017.candidate_sr_alignment.complete-context.v1
+FEAT017.candidate_sr_alignment.feature-boundary.v1
+FEAT017.candidate_sr_alignment.current-hashes.v1
+FEAT017.cross_artifact_alignment.forward-trace.v1
+FEAT017.cross_artifact_alignment.reverse-trace.v1
+FEAT017.cross_artifact_alignment.task-parity.v1
+FEAT017.cross_artifact_alignment.evidence-obligations.v1
+FEAT017.cross_artifact_alignment.feature-boundary.v1
+FEAT017.cross_artifact_alignment.current-hashes.v1
+FEAT017.final_gates.current-review-tuples.v1
+FEAT017.final_gates.artifact-hashes.v1
+FEAT017.final_gates.decisions.v1
+FEAT017.final_gates.traceability.v1
+FEAT017.final_gates.graph-reconciliation.v1
+FEAT017.final_gates.feat018-capability.v1
+FEAT017.final_gates.handoff-flags.v1
+```
+
+Every entry has exactly `id`, `version`, `implementation_id`, `invocation_id`, `input_hashes`,
+`applicability`, `observed`, `evidence_refs`, and `check_hash`. `applicability` is only
+`always|when-kanban-requested|when-feat018-requested`; an inapplicable check is explicitly recorded
+as not required by the current request source, while a required missing/extra/duplicate/unknown or
+unproven check fails closed. The gate consumer requires the exact set and order for the checkpoint
+and revalidates each implementation/provenance/hash before accepting `pass`.
+
+**Workflow registry:** the existing IDs and order are exactly
+`standard-development`, `health-recovery`, `feature-planning`; each entry has exactly `id`, `label`,
+`version`, `capability_requirements`, `legal_action_ids`, `starts_automatically=false`, and
+`registry_hash`. No new workflow may be inferred from prose.
+
+**Action registry:** the complete closed action IDs are
+`initialize-planning-run`, `acquire-planning-lease`, `renew-planning-lease`, `reclaim-planning-lease`,
+`recover-planning-run`, `inspect-handoff`, `revalidate-handoff`, `select-downstream-workflow`,
+`create-downstream-session`, `resolve-blocking-input`, `capture-intent`, `author-provisional-spec`,
+`review-spec-alignment`, `derive-candidate-sr`, `review-candidate-sr-alignment`,
+`author-implementation-plan`, `materialize-tasks`, `review-cross-artifact-alignment`,
+`write-human-decision`, `adopt-canonical-targets`, `run-final-gates`, and `write-handoff`. Each entry has
+exactly `id`, `authorized_roles`, `authorized_workflow_ids`, `required_gate_ids`, `target_ids`,
+`backend_classes`, `human_required`, `downstream_launch=false`, and `registry_hash`. `legal_next_actions` is a closed ordered subset of
+only `inspect-handoff`, `revalidate-handoff`, `select-downstream-workflow`,
+`create-downstream-session`, and `resolve-blocking-input`; `selected_downstream_workflow` must be one
+of the three workflow IDs. The authenticated handoff writer derives both fields from these registry
+entries, binds the registry hashes through the existing input manifest/provenance and `handoff_hash`,
+and consumers revalidate them before display or action. A menu item or selection never launches a
+process and is not itself execution authorization.
+
+The registry's per-action authorization is closed and explicit:
+
+| Action | Authorized role | Target IDs | Backend class | Human required |
+|---|---|---|---|---|
+| `initialize-planning-run` | `planning-run-coordinator` | `planning-state`, `revision-index`, `current-pointer` | `none` | no |
+| `acquire-planning-lease` / `renew-planning-lease` / `reclaim-planning-lease` | `planning-run-coordinator` | `planning-state` | `none` | no |
+| `recover-planning-run` | `planning-run-coordinator` | `planning-state`, `revision-index`, `current-pointer`, `resolution-journal`, `stage-evidence` | `none` | no |
+| `capture-intent` | `intent-capture` | `intent-envelope`, `planning-state`, `capture-events` | `capture` | no |
+| `author-provisional-spec` | `provisional-spec-producer` | `approved-spec`, `stage-evidence`, `current-pointer` | `planning` | no |
+| `review-spec-alignment` | `spec-alignment-reviewer` | `stage-evidence`, `current-pointer` | `review` | no |
+| `derive-candidate-sr` | `candidate-sr-derivation-producer` | `stage-evidence`, `current-pointer` | `planning` | no |
+| `review-candidate-sr-alignment` | `candidate-sr-alignment-reviewer` | `stage-evidence`, `current-pointer` | `review` | no |
+| `author-implementation-plan` | `implementation-plan-producer` | `approved-plan`, `stage-evidence`, `current-pointer` | `planning` | no |
+| `materialize-tasks` | `task-materializer` | `task-target`, `stage-evidence`, `current-pointer` | `planning` | no |
+| `review-cross-artifact-alignment` | `cross-artifact-reviewer` | `stage-evidence`, `current-pointer` | `review` | no |
+| `write-human-decision` | `human-decision-writer` | `decision-file`, `resolution-journal`, `current-pointer` | `none` | yes |
+| `adopt-canonical-targets` | `canonical-adoption-writer` | `decision-file`, `canonical-sr`, `canonical-feat`, `canonical-bundle`, `resolution-journal`, `current-pointer` | `none` | yes |
+| `run-final-gates` | `final-gate-runner` | `stage-evidence`, `current-pointer` | `deterministic` | no |
+| `write-handoff` | `handoff-writer` | `handoff-output`, `stage-evidence`, `current-pointer` | `deterministic` | no |
+| `inspect-handoff` / `revalidate-handoff` / `select-downstream-workflow` / `create-downstream-session` | `handoff-writer` | `handoff-output`, `current-pointer` | `none` | no |
+| `resolve-blocking-input` | `human-decision-writer` | `decision-file`, `resolution-journal`, `current-pointer` | `none` | yes |
+
+The host checks this matrix, the workflow's `legal_action_ids`, the target registry, and the current
+gate tuple for every invocation. A role, backend, reviewer, or consumer cannot authorize an action
+merely because it appears in a prompt or a mutable registry copy. `human_required=true` actions require
+the authenticated-human actor contract; no action in this table grants downstream launch authority.
+
+### 2.5.5 Authenticated detector policy and non-bypassable guard API
+
+The detector policy is host-issued and signed, not a caller/provider option. Its exact policy object
+has `policy_id`, `version`, `detector_id`, `detector_version`, `detector_kind`, `rule_identity`,
+`replacement`, `sink_ids`, `issuer_key_id`, `algorithm`, and `signature`; `replacement` is exactly
+`[REDACTED]`, `sink_ids` are the closed sink list below, and the signature is verified against the
+host detector-policy trust root before use. The policy hash and authenticated identity/version are
+input/event provenance. A changed, missing, expired, revoked, ambiguous, or unverifiable policy
+blocks before capture and invalidates affected descendants.
+
+Every ingress/egress path calls the same mandatory host API:
+`guard_value(policy, sink_id, redacted_value) -> GuardedValue | GuardFailure`.
+The API has no `bypass`, `skip`, `raw`, caller-policy, or permissive-fallback argument. It verifies
+the signed policy, exact sink membership, detector/version, UTF-8/canonical value, and absence of a
+secret-shaped value; on failure it returns only a safe failure code and prevents the sink. The closed
+sink IDs are `capture.prompt`, `capture.question`, `capture.answer`, `capture.observation`,
+`clarification.input`, `backend.request`, `provider.response`, `artifact.write`, `review.packet`,
+`report.write`, `gate.write`, `decision.write`, `resolution-journal.append`, `kanban.metadata`,
+`handoff.summary`, `error.output`, and `diagnostic.output`. Direct writes, logs, hashes, provider
+calls, and error paths are unreachable without a successful guard result. The guard runs again on
+already-redacted data immediately before every listed sink, including every FEAT-018 provider
+boundary; raw ingress buffers and raw provider responses are never passed to it or any other sink.
+
+### 2.5.6 Correlation and transaction identity without schema extensions
+
+No implementation may add `transaction_id`, `barrier_sequence`, `adoption_id`, or an extension bag to
+`DecisionFile`, `KanbanRun`, `resolution_event`, or any other authority record. Correlation is the
+following exact tuple of already-authorized fields:
+
+| Need | Existing authority fields used |
+|---|---|
+| Planning transport/run | `KanbanRun.record_id`, `run_id`, `stage_id=planning-run`, `lineage_id`, `revision`, `attempt`, `graph_manifest.graph_id`, `graph_hash`, `root_card_id`, and the exact `card_refs[]`/`edge_refs[]` |
+| Stage/card lineage | the stage card's existing `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `idempotency_key`, and `attempt_key` from §8.1; no parallel card identifier is minted |
+| Human decision | `DecisionFile.decision_id`, `decision_kind`, `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `replay.idempotency_key`, `replay.nonce`, and `decision_hash` |
+| Resolution event | the authority fields `event_id`, `event_seq`, `decision_id`, `decision_hash`, `decision_kind`, run/stage/lineage/revision/attempt, `decision_path`, and `previous_event_hash` |
+| Adoption transaction | the tuple `(run_id, stage_id=human-boundaries-and-adoption, lineage_id, revision, attempt, sr-consent decision_id/hash, canonical-adoption decision_id/hash, their replay keys/nonces, target_bindings, and the existing current-pointer/kanban-run record_id)` |
+| Barrier order/progress | the graph manifest's exact `barrier_ids=["human-boundaries", "canonical-adoption"]` array plus the existing DecisionFile hashes, resolution-event mappings, current pointers, and `KanbanRun.state`; no barrier ordinal is persisted |
+
+The adoption tuple is derived, not stored as a new member. `DecisionFile.decision_id` and its replay
+key/nonce are allocated and verified by the authority writer; `KanbanRun.record_id` and graph hash
+are read back from the exact authority schema. Projections may repeat these existing IDs/hashes only
+in their schema-defined fields. Recovery recomputes the tuple from durable records and refuses a
+missing, duplicate, mismatched, or reordered member; it never correlates by filename, wall-clock,
+provider session, model text, card-local metadata, or a caller-generated transaction token.
 
 ### 2.6 Normative evidence envelope, record-family boundary, and complete schemas
 
@@ -512,7 +852,10 @@ The complete required-field contracts are:
 - `input_manifest`: `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `sequence`,
   `previous_record_hash`, `record_id`, `entries[]`, `observed_at`, `source_snapshot`,
   `manifest_sha256`, and `provenance`; each entry has exact path, SHA-256, byte length, role,
-  source record ID, and observation time, sorted by path with no duplicates.
+  source record ID, and observation time, sorted by path with no duplicates. For the authoritative SR
+  context, `source_snapshot` has exactly `root_path`, `snapshot_path`, `register_sha256`,
+  `record_count`, `deletion_marker_policy`, `source_revision`, and `observed_at`; the snapshot/root,
+  count, register hash, and marker policy are manifest-hashed and cannot be caller-supplied.
 - `ProducedArtifact`: `artifact_id`, `kind`, `path`, `sha256`, `byte_length`, `canonical`, `redacted`,
   `writer_role`, `writer_identity`, `source_refs[]`, and `input_manifest_sha256`; it has no `status`
   and no approval or execution authority. `redacted=true` is mandatory for user-originating material.
@@ -569,27 +912,44 @@ replacement or compaction of a published record. A current pointer is replaceabl
 Before any producer, reviewer, fixer, decision writer, gate, or downstream consumer runs, it receives an
 immutable `InputManifestSchema` snapshot containing every exact repository-relative path, byte length,
 SHA-256, source record ID, role, observation time, repository commit/tree identity or explicit
-`uncommitted` marker, and the complete non-deleted SR-context inventory. The inventory enumerates every
-current non-deleted SR record in the authoritative register, regardless of its current status
-(including, but not limited to, proposed, deferred, satisfied, and active); the status vocabulary is
-not hard-coded by this plan. For each record retain its exact statement/status/owner, source path,
-stable anchors, source hash, disposition provenance, and available trace relations; only an
-authoritative deletion marker excludes a record. No partial, filtered, or status-whitelisted context
-is accepted without an explicit manifest entry and hash. The producer binds the
-manifest hash to output evidence, reads the published output through the validated handle, recomputes
-its exact read hash, and records that binding. Reviewers and all consumers recompute and match it.
-Mutation, missing snapshot, changed tree identity, path-only evidence, timestamp-only evidence, or
-successful open without read-hash binding invalidates the pointer and requires a new transition.
+`uncommitted` marker, and the complete non-deleted SR-context inventory. The inventory binding is
+explicit and uses the authority manifest rather than a filtered helper: its `source_snapshot` names
+the authoritative register snapshot and enumeration root, records the immutable register SHA-256 and
+`record_count`, and records the closed deletion-marker policy; all of those values are covered by the
+manifest hash. `record_count` equals the number of current non-deleted register records, and every one
+has one `entries[]` binding with its exact ID/source path/byte length/SHA-256/source record ID and the
+complete-context check's exact statement, status, owner, stable anchors, disposition provenance, and
+available trace relation. The immutable register snapshot itself has one manifest entry with role
+`authoritative-sr-register-snapshot`; its path is the enumeration root/snapshot path and its hash is
+the register hash. No new top-level record family or extension bag is introduced.
+
+Enumeration is deterministic: the reader takes the authoritative snapshot at one observation point,
+walks exactly its declared root, and records every current non-deleted record regardless of status,
+including statuses not known when this plan is written. A deletion marker excludes a record only when
+that marker is an authoritative, hash-bound register record naming the exact record ID and source
+version; a status string such as `deleted`, a missing row, a filename convention, or an adapter filter
+is not a deletion marker. Deletion markers and excluded records remain represented in the snapshot
+hash/provenance so deletion cannot hide context. A missing root, changed register hash/count, missing
+record, duplicate ID/path, filtered/whitelisted status, stale source version, or altered marker
+invalidates the manifest. The producer binds the manifest hash to output evidence, reads the published
+output through the validated handle, recomputes its exact read hash, and records that binding. Reviewers
+and all consumers recompute and match it. Mutation, missing snapshot, changed tree identity, path-only
+evidence, timestamp-only evidence, or successful open without read-hash binding invalidates the pointer
+and requires a new transition.
 
 The optional FEAT-018 request is an immutable input, not a runtime boolean. At capture, the host
 records the redacted user/host request event that determines whether governed execution-graph validation
 was requested; its exact source path/record ID/hash is included in the `InputManifestSchema` and every
 final-gate/handoff binding. Later CLI, adapter, provider, model, fixture, or caller flags cannot set,
-clear, or reinterpret it. Final-gate evaluation has exactly two branches from that source: `requested=false`
-means no FEAT-018 provider invocation or execution validation and uses the authority's
-`feat018_capability` representation with `result_hash=null`; `requested=true` requires a host-issued,
-read-only FEAT-018 capability and current result hash/gate result. A missing or mutated source fails
-closed rather than defaulting.
+clear, or reinterpret it. The final-gate consumer branches on that source before it looks up, imports,
+inspects, or calls any FEAT-018 provider or graph validator. For `requested=false` it emits exactly
+`{"requested": false, "available": false, "gate_result": "pass", "result_hash": null}`: FEAT-018
+is not required, no provider/capability inspection or execution validation occurs, and the pass means
+only that the optional check is not applicable. For `requested=true`, it then resolves the host-issued
+read-only capability; unavailable/error/stale/invalid results emit `available=false` and
+`gate_result=fail|invalid` with no false success, while a current validation emits `available=true`,
+`gate_result=pass|fail|invalid`, and its result hash. A missing or mutated request source fails closed
+rather than defaulting.
 
 A fresh independent review is mechanically a new invocation on the current stage/revision lineage with
 a new invocation ID, new immutable report path/record ID, current input/artifact hashes, and a reviewer
@@ -623,32 +983,44 @@ child. Attempts and revisions are never reused for another invocation or semanti
 
 For ordinary challenge-resolution, warning-disposition, and feature-boundary decisions, DecisionFile ->
 journal -> pointer is one fenced, recoverable transaction. Canonical adoption is the explicitly
-specialized two-phase transaction in Task 8, whose consent/adoption journal events are intentionally
-held until target publication and post-hash verification. Under the current lease and exclusive locks,
-the writer validates the authenticated actor, exact finding-universe coverage, current
-report/input hashes, ID/nonce replay binding, role, and target allowlist; atomically publishes the
-immutable DecisionFile; takes the journal lock, verifies monotonic sequence and previous-event hash,
-appends exactly one canonical resolution event, durably flushes it, and releases the journal lock; then
-takes the pointer lock, verifies `expected_pointer_hash` and the current fencing token by CAS, and
-publishes the derived pointer selecting that DecisionFile/event. No child is released before the pointer
-CAS succeeds. Recovery of this DecisionFile-to-journal-to-pointer sequence requires the current
-lease's strictly increasing fencing token; if the token, lock owner, journal tail, or pointer hash is
-ambiguous, recovery fails closed and records an invalidation. A crash before DecisionFile publication
-discards its temporary file; after DecisionFile but before journal append leaves no accepted decision;
-after journal append but before pointer publish,
-recovery selects only a complete hash-valid chain or records an invalidation on ambiguity. Recovery
-scans durable records/journal, discards uncommitted temporaries, retains the last valid pointer, and
-reconstructs a missing pointer only from a complete chain. It never promotes an orphan, duplicates an
-event, or treats transport state as evidence.
+specialized transaction in Task 8. The canonical-adoption DecisionFile remains the exact authority
+§6.9 schema, including its kind-specific target pre/post bindings; those values are expected hashes
+computed from the staged intended bytes before the immutable DecisionFile is published. The writer
+validates the authenticated actor, exact finding-universe coverage, current report/input hashes,
+ID/nonce replay binding, role, target allowlist, target preimages, and staged postimages under the
+current lease and exclusive locks. It then publishes the immutable DecisionFile bytes, publishes the
+exact staged canonical targets, reads every target back through its bound handle, and requires the
+read hashes to equal the DecisionFile's precomputed post-hashes before appending any adoption or
+consent resolution event or pointer.
 
-Leases are closed and fenced: each running card has one `lease_id`, `owner_id`, `fencing_token`,
-`acquired_at`, `heartbeat_at`, `expires_at`, and `attempt`; acquire/renew/reclaim/publish/done use CAS
-under the lease/target lock, and heartbeats prove the same attempt with a strictly increasing fencing
-token. A stale or expired owner cannot publish, mark done, or release a child. Expiry transitions to
-`reclaimed`, increments the fencing token, appends recovery evidence, and resumes the same attempt;
-bounded retry creates the next attempt only after durable failure/invalidation and never duplicates
-artifacts, cards, decisions, or children. A lock/fence/CAS failure fails closed and preserves prior
-bytes.
+For ordinary decisions, after immutable DecisionFile publication the writer takes the journal lock,
+verifies monotonic sequence and previous-event hash, appends exactly one canonical resolution event,
+durably flushes it, and then takes the pointer lock, verifies `expected_pointer_hash` and the current
+fencing token by CAS, and publishes the derived pointer selecting that DecisionFile/event. For
+canonical adoption, both prepared DecisionFiles remain immutable and unaccepted until every target
+post-hash passes; then exactly one event per DecisionFile is appended in the authority-approved order
+and the adoption pointer is CAS-published. No child is released before the pointer CAS succeeds.
+Prepared DecisionFiles are never mutated into accepted or invalid records; a failed prepared
+transaction is handled by existing invalidation/failure evidence and pointer state, not a new record
+family.
+
+Recovery first reacquires the current host lease described in §2.5.2 and uses its new fencing token;
+it never requires the old owner or old fence after reacquire. It scans durable records/journal,
+discards uncommitted temporaries, retains the last valid pointer, and reconstructs a missing pointer
+only from a complete hash-valid chain. A crash before DecisionFile publication discards its temporary
+file; after publication but before target publication leaves no accepted decision; a canonical target
+failure before journal/pointer causes handle-bound restoration to the preimages or quarantine plus
+invalidation. After journal append but before pointer publish, recovery selects only a complete
+hash-valid chain; an ambiguous tail, reused nonce, changed pointer, or fence mismatch is invalidated
+rather than appended again or promoted. It never promotes an orphan, duplicates an event, or treats
+transport state as evidence.
+
+The standalone lease, not Kanban state, fences every acquire, renew, reclaim, DecisionFile
+publication, journal append, pointer CAS, temporary rename, canonical publication, and completion.
+A stale or expired owner cannot publish, mark done, or release a child. A lock/fence/CAS failure
+fails closed and preserves prior bytes where provable; otherwise it invokes the restoration/quarantine
+rule and invalidates the current and descendant pointers. Bounded retry creates the next attempt only
+after durable failure/invalidation and never duplicates artifacts, cards, decisions, or children.
 
 ## 3. Shared implementation and review protocol
 
@@ -1210,10 +1582,13 @@ assignments, preserving supplied FEAT/SR/bundle bytes until a human authorizes r
 named warning/boundary/consent/adoption stage JSON files as non-authoritative projections containing
 only validated refs/hashes; never let a projection substitute for its DecisionFile, journal event, or
 pointer. Add the exact SR consent phrase and canonical adoption writer only after the cross-artifact
-clean report/gate and the validated human-boundaries barrier are current. Adoption uses the two-phase
+clean report/gate and the validated human-boundaries barrier are current. Adoption uses the exact
 transaction in Task 8, the host-issued role/target capability, standalone lease/fence, cross-run lock,
-expected-prehash CAS, and recovery/invalidation rules; it records target pre/post hashes only after
-handle-bound read-back and never journals or points to an unverified target.
+expected-prehash CAS, and recovery/invalidation rules. It stages and hashes the exact intended
+canonical bytes first, records both pre-hashes and expected post-hashes in the immutable
+`canonical-adoption` DecisionFile before publishing that file, then verifies handle-bound post-hashes
+before journal/pointer publication; it never mutates a DecisionFile or journals/points to an
+unverified target.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_review_resolution.py tests/unit/coherence/test_planning_integration.py tests/unit/coherence/test_planning_handoff.py -q -o addopts=''
@@ -1277,14 +1652,22 @@ current artifact/input hashes queues a fresh independent review. Test the combin
 `human-boundaries-and-adoption` card's ordered internal barriers: validated
 `challenge-resolution`, `warning-disposition`, and `feature-boundary` DecisionFiles plus their exact
 journal/pointer mappings commit first; exact consent prepares second; canonical adoption follows only
-through `prepare -> publish -> posthash -> journal -> pointer-CAS`; canonical target publication never
-precedes a validated target lock/pre-hash, and consent/adoption journal events never precede target
-post-hashes. Test crashes before publication, after publication/before posthash, after posthash/before
-journal, after journal/before pointer CAS, and after pointer CAS/before barrier commit. Recovery must
-continue only from an unambiguous hash-valid chain under the current standalone fence, otherwise restore
-provably intact prior bytes or append invalidation and invalidate the adoption/current and descendant
-pointers. Verify the four named stage JSON files are projections only and cannot release a child. Also
-prove that no child or downstream workflow runs from prose or a Kanban `done` state alone.
+through `prepare -> publish -> posthash -> journal -> pointer-CAS`. Test that prepare stages all three
+canonical targets, computes expected post-hashes before immutable DecisionFile publication, binds the
+ordered target pre/post tuples, and never mutates a prepared/accepted DecisionFile. Test both true
+multi-file atomic publication and the per-file handle-bound rollback/quarantine path, including every
+failure point where a partial FEAT/SR/bundle set would otherwise remain visible; the fail-closed path
+must invalidate pointers and produce no journal/pointer approval. Test crashes before publication,
+after DecisionFile publication/before target publication, after one target publication/before posthash,
+after posthash/before journal, after journal/before pointer CAS, and after pointer CAS/before barrier
+commit. Recovery must reacquire the exact authenticated standalone lease with `old_fence + 1`, use
+only the new fence, recompute the existing DecisionFile/KanbanRun correlation tuple, and otherwise
+restore or quarantine/invalidate without duplicate events. Verify the four named stage JSON files are
+projections only and cannot release a child. Also prove that no child or downstream workflow runs from
+prose or a Kanban `done` state alone. Exercise signed `HCAP-1` capabilities, trust-root/revocation,
+registry-hash/path matching, no-follow handle bindings, scope coverage for journal/pointer/temp/
+canonical targets, role/action authorization, full registry tamper/revalidation, and all detector
+policy/guard sinks.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
@@ -1296,13 +1679,17 @@ complete EvidenceRecordSchema fields and exact stage contracts: inputs/outputs a
 assignee, allowed/prohibited paths, workspace mode, parents, lineage idempotency key, revision/attempt/
 attempt key, lease/fencing/heartbeat/reclaim metadata, blocking reason, completion evidence, and the
 required Coherence gate. Reconcile actual root/cards/edges against the intended graph before dispatch
-and before handoff. Use host-issued role/target capabilities and CAS under the standalone lease/target
-lock; a stale owner cannot publish or mark a card `done`. Reclaim the same attempt key and fencing
-lineage, append evidence, and never duplicate artifacts or cards. Implement the combined card's exact
-two-barrier transaction and adoption `prepare -> publish -> posthash -> journal -> pointer-CAS` order,
-including target restoration or invalidation and pointer-descendant invalidation on ambiguous recovery.
-If the optional capability is unavailable, report a capability block rather than silently falling back
-to prose or an execution scheduler.
+and before handoff. Use the exact host lease/capability/registry contracts in §§2.5.2–2.5.5 and CAS
+under the standalone lease/target lock; this path is mandatory even when Kanban is disabled. A stale
+owner cannot publish or mark a card `done`. Reclaim the same attempt key and fencing lineage with the
+exact higher fence, append authority-defined recovery evidence, and never duplicate artifacts or
+cards. Implement the combined card's exact two-barrier transaction and adoption
+`prepare -> publish -> posthash -> journal -> pointer-CAS` order: stage all target bytes and compute
+post-hashes before immutable DecisionFile publication, publish atomically or roll back/quarantine the
+complete target set, and invalidate descendants on ambiguity. Do not add transaction/barrier fields
+to `KanbanRun`; derive correlation from its existing fields and DecisionFile IDs/hashes. If the
+optional capability is unavailable, report a capability block rather than silently falling back to
+prose or an execution scheduler.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
@@ -1316,8 +1703,10 @@ npm test --prefix pi-ext/factory-watch -- --run test/planning-kanban.test.ts
 correct order; materialization is idempotent; writers serialize workspaces; retry/reclaim resumes
 without duplicates; human blocks remain `needs_input` until a fresh current clean review/report/gate
 evidence exists; all child dispatch is dependency- and gate-gated; graph/artifact hashes are
-reconciled; and the graph never schedules implementation,
-FEAT-018 execution, FEAT-019 conformance, FEAT-020 optimization, or health recovery.
+reconciled; the standalone lease/capability and registry contracts are enforced with or without
+Kanban; canonical multi-target adoption is atomic or completely restored/quarantined before any
+journal/pointer approval; and the graph never schedules implementation, FEAT-018 execution, FEAT-019
+conformance, FEAT-020 optimization, or health recovery.
 
 **Prohibited scope:** Do not implement a second scheduler, alter Hermes Kanban lifecycle ownership,
 use prose as a card, execute downstream work, or mark a Coherence gate green from Kanban state.
@@ -1367,10 +1756,12 @@ described in a prompt.
 
 The twelve-node graph keeps `human-boundaries-and-adoption` as one transport card with exactly two
 ordered durable barriers, not two graph nodes. The exact barrier sequence
-`[human-boundaries, canonical-adoption]` is fixed. The card may enter `running` only from the current
-clean/pass `cross_artifact_alignment` tuple. Its coordinator records a card transaction ID and barrier
-sequence in the versioned `kanban_run`/stage evidence and uses the standalone planning-run lease even
-when Kanban is disabled.
+`[human-boundaries, canonical-adoption]` is fixed by `graph_manifest.barrier_ids`. The card may enter
+`running` only from the current clean/pass `cross_artifact_alignment` tuple and current standalone
+lease. Its correlation is the existing-field tuple in §2.5.6: do not add a card transaction ID or
+barrier sequence to `KanbanRun` or any projection. Barrier progress is derived from the existing
+DecisionFile IDs/hashes, resolution-event mappings, current pointers, target bindings, and
+`KanbanRun.state`.
 
 1. **Human boundaries barrier:** Under the current lease/fence and decision locks, validate the complete
    challenge, warning, and feature-boundary universes; authenticated-human authorization; exact coverage;
@@ -1382,53 +1773,80 @@ when Kanban is disabled.
    `warning-decisions.json` and `feature-boundary-decision.json` files are non-authoritative projections
    of those validated paths/hashes and mappings, never alternate decisions.
 
-2. **Canonical adoption barrier:** Only after barrier 1 is durably current, run the explicit two-phase
-   adoption transaction `prepare -> publish -> posthash -> journal -> pointer-CAS`:
+2. **Canonical adoption barrier:** Only after barrier 1 is durably current, run the exact transaction
+   `prepare -> publish -> posthash -> journal -> pointer-CAS` under one standalone lease and the
+   authorized cross-run locks for the complete canonical target set:
 
-   - **Prepare:** with the same standalone lease/fence and authorized canonical-target locks, re-read
-     the current pointers, clean review/gate tuples, exact candidate and boundary universes, exact SR
-     consent phrase, authenticated actor, replay binding, immutable role/target capability, and every
-     target's expected pre-hash. Atomically prepare/publish the immutable `sr-consent` and
-     `canonical-adoption` DecisionFile bytes at their exact authority paths, but do not yet append their
-     acceptance events, advance an adoption pointer, or treat consent/adoption as current. The
-     `sr-consent.json` projection is non-authoritative until the later complete chain.
-   - **Publish:** while locks and the current fence remain held, publish the exact canonical SR/FEAT/
-     bundle outputs once through the no-follow/reparse-safe, expected-prehash CAS writer. No consent or
-     adoption journal event may be appended before this target publication.
-   - **Posthash:** read the published bytes through the validated handles, verify the exact target paths,
-     lengths, and post-hashes, and bind those hashes to the prepared adoption decision. A mismatch,
-     changed target, lost lock, or lost fence stops before journal/pointer publication and invalidates
-     the transaction.
-   - **Journal:** only after all post-hashes pass, append exactly one canonical resolution event for
-     each prepared DecisionFile (including consent and adoption), with the current report/input/artifact
-     hashes, decision/response hashes, actor, and previous-event hash; durably flush the journal under
-     its exclusive lock. Do not duplicate an event on recovery.
+   - **Prepare:** lock `canonical-sr`, `canonical-feat`, and `canonical-bundle` in canonical path order;
+     open each target and its regular parent with no-follow/reparse rejection; capture a handle-bound
+     preimage, file identity, length, and `pre_sha256`; and stage the exact intended bytes in
+     same-directory temporary files. Flush and read the staged bytes, validate their exact target
+     paths/format, and compute every expected `post_sha256` before publishing either DecisionFile.
+     Re-read the current pointers, clean review/gate tuples, exact candidate and boundary universes,
+     exact consent phrase, authenticated actor, replay binding, immutable role/target capability, and
+     target pre-hashes. Construct the authority §6.9 `canonical-adoption` DecisionFile with its
+     ordered `target_bindings` `{path, pre_sha256, post_sha256}` for all three targets, then publish
+     the immutable `sr-consent` and `canonical-adoption` DecisionFile bytes at their exact authority
+     paths. Do not append either acceptance event, advance an adoption pointer, or treat either file as
+     current yet. A prepared `canonical-adoption` file's closed `status=adopted` records the authenticated
+     human authorization and precomputed target tuple only; it does not mean the canonical targets are
+     adopted until the later journal and pointer chain. The `sr-consent.json` projection is non-authoritative
+     until the complete chain.
+   - **Publish:** while every target lock, handle binding, and the current lease/fence remain valid,
+     publish each exact staged byte sequence through the expected-prehash CAS writer. If the host
+     provides a true multi-file atomic transaction, use one commit for the complete target set. If it
+     provides only per-file atomic replace, publish in canonical path order and require handle-bound
+     rollback: on any publish/CAS/lease/identity failure, restore every already-published target from
+     its captured preimage using expected-current-new-hash CAS, verify every restored pre-hash, delete
+     uncommitted temporaries, and leave no new target selected by a pointer. If restoration cannot be
+     proved safe for every touched target, quarantine every new target/version and temporary under
+     handle-bound no-follow paths, mark the adoption/current and all descendant pointers invalidated,
+     and keep final gates blocked. A host that can provide neither cross-file atomicity nor complete
+     rollback/quarantine fails closed before target publication. Partial FEAT/SR/bundle bytes may never
+     remain visible through a canonical current pointer.
+   - **Posthash:** read every published target through its validated handle, verify exact paths,
+     identities, lengths, and hashes, and require each read hash to equal the precomputed
+     `target_bindings[].post_sha256` in the immutable canonical-adoption DecisionFile. A mismatch,
+     changed target, lost lock, or lost fence stops before journal/pointer publication and invokes the
+     rollback/quarantine rule; it never edits the DecisionFile to repair a hash.
+   - **Journal:** only after the complete target set passes posthash, append exactly one canonical
+     resolution event for each prepared DecisionFile (consent and adoption) in the authority-approved
+     order, with current report/input/artifact hashes, decision/response hashes, actor, replay fields,
+     and previous-event hash. Durably flush the existing `resolution-events.jsonl` under its exclusive
+     lock. Do not duplicate an event on recovery; a target publication without these events is not an
+     accepted adoption.
    - **Pointer-CAS:** only after the journal tail is durable, CAS-publish the adoption current pointer
-     with the expected pointer hash, target post-hashes, journal-event mappings, and current fencing
-     token. Commit barrier `canonical-adoption` only after this pointer CAS and all read-back hashes
-     verify. The `canonical-adoption.json` file is a non-authoritative projection of this complete
-     chain, not an approval source.
+     with the expected pointer hash, target post-hashes, decision/event mappings, and current fencing
+     token. Commit barrier `canonical-adoption` only after this pointer CAS, all target read-backs, and
+     the existing-field correlation tuple verify. Publish `canonical-adoption.json` only as a
+     non-authoritative projection of this complete chain, never as an approval source.
 
-Adoption recovery is explicit and fenced. A crash before target publication discards temporary files,
-invalidates any prepared-but-unaccepted DecisionFiles/transaction, and leaves canonical bytes and the
-last valid pointer untouched. A crash after target publication but before posthash, after posthash but
-before journal, or after a lock/fence loss first reacquires the current standalone lease and target
-locks and verifies the transaction ID, prepared decision hashes, expected pre-hashes, and published
-post-hashes. It may continue only when the complete prepared state is unambiguous and the same fence
-still owns the transaction. Otherwise it must restore the prior target bytes through a handle-bound
-expected-prehash/CAS operation when the prior bytes and ownership are provably intact; if restoration
-is unsafe or ambiguous, append a safe invalidation, mark the adoption/current and every descendant
-pointer invalid, and keep final gates blocked. It never journals or points to an unverified target.
+Adoption recovery is explicit and fenced. A crash before staged bytes or DecisionFile publication
+removes uncommitted temporaries and leaves canonical bytes and the last valid pointer untouched. A
+crash after immutable DecisionFile publication but before any target publication leaves both files
+unaccepted and does not mutate them. A crash after one or more target publishes, before posthash,
+before journal, or after a lock/fence loss first obtains a new authenticated host lease with the exact
+higher fencing token required by §2.5.2, then reopens the same target locks and verifies the existing
+DecisionFile IDs/hashes, replay tuple, target pre-hashes, staged-byte hashes, target identities, and
+current `KanbanRun`/stage correlation. Recovery may continue only under that new current fence when
+all prepared state is unambiguous and every target is either provably at its expected post-hash or can
+be safely rolled back. It never requires the old owner or old fence after reacquire. Otherwise it
+restores every touched target to its handle-bound preimage or quarantines all new versions and marks
+the adoption/current and every descendant pointer invalidated; it appends only safe invalidation/failure
+evidence through existing authority families and keeps final gates blocked. It never journals or points
+to an unverified or partially visible target.
 
-A crash after journal append but before pointer CAS resumes the pointer CAS only from one complete,
-hash-valid, non-duplicated journal chain under the current fence; an ambiguous journal tail, reused
-nonce, changed pointer, or fence mismatch is invalidated rather than appended again or promoted. A crash
-after pointer CAS but before barrier commit verifies the exact target post-hashes, decision/event
-mappings, and pointer hash, then commits the barrier only if that chain is complete; otherwise it
-invalidates the pointer and descendants. A withheld, deferred, invalid, stale, unauthorized, lock-lost,
-or CAS-mismatched barrier keeps the card in `needs_input`/`blocked` and prevents `final-gates`. No card
-state, lease, retry, graph hash, model response, human response, prepared DecisionFile, or canonical
-bytes without the complete posthash/journal/pointer chain is an alternate release path.
+A crash after journal append but before pointer CAS resumes only the pointer CAS, under the current
+lease/fence, from one complete, hash-valid, non-duplicated journal chain whose decision IDs/hashes,
+replay nonces, target post-hashes, and expected pointer hash all match. An ambiguous journal tail,
+reused nonce, changed pointer, missing target, or fence mismatch is invalidated rather than appended
+again or promoted. A crash after pointer CAS but before barrier commit verifies the exact target
+post-hashes, decision/event mappings, correlation tuple, and pointer hash, then commits the barrier
+only if that chain is complete; otherwise it invalidates the pointer and descendants. A withheld,
+deferred, invalid, stale, unauthorized, lock-lost, or CAS-mismatched barrier keeps the card in
+`needs_input`/`blocked` and prevents `final-gates`. No card state, lease, retry, graph hash, model
+response, human response, prepared/accepted DecisionFile, or canonical bytes without the complete
+posthash/journal/pointer chain is an alternate release path.
 
 ### Task 9: Add the FEAT-018 capability seam and honest block behavior
 
@@ -1458,12 +1876,15 @@ result in the optional transport record but cannot implement FEAT-018.
 **RED/documentation verification:** Add tests for an immutable, host-authorized FEAT-018 request
 source captured at the redacted intent boundary and bound into the current input manifest: a request
 cannot be supplied or changed by a caller flag after capture. Cover the exact `requested=false` branch
-(no FEAT-018 provider invocation or execution validation; `result_hash` remains null as permitted by
-the authority schema), capability present and validating the expected governed graph when
-`requested=true`, capability absent, provider error, stale/invalid proposal, and a provider that tries
-to run implementation. Assert that `requested=true` requires the read-only FEAT-018 validation result
-and that absent/error returns an explicit `gate_result=fail|invalid` block; neither branch can be
-reported as a false FEAT-018 validation or handoff readiness. Test that the provider is reached only
+and assert the consumer reads the request source before any provider lookup, import, graph inspection,
+or capability resolution, then returns exactly
+`{"requested": false, "available": false, "gate_result": "pass", "result_hash": null}`. Use a
+provider/registry spy that raises on inspection as well as invocation and assert zero provider and
+zero execution-validator calls. Cover capability present and validating the expected governed graph
+when `requested=true`, capability absent, provider error, stale/invalid proposal, and a provider that
+tries to run implementation. Assert that `requested=true` requires the read-only FEAT-018 validation
+result and that absent/error returns an explicit `gate_result=fail|invalid` block; neither branch can
+be reported as a false FEAT-018 validation or handoff readiness. Test that the provider is reached only
 through its host-issued capability-confined facade and that any execution attempt is denied, not merely
 self-reported as absent.
 
@@ -1474,14 +1895,18 @@ uv run pytest tests/unit/coherence/test_planning_capabilities.py tests/unit/cohe
 **Implementation/GREEN:** Define a read-only, host-issued FEAT-018 capability check with
 provider/version/contract hash, proposal/expected-graph hash, and result. Derive `requested` once from
 the immutable post-redaction intent/request capture event and bind its source path/hash into the
-current input manifest; reject any later caller-supplied flag or source mutation. Use the authority
-schema exactly: `requested=false` means no FEAT-018 provider invocation, no execution validation, and
-`result_hash=null`; `requested=true` requires the capability-confined, read-only provider validation
-and a current result hash with `gate_result=pass|fail|invalid`. Bind the result to the current
-final-gate revision/attempt and input manifest. A missing capability, provider error, or failed
-validation is an explicit fail/invalid block, never a positive result. Require the host facade to deny
-execution, shell, arbitrary filesystem, and downstream calls; never invoke execution or let FEAT-020
-optimize an unvalidated graph.
+current input manifest; reject any later caller-supplied flag or source mutation. The consumer must
+branch before provider/validator lookup: for `requested=false`, return exactly
+`requested=false, available=false, gate_result=pass, result_hash=null`, perform no provider import,
+inspection, capability resolution, graph inspection, or execution validation, and mark the
+`FEAT017.final_gates.feat018-capability.v1` check not applicable. For `requested=true`, resolve the
+host-issued capability only after the branch, enforce the capability-confined read-only provider
+validation, and return `available=true` with `gate_result=pass|fail|invalid` plus the result hash
+when a result was produced; unavailable/provider-error results are `available=false` and
+`gate_result=fail|invalid` with no false success. Bind the result or exact unrequested tuple to the
+current final-gate revision/attempt and input manifest. Require the host facade to deny execution,
+shell, arbitrary filesystem, and downstream calls; never invoke execution or let FEAT-020 optimize
+an unvalidated graph.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_capabilities.py tests/unit/coherence/test_planning_handoff.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -1490,10 +1915,11 @@ uv run pyright src/coherence/planning
 ```
 
 **Acceptance criteria:** The immutable intent/request source is the only authority for `requested`; a
-caller flag cannot change it. `requested=false` performs no FEAT-018 provider invocation and records no
-validation result (`result_hash=null`), while `requested=true` requires a current positive read-only
-FEAT-018 result bound to the current final-gate manifest. Availability, provider errors, stale proposals,
-and facade-denied execution attempts are explicit fail/invalid blocks without false success; handoff is
+caller flag cannot change it. `requested=false` performs no FEAT-018 provider or validator lookup,
+records exactly `available=false`, `gate_result=pass`, and `result_hash=null`, and is proved by a
+zero-invocation negative test. `requested=true` requires a current positive read-only FEAT-018 result
+bound to the current final-gate manifest. Availability, provider errors, stale proposals, and
+facade-denied execution attempts are explicit fail/invalid blocks without false success; handoff is
 impossible without all three current clean report/gate tuples and the applicable capability result;
 FEAT-017 does not claim FEAT-018/019/020 implementation; FEAT-020 is never called from planning; and
 the handoff records the capability result.
