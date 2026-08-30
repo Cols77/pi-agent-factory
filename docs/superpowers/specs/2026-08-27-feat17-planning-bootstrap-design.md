@@ -1,12 +1,12 @@
 ---
 id: SPEC-FEAT-017-PLANNING-BOOTSTRAP
 title: "FEAT-017 Planning Bootstrap Design"
-status: draft
+document_state: draft
 ---
 
 # FEAT-017 — Planning Bootstrap
 
-_Status: design authority, final contract revision 2026-08-30._
+_Authority: design authority, final contract revision 2026-08-30._
 
 This document is the canonical design contract for FEAT-017. It specifies a host-neutral planning
 compiler that turns an exact user intent into reviewable, hash-bound planning artifacts and a
@@ -76,14 +76,14 @@ A run has a safe `run_id`, a selected project root, and:
 1. the original user prompt, preserved exactly for all non-secret text at the capture boundary;
 2. each question and answer, including source, sequence, and exact non-secret text;
 3. repository facts actually inspected, with path and hash provenance;
-4. the current complete non-deleted SR context, including proposed, deferred, satisfied, and active
-   records, source anchors, status provenance, and available trace relations;
+4. the current complete non-deleted SR context, including every record and its source anchors,
+   disposition provenance, and available trace relations;
 5. the project policy and host-validated model catalog, without credentials;
 6. any supplied canonical FEAT/SR/bundle baseline, preserved as a read-only snapshot until a human
    decision authorizes adoption or replacement;
 7. an explicit request for a planning-stage Kanban graph, when that optional transport is desired.
 
-Secret detection and redaction happen before any prompt, question, answer, observation, response, or
+The versioned secret detector and redaction happen before any prompt, question, answer, observation, response, or
 policy value enters a persisted event or artifact. Non-secret user text remains exact and verbatim;
 secret-shaped values are replaced at ingress with `[REDACTED]`. The raw secret is never persisted,
 hashed for provenance, echoed in an error, or included in a summary/diagnostic. A structured redaction
@@ -166,7 +166,7 @@ and materialized intent must preserve:
 - repository observations with path, observer/source, and hash where applicable;
 - challenges raised against unsupported claims, contradictions, exclusivity, feasibility, security,
   or operability;
-- the claim, rationale, evidence requested, originating answer/event, current status, exact human
+- the claim, rationale, evidence requested, originating answer/event, current disposition, exact human
   response when present, response provenance, and decision timestamp for every challenge;
 - unresolved questions, deferred questions, and explicit cancellations;
 - decisions and their actor kind, exact non-secret text, and input/output hashes;
@@ -182,7 +182,7 @@ explicit; unresolved or deferred challenges remain visible and block any stage t
 disposition.
 
 The existing schema-one `.intent/intent.json` remains readable. A schema-two materialization may
-add `run_id`, question/source/sequence metadata, a structured brief, capture status, redactions,
+add `run_id`, question/source/sequence metadata, a structured brief, capture state, redactions,
 and challenge records without changing captured non-secret text. A failed snapshot replacement
 must leave the last known-good snapshot untouched while retaining the new journal event for recovery.
 
@@ -520,6 +520,350 @@ record.
 
 ## 6. Artifact, hash, and trace contracts
 
+### 6.0 Closed status vocabulary and deterministic evidence schemas
+
+#### 6.0.1 Closed status vocabulary
+
+The JSON member named `status` has one closed vocabulary. A record MUST NOT invent a synonym,
+combine values, use a transport state as a status, or use an unlisted value. Review records use
+`clean|findings|escalated|invalid`; deterministic gate records use `pass|fail|invalid`. A
+`decision_file` uses the enum selected by its `decision_kind`:
+
+| Decision kind | Closed `status` enum |
+|---|---|
+| `challenge-resolution` | `resolved|revised|deferred|unresolved|invalid` |
+| `warning-disposition` | `fixed|accepted_risk|rejected|deferred|invalid` |
+| `feature-boundary` | `selected|split_sequential|withheld|deferred|invalid` |
+| `sr-consent` | `consent_granted|consent_withheld|deferred|invalid` |
+| `canonical-adoption` | `adopted|withheld|deferred|invalid` |
+
+Only review, gate, and decision records carry `status`. Other records use explicitly named
+`lifecycle_state`, `state`, `pointer_state`, or `lease_state` fields and those fields are not
+semantic status fields. The lifecycle state vocabulary is the state machine in §3.1; the transport
+state and lease vocabulary are defined in §8. The authority-spec frontmatter and generated-task
+metadata therefore use `lifecycle_state`, never an open-ended `status`.
+
+`fixed` and `accepted_risk` are not self-certifying outcomes. Each requires a fresh, current,
+independent review record that re-evaluates the exact warning scope and binds the current input and
+artifact hashes. Neither status erases the warning or any historical/current finding: the finding,
+decision, review, and hash transitions remain append-only. A current review may be `clean` only when
+that fresh evidence proves that no unresolved blocking finding remains; an accepted risk remains
+visible in the decision and audit history. Every `unresolved`, `deferred`, `withheld`, `rejected`,
+or `invalid` decision state blocks the dependent stage. A review status of `findings` or `escalated`
+and a gate status of `fail` or `invalid` also block; only a current `clean` review paired with a
+current `pass` gate can release a child.
+
+#### 6.0.2 EvidenceRecordSchema
+
+`EvidenceRecordSchema` is the normative envelope for every persisted JSON or JSONL evidence record.
+The record type is closed to exactly:
+
+```text
+stage_manifest
+revision_index_entry
+current_pointer
+input_manifest
+capture_event
+spec_authoring
+candidate_sr_derivation
+checkpoint_review
+checkpoint_gate
+plan_authoring
+task_materialization
+traceability
+decision_file
+resolution_event
+final_gates
+kanban_graph_manifest
+kanban_run
+planning_handoff
+state_projection
+```
+
+Every member below is mandatory unless the record-specific schema explicitly says that it is an
+embedded object rather than a top-level record. The exact top-level identity fields are:
+
+```text
+schema                 positive integer schema version
+record_type            one value from the closed list above
+record_id              safe, unique ID within the run and record family
+run_id                 safe run identity
+stage_id               exact lowercase hyphenated graph node name
+lineage_id             immutable stage lineage identity
+revision               positive decimal revision within the lineage
+attempt                positive decimal invocation attempt within the revision
+sequence               positive monotonic sequence within the append-only record family
+previous_record_hash   prior record-family terminal hash, or null only for sequence 1
+created_at             UTC RFC-3339 timestamp with seconds and offset Z
+provenance             producer/actor, invocation, source, and authentication provenance
+input_manifest_ref     exact repository-relative path and SHA-256 of the input manifest
+terminal_hash          the record-specific terminal hash named by its schema
+```
+
+`terminal_hash` is a schema concept, not an additional JSON member. The concrete terminal member is
+`record_hash` unless a record schema below names `manifest_sha256`, `pointer_hash`, `report_hash`,
+`gate_hash`, `decision_hash`, `graph_hash`, or `handoff_hash`; exactly one such terminal member is
+permitted. `provenance` MUST include `actor_kind`, `producer_role`, `producer_identity`,
+`invocation_id`, `source_record_ids`, and `source_paths`; human decisions additionally require the
+authenticated actor fields in §6.9. All source paths and output paths in provenance are exact
+repository-relative UTF-8 paths.
+
+The record's `terminal_hash` is SHA-256 over its canonical strict-JSON bytes with only that terminal
+hash member omitted. It is not a hash of a pretty-printed rendering, a status projection, a database
+row, or a path alone. Referenced artifact hashes are SHA-256 over the exact persisted bytes after
+ingress redaction. The hash of an `InputManifest` is SHA-256 over its canonical JSON with only
+`manifest_sha256` omitted; its enclosing record terminal hash additionally covers the complete
+manifest object. Hashes are lowercase hexadecimal and are never computed over raw secrets.
+
+#### Immutable input snapshots and read-hash binding
+
+Every stage receives an immutable input snapshot before producer or reviewer invocation. The
+`InputManifestSchema` records the exact repository-relative path, byte length, SHA-256, source record
+ID, and observation time for every input, plus the repository commit/tree identity or explicit
+`uncommitted` marker. The manifest and every referenced source snapshot are read-only for that
+attempt. A producer binds the manifest hash into its output evidence, reads the published output
+back, recomputes the read hash from the exact bytes, and records that read-hash binding; a reviewer
+and every downstream consumer must recompute and match the same binding. Any input mutation,
+missing snapshot, hash mismatch, or changed repository identity invalidates the current pointer and
+requires the transition in §6.0.4. A path name, file timestamp, or successful open is not an input
+snapshot and cannot satisfy read-hash binding.
+
+Canonical strict JSON is UTF-8 without a BOM, RFC-8259 JSON with finite numbers only, no duplicate
+object keys, no insignificant whitespace, lexicographically sorted object keys, and arrays in the
+schema-declared order. Implementations MUST use one RFC-8785/JCS-equivalent serialization and MUST
+reject NaN, Infinity, duplicate keys, invalid UTF-8, non-canonical number forms, and a different
+array order. JSONL has one complete canonical JSON record per line and no blank lines.
+
+Writers reject an omitted required field, an extra/unknown field, a duplicate field, a wrong type,
+an invalid enum, an unsafe path, a non-positive identity, a sequence gap, a mismatched previous hash,
+or a null where null is not explicitly allowed. They do not silently default, coerce, truncate, or
+drop a field. A rejected candidate is retained as an immutable `invalid` evidence record when it can
+be safely recorded; otherwise the writer records the failure in the append-only journal without
+persisting untrusted content. No schema has an extension bag, so unknown fields are never accepted.
+
+All evidence paths are exact and repository-relative. For a stage record they MUST be below
+`.factory/planning/<run-id>/stages/<stage-id>/r<revision>/a<attempt>/`; the revision index is exactly
+`.factory/planning/<run-id>/revision-index.jsonl`; a current pointer is exactly
+`.factory/planning/<run-id>/current/<stage-id>.json`; the resolution journal is exactly
+`.factory/planning/<run-id>/resolution-events.jsonl`. The path encoded in a record MUST equal its
+actual path byte-for-byte after repository-root validation. Absolute, drive, UNC, NUL, traversal,
+alternate-data-stream, alias, symlink, junction, mount-point, and reparse-point paths are rejected
+as specified in §7.4.
+
+Evidence is immutable. A writer creates a same-directory temporary file, writes canonical bytes,
+durably flushes it, atomically publishes it once, and never replaces or compacts a published record.
+The append-only writer takes the family lock, verifies `sequence` and `previous_record_hash`, flushes
+the line, and releases the lock only after durable storage. A failed publish leaves the prior bytes
+untouched and appends a failure/invalidation event rather than overwriting the prior record.
+
+The current pointer is a derived, replaceable CAS object, not evidence. A pointer update MUST include
+`expected_pointer_hash`, the newly selected record path/hash, the new input-manifest hash, and an
+invalidation list; it succeeds only if the on-disk pointer hash equals the expected hash while the
+pointer lock is held. A source/fix/decision/adoption/task change first appends an invalidation event,
+sets the affected pointer and every descendant pointer to `pointer_state=invalidated`, and then
+publishes a new pointer only after a new immutable record is complete. A pointer with
+`pointer_state=invalidated` cannot release a child.
+
+Crash recovery scans the durable record chain and journal, discards uncommitted temporary files,
+retains the last valid pointer, and reconstructs a missing derived pointer only from a complete,
+hash-valid chain. A lost lease or process crash reclaims the same `revision` and `attempt` and
+appends recovery evidence; it does not create a duplicate artifact or silently promote an orphan.
+If the last append is ambiguous, recovery fails closed and records an invalidation. A retry that is
+a new invocation uses the next attempt and a new output path. Recovery never treats a transport
+state, a model response, or a stale snapshot as evidence.
+
+#### 6.0.3 Required record schemas
+
+The following are complete required-field schemas. Every schema inherits the EvidenceRecordSchema
+envelope, exact path rules, canonical serialization, immutable-write rules, and unknown-field
+rejection above. Fields named `path` always carry a repository-relative path and its matching SHA-256.
+
+**StageManifestSchema** (`record_type=stage_manifest`; exact path
+`.factory/planning/<run-id>/stages/<stage-id>/r<revision>/a<attempt>/stage-manifest.json`) requires:
+
+```text
+run_id, stage_id, lineage_id, revision, attempt, sequence, previous_record_hash,
+record_id, input_manifest_ref, predecessor_refs[], produced_artifacts[], producer,
+workspace_claim, lifecycle_state, gate_result, started_at, finished_at, invalidation,
+record_hash
+```
+
+`predecessor_refs[]` contains exact `stage_id`, `revision`, `attempt`, `path`, `sha256`, and
+`record_hash`; `produced_artifacts[]` contains `ProducedArtifact` objects. `gate_result` is
+`pass|fail|invalid` when the stage has a deterministic gate and is null only for a non-gate producer
+stage. `invalidation` is `{event_id, reason, descendant_stage_ids[]}` or null. A completed stage
+requires `lifecycle_state=handoff_ready` only for handoff; all other stage completion is represented
+by the stage-specific gate/result and predecessor contract, not a new status value.
+
+**RevisionIndexEntrySchema** (`record_type=revision_index_entry`; one line in the exact
+`revision-index.jsonl`) requires:
+
+```text
+run_id, stage_id, lineage_id, revision, attempt, sequence, previous_record_hash,
+record_id, transition, predecessor_revision, predecessor_attempt, input_manifest_ref,
+artifact_refs[], invalidated_stage_ids[], current_pointer_ref, provenance, record_hash
+```
+
+`transition` is one of `new_invocation`, `crash_reclaim`, `retry`, `scoped_fix`, `human_decision`,
+`canonical_adoption`, or `task_source_change`; null predecessor identities are allowed only for
+`new_invocation`. The entry is append-only and records exactly why the revision/attempt changed.
+
+**CurrentPointerSchema** (`record_type=current_pointer`; exact path
+`.factory/planning/<run-id>/current/<stage-id>.json`) requires:
+
+```text
+run_id, stage_id, lineage_id, revision, attempt, sequence, previous_record_hash,
+record_id, pointer_state, expected_pointer_hash, selected_record, input_manifest_ref,
+descendant_pointer_refs[], invalidation_event_ref, cas, provenance, pointer_hash
+```
+
+`pointer_state` is `current|invalidated`; `selected_record` has the exact path, terminal hash, and
+stage-manifest hash; `cas` has `compare_hash`, `publish_sequence`, and `fencing_token`.
+`invalidation_event_ref` is required when the pointer is invalidated and null otherwise.
+
+**InputManifestSchema** (`record_type=input_manifest`; exact path is the `input_manifest_ref.path`)
+requires:
+
+```text
+run_id, stage_id, lineage_id, revision, attempt, sequence, previous_record_hash,
+record_id, entries[], observed_at, source_snapshot, manifest_sha256, provenance
+```
+
+Each `entries[]` item requires `path`, `sha256`, `byte_length`, `role`, `source_record_id`, and
+`observed_at`; entries are sorted by exact path, with no duplicate path. `source_snapshot` requires
+the repository root identity and the source revision/commit or an explicit `uncommitted` marker.
+
+**ProducedArtifact** is the required object used by every producer and stage manifest:
+
+```text
+artifact_id, kind, path, sha256, byte_length, canonical, redacted,
+writer_role, writer_identity, source_refs[], input_manifest_sha256
+```
+
+`source_refs[]` contains exact path/hash or record-ID/hash pairs. `canonical` and `redacted` are
+booleans; `redacted=true` is mandatory for user-originating material. An artifact path cannot be
+outside the writer's approved scope. The object has no status field and cannot authorize adoption
+or execution.
+
+**SpecAuthoringSchema** (`record_type=spec_authoring`; exact path
+`.factory/planning/<run-id>/stages/provisional-spec-authoring/r<revision>/a<attempt>/spec-authoring.json`)
+requires:
+
+```text
+run_id, stage_id=provisional-spec-authoring, lineage_id, revision, attempt,
+record_id, input_manifest_ref, source_intent_ref, source_fact_refs[], output: ProducedArtifact,
+target_path, read_back, frontmatter, anchor_index[], challenge_refs[], lifecycle_state,
+producer, record_hash
+```
+
+`read_back` requires `path`, `sha256`, `parsed`, and `semantic_validation`; `frontmatter` requires
+`id`, `title`, and `lifecycle_state`; `anchor_index[]` is stable and non-fenced. The record is
+invalid if the producer did not write the target itself, read it back, and bind its hash.
+
+**PlanAuthoringSchema** (`record_type=plan_authoring`; exact path
+`.factory/planning/<run-id>/stages/implementation-plan-authoring/r<revision>/a<attempt>/plan-authoring.json`)
+requires:
+
+```text
+run_id, stage_id=implementation-plan-authoring, lineage_id, revision, attempt,
+record_id, input_manifest_ref, spec_ref, spec_sha256, candidate_sr_ref, candidate_sr_sha256,
+output: ProducedArtifact, target_path, read_back, task_index[], verification_obligations[],
+producer, lifecycle_state, record_hash
+```
+
+`read_back` requires `path`, `sha256`, `parsed`, and `semantic_validation`; every `task_index[]`
+item requires source task number, exact task anchor, dependencies, implementation evidence,
+verification evidence, test paths, test commands, and acceptance criteria. The plan producer must
+write and read back the plan; a supplied plan path alone is invalid.
+
+**TaskMaterializationSchema** (`record_type=task_materialization`; exact path
+`.factory/planning/<run-id>/stages/task-materialization/r<revision>/a<attempt>/task-materialization.json`)
+requires:
+
+```text
+run_id, stage_id=task-materialization, lineage_id, revision, attempt, record_id,
+input_manifest_ref, source_plan, source_plan_sha256, source_spec, source_spec_sha256,
+candidate_sr_ref, candidate_sr_sha256, task_records[], parity, produced_artifacts[],
+dependencies, allowed_paths, prohibited_paths, lifecycle_state, gate_result, producer, record_hash
+```
+
+Each `task_records[]` item requires `task_id`, `source_task_number`, exact task `path`, `sha256`,
+`sr_bindings`, `acceptance_criteria`, `test_paths`, `test_commands`, `implementation_evidence`,
+`verification_evidence`, `dependencies`, `allowed_paths`, `prohibited_paths`, and
+`source_record_hashes`. `parity` requires plan-task count, materialized-task count, exact source
+numbers, and `duplicates=[]`; parity failure or an unbound task makes `gate_result=fail` or
+`invalid` and blocks handoff.
+
+**TraceabilitySchema** (`record_type=traceability`; exact path
+`.factory/planning/<run-id>/stages/cross-artifact-alignment/r<revision>/a<attempt>/traceability.json`)
+requires:
+
+```text
+run_id, stage_id=cross-artifact-alignment, lineage_id, revision, attempt, record_id,
+input_manifest_ref, source_hashes, forward_links[], reverse_links[], uncovered[],
+ambiguous[], non_sr_classifications[], status, evidence, provenance, record_hash
+```
+
+Every forward and reverse link requires the exact source/target record IDs, paths, hashes, stable
+anchors, and typed relationship (`implements|verifies|supports|non-SR`). `uncovered=[]` and
+`ambiguous=[]` are required for `status=pass`; either nonempty list forces `status=fail` or
+`invalid`. This record is a deterministic gate projection and uses only the gate enum.
+
+**FinalGatesSchema** (`record_type=final_gates`; exact path
+`.factory/planning/<run-id>/stages/final-gates/r<revision>/a<attempt>/final-gates.json`) requires:
+
+```text
+run_id, stage_id=final-gates, lineage_id, revision, attempt, record_id,
+input_manifest_ref, current_pointer_refs[], current_clean_review_gate_tuples[],
+artifact_hashes, decision_refs[], traceability_ref, graph_manifest_ref, feat018_capability,
+warning_summary, consent_summary, adoption_summary, status, evidence, provenance, gate_hash
+```
+
+Each review/gate tuple requires checkpoint, report path/hash, gate path/hash, input-manifest hash,
+revision, attempt, and current-pointer hash. `feat018_capability` requires `requested`, boolean
+`available`, `result_hash`, and `gate_result` (`pass|fail|invalid`); an unrequested capability is
+represented by `requested=false`, not a new status token. `status=pass` requires all three current
+clean/pass tuples, current decisions, current traceability, an exact graph hash when requested,
+and `starts_automatically=false` in the handoff. Missing FEAT-018 is an honest `fail` or `invalid`
+block, never execution validation.
+
+**KanbanRunSchema** (`record_type=kanban_run`; exact path
+`.factory/planning/<run-id>/stages/planning-run/r<revision>/a<attempt>/kanban-run.json`) requires:
+
+```text
+run_id, stage_id=planning-run, lineage_id, revision, attempt, record_id,
+input_manifest_ref, graph_manifest, graph_hash, root_card_id, card_refs[], edge_refs[],
+reconciliation, state, lease, retry_policy, reclaim_policy, coherence_gate_refs[],
+no_silent_execution, provenance, record_hash
+```
+
+`graph_manifest` MUST be the exact `KanbanGraphManifest` below and `graph_hash` MUST match it.
+`card_refs[]` has one card reference for every graph node and exact card input/output hashes;
+`reconciliation` requires `complete=true`, the graph hash, node count, ordered node IDs, and exact
+edge count. `no_silent_execution=true` is mandatory. This record transports lifecycle only and has
+no authority to approve, adopt, or execute.
+
+#### 6.0.4 revision-vs-attempt transition table
+
+Revision identifies a new semantic input/output lineage state; attempt identifies a new invocation
+of the same revision. Every transition appends a `RevisionIndexEntrySchema` record before publishing
+the new current pointer.
+
+| Event | Revision | Attempt | Required transition and invalidation |
+|---|---:|---:|---|
+| New invocation | `1` for a new stage lineage | `1` | Create a new lineage, input manifest, stage manifest, and pointer; predecessor is null. A replay of the same idempotency key returns the existing lineage. |
+| Crash reclaim | unchanged | unchanged | Reacquire the lease with a higher fencing token, append `crash_reclaim` evidence, and resume the same attempt/path. Do not duplicate output or increment attempt. |
+| Retry | unchanged | `previous+1` | Only allowed when current input hashes still match. Create a new `a<attempt>` path; prior attempt remains immutable and cannot be selected by the pointer. |
+| Scoped fix | `previous+1` | `1` | Append the fix and invalidation, recompute inputs, invalidate the affected stage and all descendants, and require fresh independent review/gates in the same lineage. |
+| Human decision | unchanged for the reviewed stage | `previous+1` for the queued fresh review | Persist the authenticated DecisionFile at the current revision, append its resolution event, and queue a fresh independent review. The response/decision never releases a child by itself. |
+| Canonical adoption | `previous+1` for the adoption output | `1` | Bind exact consent and feature-boundary decisions, target pre/post hashes, and candidate hash; invalidate final-gate/handoff descendants and publish a new adoption revision only through the validated writer. |
+| Task/source change | `previous+1` for the affected stage | `1` | Recompute the input manifest, invalidate the affected stage and every descendant, and rebuild all dependent artifacts, traceability, reviews, gates, and handoff. |
+
+An attempt number is never reused for a different invocation, and a revision number is never reused
+after invalidation. A human decision that changes an artifact rather than merely answering a blocked
+question is a `scoped_fix`, `canonical_adoption`, or `task_source_change` as applicable and follows
+that row instead of being hidden as a retry.
+
 ### 6.1 Producer contract
 
 Every real producer must expose a typed host-neutral operation with:
@@ -556,9 +900,9 @@ journal as the recovery source.
 ### 6.3 Provisional authority spec
 
 The spec is the canonical semantic authority for this run. It must have strict frontmatter with
-`id`, `title`, and `status`, stable non-fenced anchors, explicit intent/challenge coverage,
+`id`, `title`, and `lifecycle_state`, stable non-fenced anchors, explicit intent/challenge coverage,
 assumptions, non-goals, feature boundary, implementation/verification obligations, and visible
-unresolved/provisional status. It must not claim SR adoption, implementation completion, human
+`lifecycle_state=provisional` with unresolved work explicit. It must not claim SR adoption, implementation completion, human
 consent, or downstream execution.
 
 ### 6.4 Candidate SR and projection contract
@@ -600,7 +944,7 @@ mutate this artifact. The minimum contract is:
     "non_goals": ["<explicit non-goal>"],
     "source_anchors": ["<stable spec anchor>"],
     "candidate_sr_ids": ["SR-candidate-1"],
-    "boundary_status": "single_feature|split_requires_human"
+    "boundary_state": "single_feature|split_requires_human"
   },
   "candidate_bundle_projection": {
     "id": "BUNDLE-candidate-<safe-id>",
@@ -614,7 +958,7 @@ mutate this artifact. The minimum contract is:
 ```
 
 `candidate_feature_projection` and `candidate_bundle_projection` are projections only: their IDs,
-scope, source anchors, SR membership, boundary status, and baseline reference are deterministic and
+scope, source anchors, SR membership, boundary state, and baseline reference are deterministic and
 must be internally consistent with `candidate_srs` and the reviewed spec. `baseline_ref` is a
 read-only input snapshot, not permission to modify a canonical FEAT/SR/bundle file. Existing SR
 records remain visible, including duplicates and contradictions; derivation cannot hide or discard
@@ -647,7 +991,7 @@ checkpoint/stage mapping is `spec_alignment/spec-alignment`,
   "artifact_hashes": {"<artifact-role>": "<sha256>"},
   "status": "clean|findings|escalated|invalid",
   "finding_ids": ["F-001"],
-  "findings": [{"id": "F-001", "scope": "<exact artifact/anchor/boundary>", "status": "open|resolved|deferred|escalated", "category": "<category>"}],
+  "findings": [{"id": "F-001", "scope": "<exact artifact/anchor/boundary>", "category": "<category>", "evidence_refs": ["<relative-path-or-record-id>"], "blocking": true}],
   "reviewer": {
     "kind": "independent_reviewer",
     "identity": "<authenticated reviewer identity>",
@@ -716,7 +1060,7 @@ The plan is not an execution authorization. Its task sections are the source for
 ### 6.7 Generated-task contract
 
 A materialized task must preserve the plan/spec/SR links and source task number. Its canonical
-metadata/body must include `id`, `title`, `status`, `run_id`, `stage_id`, `lineage_id`, `revision`,
+metadata/body must include `id`, `title`, `lifecycle_state`, `run_id`, `stage_id`, `lineage_id`, `revision`,
 `attempt`, `source_plan`, `source_task`, `source_spec`, `sr_bindings`, `acceptance_criteria`,
 `test_paths`, `test_commands`, `implementation_evidence`, `verification_evidence`,
 dependencies, allowed/prohibited paths, and the exact plan/spec/candidate hashes used. Each SR
@@ -801,8 +1145,9 @@ authenticated actor identity, the decision path, and `previous_event_hash`. The 
 DecisionFile and the current pointer before taking the journal lock, appends one canonical line,
 flushes it durably, and only then publishes the corresponding derived pointer. It never rewrites or
 compacts prior events. A human response/DecisionFile is an input that queues a fresh review; it is not
-itself terminal evidence. `defer`, `reject`, `withheld`, `fix_required`, and `invalid` statuses leave
-the relevant stage in `needs_input` (including `consent_withheld` and `consent_deferred`).
+terminal evidence. `deferred`, `rejected`, `withheld`, and `invalid` decision statuses leave the
+relevant stage in `needs_input` (including `consent_withheld` and `deferred`); `fixed` and
+`accepted_risk` require fresh independent review evidence and do not erase findings.
 
 The kind-specific contracts and validated writer mapping are:
 
@@ -842,7 +1187,7 @@ writers.
   "stage_id": "handoff",
   "revision": 1,
   "attempt": 1,
-  "status": "ready|blocked|invalidated",
+  "status": "pass|fail|invalid",
   "input_manifest_sha256": "<current-input-manifest-hash>",
   "current_clean_reviews": [
     {"checkpoint": "spec_alignment", "report_path": "<relative>", "report_sha256": "<sha256>", "gate_path": "<relative>", "gate_sha256": "<sha256>"},
@@ -857,7 +1202,7 @@ writers.
     "canonical_adoption": "<decision-hash>"
   },
   "resolution_journal": {"path": "<relative>", "sha256": "<journal-digest>"},
-  "feat018_capability": {"requested": true, "status": "available|blocked|not_requested", "result_hash": "<sha256-or-null>"},
+  "feat018_capability": {"requested": true, "gate_result": "pass|fail|invalid", "available": true, "result_hash": "<sha256-or-null>"},
   "selected_downstream_workflow": "<explicit-menu-value>",
   "legal_next_actions": ["<explicit action>"],
   "starts_automatically": false,
@@ -870,7 +1215,7 @@ The JSON binds the exact post-redaction prompt/intent, spec, candidate/adopted S
 and evidence hashes; all three current clean review report/gate tuples; the current input manifest;
 human challenge, feature-boundary, warning, and consent decision hashes; the resolution-journal
 integrity digest; the FEAT-018 capability result; the selected downstream workflow and legal menu;
-and `starts_automatically: false`. `status=ready` is permitted only when every tuple is current,
+and `starts_automatically: false`. `status=pass` is permitted only when every tuple is current,
 `clean`, and `pass`, all required human decisions have valid authenticated actor provenance and exact
 coverage, and no source/current pointer is invalidated. A non-clean or escalation report hash,
 `needs_input` record, human-response hash, stale decision, or Kanban `done` state cannot satisfy any
@@ -913,6 +1258,16 @@ packets, reports, journals, Kanban metadata, summaries, or diagnostics. A redact
 only field path, reason/detector, replacement, and detector version. Security precedence is explicit:
 redaction wins over exact preservation and the raw value is never logged or hashed.
 
+The versioned `SecretDetectorSchema` is mandatory at the capture boundary. Each detector declaration
+requires `detector_id`, semantic `version`, `detector_kind`, configured pattern/rule identity without
+secret material, and `replacement=[REDACTED]`. Each redaction event requires `field_path`,
+`reason`, `detector_id`, `detector_version`, and `replacement`; it MUST NOT contain the matched
+value, a reversible digest, surrounding secret bytes, or a provider credential. Detector selection
+and version are recorded in the input/event provenance, and changing detector identity or version
+is a source change that invalidates affected snapshots and descendants. A detector must run before
+prompt construction, question/answer persistence, hashing, logging, packetization, or model/provider
+transport; failure or unavailable detector version blocks capture.
+
 ### 7.4 Path safety, atomicity, and rebinding
 
 Every persisted path is a repository-relative UTF-8 path below the selected project root. Writers
@@ -922,6 +1277,15 @@ They reject symlinks, junctions, mount points, and every Windows reparse point i
 ancestor, target, and temporary path; a missing target is created only beneath a validated regular
 directory. Validation is case-aware for the host and rejects aliases that can resolve to the same
 path with different identity.
+
+Safe IDs and path components additionally reject Windows aliases: case-folding collisions, trailing
+spaces or dots, 8.3 short-name aliases, separator/normalization aliases, and names that resolve to a
+different identity through a junction or reparse point. They reject Windows device names `CON`,
+`PRN`, `AUX`, `NUL`, `CLOCK$`, `COM1` through `COM9`, and `LPT1` through `LPT9`, case-insensitively,
+with or without an extension, and reject equivalent names after trimming forbidden trailing dots or
+spaces. Safe IDs use only the declared safe alphabet and length bounds; a device-name or alias check
+is performed before allocation and again on the opened handle. A successful alias lookup never
+validates an unsafe source token.
 
 The write primitive must use a no-follow/reparse-safe, handle-based open and atomic publish (for
 example, an OS primitive with no-follow and reparse-point rejection, same-directory temporary file,
@@ -946,6 +1310,98 @@ implicit recovery action; a failed publish leaves its previous bytes and the new
 When requested and supported, FEAT-017 materializes one planning transport graph. If the capability
 is unavailable, the run reports an explicit capability block; it must not emulate Kanban with prose
 or silently dispatch work without the graph.
+
+### 8.0 Canonical 12-node graph manifest
+
+The canonical planning graph is one root plus exactly eleven ordered stage nodes. The combined
+`human-boundaries-and-adoption` card is deliberately one transport node, but it contains two
+mandatory sequential Coherence barriers: `human-boundaries` first and `canonical-adoption` second.
+Those barriers are not extra graph nodes and must not change the twelve-node count.
+
+`KanbanGraphManifest` is the exact embedded object in `KanbanRunSchema` and has no fields beyond
+those shown here:
+
+```json
+{
+  "schema": 1,
+  "record_type": "kanban_graph_manifest",
+  "graph_id": "feat17/<run-id>/planning/v1",
+  "run_id": "<safe-id>",
+  "node_order": [
+    "planning-run", "capture", "provisional-spec-authoring", "spec-alignment",
+    "candidate-sr-derivation", "candidate-sr-alignment", "implementation-plan-authoring",
+    "task-materialization", "cross-artifact-alignment", "human-boundaries-and-adoption",
+    "final-gates", "handoff"
+  ],
+  "nodes": [
+    {"ordinal": 0, "node_id": "planning-run", "parent_ids": [], "child_ids": ["capture"], "barrier_ids": []},
+    {"ordinal": 1, "node_id": "capture", "parent_ids": ["planning-run"], "child_ids": ["provisional-spec-authoring"], "barrier_ids": []},
+    {"ordinal": 2, "node_id": "provisional-spec-authoring", "parent_ids": ["capture"], "child_ids": ["spec-alignment"], "barrier_ids": []},
+    {"ordinal": 3, "node_id": "spec-alignment", "parent_ids": ["provisional-spec-authoring"], "child_ids": ["candidate-sr-derivation"], "barrier_ids": []},
+    {"ordinal": 4, "node_id": "candidate-sr-derivation", "parent_ids": ["spec-alignment"], "child_ids": ["candidate-sr-alignment"], "barrier_ids": []},
+    {"ordinal": 5, "node_id": "candidate-sr-alignment", "parent_ids": ["candidate-sr-derivation"], "child_ids": ["implementation-plan-authoring"], "barrier_ids": []},
+    {"ordinal": 6, "node_id": "implementation-plan-authoring", "parent_ids": ["candidate-sr-alignment"], "child_ids": ["task-materialization"], "barrier_ids": []},
+    {"ordinal": 7, "node_id": "task-materialization", "parent_ids": ["implementation-plan-authoring"], "child_ids": ["cross-artifact-alignment"], "barrier_ids": []},
+    {"ordinal": 8, "node_id": "cross-artifact-alignment", "parent_ids": ["task-materialization"], "child_ids": ["human-boundaries-and-adoption"], "barrier_ids": []},
+    {"ordinal": 9, "node_id": "human-boundaries-and-adoption", "parent_ids": ["cross-artifact-alignment"], "child_ids": ["final-gates"], "barrier_ids": ["human-boundaries", "canonical-adoption"]},
+    {"ordinal": 10, "node_id": "final-gates", "parent_ids": ["human-boundaries-and-adoption"], "child_ids": ["handoff"], "barrier_ids": []},
+    {"ordinal": 11, "node_id": "handoff", "parent_ids": ["final-gates"], "child_ids": [], "barrier_ids": []}
+  ],
+  "edges": [
+    ["planning-run", "capture"],
+    ["capture", "provisional-spec-authoring"],
+    ["provisional-spec-authoring", "spec-alignment"],
+    ["spec-alignment", "candidate-sr-derivation"],
+    ["candidate-sr-derivation", "candidate-sr-alignment"],
+    ["candidate-sr-alignment", "implementation-plan-authoring"],
+    ["implementation-plan-authoring", "task-materialization"],
+    ["task-materialization", "cross-artifact-alignment"],
+    ["cross-artifact-alignment", "human-boundaries-and-adoption"],
+    ["human-boundaries-and-adoption", "final-gates"],
+    ["final-gates", "handoff"]
+  ],
+  "graph_hash": "<sha256>"
+}
+```
+
+The manifest hash is SHA-256 over the canonical strict-JSON bytes of the manifest with only
+`graph_hash` omitted. `node_order`, `nodes`, and `edges` are ordered arrays, and the ordinal, parent,
+child, and edge lists MUST match exactly; sorting or deduplicating them changes the hash and makes
+the graph invalid. There are exactly 12 nodes and exactly 11 edges. `graph_hash` is recorded in the
+`kanban-run` record, root card, every card reference, and any final-gates record that requested the
+transport graph.
+
+The transport `state` is closed to `pending|ready|running|needs_input|blocked|done|failed|reclaimed|invalidated`.
+`pending` is an unreleased card; `ready` requires every parent to be `done` and its current
+Coherence predecessor gate to be `pass`; `running` requires an active lease; `needs_input` requires
+an unresolved human boundary or escalation; `blocked` is any fail-closed prerequisite; `done`
+requires current output hashes and the required Coherence gate, and is never sufficient by itself;
+`failed` requires immutable failure evidence; `reclaimed` is a recovery transition back to the same
+attempt; and `invalidated` cannot run or release a child. A parent in any state other than `done`
+keeps its child unrunnable.
+
+Every `running` card has exactly one `lease` with `lease_id`, `owner_id`, `fencing_token`,
+`acquired_at`, `heartbeat_at`, `expires_at`, and `attempt`. The lease is acquired and renewed by
+CAS; each heartbeat proves the same attempt and a strictly increasing fencing token. A card may
+publish output only while holding the current lease. An expired lease transitions to `reclaimed`;
+the reclaim takes the same revision and attempt, increments the fencing token, appends recovery
+evidence, and then returns to `running`. A stale owner cannot publish, mark `done`, or release a
+child.
+
+Retries are bounded by the recorded `retry_policy`. A retry creates the next attempt for the same
+revision and a new evidence path only after the previous attempt is durably failed or invalidated;
+it never duplicates children or canonical artifacts. A crash reclaim is not a retry and never
+increments attempt. A scoped fix, task/source change, or canonical adoption increments revision,
+resets attempt to one, invalidates the affected node and every descendant, and requires a fresh
+graph reconciliation. The coordinator materializes and hash-checks all twelve nodes and eleven
+edges before setting any child to `ready`.
+
+The combined human card cannot be marked `done` until its internal `human-boundaries` barrier has
+validated boundary/challenge/warning decisions and its internal `canonical-adoption` barrier has
+validated exact SR consent, target pre/post hashes, and adoption evidence. A failed or deferred
+first barrier prevents the second; a withheld or invalid second barrier prevents `final-gates`.
+The barrier records retain their separate exact paths and decision kinds even though the transport
+no silent execution is permitted: no card state, lease, retry, or graph hash is an alternate release path.
 
 The intended graph is:
 
