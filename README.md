@@ -29,8 +29,10 @@ sh scripts/install-pif.sh   # installs a global `pif` command pointed at this re
 ## Gates (exit-code only)
 
 Gate commands are declared in `.factory/factory.yaml` and run by the factory's
-`ConfigGateRunner`. The configured gate vocabulary is fixed: **`unit`,
-`integration`, and `full`**.
+`ConfigGateRunner`. The supported project-wide gate protocol has a fixed
+vocabulary: **`unit`, `sim`, `integration`, and `full`**. This repository's own
+`.factory/factory.yaml` declares only **`unit`, `integration`, and `full`**; it
+intentionally has no local `sim` or `agent` declaration.
 
 The factory's own configuration is representative:
 
@@ -60,16 +62,16 @@ Gate behavior:
   exit code `5` (no tests collected) is treated as a pass.
 - An undeclared gate is recorded as skipped rather than invented. A project with
   no `gates:` section is a configuration error.
-- `{python}` expands to the interpreter running the factory. For a consuming
-  project's own environment, use an explicit interpreter or `uv run` command
-  in that project's configuration.
+- `{python}` resolves to the target repository's `.venv` interpreter when one
+  is present, with the factory interpreter as the fallback. The runner quotes
+  the resolved path for the host shell, so gate declarations should use the
+  literal `{python}` token.
 
 ## Canonical Coherence CLI
 
-Use the `coherence` entry point for assurance and navigation. It is
-read-only unless a command explicitly documents a write (for example, an
-explicit guide export or a register operation); it never guesses or invokes a
-model to fill missing evidence. Outputs retain provenance such as
+Use the `coherence` entry point for assurance and navigation. Query and check
+commands are read-only and never guess or invoke a model to fill missing
+evidence. Outputs retain provenance such as
 `recorded`, `derived`, `synthesized`, or `missing`, together with freshness such
 as `fresh`, `stale`, or `degraded`.
 
@@ -119,6 +121,15 @@ uv run coherence doctor context --project-root . --json
 uv run coherence audit run <feature> --project-root .
 uv run coherence measurement run --project-root . --satisfies SR-###
 ```
+
+The query/check forms (`status`, `navigate` without `--export`, `trace check`,
+`register check`, and `doctor context`) do not write project state. The
+state-changing `coherence audit run` creates
+`coverage-reviews/<feature>-<run_id>/status.json` and `audit.json`; a completed
+run also writes `report.json` and per-SR files under `verdicts/`. The
+state-changing `coherence measurement run` writes
+`validation/validation-report.json`. `navigate guide --export <path>` is an
+explicit point-in-time export and writes the requested snapshot path.
 
 ### Authoring a bundle
 
@@ -193,12 +204,6 @@ deprecation-warning compatibility shims. Use `coherence.*` for assurance and
 navigation and `substrate.*` for shared primitives in all new code and
 examples. The shims remain only until downstream projects and Pi extensions
 have migrated; removing them is a separate, announced change.
-
-## Current surface and planned work
-
-This document describes the implemented Python CLI, filesystem contracts, and
-Pi extensions only. Planned interactive console, MCP, and workflow surfaces
-are not assumed to be available and are not part of the commands above.
 
 ## Layout
 

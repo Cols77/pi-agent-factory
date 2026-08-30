@@ -44,6 +44,13 @@ def test_workflow_installs_the_runtime_and_locked_dependencies():
     assert any(step.get("uses") == "actions/setup-python@v5" for step in steps)
     assert any(step.get("uses") == "actions/setup-node@v4" for step in steps)
     assert any(step.get("run") == "python -m pip install uv" for step in steps)
+    setup_node = _workflow_step(repo_root, "Set up Node")
+    assert setup_node["with"]["cache-dependency-path"].splitlines() == [
+        "pi-ext/scope-guard/package-lock.json",
+        "pi-ext/factory-watch/package-lock.json",
+    ]
+    extension_install = _workflow_step(repo_root, "Install extension dependencies")
+    assert "npm ci --prefix pi-ext/scope-guard" in extension_install["run"]
     assert any("npm ci --prefix pi-ext/factory-watch" in step.get("run", "") for step in steps)
     assert any(step.get("run") == "uv sync --locked" for step in steps)
     install_steps = [
@@ -147,6 +154,7 @@ def test_workflow_executes_install_commands_in_order_against_fake_tools(tmp_path
     fake_bin.mkdir()
     commands = [
         "python -m pip install uv",
+        "npm ci --prefix pi-ext/scope-guard",
         "npm ci --prefix pi-ext/factory-watch",
         "uv sync --locked",
     ]

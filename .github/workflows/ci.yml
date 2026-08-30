@@ -21,14 +21,18 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: pi-ext/factory-watch/package-lock.json
+          cache-dependency-path: |
+            pi-ext/scope-guard/package-lock.json
+            pi-ext/factory-watch/package-lock.json
 
       - name: Install uv
         run: python -m pip install uv
 
       - name: Install extension dependencies
-        if: ${{ hashFiles('pi-ext/factory-watch/package.json') != '' }}
-        run: npm ci --prefix pi-ext/factory-watch
+        if: ${{ hashFiles('pi-ext/scope-guard/package.json', 'pi-ext/factory-watch/package.json') != '' }}
+        run: |
+          npm ci --prefix pi-ext/scope-guard
+          npm ci --prefix pi-ext/factory-watch
 
       - name: Sync locked Python environment
         run: uv sync --locked

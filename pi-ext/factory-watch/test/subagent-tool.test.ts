@@ -125,6 +125,8 @@ describe("parseChildJsonl", () => {
 // timeout budgets really kill a stalled child.
 describe("spawnStreamedChild", () => {
   const node = process.execPath;
+  const STREAM_CHILD_TIMEOUT_MS = 30_000;
+  const STREAM_TEST_TIMEOUT_MS = 45_000;
 
   test("extracts the answer from a real child stream", async () => {
     const script = [
@@ -152,26 +154,30 @@ describe("spawnStreamedChild", () => {
   test("survives a multi-MB stream (old ENOBUFS failure mode) with bounded tails", async () => {
     const line = `JSON.stringify({ type: "tool_execution_end", toolName: "bash", result: ${'"x".repeat(100)'} })`;
     const answer = `JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "big stream done" }] } })`;
-    const script = `const line = ${line};\nfor (let i = 0; i < 20000; i++) console.log(line);\nconsole.log(${answer});`;
+    // One large write keeps the child-side workload deterministic under full
+    // suite contention while still exercising a real subprocess and a stream
+    // larger than the old 1 MiB spawnSync failure threshold.
+    const script = [
+      `const line = ${line};`,
+      `const answer = ${answer};`,
+      `const payload = line + "\\n";`,
+      "process.stdout.write(payload.repeat(20000));",
+      "process.stdout.write(answer + \"\\n\");",
+    ].join("\n");
     const run = await spawnStreamedChild(node, ["-e", script], {
       cwd: process.cwd(),
       env: process.env,
       shell: false,
-      idleTimeoutMs: 10_000,
-      totalTimeoutMs: 10_000,
+      idleTimeoutMs: STREAM_CHILD_TIMEOUT_MS,
+      totalTimeoutMs: STREAM_CHILD_TIMEOUT_MS,
     });
     expect(run.status).toBe(0);
     expect(run.killedFor).toBeNull();
     expect(run.answer.text).toBe("big stream done");
-    // ~2.4 MB streamed; only bounded tails retained.
+    // A multi-MB stream was processed; only bounded tails were retained.
     expect(run.stdoutTail.length).toBeLessThanOrEqual(2100);
     expect(run.stdoutTail).toContain("big stream done");
-    // The child's own totalTimeoutMs is 10s, so a vitest budget above that
-    // (not the suite default 5s) is what makes this wall-clock measurement
-    // stable under parallel load: a 5s cap killed a passing test right at the
-    // boundary whenever the rest of the suite contended for the CPU. The
-    // assertions above are the real behavioural checks and are untouched.
-  }, 20_000);
+  }, STREAM_TEST_TIMEOUT_MS);
 
   test("idle timeout kills a child that goes silent", async () => {
     const run = await spawnStreamedChild(node, ["-e", "console.log('hi'); setTimeout(()=>{}, 60000)"], {
