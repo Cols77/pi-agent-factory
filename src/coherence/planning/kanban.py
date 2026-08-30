@@ -7,11 +7,13 @@ schedules downstream work or claims an external Hermes Kanban integration.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
 import tempfile
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +56,41 @@ _RESERVED_DEVICE_NAMES = {
     *(f"lpt{index}" for index in range(1, 10)),
 }
 _HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_STATE_SCHEMA = 2
+_STATE_AUTH_ENV = "PI_AGENT_FACTORY_KANBAN_STATE_KEY"
+_LEASE_TTL_MS = 30_000
+_STATE_FIELDS = frozenset(
+    {"schema", "run_id", "contract_sha256", "cards", "edges", "state_hmac_sha256"}
+)
+_CARD_FIELDS = frozenset(
+    {
+        "id",
+        "run_id",
+        "stage",
+        "parents",
+        "role",
+        "assignee",
+        "allowed_paths",
+        "prohibited_paths",
+        "workspace_mode",
+        "workspace",
+        "idempotency_key",
+        "revision",
+        "status",
+        "attempt",
+        "attempts",
+        "gate_passed",
+        "gate_detail",
+        "blocking_reason",
+        "output",
+        "lease_token",
+        "required_context",
+        "lease_owner_pid",
+        "lease_started_at",
+        "lease_expires_at",
+        "fencing_token",
+    }
+)
 
 
 class PlanningKanbanError(ValueError):
@@ -74,6 +111,46 @@ def _sha(payload: Any) -> str:
             "utf-8"
         )
     ).hexdigest()
+
+
+def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate JSON members instead of silently choosing one."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PlanningKanbanError("kanban JSON contains a duplicate field")
+        result[key] = value
+    return result
+
+
+def _trusted_state_key() -> bytes:
+    """Resolve trust from outside the state file; never derive it from mutable state.
+
+    The state JSON is writable by the planning worker, so a digest or key stored
+    beside it cannot authenticate anything.  The deployment must provide a
+    separate, trusted HMAC key through the process environment (or a future
+    trusted provider); missing/weak configuration fails closed.
+    """
+    value = os.environ.get(_STATE_AUTH_ENV)
+    if value is None or len(value.encode("utf-8")) < 32:
+        raise WorkspacePolicyError(
+            f"authenticated kanban state requires {_STATE_AUTH_ENV} with at least 32 bytes"
+        )
+    return value.encode("utf-8")
+
+
+def _state_authentication(payload: Mapping[str, Any]) -> str:
+    return hmac.new(
+        _trusted_state_key(),
+        json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _now_ms() -> int:
+    return time.time_ns() // 1_000_000
 
 
 def _json_copy(value: Mapping[str, Any], *, what: str) -> dict[str, Any]:
@@ -333,6 +410,7 @@ class StageCard:
     workspace_mode: str
     workspace: str
     idempotency_key: str
+    revision: int = 1
     status: str = "pending"
     attempt: int = 0
     attempts: list[dict[str, Any]] = field(default_factory=list)
@@ -342,6 +420,10 @@ class StageCard:
     output: dict[str, Any] = field(default_factory=dict)
     lease_token: str | None = None
     required_context: dict[str, Any] = field(default_factory=dict)
+    lease_owner_pid: int | None = None
+    lease_started_at: int | None = None
+    lease_expires_at: int | None = None
+    fencing_token: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -356,6 +438,7 @@ class StageCard:
             "workspace_mode": self.workspace_mode,
             "workspace": self.workspace,
             "idempotency_key": self.idempotency_key,
+            "revision": self.revision,
             "status": self.status,
             "attempt": self.attempt,
             "attempts": self.attempts,
@@ -365,38 +448,66 @@ class StageCard:
             "output": self.output,
             "lease_token": self.lease_token,
             "required_context": self.required_context,
+            "lease_owner_pid": self.lease_owner_pid,
+            "lease_started_at": self.lease_started_at,
+            "lease_expires_at": self.lease_expires_at,
+            "fencing_token": self.fencing_token,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "StageCard":
         if not isinstance(value, Mapping):
             raise PlanningKanbanError("kanban card is not an object")
+        missing = _CARD_FIELDS.difference(value)
+        unknown = set(value).difference(_CARD_FIELDS)
+        if missing or unknown:
+            detail = ", ".join(
+                part
+                for part in (
+                    f"missing={sorted(missing)}" if missing else "",
+                    f"unknown={sorted(unknown)}" if unknown else "",
+                )
+                if part
+            )
+            raise PlanningKanbanError(f"kanban card schema fields are invalid ({detail})")
 
         def string(name: str) -> str:
-            result = value.get(name)
+            result = value[name]
             if not isinstance(result, str) or not result:
                 raise PlanningKanbanError(f"kanban card field {name} is invalid")
             return result
 
         def strings(name: str) -> tuple[str, ...]:
-            result = value.get(name)
-            if not isinstance(result, (list, tuple)) or not all(
+            result = value[name]
+            if not isinstance(result, list) or not all(
                 isinstance(item, str) and item for item in result
             ):
                 raise PlanningKanbanError(f"kanban card field {name} is invalid")
             return tuple(result)
 
-        status = value.get("status", "pending")
-        attempt = value.get("attempt", 0)
-        attempts = value.get("attempts", [])
-        gate_passed = value.get("gate_passed", False)
-        gate_detail = value.get("gate_detail")
-        blocking_reason = value.get("blocking_reason")
-        output = value.get("output", {})
-        lease_token = value.get("lease_token")
-        required_context = value.get("required_context", {})
+        revision = value["revision"]
+        status = value["status"]
+        attempt = value["attempt"]
+        attempts = value["attempts"]
+        gate_passed = value["gate_passed"]
+        gate_detail = value["gate_detail"]
+        blocking_reason = value["blocking_reason"]
+        output = value["output"]
+        lease_token = value["lease_token"]
+        required_context = value["required_context"]
+        lease_owner_pid = value["lease_owner_pid"]
+        lease_started_at = value["lease_started_at"]
+        lease_expires_at = value["lease_expires_at"]
+        fencing_token = value["fencing_token"]
+
+        def valid_timestamp(item: Any) -> bool:
+            return isinstance(item, int) and not isinstance(item, bool) and item > 0
+
         if (
-            not isinstance(status, str)
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision < 1
+            or not isinstance(status, str)
             or status not in _STATUSES
             or not isinstance(attempt, int)
             or isinstance(attempt, bool)
@@ -404,13 +515,31 @@ class StageCard:
             or not isinstance(attempts, list)
             or not all(isinstance(item, Mapping) for item in attempts)
             or not isinstance(gate_passed, bool)
-            or (gate_detail is not None and not isinstance(gate_detail, str))
-            or (blocking_reason is not None and not isinstance(blocking_reason, str))
-            or not isinstance(output, Mapping)
+            or (gate_detail is not None and (not isinstance(gate_detail, str) or not gate_detail))
+            or (blocking_reason is not None and (not isinstance(blocking_reason, str) or not blocking_reason))
+            or not isinstance(output, dict)
             or (lease_token is not None and (not isinstance(lease_token, str) or not lease_token))
-            or not isinstance(required_context, Mapping)
+            or not isinstance(required_context, dict)
+            or (lease_owner_pid is not None and not valid_timestamp(lease_owner_pid))
+            or (lease_started_at is not None and not valid_timestamp(lease_started_at))
+            or (lease_expires_at is not None and not valid_timestamp(lease_expires_at))
+            or (
+                lease_started_at is not None
+                and lease_expires_at is not None
+                and lease_expires_at < lease_started_at
+            )
+            or not isinstance(fencing_token, int)
+            or isinstance(fencing_token, bool)
+            or fencing_token < 0
         ):
             raise PlanningKanbanError("kanban card operational fields are invalid")
+        lease_fields = (lease_token, lease_owner_pid, lease_started_at, lease_expires_at)
+        if status == "running" and (
+            any(item is None for item in lease_fields) or fencing_token < 1
+        ):
+            raise PlanningKanbanError("running card has incomplete ownership evidence")
+        if status != "running" and any(item is not None for item in lease_fields):
+            raise PlanningKanbanError("non-running card retains ownership evidence")
         return cls(
             id=string("id"),
             run_id=string("run_id"),
@@ -423,6 +552,7 @@ class StageCard:
             workspace_mode=string("workspace_mode"),
             workspace=string("workspace"),
             idempotency_key=string("idempotency_key"),
+            revision=revision,
             status=status,
             attempt=attempt,
             attempts=[dict(item) for item in attempts],
@@ -432,6 +562,10 @@ class StageCard:
             output=dict(output),
             lease_token=lease_token,
             required_context=dict(required_context),
+            lease_owner_pid=lease_owner_pid,
+            lease_started_at=lease_started_at,
+            lease_expires_at=lease_expires_at,
+            fencing_token=fencing_token,
         )
 
 
@@ -442,8 +576,10 @@ class _LeaseCapability:
     instance_id: str
     worker: str
     card_id: str
+    revision: int
     attempt: int
     lease_token: str
+    fencing_token: int
 
 
 @dataclass
@@ -474,7 +610,7 @@ class PlanningRun:
             contract_sha256=self.contract_sha256,
             cards=self.cards,
         )
-        payload["state_sha256"] = _sha(payload)
+        payload["state_hmac_sha256"] = _state_authentication(payload)
         return payload
 
     def _save(self, *, expected_state: str | None = None, lock: _ExclusiveLock | None = None) -> None:
@@ -508,8 +644,10 @@ class PlanningRun:
         if (
             card.status != "running"
             or capability.card_id != card_id
+            or capability.revision != card.revision
             or capability.attempt != card.attempt
             or capability.lease_token != card.lease_token
+            or capability.fencing_token != card.fencing_token
         ):
             return False
         claim = next(
@@ -534,6 +672,7 @@ class PlanningRun:
         *,
         require_owner: bool = False,
         require_running_owner: bool = False,
+        recovery: bool = False,
     ) -> Iterator[tuple["PlanningRun", StageCard, str, _ExclusiveLock | None]]:
         local = self.card(card_id)
         probe = PlanningKanban.load(self.root, self.run_id)
@@ -545,7 +684,7 @@ class PlanningRun:
             and not writer_needed
         ):
             raise WorkspacePolicyError("persisted workspace policy changed under a writer lease")
-        if require_owner or (require_running_owner and persisted.status == "running"):
+        if not recovery and (require_owner or (require_running_owner and persisted.status == "running")):
             if persisted.status == "running":
                 self._require_lease_capability(card_id, persisted)
             elif require_owner and local.lease_token != persisted.lease_token:
@@ -577,7 +716,11 @@ class PlanningRun:
             current_needs_writer = current.workspace_mode == "dir" and current.stage in _WRITERS
             if current_needs_writer != writer_needed:
                 raise WorkspacePolicyError("workspace policy changed during mutation")
-            if require_owner or (require_running_owner and current.status == "running"):
+            if recovery:
+                if current.status != "running":
+                    raise StageBlocked("only running cards can be recovered")
+                _validate_recovery_candidate(current)
+            elif require_owner or (require_running_owner and current.status == "running"):
                 if current.status == "running":
                     self._require_lease_capability(card_id, current)
                 elif require_owner and local.lease_token != current.lease_token:
@@ -609,8 +752,12 @@ class PlanningRun:
                 raise StageBlocked(f"card {card_id} is {card.status}")
             card.attempt += 1
             card.status = "running"
+            card.fencing_token += 1
             lease_token = writer_lock.token if writer_lock is not None else secrets.token_hex(24)
             card.lease_token = lease_token
+            card.lease_owner_pid = os.getpid()
+            card.lease_started_at = _now_ms()
+            card.lease_expires_at = card.lease_started_at + _LEASE_TTL_MS
             card.attempts.append(
                 {"attempt": card.attempt, "worker": worker, "event": "claimed"}
             )
@@ -618,8 +765,10 @@ class PlanningRun:
                 instance_id=self._instance_id,
                 worker=worker,
                 card_id=card_id,
+                revision=card.revision,
                 attempt=card.attempt,
                 lease_token=lease_token,
+                fencing_token=card.fencing_token,
             )
             loaded._save(expected_state=before, lock=writer_lock)
             if writer_lock is not None:
@@ -632,6 +781,7 @@ class PlanningRun:
         with self._mutation(card_id, require_owner=True) as (loaded, card, before, writer_lock):
             if card.status != "running":
                 raise StageBlocked("heartbeat requires a running card")
+            card.lease_expires_at = _now_ms() + _LEASE_TTL_MS
             card.attempts.append({"attempt": card.attempt, "event": "heartbeat"})
             loaded._save(expected_state=before, lock=writer_lock)
             self._adopt(loaded)
@@ -647,6 +797,9 @@ class PlanningRun:
             card.gate_passed = True
             card.gate_detail = json.dumps(gate, sort_keys=True, separators=(",", ":"))
             card.lease_token = None
+            card.lease_owner_pid = None
+            card.lease_started_at = None
+            card.lease_expires_at = None
             card.attempts.append(
                 {"attempt": card.attempt, "event": "completed", "evidence": card.output}
             )
@@ -684,10 +837,13 @@ class PlanningRun:
                     card.status = "blocked"
                     card.blocking_reason = str(detail)
                     card.lease_token = None
-                for child in loaded.cards:
-                    if card.id in child.parents and child.status == "ready":
-                        child.status = "blocked"
-                        child.blocking_reason = f"parent {card.id} gate evidence is no longer valid"
+                    card.lease_owner_pid = None
+                    card.lease_started_at = None
+                    card.lease_expires_at = None
+                    for child in loaded.cards:
+                        if card.id in child.parents and child.status == "ready":
+                            child.status = "blocked"
+                            child.blocking_reason = f"parent {card.id} gate evidence is no longer valid"
             loaded._save(expected_state=before, lock=writer_lock)
             if not passed and release_writer and writer_lock is not None:
                 writer_lock.release()
@@ -733,6 +889,9 @@ class PlanningRun:
                 }
             )
             card.lease_token = None
+            card.lease_owner_pid = None
+            card.lease_started_at = None
+            card.lease_expires_at = None
             loaded._save(expected_state=before, lock=writer_lock)
             if writer_lock is not None:
                 writer_lock.release()
@@ -759,17 +918,45 @@ class PlanningRun:
             self._adopt(loaded)
             return self.card(card_id)
 
-    def reclaim(self, card_id: str, *, reason: str) -> StageCard:
+    def reclaim(
+        self,
+        card_id: str,
+        *,
+        reason: str,
+        recovery: bool = False,
+        revision: int | None = None,
+        attempt: int | None = None,
+    ) -> StageCard:
         if not isinstance(reason, str) or not reason.strip():
             raise PlanningKanbanError("reclaim reason must be non-empty")
-        with self._mutation(card_id, require_owner=True) as (loaded, card, before, writer_lock):
+        with self._mutation(
+            card_id,
+            require_owner=not recovery,
+            recovery=recovery,
+        ) as (loaded, card, before, writer_lock):
             if card.status != "running":
                 raise StageBlocked("only running cards can be reclaimed")
+            if revision is not None and revision != card.revision:
+                raise StageBlocked("recovery revision does not match the running card")
+            if attempt is not None and attempt != card.attempt:
+                raise StageBlocked("recovery attempt does not match the running card")
+            prior_fencing_token = card.fencing_token
+            card.fencing_token += 1
             card.status = "ready"
             card.attempts.append(
-                {"attempt": card.attempt, "event": "reclaimed", "reason": reason}
+                {
+                    "attempt": card.attempt,
+                    "event": "crash_reclaim" if recovery else "reclaimed",
+                    "reason": reason,
+                    "revision": card.revision,
+                    "fencing_token": card.fencing_token,
+                    "previous_fencing_token": prior_fencing_token,
+                }
             )
             card.lease_token = None
+            card.lease_owner_pid = None
+            card.lease_started_at = None
+            card.lease_expires_at = None
             loaded._save(expected_state=before, lock=writer_lock)
             if writer_lock is not None:
                 writer_lock.release()
@@ -778,6 +965,23 @@ class PlanningRun:
             self._adopt(loaded)
             self._lease_capabilities.pop(card_id, None)
             return self.card(card_id)
+
+    def recover(
+        self,
+        card_id: str,
+        *,
+        reason: str,
+        revision: int | None = None,
+        attempt: int | None = None,
+    ) -> StageCard:
+        """Reclaim a dead/expired lease from a fresh instance, same attempt."""
+        return self.reclaim(
+            card_id,
+            reason=reason,
+            recovery=True,
+            revision=revision,
+            attempt=attempt,
+        )
 
 
 class PlanningKanban:
@@ -820,22 +1024,37 @@ class PlanningKanban:
     def load(root: Path, run_id: str) -> PlanningRun:
         path = _safe_state_path(root, run_id)
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_strict_object)
+        except (OSError, json.JSONDecodeError) as exc:
             raise PlanningKanbanError("kanban graph is unreadable") from exc
         if not isinstance(raw, Mapping):
             raise PlanningKanbanError("kanban graph is not an object")
-        try:
-            cards_raw = raw["cards"]
-            contract = raw["contract_sha256"]
-            cards = [StageCard.from_dict(item) for item in cards_raw]
-        except (KeyError, TypeError) as exc:
-            raise PlanningKanbanError("kanban graph is unreadable") from exc
-        if raw.get("schema") != 1 or raw.get("run_id") != run_id:
+        missing = _STATE_FIELDS.difference(raw)
+        unknown = set(raw).difference(_STATE_FIELDS)
+        if missing or unknown:
+            detail = ", ".join(
+                part
+                for part in (
+                    f"missing={sorted(missing)}" if missing else "",
+                    f"unknown={sorted(unknown)}" if unknown else "",
+                )
+                if part
+            )
+            raise PlanningKanbanError(f"kanban state schema fields are invalid ({detail})")
+        if raw["schema"] != _STATE_SCHEMA or raw["run_id"] != run_id:
+            # Schema-one state used the same-file state_sha256 digest and is
+            # intentionally not migrated: accepting it would reintroduce an
+            # unauthenticated state format.  A future migration must be
+            # atomic and must authenticate before publishing schema two.
             raise PlanningKanbanError("kanban graph header is invalid")
-        state_hash = raw.get("state_sha256")
-        if not isinstance(state_hash, str) or not _HEX_SHA256.fullmatch(state_hash):
-            raise PlanningKanbanError("kanban state integrity hash is invalid")
+        cards_raw = raw["cards"]
+        if not isinstance(cards_raw, list):
+            raise PlanningKanbanError("kanban graph cards field is invalid")
+        cards = [StageCard.from_dict(item) for item in cards_raw]
+        state_auth = raw["state_hmac_sha256"]
+        contract = raw["contract_sha256"]
+        if not isinstance(state_auth, str) or not _HEX_SHA256.fullmatch(state_auth):
+            raise PlanningKanbanError("kanban state authentication is invalid")
         if not isinstance(contract, str) or not _HEX_SHA256.fullmatch(contract):
             raise PlanningKanbanError("kanban contract hash is invalid")
         if len(cards) != len(_CANONICAL_STAGES) or [card.stage for card in cards] != list(
@@ -873,11 +1092,11 @@ class PlanningKanban:
         )
         if contract != expected_contract:
             raise PlanningKanbanError("kanban contract hash is invalid")
-        expected_state_hash = _sha(
+        expected_state_auth = _state_authentication(
             _state_payload(run_id=run_id, contract_sha256=contract, cards=cards)
         )
-        if state_hash != expected_state_hash:
-            raise PlanningKanbanError("kanban state integrity hash does not reconcile")
+        if not hmac.compare_digest(state_auth, expected_state_auth):
+            raise PlanningKanbanError("kanban state authentication does not reconcile")
         _validate_loaded_state(cards)
         return PlanningRun(root.resolve(), run_id, cards, contract)
 
@@ -932,7 +1151,7 @@ def _state_payload(
     *, run_id: str, contract_sha256: str, cards: list[StageCard]
 ) -> dict[str, Any]:
     return {
-        "schema": 1,
+        "schema": _STATE_SCHEMA,
         "run_id": run_id,
         "contract_sha256": contract_sha256,
         "cards": [card.to_dict() for card in cards],
@@ -1029,6 +1248,27 @@ def _validated_resume_evidence(
         raise StageBlocked("resume evidence is not current for the blocked finding scope")
     _validated_gate_mapping(review)
     return _json_copy(evidence, what="resume evidence")
+
+
+def _validate_recovery_candidate(card: StageCard) -> None:
+    """Require durable dead/expired evidence before a fresh-instance reclaim."""
+    if card.revision < 1 or card.attempt < 1 or card.fencing_token < 1:
+        raise StageBlocked("running card lacks a valid revision, attempt, or fencing token")
+    claim = next(
+        (
+            event
+            for event in reversed(card.attempts)
+            if event.get("event") == "claimed" and event.get("attempt") == card.attempt
+        ),
+        None,
+    )
+    if not isinstance(claim, Mapping):
+        raise StageBlocked("running card lacks claim evidence for recovery")
+    now = _now_ms()
+    expired = card.lease_expires_at is not None and card.lease_expires_at <= now
+    dead = card.lease_owner_pid is not None and not _pid_is_alive(card.lease_owner_pid)
+    if not (dead or expired):
+        raise StageBlocked("running card owner is still live and its lease has not expired")
 
 
 def _validate_loaded_state(cards: list[StageCard]) -> None:

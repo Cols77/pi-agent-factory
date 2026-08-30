@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +18,11 @@ from coherence.planning.kanban import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def trusted_state_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PI_AGENT_FACTORY_KANBAN_STATE_KEY", "k" * 64)
 
 
 def coherence_gate(label: str = "planning-checkpoint") -> dict[str, object]:
@@ -166,6 +174,44 @@ def test_heartbeat_preserves_the_current_attempt_evidence(tmp_path: Path) -> Non
         "event": "heartbeat",
     }
     run.reclaim(capture.id, reason="cleanup")
+
+
+def test_fresh_instance_recovers_dead_owner_same_attempt_with_higher_fence(
+    tmp_path: Path,
+) -> None:
+    run = materialize_ready_capture(tmp_path)
+    capture = run.cards[1]
+    owner_script = (
+        "import sys; "
+        "from pathlib import Path; "
+        "from coherence.planning.kanban import PlanningKanban; "
+        "r = PlanningKanban.load(Path(sys.argv[1]), 'run-1'); "
+        "r.claim(r.cards[1].id, worker='crashed-worker')"
+    )
+    subprocess.run(
+        [sys.executable, "-c", owner_script, str(tmp_path)],
+        check=True,
+        env=os.environ.copy(),
+    )
+
+    stale = PlanningKanban.load(tmp_path, "run-1")
+    before = stale.card(capture.id)
+    assert before.status == "running"
+    recovered = PlanningKanban.load(tmp_path, "run-1").recover(
+        capture.id,
+        reason="owner process exited",
+        revision=before.revision,
+        attempt=before.attempt,
+    )
+
+    assert recovered.status == "ready"
+    assert recovered.revision == before.revision
+    assert recovered.attempt == before.attempt == 1
+    assert recovered.fencing_token > before.fencing_token
+    assert recovered.attempts[-1]["event"] == "crash_reclaim"
+    assert not (tmp_path / ".factory" / "planning" / ".planning-writer.lock").exists()
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        stale.complete(capture.id, evidence=coherence_gate("stale"))
 
 
 def test_writer_paths_are_exact_and_shared_writers_are_serialized(tmp_path: Path) -> None:
@@ -444,7 +490,7 @@ def test_load_rejects_mutable_state_forgery_with_an_unchanged_contract(tmp_path:
         mutate(payload)
         assert payload["contract_sha256"] == run.contract_sha256
         path.write_text(json.dumps(payload), encoding="utf-8")
-        with pytest.raises(PlanningKanbanError, match="state integrity|hash"):
+        with pytest.raises(PlanningKanbanError, match="state integrity|authentication|hash"):
             PlanningKanban.load(tmp_path, "run-1")
 
     path.write_text(json.dumps(original), encoding="utf-8")
@@ -454,8 +500,67 @@ def test_load_rejects_a_state_hash_mismatch(tmp_path: Path) -> None:
     PlanningKanban.materialize(tmp_path, "run-1")
     path = state_path(tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["state_sha256"] = "0" * 64
+    payload["state_hmac_sha256"] = "0" * 64
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(PlanningKanbanError, match="state integrity hash"):
+    with pytest.raises(PlanningKanbanError, match="state authentication"):
+        PlanningKanban.load(tmp_path, "run-1")
+
+
+def test_load_rejects_mutable_forgery_even_when_an_attacker_recomputes_old_hash(
+    tmp_path: Path,
+) -> None:
+    run = PlanningKanban.materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["cards"][0]["output"] = {"forged": True}
+    unsigned = {key: value for key, value in payload.items() if key != "state_hmac_sha256"}
+    payload["state_hmac_sha256"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert "state_sha256" not in payload
+    assert "k" * 64 not in path.read_text(encoding="utf-8")
+    assert run.card(run.cards[0].id).output == {}
+    with pytest.raises(PlanningKanbanError, match="authentic|integrity|hash"):
+        PlanningKanban.load(tmp_path, "run-1")
+
+
+def test_load_rejects_unknown_state_and_card_fields(tmp_path: Path) -> None:
+    PlanningKanban.materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    original = json.loads(path.read_text(encoding="utf-8"))
+
+    for mutate in (
+        lambda payload: payload.__setitem__("unexpected", True),
+        lambda payload: payload["cards"][0].__setitem__("unexpected", True),
+    ):
+        payload = json.loads(json.dumps(original))
+        mutate(payload)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(PlanningKanbanError, match="schema|field|unknown"):
+            PlanningKanban.load(tmp_path, "run-1")
+
+
+def test_load_rejects_missing_required_card_operational_fields(tmp_path: Path) -> None:
+    PlanningKanban.materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    original = json.loads(path.read_text(encoding="utf-8"))
+
+    for field in ("status", "attempt", "attempts", "gate_passed", "output", "required_context"):
+        payload = json.loads(json.dumps(original))
+        del payload["cards"][0][field]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(PlanningKanbanError, match="missing|schema|field"):
+            PlanningKanban.load(tmp_path, "run-1")
+
+
+def test_load_fails_closed_when_trusted_state_key_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    PlanningKanban.materialize(tmp_path, "run-1")
+    monkeypatch.delenv("PI_AGENT_FACTORY_KANBAN_STATE_KEY")
+
+    with pytest.raises(PlanningKanbanError, match="authenticated kanban state"):
         PlanningKanban.load(tmp_path, "run-1")
