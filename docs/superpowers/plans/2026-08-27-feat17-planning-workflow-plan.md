@@ -118,48 +118,46 @@ evidence.
 
 ### 2.1 Run inputs and evidence paths
 
-Every run has a safe `run_id`, a selected project root, and an input manifest. The initial
-implementation retains these paths:
+Every run has a safe `run_id`, a selected project root, and an input manifest. Run-local evidence is
+immutable by stage revision and invocation attempt. The initial implementation retains these canonical
+input paths and adds only derived, versioned projections:
 
 ```text
 .intent/intent.json
-.factory/planning/<run-id>/capture/events.jsonl
 .factory/planning/<run-id>/state.json
+.factory/planning/<run-id>/revision-index.jsonl
+.factory/planning/<run-id>/current/<stage-id>.json
 .factory/planning/<run-id>/resolution-events.jsonl
+.factory/planning/<run-id>/stages/<stage-id>/r<revision>/a<attempt>/stage-manifest.json
+.factory/planning/<run-id>/stages/<stage-id>/r<revision>/a<attempt>/<artifact>
+.factory/planning/<run-id>/decisions/<decision-kind>/r<revision>/a<attempt>/decision-<decision-id>.json
 ```
 
-The run may use schema-one intent input, but the canonical internal representation and new
-materialization must preserve schema-two provenance fields: exact prompt, question/source/sequence,
-structured brief, capture status, redactions, challenges, challenge responses, unresolved questions,
-and decision provenance. Every review packet, producer record, task record, and final handoff binds
-its input paths and hashes.
+For concrete artifact names, `capture` uses `events.jsonl`; the three review stages use
+`review-report.json` and `checkpoint-gate.json`; candidate derivation uses
+`candidate-sr-derivation.json`; plan and task producers use `plan-authoring.json` and
+`task-materialization.json`; cross-artifact alignment also uses `traceability.json`; human boundaries
+use `warning-decisions.json`, `sr-consent.json`, `feature-boundary-decision.json`, and
+`canonical-adoption.json`; final gates use `final-gates.json`; handoff uses `handoff.json` and
+`handoff.md`; and the optional planning root uses `kanban-run.json`. The exact expansions are defined
+in the authority spec §2.2 and §8.1 and must be used by every card and manifest.
 
-Planned run evidence includes:
+`revision` starts at 1 for a stage lineage and increments for a scoped source/fix change. `attempt`
+starts at 1 for each new invocation within that revision. A crash reclaim resumes the same attempt
+and appends evidence; a retry starts the next attempt and never reuses the old output path. The
+append-only revision index records predecessor, invalidation reason, and current pointer. The current
+pointer is replaceable derived state, not evidence; it may name only one matching artifact/report/gate
+tuple. Stable lineage idempotency is `feat17/<run-id>/<stage-id>/v1`, and the attempt binding is
+`feat17/<run-id>/<stage-id>/r<revision>/a<attempt>/v1`. No review, candidate, plan, task, trace,
+decision, resolution, or handoff evidence may be overwritten ambiguously.
 
-```text
-.factory/planning/<run-id>/spec-authoring.json
-.factory/planning/<run-id>/candidate-sr-derivation.json
-.factory/planning/<run-id>/reviews/<checkpoint>/<attempt>.json
-.factory/planning/<run-id>/plan-authoring.json
-.factory/planning/<run-id>/task-materialization.json
-.factory/planning/<run-id>/traceability.json
-.factory/planning/<run-id>/warning-decisions.json
-.factory/planning/<run-id>/sr-consent.json
-.factory/planning/<run-id>/feature-boundary-decision.json
-.factory/planning/<run-id>/final-gates.json
-.factory/planning/<run-id>/handoff.json
-.factory/planning/<run-id>/handoff.md
-.factory/planning/<run-id>/kanban-run.json       # only when optional transport is requested
-```
+The single versioned candidate derivation artifact contains the candidate SR set and both candidate
+feature/bundle projections; separate projection files are forbidden. It has no `review_hash` or any
+post-review mutation. Its immutable content hash is computed before review and is recorded in the
+stage manifest, candidate review input manifest, and all downstream manifests. Canonical FEAT/SR/bundle
+adoption remains a later, explicit, consent-gated human-boundaries operation.
 
-`<checkpoint>` is exactly `spec_alignment`, `candidate_sr_alignment`, or
-`cross_artifact_alignment`; `<attempt>` is a positive decimal attempt number. The versioned
-`.factory/planning/<run-id>/candidate-sr-derivation.json` record contains the single run-local
-candidate SR set and its candidate feature/bundle projection, with derivation/source hashes (or
-exact paths and hashes for any separately stored projection). Canonical FEAT/SR/bundle adoption
-remains a later, explicit, consent-gated human-boundaries stage.
-
-Run-local evidence is derived and immutable by attempt. It never silently replaces canonical
+Run-local evidence is derived and immutable by revision/attempt. It never silently replaces canonical
 source artifacts or human decisions.
 
 ### 2.2 Real producer interface
@@ -194,12 +192,24 @@ The provisional spec is the canonical semantic authority for the run. It has str
 provisional/unresolved state, and implementation and verification obligations. It cannot claim
 human consent, canonical SR adoption, or downstream execution.
 
-The one candidate-SR record is run-local and includes schema, run ID, source-spec path/hash,
-derivation revision, candidate IDs/statements/anchors, evidence needed, full-context digest,
-non-SR classifications, review hash, and feature-boundary outcome. Its adversarial review must
-explicitly cover duplicate, conflict, unsupported-claim, compatibility, missing-obligation,
-complete-context, and feature-boundary cases. A correction is a new immutable revision in this
-single derivation lineage, not another independent derivation.
+The one candidate-SR record is run-local, immutable, and stored only at the versioned stage path. Its
+schema is the authority spec §6.4 schema 2: it contains `candidate_srs`, `non_sr_classifications`,
+`candidate_feature_projection`, and `candidate_bundle_projection` together with run/stage/lineage,
+revision/attempt, source-spec hash, full-context digest, and no `review_hash`. Its content hash is
+computed before review and is carried by the stage manifest and every consumer. The adversarial review
+stores that candidate input hash; it does not mutate the candidate file. Separate feature/bundle
+projection artifacts are forbidden. Its adversarial review must explicitly cover duplicate,
+conflict, unsupported-claim, compatibility, missing-obligation, complete-context, and
+feature-boundary cases. A correction is a new immutable revision in this single derivation lineage,
+not another independent derivation.
+
+The normative review-report and checkpoint-gate schemas are in authority spec §6.5. Each report has
+checkpoint enum, stage/lineage/revision/attempt identity, current input-manifest and artifact hashes,
+status `clean|findings|escalated|invalid`, exact finding IDs/scopes, independent reviewer identity,
+and report hash. Each gate has the matching report hash/path, current manifest/artifact hashes,
+status `pass|fail|invalid`, deterministic evidence, and gate hash. A child may run only from the
+current clean report plus matching pass gate; prior attempts, escalation, human responses, and card
+state cannot substitute.
 
 The implementation plan has `spec_ref` and candidate-set provenance. Every task section contains:
 
@@ -216,7 +226,7 @@ The implementation plan has `spec_ref` and candidate-set provenance. Every task 
 A generated task record must include:
 
 ```text
-id, title, status
+id, title, status, run_id, stage_id, lineage_id, revision, attempt
 source_plan, source_task, source_spec
 sr_bindings: [{id, type: implements|verifies|supports, source_anchor, hash}]
 non_sr_classification: {classification, reason, source_anchor, review_hash}  # when applicable
@@ -224,11 +234,61 @@ acceptance_criteria
 test_paths, test_commands
 implementation_evidence, verification_evidence
 dependencies, allowed_paths, prohibited_paths
-spec_hash, plan_hash, candidate_set_hash
+spec_hash, plan_hash, candidate_set_hash, task_projection_hash
 ```
 
 Before handoff, every task binds to an adopted SR through `implements`, `verifies`, or `supports`,
 or to an explicit reviewed non-SR classification. Unbound or ambiguous tasks block.
+
+### 2.4 Shared DecisionFile, boundary, and handoff contracts (prerequisite)
+
+The shared DecisionFile contract is implemented before Task 4, not introduced by the later adoption
+task. Every immutable human decision is written at the exact path
+`.factory/planning/<run-id>/decisions/<decision-kind>/r<revision>/a<attempt>/decision-<decision-id>.json`,
+with `decision-kind` in `challenge-resolution`, `warning-disposition`, `feature-boundary`, `sr-consent`,
+or `canonical-adoption`. It uses schema 1 and must contain `decision_id`, `decision_kind`, `run_id`,
+`stage_id`, `lineage_id`, `revision`, `attempt`, exact `finding_scope` (`finding_ids`, `boundary_ids`,
+`coverage=exact`), `source_review.path/sha256`, `current_inputs.manifest_sha256` plus sorted
+path/hash entries, post-redaction verbatim `response_text`, `response_hash`, kind-specific `status`,
+an `actor` with `kind=authenticated_human`, authenticated subject/method/event/session, and a
+`replay` object with idempotency key, nonce, and previous journal-event hash. `decision_hash` is the
+canonical JSON hash with only that member excluded. A validated writer rejects stale reports or
+inputs, unauthenticated actors, incomplete coverage, duplicate IDs/nonces, invalid statuses, and
+replays; it maps exactly one accepted record to one durably appended `resolution-events.jsonl` event
+containing the same run/stage/revision/attempt, source report hash, input/artifact hashes,
+response/decision hashes, actor, status, and previous-event hash.
+
+The status enums are fixed: warnings use `fixed|accepted_risk|rejected|deferred|invalid`; feature
+boundaries use `selected|split_sequential|withheld|deferred|invalid`; SR consent uses
+`consent_granted|consent_withheld|deferred|invalid`; canonical adoption uses
+`adopted|withheld|deferred|invalid`; challenge resolution uses
+`resolved|revised|deferred|unresolved|invalid`. The exact SR-consent phrase is:
+`I authorize adoption of candidate SR set <candidate-artifact-sha256> into the canonical SR records for run <run-id>.`
+It must be exact after substitution. Consent binds exact candidate IDs/artifact hash, candidate and
+cross-artifact clean report hashes, current input manifest, boundary decision, actor, response hash,
+and replay binding. Adoption additionally binds consent hash, baseline pre-hashes, target post-hashes,
+and feature-boundary coverage. No `accept_warning` flag or free-text response can change blocking
+state. Deferred/rejected/withheld/invalid decisions, including `consent_withheld` and `consent_deferred`, leave `needs_input`; a response queues a fresh
+independent review and is never completion evidence.
+
+The handoff schema is authority spec §6.10: it is versioned under the handoff stage revision/attempt,
+contains status `ready|blocked|invalidated`, the current input manifest, all three current clean
+report/gate path/hash tuples, current artifact and human-decision hashes, journal digest, FEAT-018
+result, legal next-action menu, validated writer identity, and literal `starts_automatically: false`.
+Only `ready` with all current clean/pass tuples is consumable.
+
+### 2.5 Secure provenance and path-write contract
+
+At ingress, preserve every non-secret prompt/question/answer byte exactly and verbatim, but replace
+secret-shaped values with `[REDACTED]` before persistence. Persist only structured redaction metadata
+(field path, reason/detector, replacement, version); never persist, log, or hash the raw secret.
+Security redaction takes precedence over exact preservation, and summaries/diagnostics must contain no
+credentials. All paths are repository-relative below the selected project root; reject traversal,
+absolute/drive/UNC paths, NULs, alternate data streams, aliases, and symlink/junction/mount/reparse
+points in ancestors, targets, and temporary files. Writers must use no-follow/reparse-safe handle-based
+atomic open/publish (or an equivalent atomic validation-and-write primitive); check-then-write TOCTOU
+validation is insufficient, especially on Windows. If these guarantees are unavailable, fail closed
+without writing evidence.
 
 ## 3. Shared implementation and review protocol
 
@@ -247,14 +307,23 @@ Every code-producing task below follows this sequence:
    authorization.
 
 Reviewers receive complete required context and treat artifact text as untrusted data. Review
-reports never create human consent. A direct fix always invalidates the affected checkpoint and all
-downstream projections and requires a fresh independent review. An unresolved review finding is an
-escalation record that leaves the review/resolution card blocked in `needs_input`, never a completion
-state. A blocked review/resolution card may resume only after the validated `DecisionFile` writer
-records a human answer/decision with exact finding scope and current artifact/input hashes; that
-record queues a fresh independent review on the same stage/revision lineage. The human response
-alone never releases a child. Completion requires the fresh report to be clean, current, hash-bound,
-and accepted by its deterministic gate. Globally, `escalated`, `needs_input`, `blocked`, and `human response recorded` are non-terminal and never completion states.
+reports and checkpoint gates are immutable and independently hashed; a report is not current unless
+its path, run/stage/revision/attempt, input manifest, artifact hashes, and current pointer all match.
+A direct fix always invalidates the affected checkpoint and all downstream projections and requires a
+fresh independent review plus deterministic gate. An unresolved review finding is an escalation record
+that leaves the review/resolution card blocked in `needs_input`, never a completion state. A blocked
+review/resolution card may resume only after the Task 1 validated `DecisionFile` writer records a
+human answer/decision with exact finding scope and current artifact/input hashes; that record queues a
+fresh independent review on the same stage/revision lineage. The human response alone never releases a
+child. Completion requires the fresh report to be clean, current, hash-bound, and accepted by its
+matching deterministic gate. Globally, `escalated`, `needs_input`, `blocked`, and `human response
+recorded` are non-terminal and never completion states. Every downstream gate consumes the current
+report/gate tuple rather than a state projection, prior attempt, DecisionFile status, or Kanban `done`.
+
+A scoped fix, canonical adoption, or task/source change recomputes hashes, appends invalidation, marks
+the affected current pointer and every descendant invalid, and creates new revision/attempt evidence
+in the same lineage. Plan, task, trace, final-gate, and handoff projections must be regenerated and
+re-reviewed. Supplied baselines are never silently overwritten; old evidence remains immutable.
 
 ## 4. Dependency-gated implementation tasks
 
@@ -262,7 +331,8 @@ and accepted by its deterministic gate. Globally, `escalated`, `needs_input`, `b
 
 **Objective:** Make the capture boundary a durable, verbatim, append-only source for prompt,
 questions, answers, repository observations, challenges, human decisions, unresolved state, and
-failed-snapshot recovery.
+failed-snapshot recovery, and implement the shared immutable DecisionFile writer/validator that all
+review resolution stages require before Task 4.
 
 **Files:**
 - Modify: `src/coherence/planning/model.py`
@@ -270,52 +340,68 @@ failed-snapshot recovery.
 - Modify: `src/coherence/planning/session.py`
 - Modify: `src/coherence/planning/serialization.py`
 - Modify: `src/coherence/planning/check.py`
+- Create: `src/coherence/planning/decisions.py`
 - Test: `tests/unit/coherence/test_planning_intent.py`
 - Test: `tests/unit/coherence/test_planning_session.py`
 - Test: `tests/unit/coherence/test_planning_check.py`
 - Test: `tests/unit/coherence/test_planning_resolution.py`
+- Test: `tests/unit/coherence/test_planning_decisions.py`
 
 **Interfaces:**
 - Existing `.intent/intent.json` schema-one reader and schema-two materializer.
-- Existing `.factory/planning/<run-id>/capture/events.jsonl` and `state.json` paths.
+- Existing `.factory/planning/<run-id>/stages/capture/r<revision>/a<attempt>/events.jsonl` and derived `state.json` paths.
 - Existing strict serializers and safe path helpers.
+- New schema-1 DecisionFile, authenticated-human provenance, replay/idempotency, and
+  append-only-resolution-event contract from §2.4 and authority spec §6.9.
 
 **Dependencies/order:** First runtime task. It gates every producer and review packet because all
-later stages require exact prompt/provenance and a recoverable run.
+later stages require exact post-redaction prompt/provenance and a recoverable run. Its DecisionFile schema/path
+validator and journal mapping must be complete before Task 2–4 can release work; Task 7 consumes the
+same writer and must not redefine it.
 
-**RED/documentation verification:** Add failing tests for exact original prompt preservation,
-question/answer source provenance, repository-observation hashes, challenge raise/resolve/revise/
-defer/accept state, exact human response provenance, unresolved state, duplicate sequence/event
-rejection, and atomic materialization failure preserving the last known-good snapshot while keeping
-the new journal event. Run:
+**RED/documentation verification:** Add failing tests for exact non-secret prompt preservation and
+ingress redaction, question/answer source provenance, repository-observation hashes, challenge
+raise/resolve/revise/defer/accept state, exact human response provenance, unresolved state, duplicate
+sequence/event rejection, and atomic materialization failure preserving the last known-good snapshot
+while keeping the new journal event. Also test the schema-1 DecisionFile path/status/field contract,
+authenticated-human requirement, exact finding/boundary coverage, current report/input hash checks,
+response/decision hashes, nonce/idempotency replay rejection, one-event journal mapping, and the
+fact that a response remains non-terminal. Run:
 
 ```bash
-uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py -q -o addopts=''
+uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py tests/unit/coherence/test_planning_decisions.py -q -o addopts=''
 ```
 
 Record which existing tests pass and which new assertions are RED; do not delete tests to make the
 baseline look green.
 
-**Implementation/GREEN:** Extend the strict event schema and deterministic state projection,
-retain schema-one reads, preserve all captured text exactly, bind challenge resolutions to an
-explicit actor/provenance record, and use atomic replace semantics that never destroy the last good
-snapshot on failure. Do not infer a decision from silence or model output.
+**Implementation/GREEN:** Extend the strict event schema and deterministic state projection, retain
+schema-one reads, preserve all captured non-secret text exactly, redact secret-shaped values before
+persistence, bind challenge resolutions to an explicit actor/provenance record, and use atomic
+replace semantics that never destroy the last good snapshot on failure. Implement the shared
+DecisionFile validator/writer with exact repository-relative paths, fixed status enums, current
+report/input/artifact hashes, authenticated-human actor, response/decision hashes, replay protection,
+and one-to-one append-only resolution-event mapping. Do not infer a decision from silence or model
+output; do not make a human response terminal.
 
 ```bash
-uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py -q -o addopts=''
-uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py
+uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py tests/unit/coherence/test_planning_decisions.py -q -o addopts=''
+uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_decisions.py
 uv run pyright src/coherence/planning
 ```
 
 **Acceptance criteria:** The journal is strictly ordered and append-only; schema-one reads remain
 compatible; every challenge/decision/unresolved value is queryable with exact provenance; unsafe,
-malformed, duplicate-key, non-finite, non-UTF-8, or secret-shaped data fails closed; a failed
-snapshot replacement preserves the prior bytes; and state/hash evidence names the journal and
-intent sources.
+malformed, duplicate-key, non-finite, non-UTF-8, or secret-shaped data is redacted/rejected before
+persistence; a failed snapshot replacement preserves the prior bytes; state/hash evidence names the
+journal and intent sources; and every accepted DecisionFile maps once to a replay-protected journal
+event while leaving deferred/rejected/unresolved responses in `needs_input`.
 
-**Prohibited scope:** Do not author a specification or plan, allocate/adopt SRs, write consent or
-warning decisions, alter FEAT files, create Kanban cards, invoke downstream work, or modify the two
-canonical documents except for a separately authorized verified-fact update.
+**Prohibited scope:** Do not author a specification or plan, create actual consent/warning decisions,
+allocate/adopt SRs, alter FEAT files, create Kanban cards, invoke downstream work, or modify the two
+canonical documents except for a separately authorized verified-fact update. Implement only the
+shared DecisionFile contract and writer needed by later stages; do not bypass its authentication or
+status validation.
 
 ### Task 2: Implement and test the real provisional-spec producer
 
@@ -392,29 +478,39 @@ runs before plan authoring with complete current SR context.
 **Interfaces:**
 - Reviewed provisional spec and `spec-authoring.json` from Task 2.
 - Existing read-only Coherence trace/navigation context.
-- Existing immutable semantic packet/report and resolution journal machinery.
+- Immutable review-report/checkpoint-gate schemas from §6.5, including report/gate hash scope,
+  current-pointer validation, and deterministic evidence.
+- Shared DecisionFile schema/writer and append-only resolution journal from Task 1.
 
-**Dependencies/order:** Depends on Tasks 1 and 2. It must run after `spec_alignment` and before any
-implementation-plan producer. Update `REVIEW_STAGES` and workflow state to
+**Dependencies/order:** Depends on Tasks 1 and 2. It must run after the current clean `spec_alignment`
+report plus deterministic gate and before any implementation-plan producer. The shared DecisionFile
+writer is already implemented by Task 1; a human response or later Task 7 adoption code is not a
+dependency or bypass. Update `REVIEW_STAGES` and workflow state to
 `spec_alignment`, `candidate_sr_alignment`, and `cross_artifact_alignment`. Do not preserve the
 old late-derivation stage as an alias that can run after the plan.
 
 **RED/documentation verification:** Add tests proving candidate derivation cannot run without a
-hash-matching reviewed spec, produces exactly one run-local candidate set, and provides every
+current clean hash-matching `spec_alignment` report and deterministic gate, produces exactly one
+run-local candidate set, and provides every
 non-deleted SR with status/source/trace context. Add adversarial cases for duplicate and
 near-duplicate obligations, contradictory statements/status/ownership, unsupported claims,
 schema/register compatibility, missing independently governable obligations, explanatory prose,
 complete-context digest, feature splits, and supplied FEAT baseline preservation. Assert that a
-second independent derivation request is rejected or treated as a revision of the same lineage.
+second independent derivation request is rejected or treated as a revision of the same lineage, that
+the candidate artifact contains both concrete feature/bundle projections, that no projection sidecar
+is accepted, and that review publication cannot add a `review_hash` or mutate candidate bytes.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_candidate_sr.py tests/unit/coherence/test_planning_semantic.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
 ```
 
-**Implementation/GREEN:** Write the candidate record only under the run directory, bind it to the
-reviewed spec and full-context digest, make candidate IDs/anchors/relations deterministic, and
-persist adversarial findings. Allow only scoped revision attempts within this one derivation
-lineage; every revision invalidates its review and downstream artifacts. Keep canonical SR
+**Implementation/GREEN:** Write the candidate record only under the versioned run stage directory,
+bind it to the reviewed spec and full-context digest, include the exact `candidate_feature_projection`
+and `candidate_bundle_projection` fields from authority spec §6.4, make candidate IDs/anchors/
+relations deterministic, and persist adversarial findings in a separate immutable review report.
+Compute and publish the candidate content hash before review; do not put `review_hash` in the
+candidate artifact or mutate it after review. Allow only scoped revision attempts within this one
+derivation lineage; every revision invalidates its review and downstream artifacts. Keep canonical SR
 registration/adoption for the later human boundary.
 
 ```bash
@@ -424,9 +520,10 @@ uv run pyright src/coherence/planning src/coherence/navigate
 ```
 
 **Acceptance criteria:** Candidate derivation is observable before plan authoring, one candidate set
-and revision lineage is hash-bound, every required adversarial category is represented in the review
-contract, all current non-deleted SR context is supplied, duplicates/conflicts are retained for
-review rather than hidden, and no candidate becomes canonical without later exact human consent.
+and revision lineage is hash-bound, the candidate artifact alone contains the SR/feature/bundle
+projection and has no review back-reference, every required adversarial category is represented in
+the review contract, all current non-deleted SR context is supplied, duplicates/conflicts are retained
+for review rather than hidden, and no candidate becomes canonical without later exact human consent.
 
 **Prohibited scope:** Do not author a plan or task, modify canonical requirements/FEAT/bundle
 records, grant consent, accept warnings, create nested subfeatures, or invoke FEAT-018/019/020.
@@ -453,11 +550,14 @@ set, then read back, validate, and hash it before task materialization.
 - Existing `parse_plan_tasks` grammar in `src/substrate/ledger/plans.py`.
 - Canonical plan target under `docs/superpowers/plans/<approved-name>.md`.
 
-**Dependencies/order:** Depends on Task 3. It must run only after the current
-`candidate_sr_alignment` report is clean, current, hash-bound to the candidate/spec/context inputs,
-and its deterministic gate passes. An escalation record, `needs_input` state, human response, or
-human decision does not substitute for that clean-review evidence. It must complete before task
-materialization.
+**Dependencies/order:** Depends on Task 3 and the shared DecisionFile schema/validator/journal writer
+implemented in Task 1. It must run only after the current `candidate_sr_alignment` report is clean,
+current, hash-bound to the candidate/spec/context inputs, and its deterministic gate passes. The
+DecisionFile contract is a prerequisite already available here; Task 4 must not wait for or call the
+later Task 7 adoption writer. An escalation record, `needs_input` state, human response, human disposition,
+`accept_warning`, or human decision does not substitute for that clean-review tuple.
+If any candidate finding is unresolved or a response was recorded without a fresh review, plan
+production remains blocked. It must complete before task materialization.
 
 **RED/documentation verification:** Add a fake-backend producer test that fails until the plan
 contains both implementation and verification sections, explicit test-artifact obligations, exact
@@ -491,9 +591,9 @@ write human decisions, create a second verification plan, or start implementatio
 
 ### Task 5: Materialize typed tasks with complete source and evidence contracts
 
-**Objective:** Make plan-to-task generation idempotently create task records that preserve source
-spec/plan/SR links, typed relations or reviewed non-SR classification, acceptance criteria, exact
-tests/commands, and evidence obligations.
+**Objective:** Make plan-to-task generation idempotently create versioned task projections that
+preserve source spec/plan/SR links, typed relations or reviewed non-SR classification, acceptance
+criteria, exact tests/commands, evidence obligations, and run/stage/revision/attempt identity.
 
 **Files:**
 - Create: `src/coherence/planning/task_materialization.py`
@@ -510,9 +610,11 @@ tests/commands, and evidence obligations.
 - Existing filesystem-first task writer and selected-plan parity behavior.
 - Candidate/adopted SR and reviewed non-SR binding schemas.
 
-**Dependencies/order:** Depends on Task 4. It runs after plan read-back and before the
-`cross_artifact_alignment` checkpoint. It must not pre-create spec, plan, SR, FEAT, or bundle
-artifacts merely to satisfy a consumer check.
+**Dependencies/order:** Depends on Task 4. It runs after plan read-back and before the current clean
+`cross_artifact_alignment` review/gate. It must not pre-create spec, plan, SR, FEAT, or bundle
+artifacts merely to satisfy a consumer check. A task/source fix increments the stage revision,
+invalidates the current task/trace/handoff descendants, and creates a new versioned projection; it
+never overwrites prior task evidence.
 
 **RED/documentation verification:** Add tests that fail for missing source spec/plan links,
 missing or ambiguous SR bindings, unreviewed non-SR classification, missing acceptance criteria,
@@ -524,10 +626,12 @@ uv run pytest tests/unit/coherence/test_planning_task_materialization.py tests/u
 ```
 
 **Implementation/GREEN:** Extend the existing writer or add the narrowest wrapper so each plan task
-maps to exactly one generated record, with deterministic IDs and source fields. Validate typed
+maps to exactly one generated record, with deterministic IDs, source fields, and run/stage/lineage/
+revision/attempt identity. Validate typed
 `implements`/`verifies`/`supports` relations against candidate IDs and source anchors, or require a
 reviewed non-SR record. Persist `task-materialization.json` with plan/spec/candidate hashes. Reruns
-return existing records for the same plan hash/source task and never duplicate them.
+return existing records for the same plan hash/source task/revision and never duplicate them; a
+changed source hash is a new revision, not an in-place update.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_task_materialization.py tests/unit/test_plan_to_tasks.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -536,8 +640,9 @@ uv run pyright src/coherence/planning src/substrate/ledger
 ```
 
 **Acceptance criteria:** One and only one generated task exists per selected plan task; unrelated
-plans remain distinguishable; every record has the complete target contract and exact hashes;
-running materialization twice is idempotent; missing/ambiguous bindings block; and no task claims
+plans remain distinguishable; every record has the complete target contract, exact hashes, and
+revision/attempt identity; running materialization twice is idempotent; source changes invalidate
+the old projection rather than overwrite it; missing/ambiguous bindings block; and no task claims
 human adoption before the later consent boundary.
 
 **Prohibited scope:** Do not adopt SRs, write canonical requirements/FEAT/bundle files, accept
@@ -566,7 +671,9 @@ reviewed non-SR classification, plan task, generated task, and implementation/ve
 - Existing planning report/hash and semantic review packet contracts.
 
 **Dependencies/order:** Depends on Tasks 1–5. This is the third semantic checkpoint and runs only
-after the real plan and typed tasks exist. The resulting trace gate must precede human adoption.
+after the real plan and typed tasks exist and their current input/artifact hashes are bound. It must
+publish the immutable `cross_artifact_alignment` review-report/checkpoint-gate tuple before human
+adoption. The resulting current clean trace/review gate must precede human adoption.
 
 **RED/documentation verification:** Add failing forward and reverse cases: omitted intent decision,
 unsupported spec claim, candidate with no spec anchor, spec obligation with no candidate or reviewed
@@ -579,10 +686,13 @@ uv run pytest tests/unit/coherence/test_planning_traceability.py tests/unit/cohe
 uv run coherence trace check --project-root .
 ```
 
-**Implementation/GREEN:** Materialize a deterministic trace report with forward and reverse edges,
-source anchors, relationship types, test/evidence paths, and all relevant hashes. Make
-`cross_artifact_alignment` consume this report and fail closed on any gap, contradiction, duplicate,
-foreign source, or stale artifact. Keep known repository-wide debt as a separately labelled finding.
+**Implementation/GREEN:** Materialize a versioned deterministic trace report with run/stage/lineage/
+revision/attempt, forward and reverse edges, source anchors, relationship types, test/evidence paths,
+and all relevant hashes. Publish the immutable `cross_artifact_alignment` report and deterministic
+checkpoint gate using the §6.5 schemas, then make the current-pointer gate fail closed on any gap,
+contradiction, duplicate, foreign source, or stale artifact. Keep known repository-wide debt as a
+separately labelled finding. Any trace/task/source change invalidates this report/gate and descendants
+and requires fresh evidence.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_traceability.py tests/unit/coherence/test_planning_trace_contract.py tests/unit/coherence/test_planning_workflow.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -594,7 +704,9 @@ uv run coherence trace check --project-root .
 **Acceptance criteria:** `cross_artifact_alignment` runs after task materialization; every
 independently governable obligation is represented exactly once or has a reviewed non-SR reason;
 every candidate/task points back to valid source authority; implementation and verification
-artifacts close both directions; and a clean report is impossible with stale or incomplete links.
+artifacts close both directions; the report has exact finding IDs/scopes, independent reviewer
+identity, and hashes; the gate has matching current report/input/artifact hashes and deterministic
+evidence; and a clean report is impossible with stale or incomplete links.
 
 **Prohibited scope:** Do not write human consent, adopt SRs, disposition warnings, create nested
 features, or use Kanban `done` as a substitute for the Coherence trace gate.
@@ -618,32 +730,42 @@ operability warnings blocked until resolution or explicit human disposition.
 - Test: `pi-ext/factory-watch/test/plan-review-command.test.ts`
 
 **Interfaces:**
-- Existing validated `DecisionFile` machinery and read-only planning reports.
-- Task 3 candidate-set hash and review hash.
+- Shared schema-1 `DecisionFile` writer/validator from Task 1, including its exact path, replay,
+  authentication, journal mapping, and current-pointer rules; Task 7 must not redefine it.
+- Immutable read-only planning reports and checkpoint-gate tuples from §6.5.
+- Task 3 immutable candidate-artifact hash and separately stored candidate-SR review-report hash.
 - Task 6 clean cross-artifact/traceability report.
 - Human-facing host escalation and consent prompt boundary.
 
-**Dependencies/order:** Depends on Task 6. It runs after cross-artifact gates and before canonical
-adoption/final gates. A feature split must stop before any canonical FEAT write.
+**Dependencies/order:** Depends on Tasks 1 and 6. It runs after the current clean cross-artifact
+report plus deterministic gate and before canonical adoption/final gates. A feature split must stop
+before any canonical FEAT write. DecisionFile validation is not deferred to this task; this task only
+adds the kind-specific writers and mappings described in §2.4/authority spec §6.9.
 
 **RED/documentation verification:** Add tests proving unresolved challenges, feature splits, stale
-baselines, security warnings, and operability warnings remain blocked; only a validated human
-DecisionFile can disposition a warning; `accept_warning` cannot alter blocking state; semantic
+baselines, security warnings, and operability warnings remain blocked; only the Task 1 validated
+human DecisionFile can disposition a warning; `accept_warning` cannot alter blocking state; semantic
 cleanliness, agent/model output, silence, fixture data, and free-text escalation answers cannot
-create consent; exact SR consent binds candidate IDs, derivation-review hash, artifact hashes, run
-ID, actor, phrase, reason, and timestamp; replayed/tampered/stale decisions fail; and failed current
-consent/evidence snapshots require fresh re-derivation and fresh consent.
+create consent; fixed status enums and exact finding/boundary coverage are enforced; exact SR consent
+uses the authority-spec phrase and binds candidate IDs, candidate-artifact hash, candidate and
+cross-artifact clean report hashes, input manifest, run/stage/revision, authenticated actor,
+response/decision hashes, and replay binding; adoption binds consent/boundary hashes and target
+pre/post hashes; replayed/tampered/stale decisions fail; and failed current consent/evidence
+snapshots require fresh re-derivation and fresh consent.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_review_resolution.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
 npm test --prefix pi-ext/factory-watch -- --run test/plan-review-command.test.ts
 ```
 
-**Implementation/GREEN:** Use existing gate writers rather than a second warning store. Replace
-arbitrary in-memory warning acceptance with validation of an exact human decision bound to warning
-IDs and current hashes. Add explicit feature-boundary decision writing that preserves supplied
-FEAT/SR/bundle bytes until a human authorizes replacement. Add the exact SR consent phrase and
-canonical adoption writer only after the candidate review and cross-artifact gate are current.
+**Implementation/GREEN:** Use the Task 1 validated DecisionFile writer and existing gate writers
+rather than a second warning store. Replace arbitrary in-memory warning acceptance with validation of
+an exact human decision bound to warning IDs, current hashes, authenticated actor, status enum, and
+the append-only journal. Add explicit feature-boundary decision writing with selected feature IDs and
+sequential workflow/worktree assignments, preserving supplied FEAT/SR/bundle bytes until a human
+authorizes replacement. Add the exact SR consent phrase and canonical adoption writer only after the
+candidate and cross-artifact clean report/gate tuples are current; record pre/post hashes and
+invalidate downstream projections after any adoption.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_review_resolution.py tests/unit/coherence/test_planning_integration.py tests/unit/coherence/test_planning_handoff.py -q -o addopts=''
@@ -710,13 +832,14 @@ runs from prose or a Kanban `done` state alone.
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
 ```
 
-**Implementation/GREEN:** Persist `.factory/planning/<run-id>/kanban-run.json` with exact stage
-contracts: inputs/outputs and hashes, role/assignee, allowed/prohibited paths, workspace mode,
-parents, stable idempotency key, attempt/reclaim metadata, blocking reason, completion evidence,
-and required Coherence gate. Reconcile actual root/cards/edges against the intended graph before
-dispatch and before handoff. Reclaim the same key, append evidence, and never duplicate artifacts
-or cards. If the optional capability is unavailable, report a capability block rather than silently
-falling back to prose or an execution scheduler.
+**Implementation/GREEN:** Persist the optional transport record at the versioned root-stage path
+`.factory/planning/<run-id>/stages/planning-run/r<revision>/a<attempt>/kanban-run.json` with exact
+stage contracts: inputs/outputs and hashes, role/assignee, allowed/prohibited paths, workspace mode,
+parents, lineage idempotency key, revision/attempt/attempt key, reclaim metadata, blocking reason,
+completion evidence, and required Coherence gate. Reconcile actual root/cards/edges against the
+intended graph before dispatch and before handoff. Reclaim the same attempt key, append evidence, and
+never duplicate artifacts or cards. If the optional capability is unavailable, report a capability
+block rather than silently falling back to prose or an execution scheduler.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
@@ -738,12 +861,14 @@ use prose as a card, execute downstream work, or mark a Coherence gate green fro
 
 The stage-card contract in the authority spec §8.1 is part of this plan, not descriptive background.
 Task 8 must implement one root card and one strictly dependent card per listed stage, using the
-exact repository-relative artifact paths and graph stage IDs from that table. A card's stable
-idempotency key is `feat17/<run-id>/<stage-id>/v1`; `<stage-id>` is the table's exact lowercase,
-hyphenated graph node name, `v1` is the contract version, and revision/attempt are separate fields.
-Retries/reclaims keep that key and append attempt evidence. Review reports use
-`.factory/planning/<run-id>/reviews/<checkpoint>/<attempt>.json`, where `<checkpoint>` is exactly
-`spec_alignment`, `candidate_sr_alignment`, or `cross_artifact_alignment`.
+exact repository-relative versioned artifact paths and graph stage IDs from that table. A card's
+stable lineage idempotency key is `feat17/<run-id>/<stage-id>/v1`; its attempt key is
+`feat17/<run-id>/<stage-id>/r<revision>/a<attempt>/v1`. Reclaims keep the same attempt key and
+append evidence; a retry uses the next attempt path; a scoped fix uses the next revision and
+invalidates descendants. Review reports use
+`.factory/planning/<run-id>/stages/<stage-id>/r<revision>/a<attempt>/review-report.json`, where the
+checkpoint enum is exactly `spec_alignment`, `candidate_sr_alignment`, or
+`cross_artifact_alignment`, and the matching `checkpoint-gate.json` is required.
 
 Review stages own append-only resolution attempts. An unresolved finding is an escalation record that
 keeps the stage `blocked`/`needs_input`; escalation, `blocked`, `needs_input`, and `human response
@@ -757,15 +882,18 @@ must require this current clean review/report/gate evidence from its predecessor
 human-response hash, card `done`, prose, or second scheduler can substitute for it.
 
 The candidate SR/feature/bundle projection is created once in the versioned run-local
-`.factory/planning/<run-id>/candidate-sr-derivation.json` record before plan authoring; any separate
-projection artifact must be named and hash-bound there. Canonical writers run only in the explicit
-human-boundaries-and-adoption stage after exact human consent. There is no late SR derivation,
-separate verification plan, or prose fallback.
+`.factory/planning/<run-id>/stages/candidate-sr-derivation/r<revision>/a<attempt>/candidate-sr-derivation.json`
+record before plan authoring; the single document contains both projections and no separate projection
+artifact is permitted. Its pre-review content hash is stored in the stage manifest and candidate
+review input manifest, never as a `review_hash` back-reference. Canonical writers run only in the
+explicit human-boundaries-and-adoption stage after exact human consent. There is no late SR
+derivation, separate verification plan, or prose fallback.
 
-For each card persist and reconcile, at minimum: run/stage/version; exact input and output paths and
-hashes; role and assignee; allowed and prohibited paths; workspace claim/mode; parent IDs; stable
-idempotency key; attempt, timeout, heartbeat, retry, and reclaim metadata; blocking state/reason;
-completion evidence; and the required Coherence gate. The implementation and dogfood must cover
+For each card persist and reconcile, at minimum: run/stage/lineage/version; revision, attempt, and
+both lineage and attempt keys; exact input and output paths and hashes; role and assignee; allowed
+and prohibited paths; workspace claim/mode; parent IDs; timeout, heartbeat, retry, and reclaim
+metadata; blocking state/reason; completion evidence; and the required current Coherence gate. The
+implementation and dogfood must cover
 the root plus capture, spec authoring, Pass 1 review/resolution, candidate projection, Pass 2
 review/resolution, plan authoring, task generation, Pass 3 review/resolution, human consent and
 canonical adoption, deterministic final gates, and handoff. Missing or stale parent evidence keeps a
@@ -792,9 +920,10 @@ block honestly when that capability is unavailable, and keep FEAT-018/019/020 ow
 - Final-gate and handoff validation from existing planning modules.
 - No assumption that FEAT-018 artifacts are present in this repository.
 
-**Dependencies/order:** Depends on Task 6 and Task 7; it is checked during final gates after human
-boundaries and before handoff. Task 8 may include its result in the optional transport record but
-cannot implement FEAT-018.
+**Dependencies/order:** Depends on Tasks 1, 6, and 7; it is checked during final gates after human
+boundaries and before handoff. Final gates must bind all three current clean review/gate tuples plus
+current decision and artifact pointers before evaluating this capability. Task 8 may include its
+result in the optional transport record but cannot implement FEAT-018.
 
 **RED/documentation verification:** Add tests for capability present and validating the expected
 governed graph, capability absent, provider error, stale/invalid proposal, and provider that tries
@@ -806,9 +935,10 @@ uv run pytest tests/unit/coherence/test_planning_capabilities.py tests/unit/cohe
 ```
 
 **Implementation/GREEN:** Define a read-only capability check with provider/version/contract hash,
-proposal/expected-graph hash, and result. Require a current positive FEAT-018 result for handoff
-when the governed execution proposal is requested; otherwise surface a named block. Never invoke
-execution or let FEAT-020 optimize an unvalidated graph.
+proposal/expected-graph hash, and result. Bind its result to the current final-gate revision/attempt
+and input manifest. Require a current positive FEAT-018 result for handoff when the governed execution
+proposal is requested; otherwise surface a named block. Never invoke execution or let FEAT-020
+optimize an unvalidated graph.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_capabilities.py tests/unit/coherence/test_planning_handoff.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -816,9 +946,11 @@ uv run ruff check src/coherence/planning tests/unit/coherence/test_planning_capa
 uv run pyright src/coherence/planning
 ```
 
-**Acceptance criteria:** FEAT-018 availability and result are explicit and hash-bound; absence or
-failure blocks without a false success; FEAT-017 does not claim FEAT-018/019/020 implementation;
-FEAT-020 is never called from planning; and the handoff records the capability result.
+**Acceptance criteria:** FEAT-018 availability and result are explicit and hash-bound to the current
+final-gate input manifest; absence or failure blocks without a false success; handoff is impossible
+without all three current clean report/gate tuples; FEAT-017 does not claim FEAT-018/019/020
+implementation; FEAT-020 is never called from planning; and the handoff records the capability
+result.
 
 **Prohibited scope:** Do not implement the governed execution proposal, cross-host conformance,
 optimization, an execution scheduler, or any downstream worker.
@@ -845,7 +977,8 @@ case by invoking real producer seams instead of copying canonical spec/plan/task
 **Dependencies/order:** Depends on Tasks 1–9. This task is the first end-to-end proof and must not
 be used to weaken production gates or to certify the stale current consent snapshot.
 
-**RED/documentation verification:** Start each fixture with only the exact prompt, captured answers,
+**RED/documentation verification:** Start each fixture with only the exact post-redaction prompt,
+captured answers,
 repository facts, and an empty approved output location. Invoke the real producers. Add tests for:
 
 - provisional spec write/read-back/hash and spec alignment;
@@ -860,6 +993,11 @@ repository facts, and an empty approved output location. Invoke the real produce
 - every security/operability warning blocking until a labelled human decision;
 - feature split stopping for human selection without overwriting a supplied baseline;
 - interrupted/resumed capture and failed snapshot replacement preservation;
+- non-secret prompt/question/answer byte preservation, ingress secret redaction with structured
+  redaction records, and credential-free summaries/diagnostics;
+- reparse-point/symlink/junction/traversal rejection and race-safe no-follow atomic writes;
+- immutable revision/attempt paths, current-pointer invalidation, DecisionFile replay protection,
+  and one-to-one resolution-event mapping;
 - Kanban materialization/reconciliation/reclaim when the optional capability is injected;
 - FEAT-018 absent capability blocking;
 - fresh exact consent, final gates, menu, and `starts_automatically: false` handoff.
@@ -883,9 +1021,12 @@ npm test --prefix pi-ext/factory-watch -- --run
 ```
 
 **Acceptance criteria:** The dogfood fails if a spec/plan/task is pre-created instead of produced;
-all corrected lifecycle stages are observed in order; producer hashes/read-backs, challenges,
-reviews, warning decisions, consent, trace closure, recovery, capability block, and handoff are
-verified; fixtures never count as human approval; and unrelated debt is reported separately.
+all corrected lifecycle stages are observed in order; producer hashes/read-backs, immutable
+revision/attempt evidence, candidate projection containment, review/gate schemas, DecisionFile
+authentication/replay protection, challenges, warning decisions, consent, trace closure, recovery,
+capability block, and handoff are verified; fixtures never count as human approval; path races and
+reparse escapes fail closed; diagnostics contain no credentials; and unrelated debt is reported
+separately.
 
 **Prohibited scope:** Do not edit production canonical FEAT/SR/bundle records from a fixture, use
 fixture values as consent, bypass a gate, launch downstream work, or change the authority documents
@@ -901,16 +1042,17 @@ quality/security reviews, and publish an honest implementation/review result wit
 - Modify: `tests/unit/coherence/test_planning_trace_contract.py` only for final contract assertions
 - Modify: `docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md` only with verified implementation facts
 - Modify: `docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md` only with verified completion/debt facts
-- Create/modify: `.factory/planning/<run-id>/final-gates.json` only through the validated writer
+- Create/modify: `.factory/planning/<run-id>/stages/final-gates/r<revision>/a<attempt>/final-gates.json` only through the validated writer
 
 **Interfaces:**
 - All prior task outputs and exact authority/plan contract.
 - Existing unit, integration, Coherence, extension, and repository gate commands.
 - Fresh spec-compliance and code-quality/security reviewers with no self-certification.
 
-**Dependencies/order:** Final task; depends on Tasks 1–10. It must be rerun after every implementation
-or fix cycle that changes a relevant artifact. No merge, push, canonical adoption, or downstream
-workflow is allowed without explicit authorization.
+**Dependencies/order:** Final task; depends on Tasks 1–10. It must consume the current pointers and
+all three current clean review/gate tuples, and must be rerun after every implementation, decision,
+canonical-adoption, or fix cycle that changes a relevant artifact. No merge, push, canonical adoption,
+or downstream workflow is allowed without explicit authorization.
 
 **RED/documentation verification:** Add holistic assertions that the run cannot hand off when any
 producer is skipped, any checkpoint is out of order, candidate review is late or duplicated, a task
@@ -954,10 +1096,11 @@ unavailable optional capabilities. Do not conceal failures by changing fixtures,
 or editing stale evidence.
 
 **Acceptance criteria:** Every authority-spec acceptance criterion has fresh implementation and
-verification evidence; final gates are hash-current and fail closed on stale consent/evidence; the
-optional Kanban graph is reconciled when requested; FEAT-018 behavior is honestly present or blocked;
-all security/operability warnings have resolution or explicit human disposition; handoff is validated
-with `starts_automatically: false`; the final summary distinguishes known debt and unavailable
+verification evidence; final gates are hash-current and fail closed on stale consent/evidence,
+reports, gates, or pointers; the optional Kanban graph is reconciled when requested; FEAT-018 behavior
+is honestly present or blocked; all security/operability warnings have resolution or explicit human
+disposition; handoff is validated with all current clean report/gate tuples and
+`starts_automatically: false`; the final summary distinguishes known debt and unavailable
 capabilities; and there is no claim of merge or plan acceptance without explicit authorization.
 
 **Prohibited scope:** Do not merge, push, mutate Kanban outside the requested optional planning graph,
@@ -967,21 +1110,21 @@ start implementation/downstream workflows, fabricate human consent, or rewrite h
 
 | Area | Required proof |
 |---|---|
-| Intent provenance | Exact prompt/question/answer text, source, sequence, observations, challenges, decisions, and unresolved state are durable and hash-bound |
+| Intent provenance | Exact post-redaction prompt/question/answer text for all non-secret content, source, sequence, observations, challenges, decisions, and unresolved state are durable and hash-bound; redaction metadata contains no secret |
 | Snapshot recovery | Append-only journal survives interruption; failed materialization preserves the last known-good snapshot |
 | Spec producer | Real backend-injected producer writes, reads back, validates, and hashes the provisional spec |
 | Spec checkpoint | `PLANNING_ALIGNMENT` runs after the producer and before candidate derivation |
-| Candidate SR | Exactly one run-local derivation lineage occurs before plan authoring; adversarial duplicate/conflict/unsupported/compatibility/missing-obligation/full-context review is explicit |
+| Candidate SR | Exactly one run-local derivation lineage occurs before plan authoring; one immutable artifact contains SR/feature/bundle projections with no review back-reference; adversarial duplicate/conflict/unsupported/compatibility/missing-obligation/full-context review is explicit |
 | Plan producer | Real backend-injected producer writes, reads back, validates, and hashes a plan containing implementation and verification work together |
 | Task contract | Generated tasks bind source spec/plan/SR or reviewed non-SR, acceptance, exact tests/commands, and implementation/verification evidence |
 | Cross-artifact gate | `CROSS_ARTIFACT_ALIGNMENT` runs after tasks and proves bidirectional closure |
-| Review resolution | Escalation is blocked `needs_input`; a validated hash-bound human answer/decision queues a fresh independent review, and only its current clean report plus deterministic gate evidence releases the child |
+| Review resolution | Schema-1 immutable report/gate identities, current input/artifact manifests, status enums, finding IDs/scopes, independent reviewer, report/gate hashes, and current-pointer rules are enforced; escalation is blocked `needs_input`; a validated hash-bound human answer/decision queues a fresh independent review, and only its current clean report plus deterministic gate evidence releases the child |
 | Human boundaries | Feature splits stop for human sequential workflow/worktree choice; supplied FEAT baseline is never silently overwritten |
 | Warnings | Every security/operability warning blocks until fixed or explicitly dispositioned by a human; no `accept_warning` bypass |
-| Consent/adoption | Fresh exact human SR consent binds candidate set, review, artifacts, and run; canonical adoption is distinct from review cleanliness |
+| Consent/adoption | Fixed schemas/enums and validated writers bind exact candidate IDs/artifact hash, report/input hashes, boundary coverage, authenticated human actor, exact consent phrase, response/decision hashes, replay protection, and canonical target pre/post hashes; adoption is distinct from review cleanliness |
 | Kanban | Optional root/stage cards, dependencies, idempotency, workspace serialization, retry/reclaim, recovery, reconciliation, and no silent downstream execution are tested |
 | FEAT boundary | FEAT-018 capability is checked/blocked honestly; FEAT-019 conformance and FEAT-020 optimization remain separate |
-| Freshness | Any relevant input, output, context, model, decision, or policy change invalidates affected evidence and handoff |
+| Freshness | Any relevant input, output, context, model, decision, policy, canonical adoption, or task/source change appends invalidation, advances revision/attempt identity, invalidates current pointers and descendants, and requires fresh evidence |
 | Handoff | JSON/Markdown handoff is current, validated, hash-bound, includes all three current clean review report/gate evidence tuples, rejects escalation/non-clean/human-response hashes, and has `starts_automatically: false` |
 | Known debt | Existing repository debt and unavailable capabilities are reported separately, never converted into false success |
 | Authorization | No merge, push, canonical adoption, or downstream launch without explicit authorization |
