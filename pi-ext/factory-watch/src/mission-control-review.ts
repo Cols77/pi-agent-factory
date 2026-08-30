@@ -262,7 +262,8 @@ async function main(): Promise<void> {
     console.error(
       "usage: node mission-control-review.js --cwd <repo-root> --start-commit <sha> --task-id <id> --session-id <id>",
     );
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const { cwd, startCommit, taskId, sessionId } = args;
 
