@@ -373,3 +373,89 @@ def test_atomic_lock_refuses_live_owner_and_malformed_lock(tmp_path: Path) -> No
     lock_path.write_text("not-json", encoding="utf-8")
     with pytest.raises(WorkspacePolicyError):
         run.claim(run.cards[1].id, worker="worker-1")
+
+
+def test_loaded_instance_cannot_replay_a_persisted_lease_capability(tmp_path: Path) -> None:
+    run = materialize_ready_capture(tmp_path)
+    capture = run.cards[1]
+    run.claim(capture.id, worker="worker-1")
+    replay = PlanningKanban.load(tmp_path, "run-1")
+    replay.card(capture.id).lease_token = run.card(capture.id).lease_token
+
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        replay.heartbeat(capture.id)
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        replay.complete(capture.id, evidence=coherence_gate("replay"))
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        replay.block(capture.id, reason="replay")
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        replay.reclaim(capture.id, reason="replay")
+    current = PlanningKanban.load(tmp_path, "run-1").card(capture.id)
+    assert current.status == "running"
+    assert current.attempts[-1] == {"attempt": 1, "worker": "worker-1", "event": "claimed"}
+
+
+def test_stale_instance_cannot_mutate_reclaimed_card_after_a_new_attempt(tmp_path: Path) -> None:
+    run = PlanningKanban.materialize(tmp_path, "run-1")
+    root = run.cards[0]
+    run.claim(root.id, worker="worker-1")
+    stale = PlanningKanban.load(tmp_path, "run-1")
+    run.reclaim(root.id, reason="worker interrupted")
+    run.claim(root.id, worker="worker-2")
+    stale.card(root.id).lease_token = run.card(root.id).lease_token
+
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        stale.heartbeat(root.id)
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        stale.complete(root.id, evidence=coherence_gate("stale"))
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        stale.block(root.id, reason="stale")
+    with pytest.raises(StageBlocked, match="ownership|capability"):
+        stale.reclaim(root.id, reason="stale")
+    current = PlanningKanban.load(tmp_path, "run-1").card(root.id)
+    assert current.status == "running"
+    assert current.attempt == 2
+    assert current.attempts[-1] == {"attempt": 2, "worker": "worker-2", "event": "claimed"}
+
+
+def test_load_rejects_mutable_state_forgery_with_an_unchanged_contract(tmp_path: Path) -> None:
+    run = PlanningKanban.materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    original = json.loads(path.read_text(encoding="utf-8"))
+    forged_gate = coherence_gate("forged")["gate"]
+    mutations = (
+        lambda payload: payload["cards"][0].update(
+            {
+                "status": "complete",
+                "attempt": 1,
+                "attempts": [{"attempt": 1, "event": "completed", "evidence": coherence_gate("forged")}],
+                "gate_passed": True,
+                "gate_detail": json.dumps(forged_gate, sort_keys=True, separators=(",", ":")),
+                "output": coherence_gate("forged"),
+            }
+        ),
+        lambda payload: payload["cards"][1].update({"status": "ready"}),
+        lambda payload: payload["cards"][0].update({"attempt": 99}),
+        lambda payload: payload["cards"][0].update({"output": {"forged": True}}),
+    )
+
+    for mutate in mutations:
+        payload = json.loads(json.dumps(original))
+        mutate(payload)
+        assert payload["contract_sha256"] == run.contract_sha256
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(PlanningKanbanError, match="state integrity|hash"):
+            PlanningKanban.load(tmp_path, "run-1")
+
+    path.write_text(json.dumps(original), encoding="utf-8")
+
+
+def test_load_rejects_a_state_hash_mismatch(tmp_path: Path) -> None:
+    PlanningKanban.materialize(tmp_path, "run-1")
+    path = state_path(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["state_sha256"] = "0" * 64
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(PlanningKanbanError, match="state integrity hash"):
+        PlanningKanban.load(tmp_path, "run-1")

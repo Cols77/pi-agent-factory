@@ -435,6 +435,17 @@ class StageCard:
         )
 
 
+@dataclass(frozen=True)
+class _LeaseCapability:
+    """Ephemeral authority for one claim in one PlanningRun instance."""
+
+    instance_id: str
+    worker: str
+    card_id: str
+    attempt: int
+    lease_token: str
+
+
 @dataclass
 class PlanningRun:
     root: Path
@@ -442,6 +453,10 @@ class PlanningRun:
     cards: list[StageCard]
     contract_sha256: str
     _writer_lock: _ExclusiveLock | None = field(default=None, repr=False, compare=False)
+    _instance_id: str = field(default_factory=lambda: secrets.token_hex(24), repr=False, compare=False)
+    _lease_capabilities: dict[str, _LeaseCapability] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     @property
     def path(self) -> Path:
@@ -454,13 +469,13 @@ class PlanningRun:
         raise PlanningKanbanError(f"unknown card: {card_id}")
 
     def _payload(self) -> dict[str, Any]:
-        return {
-            "schema": 1,
-            "run_id": self.run_id,
-            "contract_sha256": self.contract_sha256,
-            "cards": [card.to_dict() for card in self.cards],
-            "edges": [[card.parents[0], card.id] for card in self.cards if card.parents],
-        }
+        payload = _state_payload(
+            run_id=self.run_id,
+            contract_sha256=self.contract_sha256,
+            cards=self.cards,
+        )
+        payload["state_sha256"] = _sha(payload)
+        return payload
 
     def _save(self, *, expected_state: str | None = None, lock: _ExclusiveLock | None = None) -> None:
         if lock is not None:
@@ -486,9 +501,39 @@ class PlanningRun:
         self.cards = loaded.cards
         self.contract_sha256 = loaded.contract_sha256
 
+    def _owns_lease(self, card_id: str, card: StageCard) -> bool:
+        capability = self._lease_capabilities.get(card_id)
+        if capability is None or capability.instance_id != self._instance_id:
+            return False
+        if (
+            card.status != "running"
+            or capability.card_id != card_id
+            or capability.attempt != card.attempt
+            or capability.lease_token != card.lease_token
+        ):
+            return False
+        claim = next(
+            (
+                event
+                for event in reversed(card.attempts)
+                if event.get("attempt") == capability.attempt
+                and event.get("event") == "claimed"
+            ),
+            None,
+        )
+        return isinstance(claim, Mapping) and claim.get("worker") == capability.worker
+
+    def _require_lease_capability(self, card_id: str, card: StageCard) -> None:
+        if not self._owns_lease(card_id, card):
+            raise StageBlocked("stale card ownership or attempt capability; reconcile before mutating")
+
     @contextmanager
     def _mutation(
-        self, card_id: str, *, require_owner: bool = False
+        self,
+        card_id: str,
+        *,
+        require_owner: bool = False,
+        require_running_owner: bool = False,
     ) -> Iterator[tuple["PlanningRun", StageCard, str, _ExclusiveLock | None]]:
         local = self.card(card_id)
         probe = PlanningKanban.load(self.root, self.run_id)
@@ -500,6 +545,11 @@ class PlanningRun:
             and not writer_needed
         ):
             raise WorkspacePolicyError("persisted workspace policy changed under a writer lease")
+        if require_owner or (require_running_owner and persisted.status == "running"):
+            if persisted.status == "running":
+                self._require_lease_capability(card_id, persisted)
+            elif require_owner and local.lease_token != persisted.lease_token:
+                raise StageBlocked("stale card ownership or attempt; reconcile before mutating")
         writer_lock = (
             self._writer_lock
             if writer_needed and self._writer_lock is not None and self._writer_lock.card_id == card_id
@@ -527,8 +577,11 @@ class PlanningRun:
             current_needs_writer = current.workspace_mode == "dir" and current.stage in _WRITERS
             if current_needs_writer != writer_needed:
                 raise WorkspacePolicyError("workspace policy changed during mutation")
-            if require_owner and local.lease_token != current.lease_token:
-                raise StageBlocked("stale card ownership or attempt; reconcile before mutating")
+            if require_owner or (require_running_owner and current.status == "running"):
+                if current.status == "running":
+                    self._require_lease_capability(card_id, current)
+                elif require_owner and local.lease_token != current.lease_token:
+                    raise StageBlocked("stale card ownership or attempt; reconcile before mutating")
             before = _state_fingerprint(loaded)
             yield loaded, current, before, writer_lock
         finally:
@@ -556,14 +609,23 @@ class PlanningRun:
                 raise StageBlocked(f"card {card_id} is {card.status}")
             card.attempt += 1
             card.status = "running"
-            card.lease_token = writer_lock.token if writer_lock is not None else secrets.token_hex(24)
+            lease_token = writer_lock.token if writer_lock is not None else secrets.token_hex(24)
+            card.lease_token = lease_token
             card.attempts.append(
                 {"attempt": card.attempt, "worker": worker, "event": "claimed"}
+            )
+            capability = _LeaseCapability(
+                instance_id=self._instance_id,
+                worker=worker,
+                card_id=card_id,
+                attempt=card.attempt,
+                lease_token=lease_token,
             )
             loaded._save(expected_state=before, lock=writer_lock)
             if writer_lock is not None:
                 self._writer_lock = writer_lock
             self._adopt(loaded)
+            self._lease_capabilities[card_id] = capability
             return self.card(card_id)
 
     def heartbeat(self, card_id: str) -> StageCard:
@@ -597,6 +659,7 @@ class PlanningRun:
                 if self._writer_lock is writer_lock:
                     self._writer_lock = None
             self._adopt(loaded)
+            self._lease_capabilities.pop(card_id, None)
             return self.card(card_id)
 
     def mark_gate(self, card_id: str, *, passed: bool, detail: Any) -> StageCard:
@@ -631,6 +694,8 @@ class PlanningRun:
                 if self._writer_lock is writer_lock:
                     self._writer_lock = None
             self._adopt(loaded)
+            if not passed and release_writer:
+                self._lease_capabilities.pop(card_id, None)
             return self.card(card_id)
 
     def block(
@@ -651,9 +716,7 @@ class PlanningRun:
         else:
             context = {}
             block_evidence = {}
-        with self._mutation(card_id, require_owner=False) as (loaded, card, before, writer_lock):
-            if card.status == "running" and self.card(card_id).lease_token != card.lease_token:
-                raise StageBlocked("stale card ownership or attempt; reconcile before mutating")
+        with self._mutation(card_id, require_running_owner=True) as (loaded, card, before, writer_lock):
             if card.status in {"complete", "blocked"}:
                 raise StageBlocked(f"card {card_id} is {card.status}")
             card.status = "needs_input" if needs_input else "blocked"
@@ -676,6 +739,7 @@ class PlanningRun:
                 if self._writer_lock is writer_lock:
                     self._writer_lock = None
             self._adopt(loaded)
+            self._lease_capabilities.pop(card_id, None)
             return self.card(card_id)
 
     def resume(self, card_id: str, *, evidence: Mapping[str, Any] | None = None) -> StageCard:
@@ -698,7 +762,7 @@ class PlanningRun:
     def reclaim(self, card_id: str, *, reason: str) -> StageCard:
         if not isinstance(reason, str) or not reason.strip():
             raise PlanningKanbanError("reclaim reason must be non-empty")
-        with self._mutation(card_id) as (loaded, card, before, writer_lock):
+        with self._mutation(card_id, require_owner=True) as (loaded, card, before, writer_lock):
             if card.status != "running":
                 raise StageBlocked("only running cards can be reclaimed")
             card.status = "ready"
@@ -712,6 +776,7 @@ class PlanningRun:
                 if self._writer_lock is writer_lock:
                     self._writer_lock = None
             self._adopt(loaded)
+            self._lease_capabilities.pop(card_id, None)
             return self.card(card_id)
 
 
@@ -768,6 +833,9 @@ class PlanningKanban:
             raise PlanningKanbanError("kanban graph is unreadable") from exc
         if raw.get("schema") != 1 or raw.get("run_id") != run_id:
             raise PlanningKanbanError("kanban graph header is invalid")
+        state_hash = raw.get("state_sha256")
+        if not isinstance(state_hash, str) or not _HEX_SHA256.fullmatch(state_hash):
+            raise PlanningKanbanError("kanban state integrity hash is invalid")
         if not isinstance(contract, str) or not _HEX_SHA256.fullmatch(contract):
             raise PlanningKanbanError("kanban contract hash is invalid")
         if len(cards) != len(_CANONICAL_STAGES) or [card.stage for card in cards] != list(
@@ -805,6 +873,11 @@ class PlanningKanban:
         )
         if contract != expected_contract:
             raise PlanningKanbanError("kanban contract hash is invalid")
+        expected_state_hash = _sha(
+            _state_payload(run_id=run_id, contract_sha256=contract, cards=cards)
+        )
+        if state_hash != expected_state_hash:
+            raise PlanningKanbanError("kanban state integrity hash does not reconcile")
         _validate_loaded_state(cards)
         return PlanningRun(root.resolve(), run_id, cards, contract)
 
@@ -855,13 +928,25 @@ def _canonical_cards(root: Path, run_id: str, assignee: str, workspace_mode: str
     return cards
 
 
+def _state_payload(
+    *, run_id: str, contract_sha256: str, cards: list[StageCard]
+) -> dict[str, Any]:
+    return {
+        "schema": 1,
+        "run_id": run_id,
+        "contract_sha256": contract_sha256,
+        "cards": [card.to_dict() for card in cards],
+        "edges": [[card.parents[0], card.id] for card in cards if card.parents],
+    }
+
+
 def _state_fingerprint(run: PlanningRun) -> str:
     return _sha(
-        {
-            "run_id": run.run_id,
-            "contract_sha256": run.contract_sha256,
-            "cards": [card.to_dict() for card in run.cards],
-        }
+        _state_payload(
+            run_id=run.run_id,
+            contract_sha256=run.contract_sha256,
+            cards=run.cards,
+        )
     )
 
 
