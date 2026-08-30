@@ -27,6 +27,10 @@ FIXTURE = Path(__file__).parents[2] / "fixtures" / "planning-dogfood"
 CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
 
 
+def _fixture_json(name: str) -> dict:
+    return json.loads((FIXTURE / "clean" / name).read_text(encoding="utf-8"))
+
+
 def _consumer(tmp_path: Path) -> tuple[Path, Path, Path]:
     root = tmp_path / "consumer"
     (root / ".intent").mkdir(parents=True)
@@ -189,6 +193,93 @@ def test_three_checkpoint_projection_accepts_warning_and_preserves_full_context(
     assert warning.to_dict()["decisions"][0]["action"] == "accept"
     assert seen_sr_context == [{"SR-001": {"status": "proposed", "statement": "full"},
                                "SR-002": {"status": "deferred", "statement": "contradiction reviewed"}}] * 3
+
+
+def test_labelled_fixture_records_drive_duplicate_and_contradictory_sr_case(tmp_path: Path) -> None:
+    fixture_names = (
+        "candidates.json", "consent.json", "deterministic-gates.json",
+        "duplicate-and-contradictory-sr-context.json", "handoff.json", "interrupted-resumed.json",
+        "pass1.json", "pass2.json", "pass3.json", "requirements.json", "reviews.json",
+        "warning-decision.json",
+    )
+    records = {name: _fixture_json(name) for name in fixture_names}
+    assert all(
+        item["fixture_label"] == "test-data-not-approval"
+        for record in records.values()
+        for item in (record if isinstance(record, list) else [record])
+    )
+
+    duplicate_case, contradiction_case = records["duplicate-and-contradictory-sr-context.json"]["cases"]
+    duplicate_statements = {
+        item["statement"] for item in duplicate_case["context"]
+    }
+    assert duplicate_case["expected"] == "deduplicated"
+    assert duplicate_statements == {"Capture events are append-only and resumable."}
+    assert len(duplicate_case["context"]) > len(duplicate_statements)
+    assert contradiction_case["expected"] == "preserved-and-escalated"
+    assert {item["status"] for item in contradiction_case["context"]} == {"proposed", "deferred"}
+    assert contradiction_case["context"][0]["statement"] != contradiction_case["context"][1]["statement"]
+
+    # Resolve duplicates at the canonical value while retaining the source
+    # records as provenance. Contradictory values remain visible to the
+    # reviewer so that the lifecycle can escalate rather than discard one.
+    context = {
+        duplicate_case["sr_id"]: {
+            "status": duplicate_case["context"][0]["status"],
+            "statement": duplicate_case["context"][0]["statement"],
+            "duplicate_context": duplicate_case["context"],
+            "resolution": "deduplicated",
+        },
+        contradiction_case["sr_id"]: {
+            "status": contradiction_case["context"][0]["status"],
+            "statement": contradiction_case["context"][0]["statement"],
+            "contradictory_context": contradiction_case["context"],
+            "resolution": "preserved-and-escalated",
+        },
+    }
+    assert context["SR-001"]["duplicate_context"][0] == context["SR-001"]["duplicate_context"][1]
+    assert len(context["SR-002"]["contradictory_context"]) == 2
+    assert context["SR-002"]["contradictory_context"][0]["status"] != context["SR-002"]["contradictory_context"][1]["status"]
+    assert context["SR-001"]["resolution"] == duplicate_case["expected"]
+    assert context["SR-002"]["resolution"] == contradiction_case["expected"]
+
+    root, spec, plan = _consumer(tmp_path)
+    paths = [root / name for name in (".intent/intent.json", "docs/superpowers/specs/intent-spec.md",
+                                      "docs/superpowers/plans/intent-plan.md", "tasks/T-001-first.md",
+                                      "tasks/T-002-second.md", "docs/features/FEAT-017.md",
+                                      "bundles/FEAT-017.json")]
+    observed: list[dict] = []
+
+    def reviewer(packet):
+        observed.append(packet.context["sr_context"])
+        return SemanticReviewReport(1, packet.run_id, packet.stage, packet.iteration, packet.sha256,
+                                    packet.artifacts, packet.context, packet.sr_context_digest, packet.model,
+                                    packet.reviewer_role, packet.reviewer_session_id, (), (), (), "clean")
+
+    workflow = PlanningWorkflow(root, "fixture-duplicate-contradiction",
+                                reviewer_model={"provider": "fixture", "model": "reviewer"},
+                                reviewer=reviewer, deterministic_gate=lambda _: True)
+    status = workflow.run_lifecycle(
+        spec_artifacts=[spec], plan_artifacts=paths[2:5], derivation_artifacts=paths[1:],
+        intent_context={"intent": "Build a deterministic planner", "unresolved_questions": []},
+        plan_context={"tasks": ["T-001", "T-002"]},
+        derivation_context={"candidate_srs": records["candidates.json"]["candidate_srs"],
+                            "closure": records["candidates.json"]["closure"]},
+        sr_context=context)
+    assert status.ok and not status.blocked
+    assert observed == [context] * len(WorkflowStage)
+    assert observed[-1]["SR-001"]["statement"] == duplicate_statements.pop()
+    assert observed[-1]["SR-002"]["contradictory_context"] == contradiction_case["context"]
+    assert records["reviews.json"]["stale_artifact"]["expected_result"] == "rejected"
+    assert records["interrupted-resumed.json"]["expected"] == "append-only sequence is preserved"
+    assert records["deterministic-gates.json"]["downstream"] == ["standard-development", "health-recovery", "feature-planning"]
+    assert not records["handoff.json"]["starts_automatically"]
+    assert records["consent.json"]["phrase"] == CONSENT_PHRASE
+    assert records["warning-decision.json"]["decisions"][0]["action"] == "accept"
+    assert records["pass1.json"]["after_agent_fix"]["fresh_review_required"]
+    assert records["pass2.json"]["assertions"]["task_plan_parity"]
+    assert records["pass3.json"]["resumed_verdict"] == "clean"
+    assert records["candidates.json"]["closure"] == ["feat:FEAT-017-FIXTURE", "sr:SR-001", "sr:SR-002"]
 
 
 def test_escalation_repeated_finding_and_interrupted_resume_are_fail_closed(tmp_path: Path) -> None:

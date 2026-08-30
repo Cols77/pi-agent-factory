@@ -1,4 +1,4 @@
 [
-  {"id": "SR-001", "title": "Durable capture", "statement": "Capture events are append-only and resumable.", "domain": "behavioral", "status": "proposed", "source": "docs/superpowers/specs/intent-spec.md#goal", "upstream": []},
-  {"id": "SR-002", "title": "Hash-bound handoff", "statement": "A handoff revalidates canonical artifacts before downstream action.", "domain": "behavioral", "status": "proposed", "source": "docs/superpowers/specs/intent-spec.md#authority", "upstream": []}
+  {"id": "SR-001", "title": "Durable capture", "statement": "Capture events are append-only and resumable.", "domain": "behavioral", "status": "proposed", "source": "docs/superpowers/specs/intent-spec.md#goal", "upstream": [], "fixture_label": "test-data-not-approval"},
+  {"id": "SR-002", "title": "Hash-bound handoff", "statement": "A handoff revalidates canonical artifacts before downstream action.", "domain": "behavioral", "status": "proposed", "source": "docs/superpowers/specs/intent-spec.md#authority", "upstream": [], "fixture_label": "test-data-not-approval"}
 ]
