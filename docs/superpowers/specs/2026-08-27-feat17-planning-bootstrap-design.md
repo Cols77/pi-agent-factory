@@ -718,7 +718,12 @@ descendant_pointer_refs[], invalidation_event_ref, cas, provenance, pointer_hash
 ```
 
 `pointer_state` is `current|invalidated`; `selected_record` has the exact path, terminal hash, and
-stage-manifest hash; `cas` has `compare_hash`, `publish_sequence`, and `fencing_token`.
+stage-manifest hash; for a decision-bearing stage, `selected_record` additionally has the exact
+ordered `decision_refs[]` member, whose items are `{decision_id, decision_kind, decision_path,
+decision_hash, event_id, event_hash}` and whose order is the canonical decision-path order. The
+`decision_refs[]` member is required for a decision-bearing pointer and is absent for other pointers;
+no other `selected_record` members are permitted. `cas` has `compare_hash`, `publish_sequence`, and
+`fencing_token`.
 `invalidation_event_ref` is required when the pointer is invalidated and null otherwise.
 
 **InputManifestSchema** (`record_type=input_manifest`; exact path is the `input_manifest_ref.path`)
@@ -1137,6 +1142,27 @@ append-only journal. `decision_hash` is computed over canonical strict JSON with
 input never reaches this record. The response and decision hashes are distinct and both are required.
 A free-text answer, model output, agent flag, or `accept_warning` boolean is not a DecisionFile.
 
+Kind-specific additions are part of the closed DecisionFile schema, not extension fields. The exact
+top-level key set for a DecisionFile is the common schema above plus the fields explicitly named by
+its row in the kind table below, and no other keys are permitted. For `canonical-adoption`, the exact
+additional member is required and is:
+
+```json
+"target_bindings": [
+  {"path": "<exact-registered-canonical-target>", "pre_sha256": "<sha256-or-null>", "post_sha256": "<sha256>"}
+]
+```
+
+`target_bindings` has exactly one item for each of `canonical-sr`, `canonical-feat`, and
+`canonical-bundle`, in canonical target-path order, with no duplicates or omissions. `pre_sha256=null`
+means the target was absent and the handle-bound prepare phase proved absence beneath its regular
+parent; rollback of that item must remove the newly created target using expected-current-new-hash
+CAS. A non-null `pre_sha256` is the handle-bound preimage hash. `post_sha256` is the hash of the
+exact intended bytes staged before the immutable DecisionFile is published. This member is included
+in `decision_hash`; it is never populated after publication, replaced, or encoded in `response_text`.
+For every other decision kind, only its row's named kind-specific members may be added, with their
+exact types and ordering defined by that row or the writer's strict schema.
+
 Every accepted DecisionFile maps to exactly one append-only
 `.factory/planning/<run-id>/resolution-events.jsonl` event. The event contains `schema`, monotonic
 `event_seq`, `event_id`, `decision_id`, `decision_hash`, `decision_kind`, run/stage/lineage,
@@ -1147,7 +1173,15 @@ flushes it durably, and only then publishes the corresponding derived pointer. I
 compacts prior events. A human response/DecisionFile is an input that queues a fresh review; it is not
 terminal evidence. `deferred`, `rejected`, `withheld`, and `invalid` decision statuses leave the
 relevant stage in `needs_input` (including `consent_withheld` and `deferred`); `fixed` and
-`accepted_risk` require fresh independent review evidence and do not erase findings.
+`fixed` and `accepted_risk` require fresh independent review evidence and do not erase findings.
+
+For the combined adoption transaction, the resolution journal order is exact: append the validated
+`sr-consent` event first and the validated `canonical-adoption` event second, each with its own
+`previous_event_hash`. A durable consent-only prefix is historical human consent but is not an
+accepted adoption and cannot advance the adoption pointer or release a child. Recovery either
+completes the missing second event and then publishes the adoption pointer from the complete chain,
+or records safe invalidation through the existing evidence families; it never reorders, duplicates,
+or treats a consent-only prefix as canonical adoption.
 
 The kind-specific contracts and validated writer mapping are:
 
@@ -1157,7 +1191,7 @@ The kind-specific contracts and validated writer mapping are:
 | `warning-disposition` | `fixed|accepted_risk|rejected|deferred|invalid`; exact warning IDs | current warning IDs, severity/policy scope, and current source review report/input tuple | `DecisionFileWriter.append_warning_disposition` |
 | `feature-boundary` | `selected|split_sequential|withheld|deferred|invalid`; every boundary finding ID | selected feature IDs, sequential workflow/worktree assignment, and supplied-baseline pre-hashes | `DecisionFileWriter.append_feature_boundary` |
 | `sr-consent` | `consent_granted|consent_withheld|deferred|invalid`; exact candidate SR IDs and boundary IDs | current candidate artifact hash, candidate-SR clean report hash, cross-artifact clean report hash, and exact phrase below | `DecisionFileWriter.append_sr_consent` |
-| `canonical-adoption` | `adopted|withheld|deferred|invalid`; exact adopted IDs and boundary IDs | valid SR consent hash, feature-boundary decision hash, target pre/post hashes, and candidate artifact hash | `DecisionFileWriter.append_canonical_adoption` |
+| `canonical-adoption` | `adopted|withheld|deferred|invalid`; exact adopted IDs and boundary IDs | valid SR consent hash, feature-boundary decision hash, required ordered `target_bindings[]` (`path`, `pre_sha256|null`, `post_sha256`), and candidate artifact hash | `DecisionFileWriter.append_canonical_adoption` |
 
 For `sr-consent`, `status=consent_granted` is valid only when `response_text` exactly equals this
 phrase after substituting the values (including punctuation and the final period):

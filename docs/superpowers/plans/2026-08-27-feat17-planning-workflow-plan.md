@@ -300,6 +300,12 @@ DecisionFile paths/hashes, journal-event hashes, and pointer hashes, and cannot 
 release a decision. Final gates and downstream cards revalidate the underlying DecisionFiles, journal,
 and pointers rather than trusting a projection.
 
+When a stage has more than one decision, its one current pointer uses the authority
+`CurrentPointerSchema.selected_record.decision_refs[]` aggregate. That ordered array contains the
+exact decision ID/kind/path/hash and its one-to-one journal event ID/hash for every decision in the
+stage; a later decision never replaces or hides an earlier decision. The aggregate, its ordering, and
+the selected stage-manifest hash are covered by the pointer hash and are revalidated before release.
+
 The JSON `status` vocabulary is closed and kind-specific; no synonym, transport state, or lifecycle state
 may appear as a `status` value. Review records use `clean|findings|escalated|invalid`; deterministic gate
 records use `pass|fail|invalid`; DecisionFile records use only the following values:
@@ -562,6 +568,7 @@ payload is UTF-8 canonical strict JSON, and the signature is Ed25519 over
   "capability_id": "feat17/<run-id>/<invocation-id>/v1",
   "issuer": {"kind": "coherence-host", "key_id": "<trusted-key-id>", "algorithm": "Ed25519"},
   "subject": {"kind": "authenticated-host-owner", "id": "<owner-id>"},
+  "project_root": {"canonical_path": "<canonical-project-root>", "file_identity": "<root-file-identity>"},
   "issued_at": "<UTC-RFC3339>",
   "expires_at": "<UTC-RFC3339>",
   "operation": "<closed-action-registry-id>",
@@ -583,7 +590,9 @@ payload is UTF-8 canonical strict JSON, and the signature is Ed25519 over
     "journal_path": "<exact-relative-path-or-null>",
     "pointer_paths": ["<exact-relative-path>"],
     "temporary_paths": ["<exact-relative-path>"],
-    "canonical_target_paths": ["<exact-relative-path>"]
+    "canonical_target_paths": ["<exact-relative-path>"],
+    "registry_paths": ["<exact-relative-path>"],
+    "quarantine_paths": ["<exact-relative-path>"]
   },
   "lease_id": "<current-lease-id>",
   "fencing_token": 1,
@@ -592,12 +601,16 @@ payload is UTF-8 canonical strict JSON, and the signature is Ed25519 over
 ```
 
 The capability trust root is host configuration, not repository or caller input: it pins the
-`coherence-host` Ed25519 public key ID, algorithm, validity interval, and revocation state. The
-verifier rejects an unknown/revoked key, bad signature, expired token, non-canonical JSON, duplicate
-or extra field, wrong closed operation/role/backend, run or stage mismatch, registry path/hash
-mismatch, input-manifest mismatch, non-current lease/fence, or a path not exactly present in the
-declared scope. It reads the immutable role, target, backend, reviewer, check, workflow, and action
-registry bytes itself and recomputes each pinned hash before allowing an action. It never trusts a
+`coherence-host` Ed25519 public key ID, algorithm, validity interval, and revocation state. The signed
+`project_root.canonical_path` and `project_root.file_identity` are also bound into the input manifest
+and compared with the opened repository root before any relative path is resolved. The verifier
+rejects an unknown/revoked key, bad signature, expired token, non-canonical JSON, duplicate or extra
+field, wrong closed operation/role/backend, run or stage mismatch, registry path/hash mismatch,
+input-manifest mismatch, non-current lease/fence, or a path not exactly present in the declared scope.
+It reads the immutable role, target, backend, reviewer, check, workflow, and action registry bytes
+through no-follow/reparse-safe handles under the same root identity and recomputes each pinned hash
+before allowing an action. Registry handles remain bound and locked through the action's effect; a
+changed registry identity, bytes, or alias/reparse state fails closed. It never trusts a
 caller-supplied copy, path prefix, wildcard, provider name, role, allowlist, or pre-hash.
 
 Before any filesystem effect, the host's no-follow/reparse-safe opener returns a handle binding for
@@ -608,15 +621,17 @@ handle_binding := {capability_id, handle_challenge, path, file_identity, open_mo
                    no_follow=true, reparse_rejected=true, pre_sha256, byte_length}
 ```
 
-The writer accepts the handle only when its capability ID/challenge, exact path, file identity,
-open mode, pre-hash, and declared journal/pointer/temporary/canonical scope match; it rechecks the
-current lease/fence on the opened handle immediately before write, append, rename, or pointer CAS.
-Directory and temporary handles are bound as well as target-file handles. A missing target has an
-explicit null expected pre-hash and is created only beneath its declared regular parent. A handle
-binding is runtime authorization, not a new persisted evidence record, and its safe hash/path
-reference is retained only through existing authority `provenance`, `input_manifest_ref`, target, and
-`ProducedArtifact` fields. No capability or handle binding may be added to a DecisionFile or used as
-an extension bag.
+The writer accepts the handle only when its capability ID/challenge, exact path, project-root identity,
+registry identity, file identity, open mode, pre-hash, and declared journal/pointer/temporary/canonical/
+registry/quarantine scope match; it uses a storage primitive that linearizes the current lease/fence
+check with the write, append, rename, or pointer CAS. A check immediately before an effect is
+insufficient: if the host cannot make the lease/fence check and effect one atomic fenced operation, it
+fails closed before the effect. Directory and temporary handles are bound as well as target-file
+handles. A missing target has an explicit null expected pre-hash and is created only beneath its
+declared regular parent. A handle binding is runtime authorization, not a new persisted evidence
+record, and its safe hash/path reference is retained only through existing authority `provenance`,
+`input_manifest_ref`, target, and `ProducedArtifact` fields. No capability or handle binding may be
+added to a DecisionFile or used as an extension bag.
 
 ### 2.5.4 Complete immutable registries and per-action authorization
 
@@ -636,12 +651,17 @@ consumer re-reads and re-hashes them before every action, not only at capability
 
 **Target registry (complete FEAT-017 target classes):** `intent-envelope`, `planning-state`,
 `revision-index`, `capture-events`, `stage-evidence`, `current-pointer`, `resolution-journal`,
-`decision-file`, `approved-spec`, `approved-plan`, `task-target`, `handoff-output`, `canonical-sr`, `canonical-feat`,
-and `canonical-bundle`. Each entry has exactly `id`, `path_template`, `artifact_kind`, `writer_roles`,
-`read_roles`, `allow_missing`, `allow_replace`, `requires_expected_pre_hash`, and `same_directory_temp`;
-canonical target entries contain exact repository-relative paths resolved from the authoritative
-register and never a glob. `canonical-sr`, `canonical-feat`, and `canonical-bundle` are separate
-entries and are locked as one adoption target set.
+`decision-file`, `approved-spec`, `approved-plan`, `task-target`, `handoff-output`, `canonical-sr`,
+`canonical-feat`, `canonical-bundle`, and `adoption-quarantine`. Each entry has exactly `id`,
+`path_template`, `artifact_kind`, `writer_roles`, `read_roles`, `allow_missing`, `allow_replace`,
+`requires_expected_pre_hash`, and `same_directory_temp`; canonical target entries contain exact
+repository-relative paths resolved from the authoritative register and never a glob. `canonical-sr`,
+`canonical-feat`, and `canonical-bundle` are separate entries and are locked as one adoption target set.
+The three canonical entries have `allow_missing=false`, `allow_replace=true`, and
+`requires_expected_pre_hash=true`; the only target class that may be absent is `adoption-quarantine`,
+whose exact run-local path and handle-bound create/delete operations are included in every adoption
+capability. A null pre-hash is therefore rejected for canonical targets and is legal only for a
+registered target whose entry explicitly allows absence.
 
 **Backend registry:** the host-validated model/provider catalog is a closed snapshot of every backend
 permitted for this run. Each entry has exactly `id`, `version`, `provider`, `capability_class`,
@@ -707,13 +727,16 @@ and revalidates each implementation/provenance/hash before accepting `pass`.
 `create-downstream-session`, `resolve-blocking-input`, `capture-intent`, `author-provisional-spec`,
 `review-spec-alignment`, `derive-candidate-sr`, `review-candidate-sr-alignment`,
 `author-implementation-plan`, `materialize-tasks`, `review-cross-artifact-alignment`,
-`write-human-decision`, `adopt-canonical-targets`, `run-final-gates`, and `write-handoff`. Each entry has
+`write-human-decision`, `apply-scoped-fix`, `adopt-canonical-targets`, `run-final-gates`, and `write-handoff`. Each entry has
 exactly `id`, `authorized_roles`, `authorized_workflow_ids`, `required_gate_ids`, `target_ids`,
 `backend_classes`, `human_required`, `downstream_launch=false`, and `registry_hash`. `legal_next_actions` is a closed ordered subset of
 only `inspect-handoff`, `revalidate-handoff`, `select-downstream-workflow`,
 `create-downstream-session`, and `resolve-blocking-input`; `selected_downstream_workflow` must be one
-of the three workflow IDs. The authenticated handoff writer derives both fields from these registry
-entries, binds the registry hashes through the existing input manifest/provenance and `handoff_hash`,
+of the three workflow IDs. The handoff writer may render `select-downstream-workflow` and
+`create-downstream-session` as display-only menu values, but is not authorized to invoke either
+action; both require a separate authenticated human/adapter boundary and any FEAT-017 invocation is
+rejected. `create-downstream-session` cannot launch or schedule anything in FEAT-017. The authenticated
+handoff writer derives both fields from these registry entries; binds the registry hashes through the existing input manifest/provenance and `handoff_hash`,
 and consumers revalidate them before display or action. A menu item or selection never launches a
 process and is not itself execution authorization.
 
@@ -733,10 +756,13 @@ The registry's per-action authorization is closed and explicit:
 | `materialize-tasks` | `task-materializer` | `task-target`, `stage-evidence`, `current-pointer` | `planning` | no |
 | `review-cross-artifact-alignment` | `cross-artifact-reviewer` | `stage-evidence`, `current-pointer` | `review` | no |
 | `write-human-decision` | `human-decision-writer` | `decision-file`, `resolution-journal`, `current-pointer` | `none` | yes |
-| `adopt-canonical-targets` | `canonical-adoption-writer` | `decision-file`, `canonical-sr`, `canonical-feat`, `canonical-bundle`, `resolution-journal`, `current-pointer` | `none` | yes |
+| `apply-scoped-fix` | `planning-fixer` | `approved-spec`, `approved-plan`, `task-target`, `stage-evidence`, `current-pointer` | `planning` | no |
+| `adopt-canonical-targets` | `canonical-adoption-writer` | `decision-file`, `canonical-sr`, `canonical-feat`, `canonical-bundle`, `resolution-journal`, `current-pointer`, `adoption-quarantine` | `none` | yes |
 | `run-final-gates` | `final-gate-runner` | `stage-evidence`, `current-pointer` | `deterministic` | no |
 | `write-handoff` | `handoff-writer` | `handoff-output`, `stage-evidence`, `current-pointer` | `deterministic` | no |
-| `inspect-handoff` / `revalidate-handoff` / `select-downstream-workflow` / `create-downstream-session` | `handoff-writer` | `handoff-output`, `current-pointer` | `none` | no |
+| `inspect-handoff` / `revalidate-handoff` | `handoff-writer` | `handoff-output`, `current-pointer` | `none` | no |
+| `select-downstream-workflow` | no FEAT-017 role; display-only projection for an external human/adapter | `handoff-output`, `current-pointer` | `none` | yes |
+| `create-downstream-session` | no FEAT-017 role; external adapter only after separate human authorization | `handoff-output`, `current-pointer` | `none` | yes |
 | `resolve-blocking-input` | `human-decision-writer` | `decision-file`, `resolution-journal`, `current-pointer` | `none` | yes |
 
 The host checks this matrix, the workflow's `legal_action_ids`, the target registry, and the current
@@ -755,17 +781,21 @@ input/event provenance. A changed, missing, expired, revoked, ambiguous, or unve
 blocks before capture and invalidates affected descendants.
 
 Every ingress/egress path calls the same mandatory host API:
-`guard_value(policy, sink_id, redacted_value) -> GuardedValue | GuardFailure`.
-The API has no `bypass`, `skip`, `raw`, caller-policy, or permissive-fallback argument. It verifies
-the signed policy, exact sink membership, detector/version, UTF-8/canonical value, and absence of a
-secret-shaped value; on failure it returns only a safe failure code and prevents the sink. The closed
-sink IDs are `capture.prompt`, `capture.question`, `capture.answer`, `capture.observation`,
+`redact_then_guard(policy, sink_id, value) -> GuardedValue | GuardFailure`.
+The API runs the authenticated detector in an isolated transient buffer, applies the exact
+`[REDACTED]` replacement to secret-shaped values, and then runs the guard on the resulting value.
+For already-redacted values it still performs the detector/guard pass again. It has no `bypass`,
+`skip`, `raw`, caller-policy, or permissive-fallback argument. It verifies the signed policy, exact
+sink membership, detector/version, UTF-8/canonical value, and absence of a secret-shaped value; on
+failure it returns only a safe failure code and prevents the sink. The closed sink IDs are
+`capture.prompt`, `capture.question`, `capture.answer`, `capture.observation`,
 `clarification.input`, `backend.request`, `provider.response`, `artifact.write`, `review.packet`,
 `report.write`, `gate.write`, `decision.write`, `resolution-journal.append`, `kanban.metadata`,
 `handoff.summary`, `error.output`, and `diagnostic.output`. Direct writes, logs, hashes, provider
-calls, and error paths are unreachable without a successful guard result. The guard runs again on
-already-redacted data immediately before every listed sink, including every FEAT-018 provider
-boundary; raw ingress buffers and raw provider responses are never passed to it or any other sink.
+calls, and error paths are unreachable without a successful guard result. The guard runs immediately
+before every listed sink, including every FEAT-018 provider boundary. Raw ingress buffers and raw
+provider responses may exist only in the isolated transient detector buffer; they never reach any
+other sink, log, hash, report, or diagnostic path.
 
 ### 2.5.6 Correlation and transaction identity without schema extensions
 
@@ -779,7 +809,7 @@ following exact tuple of already-authorized fields:
 | Stage/card lineage | the stage card's existing `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `idempotency_key`, and `attempt_key` from §8.1; no parallel card identifier is minted |
 | Human decision | `DecisionFile.decision_id`, `decision_kind`, `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `replay.idempotency_key`, `replay.nonce`, and `decision_hash` |
 | Resolution event | the authority fields `event_id`, `event_seq`, `decision_id`, `decision_hash`, `decision_kind`, run/stage/lineage/revision/attempt, `decision_path`, and `previous_event_hash` |
-| Adoption transaction | the tuple `(run_id, stage_id=human-boundaries-and-adoption, lineage_id, revision, attempt, sr-consent decision_id/hash, canonical-adoption decision_id/hash, their replay keys/nonces, target_bindings, and the existing current-pointer/kanban-run record_id)` |
+| Adoption transaction | the tuple `(run_id, stage_id=human-boundaries-and-adoption, lineage_id, revision, attempt, sr-consent decision_id/hash, canonical-adoption decision_id/hash, their replay keys/nonces, canonical-adoption target_bindings, aggregate selected_record.decision_refs[], and the existing current-pointer/kanban-run record_id)` |
 | Barrier order/progress | the graph manifest's exact `barrier_ids=["human-boundaries", "canonical-adoption"]` array plus the existing DecisionFile hashes, resolution-event mappings, current pointers, and `KanbanRun.state`; no barrier ordinal is persisted |
 
 The adoption tuple is derived, not stored as a new member. `DecisionFile.decision_id` and its replay
@@ -998,8 +1028,8 @@ verifies monotonic sequence and previous-event hash, appends exactly one canonic
 durably flushes it, and then takes the pointer lock, verifies `expected_pointer_hash` and the current
 fencing token by CAS, and publishes the derived pointer selecting that DecisionFile/event. For
 canonical adoption, both prepared DecisionFiles remain immutable and unaccepted until every target
-post-hash passes; then exactly one event per DecisionFile is appended in the authority-approved order
-and the adoption pointer is CAS-published. No child is released before the pointer CAS succeeds.
+post-hash passes; then exactly one event per DecisionFile is appended in the exact order `sr-consent` then
+`canonical-adoption`, and the aggregate pointer is CAS-published only after both events are durable. No child is released before the pointer CAS succeeds.
 Prepared DecisionFiles are never mutated into accepted or invalid records; a failed prepared
 transaction is handled by existing invalidation/failure evidence and pointer state, not a new record
 family.
@@ -1113,6 +1143,11 @@ later stages require exact post-redaction prompt/provenance and a recoverable ru
 validator and journal mapping must be complete before Task 2–4 can release work; Task 7 consumes the
 same writer and must not redefine it.
 
+At run start this task also captures the project policy and host-validated model/backend catalog as
+immutable, credential-free input-manifest entries, together with canonical project-root identity.
+Missing, mutable, unhashable, or credential-bearing policy/catalog data blocks the run before any
+adaptive clarification or producer/backend call.
+
 **RED/documentation verification:** Add failing tests for the provider-safe versioned detector at
 ingress and the independent egress guard: exact non-secret byte preservation; redaction of secrets in
 prompt, questions, answers, observations, policy, responses, packets, reports, journals, Kanban
@@ -1157,7 +1192,9 @@ uv run pyright src/coherence/planning
 ```
 
 **Acceptance criteria:** The journal is strictly ordered and append-only; schema-one reads remain
-compatible; every challenge/decision/unresolved value is queryable with exact provenance; unsafe,
+compatible; every challenge includes its claim, rationale, requested evidence, originating answer or
+event, current disposition, response provenance, decision timestamp, and schema-two capture-state
+provenance; every challenge/decision/unresolved value is queryable with exact provenance; unsafe,
 malformed, duplicate-key, non-finite, non-UTF-8, or secret-shaped data is redacted/rejected before
 persistence; a failed snapshot replacement preserves the prior bytes; state/hash evidence names the
 journal and intent sources; and every accepted DecisionFile maps once to a replay-protected journal
@@ -1200,6 +1237,9 @@ producer and backend capabilities and assert it writes a real spec from an immut
 records the exact read-hash binding, and emits a complete `spec_authoring`/`ProducedArtifact`
 evidence record. Assert that caller attempts to supply a different role, backend, target, allowlist,
 input hash, or expected pre-hash than the immutable role/target registry are rejected. Assert that a
+provisional specification with `lifecycle_state=provisional` is rejected if it claims implementation
+completion, completed execution, accepted canonical adoption, or release readiness; these claims are
+not silently normalized away and cannot be satisfied by prompt text. Assert that a
 missing backend capability, missing host-issued target capability, malformed frontmatter, unsupported
 claim, incomplete/changed input manifest, output-path escape, unsafe ID or approved-name grammar,
 cross-run lock/fence failure, expected-prehash CAS mismatch, stale input hash, provider facade escape,
@@ -1581,14 +1621,16 @@ feature-boundary decision writing with selected feature IDs and sequential workf
 assignments, preserving supplied FEAT/SR/bundle bytes until a human authorizes replacement. Keep the
 named warning/boundary/consent/adoption stage JSON files as non-authoritative projections containing
 only validated refs/hashes; never let a projection substitute for its DecisionFile, journal event, or
-pointer. Add the exact SR consent phrase and canonical adoption writer only after the cross-artifact
+pointer. Add the exact SR consent phrase and canonical adoption writer, including the complete
+`prepare -> publish -> posthash -> journal -> pointer-CAS` primitive, only after the cross-artifact
 clean report/gate and the validated human-boundaries barrier are current. Adoption uses the exact
-transaction in Task 8, the host-issued role/target capability, standalone lease/fence, cross-run lock,
+host-issued role/target capability, standalone lease/fence, cross-run lock,
 expected-prehash CAS, and recovery/invalidation rules. It stages and hashes the exact intended
 canonical bytes first, records both pre-hashes and expected post-hashes in the immutable
 `canonical-adoption` DecisionFile before publishing that file, then verifies handle-bound post-hashes
-before journal/pointer publication; it never mutates a DecisionFile or journals/points to an
-unverified target.
+before appending the exact `sr-consent` then `canonical-adoption` journal events and the aggregate
+pointer CAS; it never mutates a DecisionFile or journals/points to an unverified target. Task 8 only
+transports and reconciles this already-implemented primitive; it must not own or redefine adoption.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_review_resolution.py tests/unit/coherence/test_planning_integration.py tests/unit/coherence/test_planning_handoff.py -q -o addopts=''
@@ -1629,9 +1671,10 @@ silent downstream execution.
 - Coherence run/artifact/gate state from Tasks 1–7.
 - Host-neutral stage dispatch seam; no new execution scheduler.
 
-**Dependencies/order:** Depends on Tasks 1–7. Graph materialization is optional and must be
-reconciled before the first worker when requested. It may transport the lifecycle but cannot change
-its order or authorize downstream work.
+**Dependencies/order:** Depends on Tasks 1–7, and specifically consumes the canonical-adoption
+primitive completed by Task 7; it does not implement or redefine that primitive. Graph materialization
+is optional and must be reconciled before the first worker when requested. It may transport the
+lifecycle but cannot change its order or authorize downstream work.
 
 **RED/documentation verification:** Add tests for the exact graph:
 
@@ -1648,11 +1691,13 @@ idempotency-key replay, duplicate-card rejection, serialized shared `dir` worksp
 worktree reconciliation, timeout/heartbeat/retry/reclaim, interruption resume, `needs_input`
 pause/resume, unauthorized path rejection, graph mismatch, and proof that an escalated review stays
 blocked until a validated `DecisionFile` answer/decision with exact finding-universe coverage and
-current artifact/input hashes queues a fresh independent review. Test the combined
-`human-boundaries-and-adoption` card's ordered internal barriers: validated
+current artifact/input hashes queues a fresh independent review. Test that the combined
+`human-boundaries-and-adoption` card invokes Task 7's canonical-adoption writer through its host-issued
+capability and reconciles its ordered internal barriers. The validated
 `challenge-resolution`, `warning-disposition`, and `feature-boundary` DecisionFiles plus their exact
 journal/pointer mappings commit first; exact consent prepares second; canonical adoption follows only
-through `prepare -> publish -> posthash -> journal -> pointer-CAS`. Test that prepare stages all three
+through `prepare -> publish -> posthash -> journal -> pointer-CAS`. Task 8 must not duplicate, redefine,
+or directly implement this adoption primitive.
 canonical targets, computes expected post-hashes before immutable DecisionFile publication, binds the
 ordered target pre/post tuples, and never mutates a prepared/accepted DecisionFile. Test both true
 multi-file atomic publication and the per-file handle-bound rollback/quarantine path, including every
@@ -1683,13 +1728,14 @@ and before handoff. Use the exact host lease/capability/registry contracts in §
 under the standalone lease/target lock; this path is mandatory even when Kanban is disabled. A stale
 owner cannot publish or mark a card `done`. Reclaim the same attempt key and fencing lineage with the
 exact higher fence, append authority-defined recovery evidence, and never duplicate artifacts or
-cards. Implement the combined card's exact two-barrier transaction and adoption
-`prepare -> publish -> posthash -> journal -> pointer-CAS` order: stage all target bytes and compute
+cards. Invoke and reconcile the combined card's two-barrier transaction implemented by Task 7 using
+`prepare -> publish -> posthash -> journal -> pointer-CAS`: stage all target bytes and compute
 post-hashes before immutable DecisionFile publication, publish atomically or roll back/quarantine the
 complete target set, and invalidate descendants on ambiguity. Do not add transaction/barrier fields
-to `KanbanRun`; derive correlation from its existing fields and DecisionFile IDs/hashes. If the
-optional capability is unavailable, report a capability block rather than silently falling back to
-prose or an execution scheduler.
+to `KanbanRun`; derive correlation from its existing fields, the authority-defined
+`canonical-adoption.target_bindings`, and the aggregate pointer decision references. If the optional
+capability is unavailable, report a capability block rather than silently falling back to prose or an
+execution scheduler.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
@@ -1794,27 +1840,32 @@ DecisionFile IDs/hashes, resolution-event mappings, current pointers, target bin
      until the complete chain.
    - **Publish:** while every target lock, handle binding, and the current lease/fence remain valid,
      publish each exact staged byte sequence through the expected-prehash CAS writer. If the host
-     provides a true multi-file atomic transaction, use one commit for the complete target set. If it
-     provides only per-file atomic replace, publish in canonical path order and require handle-bound
+     provides a true multi-file atomic transaction, use one commit for the complete target set. A
+     per-file atomic replace is permitted only when every canonical reader is itself generation/pointer
+     gated and rejects a mixed target generation; the host must prove that reader protocol in the
+     capability and test it with a direct-reader race. If direct canonical readers cannot be bound to
+     that protocol, the host must provide true multi-file atomicity or fail closed before publishing
+     any target. In the permitted per-file mode, publish in canonical path order and require handle-bound
      rollback: on any publish/CAS/lease/identity failure, restore every already-published target from
      its captured preimage using expected-current-new-hash CAS, verify every restored pre-hash, delete
      uncommitted temporaries, and leave no new target selected by a pointer. If restoration cannot be
-     proved safe for every touched target, quarantine every new target/version and temporary under
-     handle-bound no-follow paths, mark the adoption/current and all descendant pointers invalidated,
-     and keep final gates blocked. A host that can provide neither cross-file atomicity nor complete
-     rollback/quarantine fails closed before target publication. Partial FEAT/SR/bundle bytes may never
-     remain visible through a canonical current pointer.
+     proved safe for every touched target, create only registered `adoption-quarantine` targets under
+     the declared quarantine capability, quarantine every new target/version and temporary, mark the
+     adoption/current and all descendant pointers invalidated, and keep final gates blocked. A host that
+     can provide neither cross-file atomicity nor complete rollback/quarantine fails closed before target
+     publication. Partial FEAT/SR/bundle bytes may never be visible to an authorized canonical reader.
    - **Posthash:** read every published target through its validated handle, verify exact paths,
      identities, lengths, and hashes, and require each read hash to equal the precomputed
      `target_bindings[].post_sha256` in the immutable canonical-adoption DecisionFile. A mismatch,
      changed target, lost lock, or lost fence stops before journal/pointer publication and invokes the
      rollback/quarantine rule; it never edits the DecisionFile to repair a hash.
    - **Journal:** only after the complete target set passes posthash, append exactly one canonical
-     resolution event for each prepared DecisionFile (consent and adoption) in the authority-approved
-     order, with current report/input/artifact hashes, decision/response hashes, actor, replay fields,
-     and previous-event hash. Durably flush the existing `resolution-events.jsonl` under its exclusive
-     lock. Do not duplicate an event on recovery; a target publication without these events is not an
-     accepted adoption.
+     resolution event for each prepared DecisionFile (consent and adoption) in the exact order
+     `sr-consent` then `canonical-adoption`, with current report/input/artifact hashes, decision/response
+     hashes, actor, replay fields, and previous-event hash. Durably flush the existing
+     `resolution-events.jsonl` under its exclusive lock. Do not duplicate an event on recovery; a
+     target publication without both events is not an accepted adoption. A durable consent-only prefix
+     remains historical human consent but cannot advance the adoption pointer or release a child.
    - **Pointer-CAS:** only after the journal tail is durable, CAS-publish the adoption current pointer
      with the expected pointer hash, target post-hashes, decision/event mappings, and current fencing
      token. Commit barrier `canonical-adoption` only after this pointer CAS, all target read-backs, and
