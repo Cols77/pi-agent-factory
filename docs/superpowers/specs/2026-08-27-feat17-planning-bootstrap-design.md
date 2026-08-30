@@ -108,6 +108,14 @@ The run produces or references these artifacts:
 .factory/planning/<run-id>/kanban-run.json              # optional transport
 ```
 
+In the review path above, `<checkpoint>` is exactly one of `spec_alignment`,
+`candidate_sr_alignment`, or `cross_artifact_alignment`, and `<attempt>` is a positive decimal
+attempt number. The versioned `.factory/planning/<run-id>/candidate-sr-derivation.json` record is
+the single run-local candidate-SR derivation artifact: it contains the candidate SR set and the
+candidate feature/bundle projection together with their derivation and source hashes. If the
+projection is stored separately, that record must name and hash the separate artifact. Neither form
+is canonical FEAT/SR/bundle adoption; adoption remains later, explicit, and consent-gated.
+
 The selected canonical source paths remain the repository's normal paths, for example:
 
 ```text
@@ -194,14 +202,23 @@ Every producer and checkpoint uses strict parsing, safe relative paths, determin
 read-back, exact SHA-256 hashes, and current input hashes. Existing Coherence gate, decision, trace,
 register, and filesystem machinery is reused rather than replaced. Missing, malformed, stale,
 unsafe, or contradictory input fails closed. Every security/operability warning blocks until fixed
-or explicitly dispositioned by a human through a validated decision writer.
+or explicitly dispositioned by a human through a validated decision writer. Every downstream gate
+requires its predecessor's current artifact/input hashes and, when that predecessor is a
+review/resolution stage, a current clean review report plus deterministic gate evidence. A non-clean
+report, escalation record, human response, or Kanban `done` state never satisfies that requirement.
 
 ### 3e. Review, resolution, escalation, and consent
 
 Every checkpoint receives the complete non-deleted SR context, including proposed, deferred,
 satisfied, and active records with source anchors and available trace context. The selected reviewer
 model is fixed for the run. A scoped fix is followed by deterministic reread and a fresh independent
-review; resolution history is append-only. Unresolved findings become human escalations. A clean
+review; resolution history is append-only. An unresolved finding is recorded as an escalation and
+leaves the review/resolution stage blocked in `needs_input`; an escalation record is never a
+completion record. The stage may leave that blocked state only after a validated human answer or
+decision is written through the specified `DecisionFile` writer, with the exact finding scope and
+current artifact/input hashes. That record queues a fresh independent review on the same
+stage/revision lineage; the human response alone never releases a child. The stage completes only
+when that fresh report is clean, current, hash-bound, and its deterministic gate passes. A clean
 review never grants consent: canonical SR adoption requires exact, fresh, hash-bound human consent.
 
 ### 3f. Summary, downstream menu, and handoff
@@ -239,16 +256,28 @@ Any state may become `needs_input` or `blocked`. Resumption uses the journal, im
 records, and current hashes. A state file is a derived projection; it cannot advance itself or
 override a failed gate.
 
+Globally, `escalated`, `needs_input`, `blocked`, and `human response recorded` are non-terminal
+states, never completion states. A recorded human response is only an input to the next validated
+review/resolution attempt; it cannot release a child by itself.
+
 ### 3.2 State invariants
 
-- A stage cannot run until every predecessor has a durable, hash-matching completion record.
+- A stage cannot run until every predecessor has a durable, hash-matching completion record; a
+  review/resolution predecessor additionally requires its current clean review report and
+  deterministic gate evidence.
 - A producer completion requires write, read-back, strict parse, and a recorded SHA-256 hash.
 - A source change invalidates that stage and every downstream projection; old evidence remains
   immutable history.
 - A review finding is either resolved by a permitted scoped fix followed by a fresh independent
-  review, or escalated to a human. It cannot be silently dropped.
-- A human decision is recorded only by a validated writer with actor, exact scope, reason, timestamp,
-  and input hashes. Agents cannot mint consent or warning disposition.
+  review, or recorded as an escalation that leaves the stage blocked in `needs_input`; it cannot be
+  silently dropped or treated as completion.
+- A blocked review/resolution stage resumes only after the validated `DecisionFile` writer records a
+  human answer/decision with actor, exact finding scope, reason, timestamp, and current
+  artifact/input hashes, and then queues a fresh independent review on the same stage/revision
+  lineage. Agents cannot mint consent or warning disposition, and a human response alone cannot
+  release a child.
+- A scoped fix invalidates the affected review/resolution stage and every descendant, even when old
+  cards or reports say `done`; all downstream gates must use the new current clean evidence.
 - Reclaim and retry reuse the run/stage idempotency key and append attempt evidence; they do not
   duplicate canonical artifacts, task records, cards, or decisions.
 - A terminal `handoff_ready` state always has `starts_automatically: false`.
@@ -278,8 +307,11 @@ provisional; it must not claim unresolved decisions are settled.
 `PLANNING_ALIGNMENT` reviews the real provisional spec against the complete intent/provenance
 record, challenges, repository facts, and full current SR context. It checks omission, unsupported
 claims, contradictions, feasibility, security/operability concerns, and unresolved boundaries.
-Scoped fixes invalidate and rerun this checkpoint. A clean result means only that the spec can feed
-candidate derivation; it is not human approval.
+Scoped fixes invalidate this checkpoint and every descendant, then require a fresh independent review.
+An unresolved finding leaves this checkpoint blocked in `needs_input`; after a validated human
+answer/decision is recorded with exact finding scope and current artifact/input hashes, the same
+stage/revision lineage queues a fresh review. Only a current, hash-bound clean report whose
+deterministic gate passes can feed candidate derivation; it is not human approval.
 
 ### Step 4 — One run-local candidate SR derivation and adversarial review
 
@@ -410,16 +442,22 @@ Each checkpoint follows:
 deterministic preflight
   -> fresh reviewer invocation with complete required context
   -> strict report validation
-  -> scoped fix OR explicit human escalation
-  -> append resolution/challenge evidence
-  -> deterministic read-back, hashes, and gates
-  -> fresh independent reviewer invocation
+  -> clean current report + deterministic gate -> stage complete
+  -> scoped fix -> append revision/evidence, invalidate stage + descendants
+     -> deterministic read-back, hashes, and fresh independent review
+  -> escalation record -> append evidence -> stage blocked `needs_input`
+     -> validated human answer/decision through the `DecisionFile` writer
+        with exact finding scope and current artifact/input hashes
+     -> deterministic read-back, hashes, and fresh independent review
+        on the same stage/revision lineage
   -> repeat within a bounded budget, or remain blocked
 ```
 
 The selected reviewer model is fixed for the run after host catalog validation; retries reuse it.
-A reviewer/fixer cannot self-certify. Provider errors, malformed output, stale packets, exhausted
-budgets, and missing capabilities block or escalate.
+A reviewer/fixer cannot self-certify. A scoped fix invalidates the affected checkpoint and all
+downstream projections before the fresh review. An escalation record, `needs_input` state, or human
+response is never completion evidence and never releases a child. Provider errors, malformed output,
+stale packets, exhausted budgets, and missing capabilities block or escalate into this same loop.
 
 Review packets delimit source artifacts as untrusted data. Embedded instructions in intent, spec,
 SR, plan, task, or fixture content cannot change the reviewer's role, permissions, or acceptance
@@ -552,7 +590,9 @@ silently accepted.
 - run and contract schema/version;
 - exact prompt/intent, spec, candidate/adopted SR, plan, task, FEAT/bundle baseline, and evidence
   hashes;
-- all three clean review hashes and resolution-journal digest;
+- all three current clean review report hashes, each bound to the current artifact/input hashes and
+  deterministic checkpoint-gate evidence, plus the resolution-journal digest; a non-clean or
+  escalation report hash, `needs_input` record, or human-response hash cannot satisfy this field;
 - human challenge, feature-boundary, warning, and consent decision hashes;
 - FEAT-018 capability result;
 - selected downstream workflow and legal menu;
@@ -635,6 +675,44 @@ execution.
 
 This graph transports planning lifecycle only. It does not schedule FEAT-018 execution, FEAT-019
 conformance, FEAT-020 optimization, implementation, or health recovery.
+
+### 8.1 Stage-card contract
+
+The following table is normative for the root and every stage card. “Review/resolution” is one
+durable stage with append-only review attempts; a scoped fix invalidates that stage and all downstream
+cards and requires a fresh independent review. It is not a second SR derivation or a hidden scheduler.
+
+All paths in this table are repository-relative and use the artifact naming contract in §2.2. In a
+review path, `<checkpoint>` is `spec_alignment`, `candidate_sr_alignment`, or
+`cross_artifact_alignment`, and `<attempt>` is a positive decimal attempt number. Each card's stable
+idempotency key is `feat17/<run-id>/<stage-id>/v1`, where `<stage-id>` is the exact lowercase,
+hyphenated graph node name in the table and `v1` is the stage-card contract version. Revision and
+attempt are separate card fields: retries/reclaims keep the same key and append attempt evidence;
+a scoped fix creates a new revision in the same durable stage lineage and invalidates its descendants.
+
+| Stage | Inputs -> outputs | Role and paths | Workspace, key, retry/block/completion | Downstream gate |
+|---|---|---|---|---|
+| `planning-run` (root) | request/policy/catalog -> `.factory/planning/<run-id>/state.json` and optional `.factory/planning/<run-id>/kanban-run.json` | coordinator; run directory only; no canonical writes | coordinator workspace; key `feat17/<run-id>/planning-run/v1`; reclaim resumes the same run; block on unsafe/missing inputs; complete only after graph reconciliation | all stage cards exist with exact edges and contract hash |
+| `capture` | prompt, questions, repository observations -> `.intent/intent.json` and `.factory/planning/<run-id>/capture/events.jsonl` | capture agent; `.intent/` and run capture paths only | serialized project `dir`; key `feat17/<run-id>/capture/v1`; append attempt evidence on retry/reclaim; block on incomplete/unsafe capture; complete on durable verbatim read-back/hash | current intent/provenance gate |
+| `provisional-spec-authoring` | captured intent, facts, SR context -> `docs/superpowers/specs/<approved-name>.md` and `.factory/planning/<run-id>/spec-authoring.json` | spec producer; approved spec target plus run evidence only | serialized writer workspace; key `feat17/<run-id>/provisional-spec-authoring/v1`; retry same target/key, never overwrite silently; block on producer/read-back/schema failure; complete on strict parse and hash | current spec-alignment preflight |
+| `spec-alignment` (Pass 1 review/resolution) | spec, intent, challenges, full SR context -> `.factory/planning/<run-id>/reviews/spec_alignment/<attempt>.json` | fresh semantic reviewer; read-only review path, `.factory/planning/<run-id>/resolution-events.jsonl`, and approved fixer target only | read-only review workspace; key `feat17/<run-id>/spec-alignment/v1`; unresolved findings/warnings or missing context leave the card `blocked`/`needs_input`; an escalation record never completes it; a validated human answer/decision through the `DecisionFile` writer, with exact finding scope and current artifact/input hashes, queues a fresh independent review on the same stage/revision lineage; complete only when the fresh report is current, hash-bound, clean, its deterministic gate passes for spec alignment | current candidate-derivation gate requires this clean report/gate evidence |
+| `candidate-sr-derivation` | reviewed spec -> `.factory/planning/<run-id>/candidate-sr-derivation.json` containing the one run-local candidate SR/feature/bundle projection and derivation record | candidate derivation agent; run directory only, canonical records read-only | serialized run writer; key `feat17/<run-id>/candidate-sr-derivation/v1`; retry/reclaim resumes one lineage and never duplicates; block on stale spec or unsafe/ambiguous boundaries; complete on deterministic candidate set/projection and source hashes | current candidate-SR alignment preflight |
+| `candidate-sr-alignment` (Pass 2 review/resolution) | candidate set, spec, full SR context -> `.factory/planning/<run-id>/reviews/candidate_sr_alignment/<attempt>.json` | fresh SR reviewer; read-only review path plus `.factory/planning/<run-id>/resolution-events.jsonl` | read-only review workspace; key `feat17/<run-id>/candidate-sr-alignment/v1`; duplicate/conflict/unsupported/missing-obligation/security findings leave the card `blocked`/`needs_input`; an escalation record never completes it; a validated human answer/decision through the `DecisionFile` writer, with exact finding scope and current artifact/input hashes, queues a fresh independent review on the same stage/revision lineage; complete only when the fresh report is current, hash-bound, clean, its deterministic gate passes for candidate-SR alignment | current plan-authoring gate requires this clean report/gate evidence |
+| `implementation-plan-authoring` | reviewed spec and candidate SR set -> `docs/superpowers/plans/<approved-name>.md` and `.factory/planning/<run-id>/plan-authoring.json` | plan producer; approved plan target plus run evidence only | serialized writer workspace; key `feat17/<run-id>/implementation-plan-authoring/v1`; retry same key/read-back, no supplied-path shortcut; block on stale inputs or invalid task grammar; complete on strict parse/hash with implementation and verification obligations together | current task-materialization preflight |
+| `task-materialization` | reviewed plan -> `tasks/T-<digits>-<slug>.md` records and `.factory/planning/<run-id>/task-materialization.json` | plan-to-task producer; approved task targets plus run evidence only | serialized task writer or isolated worktree reconciled before child; key `feat17/<run-id>/task-materialization/v1`; idempotent replay; block on parity/unbound task/path violation; complete when every task has required links/evidence | current cross-artifact review/trace preflight |
+| `cross-artifact-alignment` (Pass 3 review/resolution) | intent/spec/candidate SR/plan/tasks/trace evidence -> `.factory/planning/<run-id>/reviews/cross_artifact_alignment/<attempt>.json` and `.factory/planning/<run-id>/traceability.json` | fresh independent reviewer plus deterministic trace gate; read-only review/gate paths | read-only review workspace; key `feat17/<run-id>/cross-artifact-alignment/v1`; one-way/missing trace, stale hash, or warning leaves the card `blocked`/`needs_input`; an escalation record never completes it; a validated human answer/decision through the `DecisionFile` writer, with exact finding scope and current artifact/input hashes, queues a fresh independent review on the same stage/revision lineage; complete only when the fresh report is current, hash-bound, clean, its deterministic gate passes, and bidirectional trace evidence is current | current human-boundaries preflight requires this clean report/gate evidence |
+| `human-boundaries-and-adoption` | clean reviews, candidate set, warnings, boundary choices -> `.factory/planning/<run-id>/warning-decisions.json`, `.factory/planning/<run-id>/sr-consent.json`, `.factory/planning/<run-id>/feature-boundary-decision.json`, and only after consent canonical SR/FEAT/bundle records | validated human-decision writer; run decision paths plus approved canonical writer paths; supplied baselines read-only until explicit replacement | serialized decision/canonical writer workspace; key `feat17/<run-id>/human-boundaries-and-adoption/v1`; reclaim preserves pending `needs_input`; block on any unresolved warning/challenge, missing consent, or scope choice; complete only on validated hash-bound decisions and exact adoption | current final-gates preflight |
+| `final-gates` | all current artifacts, decisions, optional graph, FEAT-018 capability -> `.factory/planning/<run-id>/final-gates.json` | deterministic gate runner; run evidence only, read-only canonical inputs | read-only gate workspace; key `feat17/<run-id>/final-gates/v1`; retry recomputes current hashes; block on stale consent/evidence, unavailable required capability, or graph mismatch; complete only on green current report | current handoff preflight |
+| `handoff` | green final gates -> `.factory/planning/<run-id>/handoff.json` and `.factory/planning/<run-id>/handoff.md` plus explicit next-action menu | handoff writer/presenter; run handoff paths only; never dispatches | read-only inputs, atomic run write; key `feat17/<run-id>/handoff/v1`; idempotent by final-gate hash; block on any hash change; complete with validated `starts_automatically: false` | no automatic downstream execution |
+
+No card may be marked complete from prose, a model assertion, fixture data, or Kanban `done` alone.
+The coordinator must reconcile each card’s recorded inputs, outputs, role, paths, workspace claim,
+attempt history, and required Coherence gate before releasing its children. Every downstream gate
+must require the predecessor's current artifact/input hashes and, for a review/resolution predecessor,
+the fresh clean report and deterministic gate evidence described in that row. A missing stage, edge,
+hash, clean report, or completion record leaves the child unrunnable and visible as `blocked` rather
+than being silently skipped. A non-clean escalation hash or a human-response hash can never satisfy
+the handoff's three-clean-review requirement.
 
 ## 9. Baseline limitations and explicit deferrals
 

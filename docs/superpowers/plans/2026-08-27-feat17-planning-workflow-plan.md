@@ -152,6 +152,13 @@ Planned run evidence includes:
 .factory/planning/<run-id>/kanban-run.json       # only when optional transport is requested
 ```
 
+`<checkpoint>` is exactly `spec_alignment`, `candidate_sr_alignment`, or
+`cross_artifact_alignment`; `<attempt>` is a positive decimal attempt number. The versioned
+`.factory/planning/<run-id>/candidate-sr-derivation.json` record contains the single run-local
+candidate SR set and its candidate feature/bundle projection, with derivation/source hashes (or
+exact paths and hashes for any separately stored projection). Canonical FEAT/SR/bundle adoption
+remains a later, explicit, consent-gated human-boundaries stage.
+
 Run-local evidence is derived and immutable by attempt. It never silently replaces canonical
 source artifacts or human decisions.
 
@@ -241,7 +248,13 @@ Every code-producing task below follows this sequence:
 
 Reviewers receive complete required context and treat artifact text as untrusted data. Review
 reports never create human consent. A direct fix always invalidates the affected checkpoint and all
-downstream projections and requires a fresh independent review.
+downstream projections and requires a fresh independent review. An unresolved review finding is an
+escalation record that leaves the review/resolution card blocked in `needs_input`, never a completion
+state. A blocked review/resolution card may resume only after the validated `DecisionFile` writer
+records a human answer/decision with exact finding scope and current artifact/input hashes; that
+record queues a fresh independent review on the same stage/revision lineage. The human response
+alone never releases a child. Completion requires the fresh report to be clean, current, hash-bound,
+and accepted by its deterministic gate. Globally, `escalated`, `needs_input`, `blocked`, and `human response recorded` are non-terminal and never completion states.
 
 ## 4. Dependency-gated implementation tasks
 
@@ -440,8 +453,11 @@ set, then read back, validate, and hash it before task materialization.
 - Existing `parse_plan_tasks` grammar in `src/substrate/ledger/plans.py`.
 - Canonical plan target under `docs/superpowers/plans/<approved-name>.md`.
 
-**Dependencies/order:** Depends on Task 3. It must run only after candidate-SR review is clean or
-has an explicit permitted human disposition. It must complete before task materialization.
+**Dependencies/order:** Depends on Task 3. It must run only after the current
+`candidate_sr_alignment` report is clean, current, hash-bound to the candidate/spec/context inputs,
+and its deterministic gate passes. An escalation record, `needs_input` state, human response, or
+human decision does not substitute for that clean-review evidence. It must complete before task
+materialization.
 
 **RED/documentation verification:** Add a fake-backend producer test that fails until the plan
 contains both implementation and verification sections, explicit test-artifact obligations, exact
@@ -685,8 +701,10 @@ planning-run -> capture -> provisional-spec-authoring -> spec-alignment
 Test persisted root and stage IDs, parent links, contract hash, missing/incomplete-parent blocking,
 idempotency-key replay, duplicate-card rejection, serialized shared `dir` workspaces, isolated
 worktree reconciliation, timeout/heartbeat/retry/reclaim, interruption resume, `needs_input`
-pause/resume, unauthorized path rejection, graph mismatch, and proof that no child or downstream
-workflow runs from prose or a Kanban `done` state alone.
+pause/resume, unauthorized path rejection, graph mismatch, and proof that an escalated review stays
+blocked until a validated `DecisionFile` answer/decision with exact finding scope and current
+artifact/input hashes queues a fresh clean review. Also prove that no child or downstream workflow
+runs from prose or a Kanban `done` state alone.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
@@ -710,12 +728,49 @@ npm test --prefix pi-ext/factory-watch -- --run test/planning-kanban.test.ts
 
 **Acceptance criteria:** The optional graph has observable root/stage cards and strict edges in the
 correct order; materialization is idempotent; writers serialize workspaces; retry/reclaim resumes
-without duplicates; human blocks remain `needs_input`; all child dispatch is dependency- and gate-
-gated; graph/artifact hashes are reconciled; and the graph never schedules implementation,
+without duplicates; human blocks remain `needs_input` until a fresh current clean review/report/gate
+evidence exists; all child dispatch is dependency- and gate-gated; graph/artifact hashes are
+reconciled; and the graph never schedules implementation,
 FEAT-018 execution, FEAT-019 conformance, FEAT-020 optimization, or health recovery.
 
 **Prohibited scope:** Do not implement a second scheduler, alter Hermes Kanban lifecycle ownership,
 use prose as a card, execute downstream work, or mark a Coherence gate green from Kanban state.
+
+The stage-card contract in the authority spec §8.1 is part of this plan, not descriptive background.
+Task 8 must implement one root card and one strictly dependent card per listed stage, using the
+exact repository-relative artifact paths and graph stage IDs from that table. A card's stable
+idempotency key is `feat17/<run-id>/<stage-id>/v1`; `<stage-id>` is the table's exact lowercase,
+hyphenated graph node name, `v1` is the contract version, and revision/attempt are separate fields.
+Retries/reclaims keep that key and append attempt evidence. Review reports use
+`.factory/planning/<run-id>/reviews/<checkpoint>/<attempt>.json`, where `<checkpoint>` is exactly
+`spec_alignment`, `candidate_sr_alignment`, or `cross_artifact_alignment`.
+
+Review stages own append-only resolution attempts. An unresolved finding is an escalation record that
+keeps the stage `blocked`/`needs_input`; escalation, `blocked`, `needs_input`, and `human response
+recorded` are never completion states. A scoped fix invalidates the affected stage and all descendants
+and requires a fresh independent review. A blocked review stage may resume only when the validated
+`DecisionFile` writer records a human answer/decision with exact finding scope and current
+artifact/input hashes; that event queues a fresh independent review on the same stage/revision
+lineage. A human response alone never releases a child. The review stage completes only when that
+fresh report is current, hash-bound, clean, and its deterministic gate passes. Every downstream gate
+must require this current clean review/report/gate evidence from its predecessor; no escalation hash,
+human-response hash, card `done`, prose, or second scheduler can substitute for it.
+
+The candidate SR/feature/bundle projection is created once in the versioned run-local
+`.factory/planning/<run-id>/candidate-sr-derivation.json` record before plan authoring; any separate
+projection artifact must be named and hash-bound there. Canonical writers run only in the explicit
+human-boundaries-and-adoption stage after exact human consent. There is no late SR derivation,
+separate verification plan, or prose fallback.
+
+For each card persist and reconcile, at minimum: run/stage/version; exact input and output paths and
+hashes; role and assignee; allowed and prohibited paths; workspace claim/mode; parent IDs; stable
+idempotency key; attempt, timeout, heartbeat, retry, and reclaim metadata; blocking state/reason;
+completion evidence; and the required Coherence gate. The implementation and dogfood must cover
+the root plus capture, spec authoring, Pass 1 review/resolution, candidate projection, Pass 2
+review/resolution, plan authoring, task generation, Pass 3 review/resolution, human consent and
+canonical adoption, deterministic final gates, and handoff. Missing or stale parent evidence keeps a
+card blocked; it must never be released because a prior card says `done` or because a stage is
+described in a prompt.
 
 ### Task 9: Add the FEAT-018 capability seam and honest block behavior
 
@@ -800,7 +855,8 @@ repository facts, and an empty approved output location. Invoke the real produce
 - typed task materialization and idempotent rerun;
 - bidirectional trace closure and a deliberate missing-edge failure;
 - one agentic scoped fix followed by fresh review;
-- human challenge escalation and next-loop answer provenance;
+- human challenge escalation staying `blocked`/`needs_input` until the validated decision-writer
+  answer/decision with exact finding scope/current hashes queues a fresh clean review;
 - every security/operability warning blocking until a labelled human decision;
 - feature split stopping for human selection without overwriting a supplied baseline;
 - interrupted/resumed capture and failed snapshot replacement preservation;
@@ -860,8 +916,10 @@ workflow is allowed without explicit authorization.
 producer is skipped, any checkpoint is out of order, candidate review is late or duplicated, a task
 is unbound, trace closure is one-way, a warning lacks human disposition, feature scope is unresolved,
 FEAT-018 is unavailable when required, a snapshot/hash/consent is stale, a Kanban edge is missing,
-or `starts_automatically` is true. Verify the final docs contain no contradictory normative order
-and explicitly mark implementation, consent, and adoption as pending until proved.
+or `starts_automatically` is true. Also assert that an escalation/non-clean review hash or a recorded
+human response cannot release a child, and that only a fresh current clean report plus deterministic
+gate evidence can complete a review stage. Verify the final docs contain no contradictory normative
+order and explicitly mark implementation, consent, and adoption as pending until proved.
 
 ```bash
 uv run pytest tests/integration/coherence/test_planning_holistic.py tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
@@ -917,13 +975,14 @@ start implementation/downstream workflows, fabricate human consent, or rewrite h
 | Plan producer | Real backend-injected producer writes, reads back, validates, and hashes a plan containing implementation and verification work together |
 | Task contract | Generated tasks bind source spec/plan/SR or reviewed non-SR, acceptance, exact tests/commands, and implementation/verification evidence |
 | Cross-artifact gate | `CROSS_ARTIFACT_ALIGNMENT` runs after tasks and proves bidirectional closure |
+| Review resolution | Escalation is blocked `needs_input`; a validated hash-bound human answer/decision queues a fresh independent review, and only its current clean report plus deterministic gate evidence releases the child |
 | Human boundaries | Feature splits stop for human sequential workflow/worktree choice; supplied FEAT baseline is never silently overwritten |
 | Warnings | Every security/operability warning blocks until fixed or explicitly dispositioned by a human; no `accept_warning` bypass |
 | Consent/adoption | Fresh exact human SR consent binds candidate set, review, artifacts, and run; canonical adoption is distinct from review cleanliness |
 | Kanban | Optional root/stage cards, dependencies, idempotency, workspace serialization, retry/reclaim, recovery, reconciliation, and no silent downstream execution are tested |
 | FEAT boundary | FEAT-018 capability is checked/blocked honestly; FEAT-019 conformance and FEAT-020 optimization remain separate |
 | Freshness | Any relevant input, output, context, model, decision, or policy change invalidates affected evidence and handoff |
-| Handoff | JSON/Markdown handoff is current, validated, hash-bound, and `starts_automatically: false` |
+| Handoff | JSON/Markdown handoff is current, validated, hash-bound, includes all three current clean review report/gate evidence tuples, rejects escalation/non-clean/human-response hashes, and has `starts_automatically: false` |
 | Known debt | Existing repository debt and unavailable capabilities are reported separately, never converted into false success |
 | Authorization | No merge, push, canonical adoption, or downstream launch without explicit authorization |
 
