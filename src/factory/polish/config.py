@@ -8,9 +8,9 @@ from factory.polish.devserver import DevServerPlayground
 from factory.polish.playground import Playground
 from factory.polish.reference import ScenarioReplayPlayground
 from factory.polish.sim_live import SimLivePlayground
-from factory.validation.harness import Harness
-from factory.validation.playwright_harness import PlaywrightE2EHarness
-from factory.validation.sim_harness import SimTestbenchHarness
+from coherence.measurement.harness import Harness
+from coherence.measurement.playwright_harness import PlaywrightE2EHarness
+from coherence.measurement.sim_harness import SimTestbenchHarness
 
 PLAYGROUND_TYPES: dict[str, Callable[[dict, Path], Playground]] = {
     "dev-server": DevServerPlayground.from_config,
