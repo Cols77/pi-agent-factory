@@ -1,0 +1,9 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "schema": 1,
+  "gate_id": "planning",
+  "artifact_ref": "docs/superpowers/specs/intent-spec.md",
+  "decisions": [{"item_id": "coverage:fixture-clean-001:warning-001", "action": "accept", "reason": "Accepted informational fixture warning for coverage demonstration."}],
+  "decided_by": "fixture-human",
+  "decided_at": "2026-01-01T00:00:00Z"
+}

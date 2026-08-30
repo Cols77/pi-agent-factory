@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "run_id": "fixture-clean-001",
+  "prompt": "Build a deterministic planner for a small consumer project.",
+  "answers": [
+    {"id": "goal", "question": "What should be built?", "text": "Build a deterministic planner for a small consumer project.", "source": "fixture-user", "sequence": 1},
+    {"id": "authority", "question": "What remains authoritative?", "text": "Files remain canonical and every decision is inspectable.", "source": "fixture-user", "sequence": 2}
+  ],
+  "brief": {"goals": ["deterministic planner"], "constraints": ["files remain canonical"]},
+  "capture_status": "complete",
+  "redactions": [],
+  "challenges": []
+}

@@ -1,0 +1,6 @@
+{
+  "id": "FEAT-017-FIXTURE",
+  "description": "Labelled candidate bundle for FEAT-017 dogfood; test data only.",
+  "members": ["feat:FEAT-017-FIXTURE", "sr:SR-001", "sr:SR-002"],
+  "fixture_label": "test-data-not-approval"
+}

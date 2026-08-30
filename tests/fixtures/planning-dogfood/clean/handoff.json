@@ -1,0 +1,9 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "run_id": "fixture-clean-001",
+  "workflow": "standard-development",
+  "canonical_artifacts": ["spec.md", "plan.md", "tasks.json", "feature.md", "bundle.json"],
+  "starts_automatically": false,
+  "revalidate_before_acting": true,
+  "summary": "Fixture handoff only; no downstream workflow has been started."
+}

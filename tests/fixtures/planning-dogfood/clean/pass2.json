@@ -1,0 +1,7 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "stage": "PLANNING_PLAN_REVIEW",
+  "verdict": "clean",
+  "artifacts": ["plan.md", "tasks.json"],
+  "assertions": {"task_plan_parity": true, "source_task_links": true, "fresh_review_after_fix": true}
+}

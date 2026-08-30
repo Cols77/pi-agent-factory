@@ -1,0 +1,11 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "schema": 2,
+  "run_id": "fixture-clean-001",
+  "decision": "approve",
+  "reviewer": "fixture-human",
+  "phrase": "I explicitly consent to adopt exactly these candidate SRs.",
+  "candidate_srs": ["SR-001", "SR-002"],
+  "derivation_report_sha256": "fixture-hash-computed-by-harness",
+  "artifact_hashes": {"spec.md": "fixture-hash-computed-by-harness", "plan.md": "fixture-hash-computed-by-harness"}
+}

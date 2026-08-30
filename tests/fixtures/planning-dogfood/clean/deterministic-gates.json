@@ -1,0 +1,12 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "gates": [
+    {"id": "planning-input", "result": "pass", "deterministic": true},
+    {"id": "semantic-review-reports", "result": "pass-after-resolution", "deterministic": true},
+    {"id": "sr-consent", "result": "requires-explicit-phrase", "deterministic": true},
+    {"id": "artifact-freshness", "result": "stale-input-rejected", "deterministic": true},
+    {"id": "handoff", "result": "hash-bound", "deterministic": true}
+  ],
+  "downstream": ["standard-development", "health-recovery", "feature-planning"],
+  "starts_automatically": false
+}

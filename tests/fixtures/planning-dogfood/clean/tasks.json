@@ -1,0 +1,4 @@
+[
+  {"id": "T-001", "title": "Capture contract", "source_plan": "docs/superpowers/plans/intent-plan.md", "source_task": 1, "status": "todo"},
+  {"id": "T-002", "title": "Planning report", "source_plan": "docs/superpowers/plans/intent-plan.md", "source_task": 2, "status": "todo"}
+]

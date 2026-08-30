@@ -1,0 +1,9 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "stage": "PLANNING_DERIVATION",
+  "verdict": "escalated_then_clean",
+  "findings": [{"id": "sr-contradiction-001", "disposition": "human_escalation", "evidence": "duplicate-and-contradictory-sr-context.json"}],
+  "human_resolution": "Use the source-anchored statement and retain both provenance records.",
+  "resumed_verdict": "clean",
+  "closure": ["feat:FEAT-017-FIXTURE", "sr:SR-001", "sr:SR-002"]
+}
