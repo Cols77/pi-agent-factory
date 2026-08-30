@@ -6,21 +6,50 @@ This file is partly managed by the pi-agent-factory bootstrap.
 # Project (factory bootstrap)
 pi-agent-factory
 
-Key components & boundaries: factory orchestrator; evidence model; traceability CLI; requirements doctor; requirement register; system navigator; polish workflow; sim/validation harnesses; pi extension (commands + tools).
+Architecture & boundaries: `factory` is the execution engine (orchestrator,
+gates, run state, evidence, and polish); `coherence` is the canonical
+assurance/navigation CLI; `substrate` provides shared primitives (paths,
+schemas, ledgers, evidence, freshness, codemap, and policy). Pi extensions are
+thin host adapters over those Python-owned contracts.
 
-Canonical documents: specs docs/superpowers/specs; plans docs/superpowers/plans.
+Canonical documents: specs `docs/superpowers/specs`; plans
+`docs/superpowers/plans`.
 
-Common commands: factory gate: {python} -m pytest -m unit -q --ignore=tests/gates/test_all_gate.py | factory gate: {python} -m pytest -m sim -q | factory gate: {python} -m pytest tests/integration/ -q -m integration | factory gate: {python} -m ruff check . | unit: uv run python -m pytest -m unit -q | integration: uv run python -m pytest -m integration -q | lint: uv run ruff check . | typecheck: uv run pyright | extension test: npm test --prefix pi-ext/factory-watch.
+Canonical CLI examples:
+- status: `uv run coherence status --json`
+- navigation: `uv run coherence navigate brief --scope <ref> --json`,
+  `matrix`, `timeline`, `guide`, `scope`, `health`, and
+  `membership --gate`
+- trace/register checks: `uv run coherence trace check --project-root .` and
+  `uv run coherence register check --project-root .`
+- requirements context: `uv run coherence doctor context --project-root . --json`
+- audit/measurement: `uv run coherence audit run <feature> --project-root .` and
+  `uv run coherence measurement run --project-root . --satisfies SR-###`
 
-Rule: The gate vocabulary is fixed: unit, sim, integration, full.
+Gate vocabulary is fixed: `unit`, `integration`, and `full`. Gates are declared
+in `.factory/factory.yaml` and executed in order by the factory's
+`ConfigGateRunner`. The `full` gate directly requires
+`{python} scripts/gates/ext.py` and `{python} scripts/gates/watch_ext.py`, in
+addition to lint, typecheck, and unit commands. `{python}` means the interpreter
+running the factory; consuming projects should name their own environment.
 
-Rule: Python is 3.11-3.12, ruff line-length 100, pyright standard mode.
+Execution and evidence commands remain factory-owned:
+`uv run python -m factory.orchestrator list --repo . --json`,
+`uv run python -m factory.orchestrator run --repo . --task T-###`, and
+`uv run python -m factory.evidence reconcile --repo . --json`.
 
-Rule: The deterministic factory pipeline is documented in engineering-context plans.
+Pi integration: `pi-ext/factory-watch` provides `/factory`, `/factory-run`,
+`/factory-tasks`, `/plan`, `/review-plans`, and read-only navigator tools;
+`pi-ext/scope-guard` enforces task write scope. `/factory-init --check` reports
+bootstrap status. The deterministic factory pipeline is documented in the
+engineering-context plans.
 
-Factory tools: delegation (subagent); trace (trace_next, trace_link, trace_exempt, trace_defer, trace_check); system-navigator (system_context, implementation_history, validation_status, evidence_health, system_scopes, system_briefing, system_matrix, system_timeline, system_guide, system_story, system_reverse); engineering-context (eng_get_vcycle, eng_get_diagram, eng_trace_requirement, eng_get_latest_simulation, eng_get_latest_failure, eng_get_goal, eng_get_goals, eng_get_goal_evidence, eng_get_metric_history, eng_get_simulation_run, eng_evaluate_goal, eng_present); session-review (factory_run_suggest)
+Compatibility: `factory.*` paths are transitional deprecation-warning shims.
+Use `coherence.*` and `substrate.*` for new code and documentation; the shims
+remain until downstream projects and Pi extensions migrate. This file documents
+implemented surfaces only; planned interactive console, MCP, and workflow
+surfaces are not assumed to be available.
 
-Deeper project knowledge lives in project-profile.json; run /factory-init --check for status.
-
-Factory commands: /factory, /factory-run, /factory-init, /trace-fix, /system.
+Deeper project knowledge lives in `project-profile.json`; run
+`/factory-init --check` for status.
 <!-- pi-agent-factory:bootstrap:end -->
