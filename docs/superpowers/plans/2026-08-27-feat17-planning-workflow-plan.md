@@ -1,7 +1,7 @@
 ---
 id: PLAN-FEAT-017-MATURE-PLANNING-WORKFLOW
 title: "FEAT-017 Mature Planning Workflow Implementation Plan"
-status: draft
+lifecycle_state: draft
 spec_ref: docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
 ---
 
@@ -77,8 +77,10 @@ summarize them.
   workspace claims, attempts, heartbeats, retry/reclaim, and `needs_input` transport.
 - FEAT-018 owns validation of the governed execution proposal/expected execution graph before
   implementation. This plan adds only an honest capability seam/check.
-- FEAT-019 owns cross-host conformance.
-- FEAT-020 may optimize only a graph already validated by FEAT-018.
+- FEAT-019 owns cross-host conformance and FEAT-020 may optimize only an already FEAT-018-validated
+  graph; FEAT-017 must not import, invoke, schedule, or test either capability. There is no downstream
+  invocation of FEAT-018, FEAT-019, or FEAT-020 from this plan; FEAT-018 is only a read-only capability
+  check at final gates.
 - Pi/Hermes adapters own conversation, native model catalog validation, user choice, presentation,
   and new-session creation. They do not own gates or consent.
 
@@ -188,9 +190,9 @@ not a producer.
 ### 2.3 Spec, candidate SR, plan, and task contracts
 
 The provisional spec is the canonical semantic authority for the run. It has strict frontmatter
-(`id`, `title`, `status`), stable anchors, explicit intent/challenge coverage, scope and non-goals,
-provisional/unresolved state, and implementation and verification obligations. It cannot claim
-human consent, canonical SR adoption, or downstream execution.
+(`id`, `title`, `lifecycle_state`), stable anchors, explicit intent/challenge coverage, scope and
+non-goals, provisional/unresolved state, and implementation and verification obligations. It cannot
+claim human consent, canonical SR adoption, or downstream execution.
 
 The one candidate-SR record is run-local, immutable, and stored only at the versioned stage path. Its
 schema is the authority spec §6.4 schema 2: it contains `candidate_srs`, `non_sr_classifications`,
@@ -226,7 +228,7 @@ The implementation plan has `spec_ref` and candidate-set provenance. Every task 
 A generated task record must include:
 
 ```text
-id, title, status, run_id, stage_id, lineage_id, revision, attempt
+id, title, lifecycle_state, run_id, stage_id, lineage_id, revision, attempt
 source_plan, source_task, source_spec
 sr_bindings: [{id, type: implements|verifies|supports, source_anchor, hash}]
 non_sr_classification: {classification, reason, source_anchor, review_hash}  # when applicable
@@ -242,55 +244,303 @@ or to an explicit reviewed non-SR classification. Unbound or ambiguous tasks blo
 
 ### 2.4 Shared DecisionFile, boundary, and handoff contracts (prerequisite)
 
-The shared DecisionFile contract is implemented before Task 4, not introduced by the later adoption
+The shared `DecisionFile` contract is implemented before Task 4, not introduced by the later adoption
 task. Every immutable human decision is written at the exact path
 `.factory/planning/<run-id>/decisions/<decision-kind>/r<revision>/a<attempt>/decision-<decision-id>.json`,
 with `decision-kind` in `challenge-resolution`, `warning-disposition`, `feature-boundary`, `sr-consent`,
-or `canonical-adoption`. It uses schema 1 and must contain `decision_id`, `decision_kind`, `run_id`,
-`stage_id`, `lineage_id`, `revision`, `attempt`, exact `finding_scope` (`finding_ids`, `boundary_ids`,
-`coverage=exact`), `source_review.path/sha256`, `current_inputs.manifest_sha256` plus sorted
-path/hash entries, post-redaction verbatim `response_text`, `response_hash`, kind-specific `status`,
-an `actor` with `kind=authenticated_human`, authenticated subject/method/event/session, and a
-`replay` object with idempotency key, nonce, and previous journal-event hash. `decision_hash` is the
-canonical JSON hash with only that member excluded. A validated writer rejects stale reports or
-inputs, unauthenticated actors, incomplete coverage, duplicate IDs/nonces, invalid statuses, and
-replays; it maps exactly one accepted record to one durably appended `resolution-events.jsonl` event
-containing the same run/stage/revision/attempt, source report hash, input/artifact hashes,
-response/decision hashes, actor, status, and previous-event hash.
+or `canonical-adoption`. It uses schema 1 and the complete authority-spec §6.9 record, including
+`schema`, `record_type=decision_file`, `decision_id`, `decision_kind`, `run_id`, `stage_id`,
+`lineage_id`, `revision`, `attempt`, `finding_scope`, `source_review`, `current_inputs`,
+post-redaction `response_text`, `response_hash`, kind-specific `status`, authenticated-human `actor`,
+`replay`, and `decision_hash`. `finding_scope` is not a caller-supplied subset: the writer computes the
+canonical ordered finding/boundary universe from the current review, hashes that exact universe, and
+requires the DecisionFile IDs and `coverage=exact` to cover it; missing, extra, duplicate, or reordered
+IDs fail closed. The universe hash and its source report/input binding are retained in validation
+provenance without changing the closed authority schema.
 
-The status enums are fixed: warnings use `fixed|accepted_risk|rejected|deferred|invalid`; feature
-boundaries use `selected|split_sequential|withheld|deferred|invalid`; SR consent uses
-`consent_granted|consent_withheld|deferred|invalid`; canonical adoption uses
-`adopted|withheld|deferred|invalid`; challenge resolution uses
-`resolved|revised|deferred|unresolved|invalid`. The exact SR-consent phrase is:
+The actor is trusted only after the host validates an authenticated human session, subject identity,
+authentication event, method, freshness/revocation, trusted channel, and authorization for this exact
+run/stage/decision kind. `kind=authenticated_human` is a claim to verify, not permission to trust; agent,
+model, fixture, adapter, or free-text identity cannot satisfy it. The replay object contains the exact
+idempotency key, unique nonce, and previous journal-event hash. The writer verifies the current journal
+tail, decision-ID/nonce uniqueness, current pointer, and authorization under the journal lock before
+accepting one record. `decision_hash` is the canonical JSON hash with only that member excluded. A
+validated writer rejects stale reports or inputs, unauthenticated or unauthorized actors, incomplete
+finding-universe coverage, duplicate IDs/nonces, invalid kind/status combinations, and replays; it maps
+exactly one accepted record to one durably appended `resolution-events.jsonl` event containing the same
+run/stage/revision/attempt, source report hash, input/artifact hashes, response/decision hashes, actor,
+status, and previous-event hash.
+
+The JSON `status` vocabulary is closed and kind-specific; no synonym, transport state, or lifecycle state
+may appear as a `status` value. Review records use `clean|findings|escalated|invalid`; deterministic gate
+records use `pass|fail|invalid`; DecisionFile records use only the following values:
+
+| Decision kind | Closed `status` values | Required kind-specific fields/bindings |
+|---|---|---|
+| `challenge-resolution` | `resolved|revised|deferred|unresolved|invalid` | exact challenge IDs and finding-universe coverage; current challenge/report hashes; response hash |
+| `warning-disposition` | `fixed|accepted_risk|rejected|deferred|invalid` | exact warning IDs and severity/policy scope; current warning review/input tuple; response hash |
+| `feature-boundary` | `selected|split_sequential|withheld|deferred|invalid` | exact boundary IDs; selected feature IDs; sequential workflow/worktree assignments; supplied-baseline pre-hashes |
+| `sr-consent` | `consent_granted|consent_withheld|deferred|invalid` | exact candidate SR IDs and boundary IDs; candidate artifact hash; candidate and cross-artifact clean report/gate hashes; current input manifest; exact phrase |
+| `canonical-adoption` | `adopted|withheld|deferred|invalid` | exact adopted IDs and boundary IDs; valid SR-consent and feature-boundary hashes; candidate hash; authorized target pre/post hashes |
+
+`fixed` and `accepted_risk` are not self-certifying and do not erase a warning or finding. Each requires a
+fresh independent review of the exact warning scope against current input/artifact hashes, followed by a
+current deterministic gate; the finding, decision, review, and hash transitions remain append-only. An
+accepted risk remains visible in current decision/audit history. Every `unresolved`, `deferred`, `withheld`,
+`rejected`, or `invalid` decision blocks its dependent stage. `consent_withheld` and `deferred` leave the
+stage in transport/lifecycle state `needs_input`; a human response or DecisionFile is an input to a fresh
+review, never terminal evidence and never a child-release record.
+
+The exact SR-consent phrase is:
 `I authorize adoption of candidate SR set <candidate-artifact-sha256> into the canonical SR records for run <run-id>.`
 It must be exact after substitution. Consent binds exact candidate IDs/artifact hash, candidate and
-cross-artifact clean report hashes, current input manifest, boundary decision, actor, response hash,
-and replay binding. Adoption additionally binds consent hash, baseline pre-hashes, target post-hashes,
-and feature-boundary coverage. No `accept_warning` flag or free-text response can change blocking
-state. Deferred/rejected/withheld/invalid decisions, including `consent_withheld` and `consent_deferred`, leave `needs_input`; a response queues a fresh
-independent review and is never completion evidence.
+cross-artifact clean report hashes, current input manifest, boundary decision, authenticated actor,
+response hash, decision hash, and replay binding. Adoption additionally binds consent hash, boundary hash,
+canonical target pre/post hashes, and feature-boundary coverage. No `accept_warning` flag, open-ended
+status, model assertion, or free-text response can change blocking state.
 
 The handoff schema is authority spec §6.10: it is versioned under the handoff stage revision/attempt,
-contains status `ready|blocked|invalidated`, the current input manifest, all three current clean
-report/gate path/hash tuples, current artifact and human-decision hashes, journal digest, FEAT-018
-result, legal next-action menu, validated writer identity, and literal `starts_automatically: false`.
-Only `ready` with all current clean/pass tuples is consumable.
+contains `record_type=planning_handoff`, evidence-envelope identity, `status=pass|fail|invalid`, the
+current input manifest, all three current clean report/gate path/hash tuples, current artifact and
+human-decision hashes, journal digest, FEAT-018 result, legal next-action menu, validated writer
+identity, and literal `starts_automatically: false`. `ready`, `blocked`, and `invalidated` are not
+handoff `status` values; they are not aliases for the closed handoff enum. Only `status=pass` with all
+current clean/pass tuples is consumable.
 
 ### 2.5 Secure provenance and path-write contract
 
-At ingress, preserve every non-secret prompt/question/answer byte exactly and verbatim, but replace
-secret-shaped values with `[REDACTED]` before persistence. Persist only structured redaction metadata
-(field path, reason/detector, replacement, version); never persist, log, or hash the raw secret.
-Security redaction takes precedence over exact preservation, and summaries/diagnostics must contain no
-credentials. All paths are repository-relative below the selected project root; reject traversal,
-absolute/drive/UNC paths, NULs, alternate data streams, aliases, and symlink/junction/mount/reparse
-points in ancestors, targets, and temporary files. Writers must use no-follow/reparse-safe handle-based
-atomic open/publish (or an equivalent atomic validation-and-write primitive); check-then-write TOCTOU
-validation is insufficient, especially on Windows. If these guarantees are unavailable, fail closed
-without writing evidence.
+At ingress, a provider-safe, versioned `SecretDetectorSchema` runs on the raw transient input before
+adaptive clarification, prompt construction, question/answer capture, repository observations,
+response handling, policy processing, backend/provider transport, hashing, packetization, logging, or
+diagnostics. A detector declaration has `detector_id`, semantic `version`, `detector_kind`, configured
+pattern/rule identity without secret material, and `replacement=[REDACTED]`. Every redaction record has
+only `field_path`, `reason`, `detector_id`, `detector_version`, and `replacement`; it never contains a
+matched value, surrounding secret bytes, reversible digest, credential, provider configuration, or raw
+secret. Detector identity/version is part of input/event provenance. An unavailable, ambiguous,
+malformed, failed, or unverified detector/version fails closed before any downstream or provider call;
+there is no permissive fallback. Changing detector identity/version invalidates affected snapshots and
+all descendants.
+
+After ingress redaction, preserve every non-secret prompt/question/answer/observation/response/policy
+byte exactly and verbatim, but replace every secret-shaped value with `[REDACTED]` before persistence.
+Redaction coverage includes canonical artifacts, input/review packets, reports, journals, Kanban
+metadata, summaries, errors, and diagnostics; none may contain a credential or reversible secret-derived
+value. Security redaction takes precedence over exact preservation, and the raw ingress buffer is
+transient only: never persist, log, echo, hash, or send it to a backend/provider. Tests must exercise
+all capture fields and every downstream projection, not only the original prompt.
+
+All paths are repository-relative below the selected project root. Safe IDs and path components use
+ASCII lowercase grammar `safe-id := [a-z0-9]+(?:-[a-z0-9]+)*`, with 1–64 characters; `task-slug` uses
+the same grammar and length; `approved-name := YYYY-MM-DD-task-slug`, with a 128-character maximum.
+`run_id`, stage IDs, decision IDs, canonical names, and task slugs are validated as supplied: Unicode is
+NFC-checked, but a token that changes under normalization, case-folding, trimming, separator conversion,
+or other aliasing is rejected rather than silently repaired. A task target is exactly
+`tasks/T-<positive-decimal-no-leading-zero>-<task-slug>.md`; the date and separators in an approved name
+are literal. Reject empty components, `.`, `..`, NULs, `/` or `\\` aliases, trailing spaces/dots,
+case-folding collisions, Unicode/confusable or normalization aliases, 8.3 short-name aliases, and
+Windows device names `CON`, `PRN`, `AUX`, `NUL`, `CLOCK$`, `COM1`–`COM9`, and `LPT1`–`LPT9` with or
+without extensions. Reject alternate-data-stream syntax, absolute/drive/UNC paths, traversal, and
+aliases that resolve to a different identity. Recheck device/alias identity on the opened handle.
+
+Every writer receives an explicit role-scoped `allowed_paths` and `prohibited_paths` set. The canonical
+target allowlist is exact and per operation: provisional-spec authoring may write only the approved spec
+target and its versioned evidence; plan authoring only the approved plan target and evidence; task
+materialization only approved `T-<digits>-<task-slug>.md` targets and evidence; review/gate/decision
+writers only their versioned run paths; and canonical adoption only the exact canonical SR/FEAT/bundle
+targets named by the validated boundary/adoption decisions. A target outside the allowlist, a role/path
+mismatch, a missing cross-run target lock, or a pre-hash different from the authorized expected hash
+fails closed. A supplied FEAT/SR/bundle baseline is a read-only input snapshot; no unrelated baseline
+or canonical target may be overwritten, and adoption is never a recovery shortcut.
+
+The write transaction acquires the target's cross-run exclusive lock, verifies the role and allowlist,
+reopens and compares the expected pre-hash, writes through a no-follow/reparse-safe handle to a
+same-directory temporary file, durably flushes, atomically publishes once, reads the exact bytes back,
+computes the post-hash, and records the pre/post pair before releasing the lock. A CAS mismatch, lost
+lock/fence, alias/reparse discovery, or failed durable publish leaves prior bytes untouched and appends
+an invalidation/failure record. Check-then-write path validation is insufficient, especially on Windows;
+if handle-based no-follow/reparse-safe atomicity is unavailable, fail closed without writing evidence.
+
+### 2.6 Normative evidence envelope and complete record schemas
+
+This plan adopts the authority spec §6.0.1–§6.0.4, authority spec §8.0, and §§6.5–§6.10 as normative, not as an
+abbreviated checklist. Every persisted JSON object or JSONL line is an `EvidenceRecordSchema` record;
+the closed `record_type` set is exactly:
+`stage_manifest`, `revision_index_entry`, `current_pointer`, `input_manifest`, `capture_event`,
+`spec_authoring`, `candidate_sr_derivation`, `checkpoint_review`, `checkpoint_gate`, `plan_authoring`,
+`task_materialization`, `traceability`, `decision_file`, `resolution_event`, `final_gates`,
+`kanban_graph_manifest`, `kanban_run`, `planning_handoff`, and `state_projection`. No extension bag or
+unlisted record family is permitted.
+
+Every record inherits these mandatory envelope fields unless the authority schema explicitly embeds the
+object: `schema`, `record_type`, `record_id`, `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`,
+`sequence`, `previous_record_hash`, UTC `created_at`, `provenance`, `input_manifest_ref`, and exactly
+one schema-named terminal hash (`record_hash`, `manifest_sha256`, `pointer_hash`, `report_hash`,
+`gate_hash`, `decision_hash`, `graph_hash`, or `handoff_hash`). `provenance` includes `actor_kind`,
+`producer_role`, `producer_identity`, `invocation_id`, `source_record_ids`, and `source_paths`.
+`stage_id` is the exact lowercase hyphenated graph node; identities are positive; all paths are exact
+repository-relative UTF-8 paths. `terminal_hash` is a schema concept, never an extra JSON member, and
+is SHA-256 over canonical bytes with only that record's terminal member omitted.
+
+The complete required-field contracts are:
+
+- `stage_manifest`: `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `sequence`,
+  `previous_record_hash`, `record_id`, `input_manifest_ref`, `predecessor_refs[]`,
+  `produced_artifacts[]`, `producer`, `workspace_claim`, `lifecycle_state`, `gate_result`,
+  `started_at`, `finished_at`, `invalidation`, and `record_hash`; each predecessor has exact
+  stage/revision/attempt/path/SHA-256/record hash, and `gate_result` is `pass|fail|invalid` or null
+  only for a non-gate producer stage.
+- `revision_index_entry`: `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `sequence`,
+  `previous_record_hash`, `record_id`, `transition`, `predecessor_revision`, `predecessor_attempt`,
+  `input_manifest_ref`, `artifact_refs[]`, `invalidated_stage_ids[]`, `current_pointer_ref`,
+  `provenance`, and `record_hash`; `transition` is exactly `new_invocation|crash_reclaim|retry|scoped_fix|human_decision|canonical_adoption|task_source_change`, with a null predecessor only for `new_invocation`.
+- `current_pointer`: `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `sequence`,
+  `previous_record_hash`, `record_id`, `pointer_state`, `expected_pointer_hash`, `selected_record`,
+  `input_manifest_ref`, `descendant_pointer_refs[]`, `invalidation_event_ref`, `cas`, `provenance`,
+  and `pointer_hash`; `pointer_state` is only `current|invalidated`, and `cas` has
+  `compare_hash`, `publish_sequence`, and `fencing_token`.
+- `input_manifest`: `run_id`, `stage_id`, `lineage_id`, `revision`, `attempt`, `sequence`,
+  `previous_record_hash`, `record_id`, `entries[]`, `observed_at`, `source_snapshot`,
+  `manifest_sha256`, and `provenance`; each entry has exact path, SHA-256, byte length, role,
+  source record ID, and observation time, sorted by path with no duplicates.
+- `ProducedArtifact`: `artifact_id`, `kind`, `path`, `sha256`, `byte_length`, `canonical`, `redacted`,
+  `writer_role`, `writer_identity`, `source_refs[]`, and `input_manifest_sha256`; it has no `status`
+  and no approval or execution authority. `redacted=true` is mandatory for user-originating material.
+- `spec_authoring`: the envelope plus `stage_id=provisional-spec-authoring`, `input_manifest_ref`,
+  `source_intent_ref`, `source_fact_refs[]`, `output: ProducedArtifact`, `target_path`, `read_back`,
+  `frontmatter`, `anchor_index[]`, `challenge_refs[]`, `lifecycle_state`, `producer`, and
+  `record_hash`; `read_back` has path/SHA-256/parsed/semantic-validation and frontmatter has
+  `id`, `title`, `lifecycle_state`.
+- `plan_authoring`: the envelope plus `stage_id=implementation-plan-authoring`, `input_manifest_ref`,
+  `spec_ref`, `spec_sha256`, `candidate_sr_ref`, `candidate_sr_sha256`, `output: ProducedArtifact`,
+  `target_path`, `read_back`, `task_index[]`, `verification_obligations[]`, `producer`,
+  `lifecycle_state`, and `record_hash`; each task index item has source number/anchor, dependencies,
+  implementation and verification evidence, test paths/commands, and acceptance criteria.
+- `task_materialization`: the envelope plus `stage_id=task-materialization`, `input_manifest_ref`,
+  `source_plan`, `source_plan_sha256`, `source_spec`, `source_spec_sha256`, `candidate_sr_ref`,
+  `candidate_sr_sha256`, `task_records[]`, `parity`, `produced_artifacts[]`, `dependencies`,
+  `allowed_paths`, `prohibited_paths`, `lifecycle_state`, `gate_result`, `producer`, and
+  `record_hash`; parity includes plan/materialized counts, exact source numbers, and `duplicates=[]`.
+- `traceability`: the envelope plus `stage_id=cross-artifact-alignment`, `input_manifest_ref`,
+  `source_hashes`, `forward_links[]`, `reverse_links[]`, `uncovered[]`, `ambiguous[]`,
+  `non_sr_classifications[]`, `status`, `evidence`, `provenance`, and `record_hash`; every link has
+  exact source/target IDs, paths, hashes, anchors, and `implements|verifies|supports|non-SR` type.
+- `final_gates`: the envelope plus `stage_id=final-gates`, `input_manifest_ref`,
+  `current_pointer_refs[]`, `current_clean_review_gate_tuples[]`, `artifact_hashes`, `decision_refs[]`,
+  `traceability_ref`, `graph_manifest_ref`, `feat018_capability`, `warning_summary`,
+  `consent_summary`, `adoption_summary`, `status`, `evidence`, `provenance`, and `gate_hash`;
+  each review tuple carries checkpoint, report/gate paths and hashes, input-manifest hash,
+  revision/attempt, and current-pointer hash.
+- `kanban_run`: the envelope plus `stage_id=planning-run`, `input_manifest_ref`, exact
+  `graph_manifest`, `graph_hash`, `root_card_id`, `card_refs[]`, `edge_refs[]`, `reconciliation`,
+  `state`, `lease`, `retry_policy`, `reclaim_policy`, `coherence_gate_refs[]`,
+  `no_silent_execution=true`, `provenance`, and `record_hash`; it transports lifecycle only.
+
+`checkpoint_review`, `checkpoint_gate`, `decision_file`, `resolution_event`, `planning_handoff`, and
+`kanban_graph_manifest` use the complete fields and closed enums in authority §§6.5, 6.9, 6.10, and
+8.0; the abbreviated task descriptions above never relax those schemas. Canonical serialization is one
+RFC-8785/JCS-equivalent UTF-8 JSON form without BOM, insignificant whitespace, duplicate keys, non-finite
+numbers, non-canonical number forms, or unspecified array order; JSONL has one canonical record per line
+and no blank lines. Writers reject omitted/extra/unknown/duplicate fields, wrong types, invalid enums,
+unsafe paths, non-positive identities, sequence gaps, mismatched previous hashes, nulls not explicitly
+allowed, and path/hash/predecessor mismatches. They do not default, coerce, truncate, drop, sort a
+schema-ordered array, or silently repair input. An unsafe failure may emit only a safe invalidation
+record; untrusted content is never copied into an error record.
+
+All stage records are below the exact versioned stage path; the revision index, current pointer, and
+resolution journal use their exact authority paths. The path encoded in a record must equal its actual
+path byte-for-byte after root validation. Every predecessor reference names the exact current record
+path/hash and record hash; a missing, stale, foreign, duplicated, or invalidated predecessor blocks the
+child. Evidence is immutable: same-directory temporary write, durable flush, one atomic publish, and no
+replacement or compaction of a published record. A current pointer is replaceable derived state only.
+
+### 2.7 Immutable snapshots, fresh review, and recovery transaction
+
+Before any producer, reviewer, fixer, decision writer, gate, or downstream consumer runs, it receives an
+immutable `InputManifestSchema` snapshot containing every exact repository-relative path, byte length,
+SHA-256, source record ID, role, observation time, repository commit/tree identity or explicit
+`uncommitted` marker, and the complete non-deleted SR-context inventory. The inventory enumerates every
+current proposed, deferred, satisfied, and active SR record, its statement/status/owner, source path,
+stable anchors, source hash, disposition provenance, and available trace relations; no partial or
+filtered context is accepted without an explicit manifest entry and hash. The producer binds the
+manifest hash to output evidence, reads the published output through the validated handle, recomputes
+its exact read hash, and records that binding. Reviewers and all consumers recompute and match it.
+Mutation, missing snapshot, changed tree identity, path-only evidence, timestamp-only evidence, or
+successful open without read-hash binding invalidates the pointer and requires a new transition.
+
+A fresh independent review is mechanically a new invocation on the current stage/revision lineage with
+a new invocation ID, new immutable report path/record ID, current input/artifact hashes, and a reviewer
+identity/provider/model that is independent from the producer and fixer and cannot self-certify. The
+selected reviewer model is fixed after host catalog validation; retries reuse that model but never reuse
+a report hash or path. The closed deterministic gate-check registry is versioned and hash-bound. Check
+IDs are exactly `FEAT017.<checkpoint>.<check>.v1`, with no caller-supplied checks: `spec_alignment`
+requires intent/provenance coverage, spec schema/anchors, unsupported claims, contradictions,
+feasibility/security/operability, complete SR context, and current hashes; `candidate_sr_alignment`
+requires duplicate/conflict, unsupported-claim, schema/register compatibility, missing-obligation,
+non-SR rationale, complete-context, feature-boundary, and current-hash checks;
+`cross_artifact_alignment` requires forward trace, reverse trace, task parity, evidence obligations,
+feature boundary, and current-hash checks; final gates require current review tuples, artifact hashes,
+decisions, traceability, graph reconciliation when requested, FEAT-018 capability when requested,
+and handoff flags. Each registry entry records check ID/version, implementation identity, invocation,
+inputs, observed boolean, evidence references, and check hash. Unknown/missing/duplicate checks or
+unproven provenance fail closed; a gate passes only when every required registry check is true and its
+provenance/current hashes match.
+
+Revision/attempt semantics are fixed: a new invocation creates revision 1/attempt 1; a crash reclaim
+keeps both numbers and appends `crash_reclaim`; a retry keeps the revision, increments attempt, and
+uses a new path only after durable failure/invalidation; a scoped fix, task/source change, or canonical
+adoption increments revision and resets attempt to 1 after invalidating the affected stage and every
+descendant; a human decision queues a fresh review attempt on the same revision and never releases a
+child. Attempts and revisions are never reused for another invocation or semantic state.
+
+DecisionFile -> journal -> pointer is one fenced, recoverable transaction. Under the current lease and
+exclusive locks, the writer validates the authenticated actor, exact finding-universe coverage, current
+report/input hashes, ID/nonce replay binding, role, and target allowlist; atomically publishes the
+immutable DecisionFile; takes the journal lock, verifies monotonic sequence and previous-event hash,
+appends exactly one canonical resolution event, durably flushes it, and releases the journal lock; then
+takes the pointer lock, verifies `expected_pointer_hash` and the current fencing token by CAS, and
+publishes the derived pointer selecting that DecisionFile/event. No child is released before the pointer
+CAS succeeds. Recovery of this DecisionFile-to-journal-to-pointer sequence requires the current
+lease's strictly increasing fencing token; if the token, lock owner, journal tail, or pointer hash is
+ambiguous, recovery fails closed and records an invalidation. A crash before DecisionFile publication
+discards its temporary file; after DecisionFile but before journal append leaves no accepted decision;
+after journal append but before pointer publish,
+recovery selects only a complete hash-valid chain or records an invalidation on ambiguity. Recovery
+scans durable records/journal, discards uncommitted temporaries, retains the last valid pointer, and
+reconstructs a missing pointer only from a complete chain. It never promotes an orphan, duplicates an
+event, or treats transport state as evidence.
+
+Leases are closed and fenced: each running card has one `lease_id`, `owner_id`, `fencing_token`,
+`acquired_at`, `heartbeat_at`, `expires_at`, and `attempt`; acquire/renew/reclaim/publish/done use CAS
+under the lease/target lock, and heartbeats prove the same attempt with a strictly increasing fencing
+token. A stale or expired owner cannot publish, mark done, or release a child. Expiry transitions to
+`reclaimed`, increments the fencing token, appends recovery evidence, and resumes the same attempt;
+bounded retry creates the next attempt only after durable failure/invalidation and never duplicates
+artifacts, cards, decisions, or children. A lock/fence/CAS failure fails closed and preserves prior
+bytes.
 
 ## 3. Shared implementation and review protocol
+
+### 3.1 Vocabulary and terminality rules
+
+The machine vocabulary is closed. JSON `status` appears only on review, deterministic-gate, and
+DecisionFile records: review `clean|findings|escalated|invalid`, gate `pass|fail|invalid`, and the
+kind-specific DecisionFile enums in §2.4. `lifecycle_state` is used for the workflow state machine;
+Kanban uses its separate closed `state` enum; pointers use `pointer_state`; leases use `lease_state`.
+These fields are never interchangeable. `needs_input`, `blocked`, and `human response recorded` are
+non-terminal lifecycle/transport conditions, never `status` values and never completion states.
+
+In this plan, `completion evidence` means the immutable, hash-bound evidence required by a producer or
+transport card; it is not a state or status token. A stage is complete only when its authority-defined
+producer evidence exists, its current predecessor contract is satisfied, and, for review stages, the
+current independent `status=clean` report is paired with the current deterministic `status=pass` gate.
+Only the authority lifecycle state `handoff_ready` is terminal for the workflow, and only a handoff with
+`status=pass` is consumable. The prose verb `defer` must be encoded as `status=deferred` only where the
+kind-specific DecisionFile enum permits it. `rejected` is a warning-disposition status only; `reject`
+or `rejection` elsewhere describes a validation failure that is recorded as `invalid` evidence or a
+safe journal failure, not a new status. There is no separate fix-required or consent-deferred status;
+use the exact review/gate state and the applicable `deferred` DecisionFile status instead. A user-needed
+state is not defined; use `needs_input` with an explicit human DecisionFile requirement. No response,
+warning disposition, card state, or status token is completion evidence by itself.
 
 Every code-producing task below follows this sequence:
 
@@ -359,14 +609,20 @@ later stages require exact post-redaction prompt/provenance and a recoverable ru
 validator and journal mapping must be complete before Task 2–4 can release work; Task 7 consumes the
 same writer and must not redefine it.
 
-**RED/documentation verification:** Add failing tests for exact non-secret prompt preservation and
-ingress redaction, question/answer source provenance, repository-observation hashes, challenge
-raise/resolve/revise/defer/accept state, exact human response provenance, unresolved state, duplicate
-sequence/event rejection, and atomic materialization failure preserving the last known-good snapshot
-while keeping the new journal event. Also test the schema-1 DecisionFile path/status/field contract,
-authenticated-human requirement, exact finding/boundary coverage, current report/input hash checks,
-response/decision hashes, nonce/idempotency replay rejection, one-event journal mapping, and the
-fact that a response remains non-terminal. Run:
+**RED/documentation verification:** Add failing tests for the provider-safe versioned detector at
+ingress: exact non-secret byte preservation; redaction of secrets in prompt, questions, answers,
+observations, policy, responses, packets, reports, journals, Kanban metadata, errors, summaries, and
+diagnostics; no raw/reversible secret or provider credential in any hash or output; detector identity/
+version provenance; and fail-closed behavior for unavailable, ambiguous, malformed, or failed detector
+configuration before adaptive clarification or backend/provider invocation. Test question/answer source
+provenance, repository-observation hashes, challenge states encoded only as
+`resolved|revised|deferred|unresolved|invalid`, exact human response provenance, unresolved state,
+duplicate sequence/event rejection, and atomic materialization failure preserving the last known-good
+snapshot while keeping a safe journal event. Also test the schema-1 DecisionFile path and complete
+EvidenceRecordSchema fields, kind/status validation, authenticated-human trust and authorization
+verification, exact finding-universe hash/coverage, current report/input/artifact hashes, response and
+decision hashes, nonce/idempotency replay rejection, one-event journal mapping, and the fact that a
+response remains non-terminal. Run:
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py tests/unit/coherence/test_planning_decisions.py -q -o addopts=''
@@ -376,13 +632,15 @@ Record which existing tests pass and which new assertions are RED; do not delete
 baseline look green.
 
 **Implementation/GREEN:** Extend the strict event schema and deterministic state projection, retain
-schema-one reads, preserve all captured non-secret text exactly, redact secret-shaped values before
-persistence, bind challenge resolutions to an explicit actor/provenance record, and use atomic
-replace semantics that never destroy the last good snapshot on failure. Implement the shared
-DecisionFile validator/writer with exact repository-relative paths, fixed status enums, current
-report/input/artifact hashes, authenticated-human actor, response/decision hashes, replay protection,
-and one-to-one append-only resolution-event mapping. Do not infer a decision from silence or model
-output; do not make a human response terminal.
+schema-one reads, run the versioned secret detector before any clarification/backend/provider/
+diagnostics path, preserve all captured non-secret text exactly, redact secrets before persistence or
+hashing, and use atomic replace semantics that never destroy the last good snapshot on failure.
+Implement the shared DecisionFile validator/writer with exact repository-relative paths, the closed
+kind-specific enums, current report/input/artifact hashes, authenticated-human trust/authorization
+checks, exact finding-universe coverage/hash verification, response/decision hashes, replay protection,
+and one-to-one append-only resolution-event mapping. Use the handle-bound DecisionFile -> journal ->
+pointer transaction in §2.7. Do not infer a decision from silence or model output; do not make a human
+response terminal.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_intent.py tests/unit/coherence/test_planning_session.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_resolution.py tests/unit/coherence/test_planning_decisions.py -q -o addopts=''
@@ -430,19 +688,27 @@ derivation. The mature entry point may accept an output name, but it must not tr
 spec file as successful authoring.
 
 **RED/documentation verification:** Add tests that invoke a fake backend through the producer and
-assert it writes a real spec; that a missing backend result, malformed frontmatter, unsupported
-claim, output-path escape, stale input hash, or write/read-back mismatch blocks; and that a test
-with only a caller-supplied spec path is rejected as not having run the producer. Run:
+assert it writes a real spec from an immutable input snapshot, records the exact read-hash binding, and
+emits a complete `spec_authoring`/`ProducedArtifact` evidence record. Assert that a missing backend
+result, malformed frontmatter, unsupported claim, incomplete/changed input manifest, output-path escape,
+unsafe ID or approved-name grammar, role/allowlist mismatch, cross-run lock failure, expected-prehash
+CAS mismatch, stale input hash, or write/read-back mismatch blocks without overwriting the supplied
+baseline. A test with only a caller-supplied spec path must be rejected as not having run the producer.
+The producer oracle must inspect the created bytes and their recorded path/hash, not merely observe a
+successful return. Run:
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_producers.py tests/unit/coherence/test_planning_bootstrap.py -q -o addopts=''
 ```
 
-**Implementation/GREEN:** Validate a structured producer result, restrict the role to the exact
-spec output and run evidence paths, atomically write the output, read it back, validate frontmatter
-and stable anchors, compute SHA-256, and persist `spec-authoring.json`. Expose a stable status
-result to the host. Keep agent invocation behind the injected backend; the Python writer must not
-launch a shell or provider itself.
+**Implementation/GREEN:** Validate a structured producer result against the immutable input
+manifest, provider capability, fixed producer role, safe ID/name grammar, and the exact role-scoped
+spec target allowlist. Acquire the cross-run target lock, compare the authorized expected pre-hash,
+atomically write through a no-follow/reparse-safe handle, read the exact output back, validate
+frontmatter and stable anchors, compute SHA-256, and persist complete `spec_authoring` and
+`ProducedArtifact` records. Expose `lifecycle_state`/gate evidence to the host, not an open-ended
+`status`. Keep agent invocation behind the injected backend; the Python writer must not launch a shell
+or provider itself.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_producers.py tests/unit/coherence/test_planning_bootstrap.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -491,14 +757,17 @@ old late-derivation stage as an alias that can run after the plan.
 
 **RED/documentation verification:** Add tests proving candidate derivation cannot run without a
 current clean hash-matching `spec_alignment` report and deterministic gate, produces exactly one
-run-local candidate set, and provides every
-non-deleted SR with status/source/trace context. Add adversarial cases for duplicate and
-near-duplicate obligations, contradictory statements/status/ownership, unsupported claims,
-schema/register compatibility, missing independently governable obligations, explanatory prose,
-complete-context digest, feature splits, and supplied FEAT baseline preservation. Assert that a
-second independent derivation request is rejected or treated as a revision of the same lineage, that
-the candidate artifact contains both concrete feature/bundle projections, that no projection sidecar
-is accepted, and that review publication cannot add a `review_hash` or mutate candidate bytes.
+run-local candidate set, and receives a complete immutable SR-context inventory: every current
+non-deleted proposed, deferred, satisfied, and active record, status/owner/statement, source path/hash/
+anchor, disposition provenance, and available trace relation. A missing, filtered, stale, duplicate, or
+changed context entry must fail closed. Add adversarial cases for duplicate and near-duplicate
+obligations, contradictory statements/status/ownership, unsupported claims, schema/register
+compatibility, missing independently governable obligations, explanatory prose, complete-context
+manifest/hash, feature splits, and supplied FEAT baseline preservation. Assert that a second independent
+derivation request is rejected or treated as a revision of the same lineage, that the candidate artifact
+contains both concrete feature/bundle projections, that no projection sidecar is accepted, and that
+review publication cannot add a `review_hash` or mutate candidate bytes. The derivation and review
+oracles must inspect the artifact bytes, manifest entries, hashes, and exact required check IDs.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_candidate_sr.py tests/unit/coherence/test_planning_semantic.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
@@ -562,18 +831,25 @@ production remains blocked. It must complete before task materialization.
 **RED/documentation verification:** Add a fake-backend producer test that fails until the plan
 contains both implementation and verification sections, explicit test-artifact obligations, exact
 commands, acceptance criteria, prohibited scope, source-spec reference, candidate-set provenance,
-and implementation-evidence obligations. Test malformed output, stale candidate hash, duplicate
-task numbers, empty `Files:` blocks, and read-back mismatch.
+and implementation-evidence obligations. Test incomplete or mutated immutable input manifests, stale
+candidate/spec/context read hashes, malformed output, unsafe approved-name/task-slug, duplicate task
+numbers, empty `Files:` blocks, role/target-allowlist mismatch, cross-run lock/CAS failure, and
+read-back mismatch. The producer oracle must compare the bytes written at the authorized target with
+the `plan_authoring`/`ProducedArtifact` path, byte length, and SHA-256 evidence, and must prove a
+pre-existing plan was not mistaken for producer output.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_producers.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
 ```
 
-**Implementation/GREEN:** Require the reviewed candidate record as an input, invoke the injected
-plan-authoring backend, atomically write the selected plan target, read it back, validate frontmatter
-and every task section, compute the exact plan hash, and persist `plan-authoring.json`. Keep
-implementation and verification obligations in one plan; a coverage report may be derived later.
-Do not silently reuse a pre-existing plan as producer success.
+**Implementation/GREEN:** Require the reviewed candidate record and its immutable input snapshot as
+inputs, invoke the injected plan-authoring backend, validate the safe approved-name/task-slug and
+exact role-scoped plan target allowlist, and acquire the cross-run target lock. Compare the authorized
+expected pre-hash, atomically write the selected plan target through a no-follow/reparse-safe handle,
+read it back, validate frontmatter and every task section, compute the exact plan/read hash, and persist
+complete `plan_authoring`/`ProducedArtifact` evidence. Keep implementation and verification obligations
+in one plan; a coverage report may be derived later. Do not silently reuse a pre-existing plan as
+producer success, and do not publish after a lost lock/fence or failed CAS.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_producers.py tests/unit/coherence/test_planning_check.py tests/unit/coherence/test_planning_workflow.py tests/unit/coherence/test_planning_integration.py -q -o addopts=''
@@ -678,8 +954,11 @@ adoption. The resulting current clean trace/review gate must precede human adopt
 **RED/documentation verification:** Add failing forward and reverse cases: omitted intent decision,
 unsupported spec claim, candidate with no spec anchor, spec obligation with no candidate or reviewed
 non-SR classification, candidate with no plan task, task with no generated record, generated task
-with no exact test/evidence, reverse links to the wrong plan/spec, and stale hashes. Verify that a
-derived coverage report does not replace canonical links.
+with no exact test/evidence, reverse links to the wrong plan/spec, incomplete SR-context inventory,
+and stale hashes. Verify that a derived coverage report does not replace canonical links. Verify the
+closed `FEAT017.<checkpoint>.<check>.v1` registry: missing, extra, duplicate, unknown, false, stale,
+or unproven check provenance fails the deterministic gate, and a fresh reviewer cannot self-certify its
+own producer/fixer output.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_traceability.py tests/unit/coherence/test_planning_trace_contract.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
@@ -689,9 +968,11 @@ uv run coherence trace check --project-root .
 **Implementation/GREEN:** Materialize a versioned deterministic trace report with run/stage/lineage/
 revision/attempt, forward and reverse edges, source anchors, relationship types, test/evidence paths,
 and all relevant hashes. Publish the immutable `cross_artifact_alignment` report and deterministic
-checkpoint gate using the §6.5 schemas, then make the current-pointer gate fail closed on any gap,
-contradiction, duplicate, foreign source, or stale artifact. Keep known repository-wide debt as a
-separately labelled finding. Any trace/task/source change invalidates this report/gate and descendants
+checkpoint gate using the §6.5 schemas and the closed registry in §2.7; persist each required check's
+version, implementation/provenance, input hashes, observation, evidence references, and check hash.
+Make the current-pointer gate fail closed on any gap, contradiction, duplicate, foreign source, stale
+artifact, missing/extra/unknown check, or unproven check provenance. Keep known repository-wide debt as
+a separately labelled finding. Any trace/task/source change invalidates this report/gate and descendants
 and requires fresh evidence.
 
 ```bash
@@ -738,19 +1019,24 @@ operability warnings blocked until resolution or explicit human disposition.
 - Human-facing host escalation and consent prompt boundary.
 
 **Dependencies/order:** Depends on Tasks 1 and 6. It runs after the current clean cross-artifact
-report plus deterministic gate and before canonical adoption/final gates. A feature split must stop
-before any canonical FEAT write. DecisionFile validation is not deferred to this task; this task only
-adds the kind-specific writers and mappings described in §2.4/authority spec §6.9.
+report plus deterministic gate and before the combined card's canonical-adoption barrier/final gates. A
+feature split must stop before any canonical FEAT write. The validated DecisionFile schema/writer is a
+Task 1 prerequisite; this task adds only the kind-specific writers and mappings described in §2.4 and
+authority spec §6.9.
 
 **RED/documentation verification:** Add tests proving unresolved challenges, feature splits, stale
 baselines, security warnings, and operability warnings remain blocked; only the Task 1 validated
 human DecisionFile can disposition a warning; `accept_warning` cannot alter blocking state; semantic
 cleanliness, agent/model output, silence, fixture data, and free-text escalation answers cannot
-create consent; fixed status enums and exact finding/boundary coverage are enforced; exact SR consent
+create consent; fixed status enums and exact finding-universe/boundary coverage are enforced; actor
+trust requires an authenticated, authorized, fresh, non-revoked human event/session; exact SR consent
 uses the authority-spec phrase and binds candidate IDs, candidate-artifact hash, candidate and
-cross-artifact clean report hashes, input manifest, run/stage/revision, authenticated actor,
-response/decision hashes, and replay binding; adoption binds consent/boundary hashes and target
-pre/post hashes; replayed/tampered/stale decisions fail; and failed current consent/evidence
+cross-artifact clean report/gate hashes, input manifest, run/stage/revision, authenticated actor,
+response/decision hashes, and replay binding. Test that `fixed` and `accepted_risk` each require a new
+independent warning-scope review plus a current deterministic gate and retain the warning/finding in
+history; neither status clears the finding. Adoption binds consent/boundary hashes, exact allowlisted
+target pre/post hashes, role, cross-run lock, and CAS. Replayed, tampered, unauthorized, stale,
+wrong-universe, wrong-role, lock-loss, or CAS-mismatched decisions fail; failed current consent/evidence
 snapshots require fresh re-derivation and fresh consent.
 
 ```bash
@@ -760,12 +1046,16 @@ npm test --prefix pi-ext/factory-watch -- --run test/plan-review-command.test.ts
 
 **Implementation/GREEN:** Use the Task 1 validated DecisionFile writer and existing gate writers
 rather than a second warning store. Replace arbitrary in-memory warning acceptance with validation of
-an exact human decision bound to warning IDs, current hashes, authenticated actor, status enum, and
-the append-only journal. Add explicit feature-boundary decision writing with selected feature IDs and
-sequential workflow/worktree assignments, preserving supplied FEAT/SR/bundle bytes until a human
-authorizes replacement. Add the exact SR consent phrase and canonical adoption writer only after the
-candidate and cross-artifact clean report/gate tuples are current; record pre/post hashes and
-invalidate downstream projections after any adoption.
+an exact human decision bound to warning IDs and the computed full warning/finding-universe hash,
+current hashes, authenticated and authorized actor, closed kind/status enum, and append-only journal.
+For `fixed` or `accepted_risk`, retain the original finding and disposition, invalidate the old review,
+obtain a fresh independent review of the exact warning scope, and require its current clean report plus
+pass gate before releasing the dependent stage. Add explicit feature-boundary decision writing with
+selected feature IDs and sequential workflow/worktree assignments, preserving supplied FEAT/SR/bundle
+bytes until a human authorizes replacement. Add the exact SR consent phrase and canonical adoption
+writer only after the cross-artifact clean report/gate and the validated human-boundaries barrier are
+current; under the authorized target allowlist, role, cross-run lock, expected-prehash CAS, and fencing
+rules, record target pre/post hashes and invalidate downstream projections after any adoption.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_review_resolution.py tests/unit/coherence/test_planning_integration.py tests/unit/coherence/test_planning_handoff.py -q -o addopts=''
@@ -824,22 +1114,27 @@ Test persisted root and stage IDs, parent links, contract hash, missing/incomple
 idempotency-key replay, duplicate-card rejection, serialized shared `dir` workspaces, isolated
 worktree reconciliation, timeout/heartbeat/retry/reclaim, interruption resume, `needs_input`
 pause/resume, unauthorized path rejection, graph mismatch, and proof that an escalated review stays
-blocked until a validated `DecisionFile` answer/decision with exact finding scope and current
-artifact/input hashes queues a fresh clean review. Also prove that no child or downstream workflow
-runs from prose or a Kanban `done` state alone.
+blocked until a validated `DecisionFile` answer/decision with exact finding-universe coverage and
+current artifact/input hashes queues a fresh independent review. Test the combined
+`human-boundaries-and-adoption` card's ordered internal barriers: validated boundary/challenge/warning
+decisions commit first, exact consent validates second, canonical adoption is impossible before both
+barriers and the adoption target CAS/lock, and a crash between barriers resumes without adoption.
+Also prove that no child or downstream workflow runs from prose or a Kanban `done` state alone.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py -q -o addopts=''
 ```
 
-**Implementation/GREEN:** Persist the optional transport record at the versioned root-stage path
-`.factory/planning/<run-id>/stages/planning-run/r<revision>/a<attempt>/kanban-run.json` with exact
-stage contracts: inputs/outputs and hashes, role/assignee, allowed/prohibited paths, workspace mode,
-parents, lineage idempotency key, revision/attempt/attempt key, reclaim metadata, blocking reason,
-completion evidence, and required Coherence gate. Reconcile actual root/cards/edges against the
-intended graph before dispatch and before handoff. Reclaim the same attempt key, append evidence, and
-never duplicate artifacts or cards. If the optional capability is unavailable, report a capability
-block rather than silently falling back to prose or an execution scheduler.
+**Implementation/GREEN:** Persist the optional `kanban_run` transport record at the versioned root-stage
+path `.factory/planning/<run-id>/stages/planning-run/r<revision>/a<attempt>/kanban-run.json` with
+complete EvidenceRecordSchema fields and exact stage contracts: inputs/outputs and hashes, role/
+assignee, allowed/prohibited paths, workspace mode, parents, lineage idempotency key, revision/attempt/
+attempt key, lease/fencing/heartbeat/reclaim metadata, blocking reason, completion evidence, and the
+required Coherence gate. Reconcile actual root/cards/edges against the intended graph before dispatch
+and before handoff. Use CAS under the lease/target lock; a stale owner cannot publish or mark a card
+`done`. Reclaim the same attempt key and fencing lineage, append evidence, and never duplicate artifacts
+or cards. If the optional capability is unavailable, report a capability block rather than silently
+falling back to prose or an execution scheduler.
 
 ```bash
 uv run pytest tests/unit/coherence/test_planning_kanban.py tests/unit/coherence/test_planning_workflow.py tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
@@ -899,6 +1194,34 @@ review/resolution, plan authoring, task generation, Pass 3 review/resolution, hu
 canonical adoption, deterministic final gates, and handoff. Missing or stale parent evidence keeps a
 card blocked; it must never be released because a prior card says `done` or because a stage is
 described in a prompt.
+
+#### Task 8 internal transaction: human boundaries before canonical adoption
+
+The twelve-node graph keeps `human-boundaries-and-adoption` as one transport card with exactly two
+ordered durable barriers, not two graph nodes. The exact barrier sequence `[human-boundaries, canonical-adoption]` is fixed. The card may enter `running` only from the current
+clean/pass `cross_artifact_alignment` tuple. Its coordinator records a card transaction ID and barrier
+sequence in the versioned `kanban_run`/stage evidence and serializes these steps:
+
+1. **Human boundaries barrier:** acquire the card lease and decision locks; validate the complete
+   challenge/warning/finding universe, authenticated-human trust and authorization, exact boundary
+   coverage, selected feature IDs, sequential workflow/worktree assignments, and supplied-baseline
+   pre-hashes; append the validated boundary/warning DecisionFiles and their one-to-one journal events;
+   publish their derived pointers by CAS; then durably commit barrier `human-boundaries`. This barrier
+   writes no canonical adoption output.
+2. **Canonical adoption barrier:** only after barrier 1 is durably current, validate fresh exact SR
+   consent (including the exact phrase, candidate IDs/hash, current clean review/gate tuples, and replay
+   binding); acquire the authorized canonical target allowlist/role and cross-run locks; re-read target
+   pre-hashes; append the consent and adoption journal events; publish canonical SR/FEAT/bundle outputs
+   atomically through fenced pre-hash CAS; read back and record post-hashes; publish the adoption pointer
+   by CAS; then durably commit barrier `canonical-adoption`.
+
+The card is `done` only after both barriers, all outputs, and the current adoption evidence are hash
+verified. A failed, deferred, withheld, invalid, stale, unauthorized, lock-lost, or CAS-mismatched
+first barrier prevents the second. A crash after barrier 1 resumes from that committed barrier but does
+not perform adoption without a fresh current consent transaction; a crash before a barrier commit is
+recovered or invalidated without promoting partial output. A withheld or invalid second barrier keeps
+the card in `needs_input`/`blocked` and prevents `final-gates`. No card state, lease, retry, graph hash,
+model response, or human response is an alternate release path.
 
 ### Task 9: Add the FEAT-018 capability seam and honest block behavior
 
@@ -987,18 +1310,30 @@ repository facts, and an empty approved output location. Invoke the real produce
 - plan write/read-back/hash with implementation and verification tasks;
 - typed task materialization and idempotent rerun;
 - bidirectional trace closure and a deliberate missing-edge failure;
-- one agentic scoped fix followed by fresh review;
+- one agentic scoped fix followed by a new immutable revision and fresh independent review/gate;
 - human challenge escalation staying `blocked`/`needs_input` until the validated decision-writer
-  answer/decision with exact finding scope/current hashes queues a fresh clean review;
-- every security/operability warning blocking until a labelled human decision;
+  answer/decision with exact finding-universe coverage/current hashes queues a fresh clean review;
+- every security/operability warning blocking until a labelled human decision, with `fixed`/
+  `accepted_risk` requiring a fresh clean warning-scope review while retaining findings;
 - feature split stopping for human selection without overwriting a supplied baseline;
 - interrupted/resumed capture and failed snapshot replacement preservation;
-- non-secret prompt/question/answer byte preservation, ingress secret redaction with structured
-  redaction records, and credential-free summaries/diagnostics;
-- reparse-point/symlink/junction/traversal rejection and race-safe no-follow atomic writes;
-- immutable revision/attempt paths, current-pointer invalidation, DecisionFile replay protection,
-  and one-to-one resolution-event mapping;
-- Kanban materialization/reconciliation/reclaim when the optional capability is injected;
+- non-secret prompt/question/answer byte preservation, versioned detector identity, ingress redaction
+  before clarification/backend/provider/diagnostics, fail-closed detector ambiguity/failure, and
+  credential-free summaries/diagnostics across every output projection;
+- reparse-point/symlink/junction/traversal/device/alias rejection and race-safe no-follow atomic writes;
+- immutable input snapshots and read-hash handle binding, complete SR-context inventory, exact
+  `EvidenceRecordSchema` envelopes, canonical serialization, unknown/duplicate/path/hash/predecessor
+  rejection, and safe-id/approved-name/task-slug grammar;
+- authorized target allowlists, role scope, cross-run locks, expected-prehash CAS, fencing, and proof
+  that unrelated canonical/baseline bytes are not overwritten;
+- immutable revision/attempt paths, current-pointer invalidation, DecisionFile authentication,
+  authorization, kind-specific fields, exact finding-universe hash/coverage, replay protection,
+  DecisionFile-to-journal-to-pointer crash recovery, and one-to-one resolution-event mapping;
+- closed deterministic gate-check registry/provenance with missing/extra/unknown/duplicate check
+  failures and producer/reviewer oracle inspection of real bytes and hashes;
+- Kanban materialization/reconciliation/lease/fencing/reclaim/retry when the optional capability is
+  injected, including the two internal human-boundaries/adoption barriers and no adoption before
+  validated boundaries plus consent;
 - FEAT-018 absent capability blocking;
 - fresh exact consent, final gates, menu, and `starts_automatically: false` handoff.
 
@@ -1057,11 +1392,15 @@ or downstream workflow is allowed without explicit authorization.
 **RED/documentation verification:** Add holistic assertions that the run cannot hand off when any
 producer is skipped, any checkpoint is out of order, candidate review is late or duplicated, a task
 is unbound, trace closure is one-way, a warning lacks human disposition, feature scope is unresolved,
-FEAT-018 is unavailable when required, a snapshot/hash/consent is stale, a Kanban edge is missing,
-or `starts_automatically` is true. Also assert that an escalation/non-clean review hash or a recorded
-human response cannot release a child, and that only a fresh current clean report plus deterministic
-gate evidence can complete a review stage. Verify the final docs contain no contradictory normative
-order and explicitly mark implementation, consent, and adoption as pending until proved.
+FEAT-018 is unavailable when required, a snapshot/hash/consent is stale, a Kanban edge is missing, a
+barrier is out of order, or `starts_automatically` is true. Also assert that an escalation/non-clean
+review hash or a recorded human response cannot release a child, that `fixed`/`accepted_risk` without
+fresh clean warning-scope evidence remains blocked, and that only a fresh current clean report plus
+all required deterministic registry checks and gate evidence can complete a review stage. Verify exact
+EvidenceRecordSchema serialization/field/path/hash/predecessor rules, detector fail-closed/redaction
+coverage, target allowlist/role/CAS and recovery invariants, no FEAT-019/020 invocation, and no
+contradictory normative order. Explicitly mark implementation, consent, and adoption as pending until
+proved; do not turn plan text or fixture values into runtime claims.
 
 ```bash
 uv run pytest tests/integration/coherence/test_planning_holistic.py tests/unit/coherence/test_planning_trace_contract.py -q -o addopts=''
@@ -1069,11 +1408,15 @@ uv run pytest tests/integration/coherence/test_planning_holistic.py tests/unit/c
 
 **Implementation/GREEN:** Run the complete independent review protocol. First perform a fresh
 spec-compliance review against every acceptance row in the authority spec, then a fresh
-code-quality/security review covering path safety, prompt injection, secret redaction, stale-hash
-rejection, atomic writes, role scope, workspace serialization, retry/reclaim, and no auto-execution.
-Use fresh-context fixers for findings, append all resolution events, reread changed artifacts,
-recompute hashes, and repeat both reviews. Produce a derived coverage report if useful, but retain
-canonical evidence and known-debt separation.
+code-quality/security review covering path safety, prompt injection, secret detector version/fail-closed
+coverage, stale-hash rejection, EvidenceRecordSchema/serialization, atomic writes, role/target scope,
+allowlist/CAS/cross-run locks, workspace serialization, lease/fencing/retry/reclaim/recovery, the
+ordered combined-card barriers, exact DecisionFile fields/authentication/replay coverage, closed
+registry provenance, and no auto-execution or FEAT-019/020 invocation. Use fresh-context fixers for
+findings, append all resolution events, reread changed artifacts, recompute hashes, and repeat both
+reviews. Produce a derived coverage report if useful, but retain canonical evidence and known-debt
+separation. A green result must be reported only as implementation evidence; this plan does not claim
+that the runtime, consent, adoption, acceptance, or human validation exists today.
 
 ```bash
 uv run pytest tests/integration/coherence/test_planning_holistic.py tests/integration/coherence/test_planning_dogfood.py -q -o addopts=''
@@ -1110,24 +1453,27 @@ start implementation/downstream workflows, fabricate human consent, or rewrite h
 
 | Area | Required proof |
 |---|---|
-| Intent provenance | Exact post-redaction prompt/question/answer text for all non-secret content, source, sequence, observations, challenges, decisions, and unresolved state are durable and hash-bound; redaction metadata contains no secret |
-| Snapshot recovery | Append-only journal survives interruption; failed materialization preserves the last known-good snapshot |
-| Spec producer | Real backend-injected producer writes, reads back, validates, and hashes the provisional spec |
+| Intent provenance | Exact post-redaction prompt/question/answer text for all non-secret content, source, sequence, observations, challenges, decisions, and unresolved state are durable and hash-bound; versioned detector provenance and redaction metadata contain no secret |
+| Snapshot/recovery | Immutable input snapshots/read-hash handle bindings, append-only journal and revision index survive interruption; failed materialization preserves the last known-good snapshot; DecisionFile -> journal -> pointer recovery never promotes an orphan |
+| Evidence envelope | Complete `EvidenceRecordSchema` record families and required fields for stage, revision, current pointer, input, producer, task, trace, final-gate, Kanban, decision, and handoff records; canonical serialization; duplicate/unknown/path/hash/predecessor rejection |
+| Spec producer | Real backend-injected producer writes, reads back, validates, and hashes the provisional spec under its role-scoped target allowlist, expected-prehash CAS, and cross-run lock |
 | Spec checkpoint | `PLANNING_ALIGNMENT` runs after the producer and before candidate derivation |
 | Candidate SR | Exactly one run-local derivation lineage occurs before plan authoring; one immutable artifact contains SR/feature/bundle projections with no review back-reference; adversarial duplicate/conflict/unsupported/compatibility/missing-obligation/full-context review is explicit |
-| Plan producer | Real backend-injected producer writes, reads back, validates, and hashes a plan containing implementation and verification work together |
+| SR context | Every current non-deleted proposed/deferred/satisfied/active SR record, status/owner, source anchor/hash, disposition provenance, and available trace relation is present in the immutable inventory |
+| Plan producer | Real backend-injected producer writes, reads back, validates, and hashes a plan containing implementation and verification work together under its approved-name/target/role/CAS contract |
 | Task contract | Generated tasks bind source spec/plan/SR or reviewed non-SR, acceptance, exact tests/commands, and implementation/verification evidence |
 | Cross-artifact gate | `CROSS_ARTIFACT_ALIGNMENT` runs after tasks and proves bidirectional closure |
-| Review resolution | Schema-1 immutable report/gate identities, current input/artifact manifests, status enums, finding IDs/scopes, independent reviewer, report/gate hashes, and current-pointer rules are enforced; escalation is blocked `needs_input`; a validated hash-bound human answer/decision queues a fresh independent review, and only its current clean report plus deterministic gate evidence releases the child |
-| Human boundaries | Feature splits stop for human sequential workflow/worktree choice; supplied FEAT baseline is never silently overwritten |
-| Warnings | Every security/operability warning blocks until fixed or explicitly dispositioned by a human; no `accept_warning` bypass |
-| Consent/adoption | Fixed schemas/enums and validated writers bind exact candidate IDs/artifact hash, report/input hashes, boundary coverage, authenticated human actor, exact consent phrase, response/decision hashes, replay protection, and canonical target pre/post hashes; adoption is distinct from review cleanliness |
-| Kanban | Optional root/stage cards, dependencies, idempotency, workspace serialization, retry/reclaim, recovery, reconciliation, and no silent downstream execution are tested |
-| FEAT boundary | FEAT-018 capability is checked/blocked honestly; FEAT-019 conformance and FEAT-020 optimization remain separate |
+| Review resolution | Schema-1 immutable report/gate identities, current input/artifact manifests, closed status enums, exact finding-universe coverage/hash, independent reviewer, report/gate hashes, closed check registry/provenance, and current-pointer rules are enforced; escalation is blocked `needs_input`; a validated hash-bound human answer/decision queues a fresh independent review, and only its current clean report plus deterministic gate evidence releases the child |
+| Human boundaries | Feature splits stop for human sequential workflow/worktree choice; supplied FEAT baseline is never silently overwritten; the combined transport card commits human boundaries before its canonical-adoption barrier |
+| Warnings | Every security/operability warning blocks until fixed or explicitly dispositioned by a human; `fixed`/`accepted_risk` require fresh clean warning-scope review evidence and retain findings; no `accept_warning` bypass |
+| Consent/adoption | Fixed kind-specific enums and validated writers bind exact candidate IDs/artifact hash, report/input hashes, boundary coverage, authenticated/authorized human actor, exact consent phrase, response/decision hashes, replay protection, and canonical target pre/post hashes; adoption is impossible before validated boundaries plus consent |
+| Path/target safety | Safe-id/approved-name/task-slug grammar and Windows alias/device rules, exact role-scoped target allowlists, no-follow writes, cross-run locks, fencing, and expected-prehash CAS prevent unrelated baseline overwrite |
+| Kanban | Optional root/stage cards, dependencies, idempotency, workspace serialization, lease/fencing/retry/reclaim, recovery, reconciliation, ordered two-barrier human card transaction, and no silent downstream execution are tested |
+| FEAT boundary | FEAT-018 capability is checked/blocked honestly; FEAT-019 conformance and FEAT-020 optimization remain separate and are never invoked by FEAT-017 |
 | Freshness | Any relevant input, output, context, model, decision, policy, canonical adoption, or task/source change appends invalidation, advances revision/attempt identity, invalidates current pointers and descendants, and requires fresh evidence |
 | Handoff | JSON/Markdown handoff is current, validated, hash-bound, includes all three current clean review report/gate evidence tuples, rejects escalation/non-clean/human-response hashes, and has `starts_automatically: false` |
 | Known debt | Existing repository debt and unavailable capabilities are reported separately, never converted into false success |
-| Authorization | No merge, push, canonical adoption, or downstream launch without explicit authorization |
+| Authorization | No merge, push, canonical adoption, or downstream launch without explicit authorization; plan text never claims runtime implementation, acceptance, consent, adoption, or human validation |
 
 ## 6. Execution and review handoff
 
