@@ -2,6 +2,7 @@
 id: SPEC-FEAT-017-PLANNING-BOOTSTRAP
 title: "FEAT-017 Planning Bootstrap Design"
 document_state: draft
+status: draft
 ---
 
 # FEAT-017 — Planning Bootstrap

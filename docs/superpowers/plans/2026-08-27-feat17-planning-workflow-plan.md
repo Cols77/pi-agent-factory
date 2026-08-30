@@ -2,6 +2,7 @@
 id: PLAN-FEAT-017-MATURE-PLANNING-WORKFLOW
 title: "FEAT-017 Mature Planning Workflow Implementation Plan"
 lifecycle_state: draft
+status: draft
 spec_ref: docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
 ---
 
@@ -513,18 +514,22 @@ hash. The exact canonical object has no fields beyond:
   "lease_state": "active",
   "scope": {
     "journal_path": ".factory/planning/<run-id>/resolution-events.jsonl",
+    "decision_file_paths": [".factory/planning/<run-id>/decisions/<decision-id>.json"],
+    "revision_index_path": ".factory/planning/<run-id>/revision-index.jsonl",
     "pointer_paths": [".factory/planning/<run-id>/current/<stage-id>.json"],
     "temporary_paths": [".factory/planning/<run-id>/staging/<transaction-scope>"],
-    "canonical_target_paths": ["<exact-registered-feat-sr-bundle-path>" ]
+    "canonical_target_paths": ["<exact-registered-feat-sr-bundle-path>" ],
+    "quarantine_paths": [".factory/planning/<run-id>/quarantine/<transaction-scope>" ]
   },
   "lease_hash": "<sha256>"
 }
 ```
 
-`scope` arrays are sorted exact repository-relative paths with no globs, prefixes, or caller-added
-paths; they must cover the resolution journal, every current pointer touched by the operation, every
-same-directory temporary/staging path, and every canonical FEAT/SR/bundle target. `lease_hash` is the
-SHA-256 of canonical strict JSON with `lease_hash` and `issuer.signature` omitted. The issuer signs
+`scope` contains sorted exact repository-relative paths with no globs, prefixes, or caller-added paths;
+it must cover the resolution journal, every DecisionFile, the revision index, every current pointer
+touched by the operation, every same-directory temporary/staging path, every canonical FEAT/SR/bundle
+target, and the registered adoption-quarantine path. `lease_hash` is the SHA-256 of canonical strict JSON
+with `lease_hash` and `issuer.signature` omitted. The issuer signs
 `host-lease-v1 || lease_id || lease_hash` with the authenticated host key. `lease_state` is closed to
 `active|expired|reclaimed|released|invalidated`; no transport state is substituted for it.
 
@@ -627,8 +632,10 @@ registry/quarantine scope match; it uses a storage primitive that linearizes the
 check with the write, append, rename, or pointer CAS. A check immediately before an effect is
 insufficient: if the host cannot make the lease/fence check and effect one atomic fenced operation, it
 fails closed before the effect. Directory and temporary handles are bound as well as target-file
-handles. A missing target has an explicit null expected pre-hash and is created only beneath its
-declared regular parent. A handle binding is runtime authorization, not a new persisted evidence
+handles. A missing target is permitted only when its exact target-registry entry has `allow_missing=true`;
+for this workflow that is only `adoption-quarantine`. Canonical FEAT/SR/bundle preparation fails before
+DecisionFile publication if any target is absent, and every canonical `target_bindings[].pre_sha256` is
+therefore non-null. A handle binding is runtime authorization, not a new persisted evidence
 record, and its safe hash/path reference is retained only through existing authority `provenance`,
 `input_manifest_ref`, target, and `ProducedArtifact` fields. No capability or handle binding may be
 added to a DecisionFile or used as an extension bag.
@@ -791,7 +798,7 @@ failure it returns only a safe failure code and prevents the sink. The closed si
 `capture.prompt`, `capture.question`, `capture.answer`, `capture.observation`,
 `clarification.input`, `backend.request`, `provider.response`, `artifact.write`, `review.packet`,
 `report.write`, `gate.write`, `decision.write`, `resolution-journal.append`, `kanban.metadata`,
-`handoff.summary`, `error.output`, and `diagnostic.output`. Direct writes, logs, hashes, provider
+`handoff.summary`, `handoff.json.write`, `handoff.md.write`, `error.output`, and `diagnostic.output`. Direct writes, logs, hashes, provider
 calls, and error paths are unreachable without a successful guard result. The guard runs immediately
 before every listed sink, including every FEAT-018 provider boundary. Raw ingress buffers and raw
 provider responses may exist only in the isolated transient detector buffer; they never reach any
@@ -1955,7 +1962,10 @@ host-issued capability only after the branch, enforce the capability-confined re
 validation, and return `available=true` with `gate_result=pass|fail|invalid` plus the result hash
 when a result was produced; unavailable/provider-error results are `available=false` and
 `gate_result=fail|invalid` with no false success. Bind the result or exact unrequested tuple to the
-current final-gate revision/attempt and input manifest. Require the host facade to deny execution,
+current final-gate revision/attempt and input manifest. Write `handoff.json` and `handoff.md` only through
+`handoff.json.write` and `handoff.md.write` after successful `redact_then_guard` results, read them back
+through bound handles, and bind their exact hashes into the authority handoff record before publishing
+any handoff pointer. Require the host facade to deny execution,
 shell, arbitrary filesystem, and downstream calls; never invoke execution or let FEAT-020 optimize
 an unvalidated graph.
 
@@ -1973,7 +1983,9 @@ bound to the current final-gate manifest. Availability, provider errors, stale p
 facade-denied execution attempts are explicit fail/invalid blocks without false success; handoff is
 impossible without all three current clean report/gate tuples and the applicable capability result;
 FEAT-017 does not claim FEAT-018/019/020 implementation; FEAT-020 is never called from planning; and
-the handoff records the capability result.
+handoff `handoff.json` and `handoff.md` are each written only through `handoff.json.write`/
+`handoff.md.write` after the guard succeeds, with their exact post-write hashes bound into the
+handoff record; and the handoff records the capability result.
 
 **Prohibited scope:** Do not implement the governed execution proposal, cross-host conformance,
 optimization, an execution scheduler, or any downstream worker.
