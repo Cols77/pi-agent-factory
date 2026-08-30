@@ -250,8 +250,25 @@ def test_labelled_fixture_records_drive_duplicate_and_contradictory_sr_case(tmp_
                                       "bundles/FEAT-017.json")]
     observed: list[dict] = []
 
+    review_calls = 0
+
     def reviewer(packet):
+        nonlocal review_calls
+        review_calls += 1
         observed.append(packet.context["sr_context"])
+        if packet.stage == WorkflowStage.DERIVATION_ALIGNMENT.value and review_calls == 3:
+            finding = ({
+                "id": records["pass3.json"]["findings"][0]["id"],
+                "disposition": "escalate_to_human",
+                "evidence": records["pass3.json"]["findings"][0]["evidence"],
+                "confidence": 1.0,
+                "artifact_paths": [records["pass3.json"]["findings"][0]["evidence"]],
+            },)
+            return SemanticReviewReport(
+                1, packet.run_id, packet.stage, packet.iteration, packet.sha256,
+                packet.artifacts, packet.context, packet.sr_context_digest, packet.model,
+                packet.reviewer_role, packet.reviewer_session_id, finding, (), (), "escalate",
+            )
         return SemanticReviewReport(1, packet.run_id, packet.stage, packet.iteration, packet.sha256,
                                     packet.artifacts, packet.context, packet.sr_context_digest, packet.model,
                                     packet.reviewer_role, packet.reviewer_session_id, (), (), (), "clean")
@@ -266,10 +283,34 @@ def test_labelled_fixture_records_drive_duplicate_and_contradictory_sr_case(tmp_
         derivation_context={"candidate_srs": records["candidates.json"]["candidate_srs"],
                             "closure": records["candidates.json"]["closure"]},
         sr_context=context)
-    assert status.ok and not status.blocked
+    assert status.ok is False and status.blocked is True
+    assert status.reason == "semantic_review_escalation"
+    assert [stage["stage"] for stage in status.to_dict()["stages"] if stage["status"] == "blocked"] == [
+        WorkflowStage.DERIVATION_ALIGNMENT.value
+    ]
     assert observed == [context] * len(WorkflowStage)
     assert observed[-1]["SR-001"]["statement"] == duplicate_statements.pop()
     assert observed[-1]["SR-002"]["contradictory_context"] == contradiction_case["context"]
+
+    resolved_context = {
+        **context,
+        "SR-002": {
+            **context["SR-002"],
+            "status": "proposed",
+            "statement": records["pass3.json"]["human_resolution"],
+            "resolution": records["pass3.json"]["human_resolution"],
+        },
+    }
+    resumed = workflow.run_stage(
+        WorkflowStage.DERIVATION_ALIGNMENT, paths[1:],
+        context={"candidate_srs": records["candidates.json"]["candidate_srs"]},
+        sr_context=resolved_context,
+        iteration=records["pass3.json"]["findings"][0].get("resumed_iteration", 2),
+    )
+    assert resumed is not None and resumed.verdict == records["pass3.json"]["resumed_verdict"]
+    assert workflow.status().ok is True
+    assert observed[-1]["SR-002"]["contradictory_context"] == contradiction_case["context"]
+    assert observed[-1]["SR-002"]["resolution"] == records["pass3.json"]["human_resolution"]
     assert records["reviews.json"]["stale_artifact"]["expected_result"] == "rejected"
     assert records["interrupted-resumed.json"]["expected"] == "append-only sequence is preserved"
     assert records["deterministic-gates.json"]["downstream"] == ["standard-development", "health-recovery", "feature-planning"]
