@@ -34,7 +34,7 @@ def _isolated_legacy_import(module_name: str):
         or any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes)
     }
     original_attributes = {}
-    for name in names_to_track:
+    for name in names_to_track | set(original_modules):
         parent_name, _, child_name = name.rpartition(".")
         parent = sys.modules.get(parent_name)
         if parent is not None:
@@ -47,6 +47,15 @@ def _isolated_legacy_import(module_name: str):
     try:
         yield
     finally:
+        for name in list(sys.modules):
+            if name in names_to_track or any(
+                name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes
+            ):
+                parent_name, _, child_name = name.rpartition(".")
+                parent = sys.modules.get(parent_name)
+                if parent is not None and (parent, child_name) not in original_attributes:
+                    if child_name in vars(parent):
+                        delattr(parent, child_name)
         for name in list(sys.modules):
             if name in names_to_track or any(
                 name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes
@@ -193,6 +202,27 @@ def test_legacy_validation_modules_warn_and_reexport(module_name: str, canonical
 
         assert any("factory.validation" in str(item.message) for item in caught)
         canonical = importlib.import_module(canonical_name)
+        assert legacy.__dict__["__all__"] == canonical.__dict__["__all__"]
+        for name in canonical.__dict__["__all__"]:
+            assert getattr(legacy, name) is getattr(canonical, name)
+
+
+def test_legacy_report_identity_survives_a_preceding_pipeline_import():
+    from factory.polish import config as _factory_config  # noqa: F401
+
+    with _isolated_legacy_import("factory.validation.pipeline"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            importlib.import_module("factory.validation.pipeline")
+        assert any("factory.validation" in str(item.message) for item in caught)
+
+    with _isolated_legacy_import("factory.validation.report"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            legacy = importlib.import_module("factory.validation.report")
+
+        assert any("factory.validation" in str(item.message) for item in caught)
+        canonical = importlib.import_module("coherence.measurement.report")
         assert legacy.__dict__["__all__"] == canonical.__dict__["__all__"]
         for name in canonical.__dict__["__all__"]:
             assert getattr(legacy, name) is getattr(canonical, name)
