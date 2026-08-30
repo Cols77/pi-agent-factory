@@ -413,18 +413,24 @@ def _pid_is_alive(pid: int) -> bool:
 
 def _read_lock_record(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        value = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_strict_object
+        )
+    except (OSError, ValueError, json.JSONDecodeError, PlanningKanbanError) as exc:
         raise WorkspacePolicyError("lock file is malformed; refusing recovery") from exc
-    if not isinstance(value, dict):
+    fields = {"schema", "pid", "run_id", "card_id", "token"}
+    if not isinstance(value, dict) or set(value) != fields:
         raise WorkspacePolicyError("lock file is malformed; refusing recovery")
     if (
-        value.get("schema") != 1
-        or not isinstance(value.get("pid"), int)
-        or isinstance(value.get("pid"), bool)
-        or not isinstance(value.get("run_id"), str)
-        or not isinstance(value.get("card_id"), str)
-        or not isinstance(value.get("token"), str)
+        value["schema"] != 1
+        or not isinstance(value["pid"], int)
+        or isinstance(value["pid"], bool)
+        or value["pid"] < 1
+        or not isinstance(value["run_id"], str)
+        or not value["run_id"]
+        or not isinstance(value["card_id"], str)
+        or not value["card_id"]
+        or not isinstance(value["token"], str)
         or not value["token"]
     ):
         raise WorkspacePolicyError("lock file is malformed; refusing recovery")
@@ -454,6 +460,12 @@ def _try_recover_stale_lock(path: Path) -> bool:
             return True
         if _pid_is_alive(record["pid"]):
             return False
+        try:
+            current = _read_lock_record(path)
+        except WorkspacePolicyError as exc:
+            raise WorkspacePolicyError("lock changed during recovery") from exc
+        if current != record:
+            raise WorkspacePolicyError("lock changed during recovery")
         try:
             path.unlink()
         except FileNotFoundError:

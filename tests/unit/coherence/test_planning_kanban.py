@@ -334,6 +334,38 @@ def test_invalid_gate_evidence_is_rejected_and_never_releases_child(tmp_path: Pa
     assert run.card(capture.id).status == "pending"
 
 
+def test_lock_record_rejects_duplicate_and_unknown_fields(tmp_path: Path) -> None:
+    import coherence.planning.kanban as kanban_module
+
+    lock_path = tmp_path / "lock.json"
+    valid_prefix = '{"schema":1,"pid":1,"run_id":"run-1","card_id":"card-1","token":"tok"'
+    lock_path.write_text(valid_prefix + ',"token":"forged"}', encoding="utf-8")
+    with pytest.raises(WorkspacePolicyError, match="malformed"):
+        kanban_module._read_lock_record(lock_path)
+
+    lock_path.write_text(valid_prefix + ',"extra":"shadow"}', encoding="utf-8")
+    with pytest.raises(WorkspacePolicyError, match="malformed"):
+        kanban_module._read_lock_record(lock_path)
+
+
+def test_stale_lock_recovery_preserves_a_replacement_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import coherence.planning.kanban as kanban_module
+
+    lock_path = tmp_path / "lock.json"
+    original = '{"schema":1,"pid":999999,"run_id":"run-1","card_id":"card-1","token":"old"}'
+    replacement = '{"schema":1,"pid":999998,"run_id":"run-1","card_id":"card-1","token":"new"}'
+    lock_path.write_text(original, encoding="utf-8")
+
+    def replace_before_liveness_check(pid: int) -> bool:
+        lock_path.write_text(replacement, encoding="utf-8")
+        return False
+
+    monkeypatch.setattr(kanban_module, "_pid_is_alive", replace_before_liveness_check)
+    with pytest.raises(WorkspacePolicyError, match="changed"):
+        kanban_module._try_recover_stale_lock(lock_path)
+    assert lock_path.read_text(encoding="utf-8") == replacement
+
+
 def test_human_block_pause_and_resume_require_current_decision_and_fresh_review(
     tmp_path: Path,
 ) -> None:
