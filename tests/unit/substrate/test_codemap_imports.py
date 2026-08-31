@@ -58,13 +58,19 @@ def _import_fresh(module_name: str):
     return importlib.import_module(module_name)
 
 
+def _seed_factory_codeindex_parent_silently() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        importlib.import_module("factory.codeindex")
+
+
 def _import_fresh_leaf(module_name: str):
     # `factory.codeindex` (the package) is itself a whole-module shim with its
     # own single warning. Import it first (uncleared) so it is already cached
     # -- Python always imports a submodule's parent package first, and without
     # this the parent's warning would double-count into every leaf case,
     # regardless of test collection order.
-    importlib.import_module("factory.codeindex")
+    _seed_factory_codeindex_parent_silently()
     sys.modules.pop(module_name, None)
     return importlib.import_module(module_name)
 
@@ -139,6 +145,7 @@ def test_factory_codeindex_substrate_composition_adapter_imports_silently():
     # guard around substrate.codemap -- genuine factory-side glue (same
     # category as factory.config), not a moved module. Nothing public left
     # this file, so importing/using it must never warn.
+    _seed_factory_codeindex_parent_silently()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", DeprecationWarning)
         adapter = _import_fresh("factory.codeindex.substrate")
