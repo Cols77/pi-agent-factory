@@ -109,38 +109,6 @@ def _explainer(repo: Path, slug: str, *, explains=(), sr_fps=None, code_fps=None
     (exp_dir / f"{slug}.md").write_text("---\n" + "\n".join(parts) + "\n---\nbody\n", encoding="utf-8")
 
 
-@pytest.fixture
-def repo(tmp_path):
-    """Seeded git repo: SR-017 + code + run (deps) + goal + diagram + explainer."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
-    _sr(repo)
-    _code(repo, "src/navigation/preemption.py")
-    _goal(repo)
-    c1 = _commit_all(repo, "baseline")
-    _run_with_deps(
-        repo,
-        "RUN-20260816-0100",
-        commit=c1,
-        sr_ids=["SR-017"],
-        goals=["GOAL-NAV-001"],
-        files=["src/navigation/preemption.py"],
-    )
-    _diagram(repo, "DIAG-NAV-009", ["run:RUN-20260816-0100"])
-    _explainer(
-        repo,
-        "NAV-PREEMPTION",
-        explains=["SR-017"],
-        sr_fps={"SR-017": _sr_digest(repo)},
-        code_fps={"src/navigation/preemption.py": _code_digest(repo)},
-    )
-    _commit_all(repo, "evidence + diagram + explainer")
-    return repo
-
-
 def _sr_digest(repo: Path) -> str:
     return fingerprint_value("SR-017", (repo / "requirements" / "SR-017.md").read_text(encoding="utf-8")).digest
 

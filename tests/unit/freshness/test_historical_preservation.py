@@ -84,8 +84,8 @@ def _clean_generators():
 
 
 @pytest.mark.integration
-def test_old_explainer_content_remains_in_git_history(tmp_path):
-    repo = _seeded_repo(tmp_path)
+def test_old_explainer_content_remains_in_git_history(historical_repo):
+    repo = historical_repo
     old_text = (repo / "docs" / "visual-explain" / "NAV-PREEMPTION.md").read_text(
         encoding="utf-8"
     )
@@ -112,8 +112,8 @@ def test_old_explainer_content_remains_in_git_history(tmp_path):
 
 
 @pytest.mark.integration
-def test_reconcile_never_deletes_old_evidence_bundles(tmp_path):
-    repo = _seeded_repo(tmp_path)
+def test_reconcile_never_deletes_old_evidence_bundles(historical_repo):
+    repo = historical_repo
     _change_sr(repo)
 
     def rerun(root, ref):
@@ -131,8 +131,8 @@ def test_reconcile_never_deletes_old_evidence_bundles(tmp_path):
 
 
 @pytest.mark.integration
-def test_invalidated_evidence_kept_but_distinguished_from_current(tmp_path):
-    repo = _seeded_repo(tmp_path)
+def test_invalidated_evidence_kept_but_distinguished_from_current(historical_repo):
+    repo = historical_repo
     manifest = repo / "evidence" / "runs" / "RUN-20260816-0100" / "manifest.json"
     original_commit = json.loads(manifest.read_text(encoding="utf-8"))["commit"]
 
@@ -148,8 +148,8 @@ def test_invalidated_evidence_kept_but_distinguished_from_current(tmp_path):
 
 
 @pytest.mark.integration
-def test_failure_records_and_rejected_hypotheses_stay_immutable(tmp_path):
-    repo = _seeded_repo(tmp_path)
+def test_failure_records_and_rejected_hypotheses_stay_immutable(historical_repo):
+    repo = historical_repo
     transition_log = repo / "goals" / "GOAL-NAV-001-transitions.jsonl"
     before = transition_log.read_text(encoding="utf-8")
 
