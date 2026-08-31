@@ -3,12 +3,17 @@ from __future__ import annotations
 import atexit
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 from threading import Lock
+import warnings
 
-from ._skill_fixtures import write_skill_stubs
+from ._skill_fixtures import (
+    _copy_seed_children,
+    _ensure_empty_directory,
+    _remove_tree,
+    write_skill_stubs,
+)
 
 
 _RUN_NEXT_TASK = "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\nbody\n"
@@ -68,28 +73,54 @@ _SEED_LOCK = Lock()
 
 
 def _cleanup_seed_dirs() -> None:
-    for seed in _SEED_DIRS.values():
-        shutil.rmtree(seed, ignore_errors=True)
+    failures: list[tuple[str, Path, Exception]] = []
+    with _SEED_LOCK:
+        for name, seed in tuple(_SEED_DIRS.items()):
+            try:
+                _remove_tree(seed)
+            except Exception as exc:
+                failures.append((name, seed, exc))
+            else:
+                del _SEED_DIRS[name]
+
+    if failures:
+        details = "; ".join(f"{name} ({seed}): {exc}" for name, seed, exc in failures)
+        warnings.warn(
+            f"failed to clean up repository seed(s): {details}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 atexit.register(_cleanup_seed_dirs)
 
 
 def _build_seed(name: str, spec: _RepoSpec) -> Path:
-    seed = Path(tempfile.mkdtemp(prefix=f"orchestrator-{name}-seed-"))
-    for relative_path, content in spec.files:
-        path = seed / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-    if spec.include_skill_stubs:
-        write_skill_stubs(seed)
+    seed: Path | None = None
+    try:
+        seed = Path(tempfile.mkdtemp(prefix=f"orchestrator-{name}-seed-"))
+        for relative_path, content in spec.files:
+            path = seed / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        if spec.include_skill_stubs:
+            write_skill_stubs(seed)
 
-    subprocess.run(["git", "init", "-q"], cwd=seed, check=True)
-    subprocess.run(["git", "config", "user.email", spec.user_email], cwd=seed, check=True)
-    subprocess.run(["git", "config", "user.name", spec.user_name], cwd=seed, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=seed, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", spec.commit_message], cwd=seed, check=True)
-    return seed
+        subprocess.run(["git", "init", "-q"], cwd=seed, check=True)
+        subprocess.run(["git", "config", "user.email", spec.user_email], cwd=seed, check=True)
+        subprocess.run(["git", "config", "user.name", spec.user_name], cwd=seed, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=seed, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", spec.commit_message], cwd=seed, check=True)
+        return seed
+    except BaseException as build_error:
+        if seed is not None:
+            try:
+                _remove_tree(seed)
+            except BaseException as cleanup_error:
+                build_error.add_note(
+                    f"failed to clean up partial repository seed {seed}: {cleanup_error}"
+                )
+        raise
 
 
 def _seed_for(name: str) -> Path:
@@ -112,13 +143,9 @@ def copy_repo_seed(root: Path, name: str) -> Path:
     The seed is prepared once per pytest process, but every caller receives a
     complete copy, including an independent ``.git`` directory. Tests remain
     free to mutate their checkout, run real Git commands, and create their own
-    run-state files without affecting another test or the seed.
+    run-state files without affecting another test or the seed. The destination
+    must be absent or an empty directory; existing contents are never merged.
     """
-    root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        _seed_for(name),
-        root,
-        copy_function=shutil.copyfile,
-        dirs_exist_ok=True,
-    )
+    _ensure_empty_directory(root)
+    _copy_seed_children(_seed_for(name), root)
     return root
