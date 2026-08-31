@@ -25,10 +25,8 @@ Task 2 Step 3 test command names this exact path: the structured import-edge
 layer, substrate.codemap.imports (ImportEdge/ImportClosure/build_import_
 closure), alongside the relocated compute_overlap/OverlapResult/
 transitive_imports (moved verbatim from factory.coverage.imports, which is
-now itself a warn-and-re-export shim, matching the pattern above). See
-tests/unit/coverage/test_imports.py for the original, still-passing
-compute_overlap/transitive_imports behavioral tests exercised through the
-shim.
+now itself a warn-and-re-export shim, matching the pattern above). The direct
+and compatibility-parity tests below preserve the legacy overlap behaviors.
 """
 from __future__ import annotations
 
@@ -49,6 +47,7 @@ from substrate.codemap.imports import (
     build_import_closure,
     compute_overlap,
     reachable_symbols,
+    transitive_imports,
 )
 
 pytestmark = pytest.mark.unit
@@ -269,8 +268,7 @@ def test_render_index_slice_matches_old_and_new(tmp_path):
 
 
 def _import_tree(root: Path) -> None:
-    """Same shape as tests/unit/coverage/test_imports.py's _tree fixture, so
-    the parity assertions below compare like for like."""
+    """Small project with an absolute import chain for parity fixtures."""
     (root / "src").mkdir(parents=True)
     (root / "tests").mkdir()
     (root / "src" / "drone").mkdir()
@@ -317,12 +315,16 @@ def _closure_overlap(root: Path, selection: str, changed_files: list[str]) -> tu
 def test_transitive_imports_reaches_implementation(tmp_path: Path) -> None:
     _transitive_import_tree(tmp_path)
 
-    result = build_import_closure(tmp_path, ["tests/test_preempt.py"])
+    reached, unresolved = transitive_imports(
+        tmp_path, tmp_path / "tests" / "test_preempt.py"
+    )
 
-    assert result.status == "resolved"
-    assert result.diagnostics == ()
-    assert "src/drone/entry.py" in result.files
-    assert "src/drone/priority_filter.py" in result.files
+    assert reached == {
+        tmp_path / "src" / "drone" / "entry.py",
+        tmp_path / "src" / "drone" / "priority_filter.py",
+    }
+    assert unresolved == set()
+    assert tmp_path / "tests" / "test_preempt.py" not in reached
 
 
 # -- 3a. build_import_closure: resolved / unresolved / unsupported status. --
@@ -425,16 +427,35 @@ def test_compute_overlap_distinguishes_selection_missing_from_no_overlap(tmp_pat
 
 
 @pytest.mark.parametrize(
-    "selection,changed_files",
+    "selection,changed_files,expected_overlap,expected_ok",
     [
-        ("tests/test_preempt.py", ["src/drone/priority_filter.py"]),
-        ("tests/test_preempt.py::test_preempt", ["src/drone/priority_filter.py"]),
-        ("tests/test_preempt.py", ["src/drone/priority_filter.py", "tests/test_preempt.py"]),
-        ("tests/test_preempt.py", ["unrelated/file.py"]),
+        (
+            "tests/test_preempt.py",
+            ["src/drone/priority_filter.py"],
+            ("src/drone/priority_filter.py",),
+            True,
+        ),
+        (
+            "tests/test_preempt.py::test_preempt",
+            ["src/drone/priority_filter.py"],
+            ("src/drone/priority_filter.py",),
+            True,
+        ),
+        (
+            "tests/test_preempt.py",
+            ["src/drone/priority_filter.py", "tests/test_preempt.py"],
+            ("src/drone/priority_filter.py",),
+            True,
+        ),
+        ("tests/test_preempt.py", ["unrelated/file.py"], (), False),
     ],
 )
 def test_converted_codemap_overlap_matches_factory_coverage_imports_exactly(
-    tmp_path: Path, selection: str, changed_files: list[str]
+    tmp_path: Path,
+    selection: str,
+    changed_files: list[str],
+    expected_overlap: tuple[str, ...],
+    expected_ok: bool,
 ) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
@@ -444,15 +465,16 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_exactly(
     legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
     converted = _closure_overlap(tmp_path, selection, changed_files)
 
-    assert converted == legacy.overlap
+    assert converted == expected_overlap
+    assert legacy.overlap == expected_overlap
+    assert legacy.ok is expected_ok
 
 
 def test_converted_codemap_overlap_matches_factory_coverage_imports_for_relative_imports(
     tmp_path: Path,
 ) -> None:
-    """Parity for tests/unit/coverage/test_imports.py::test_relative_import_resolution's
-    fixture (`from . import b`, level > 0) -- also the only exercise of
-    kind="relative" edge classification via the parity path."""
+    """Parity for relative-import resolution (`from . import b`, level > 0),
+    also exercising kind="relative" edge classification via the parity path."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         from factory.coverage.imports import compute_overlap as legacy_compute_overlap
@@ -476,8 +498,7 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_for_relative
 def test_converted_codemap_overlap_matches_factory_coverage_imports_for_no_imports(
     tmp_path: Path,
 ) -> None:
-    """Parity for test_compute_overlap_false_when_imports_nothing's fixture
-    (a test file with no imports at all)."""
+    """Parity for a test file with no imports at all."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         from factory.coverage.imports import compute_overlap as legacy_compute_overlap
@@ -499,8 +520,7 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_for_no_impor
 def test_converted_codemap_overlap_matches_factory_coverage_imports_for_external_unresolved(
     tmp_path: Path,
 ) -> None:
-    """Parity for test_unresolved_imports_are_honest's fixture (an import
-    of a genuinely external, unresolvable package)."""
+    """Parity for a genuinely external, unresolvable package import."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         from factory.coverage.imports import compute_overlap as legacy_compute_overlap
@@ -605,6 +625,7 @@ def test_factory_coverage_imports_reexports_edge_and_overlap_types() -> None:
     assert shim.ImportClosure is ImportClosure
     assert shim.build_import_closure is build_import_closure
     assert shim.compute_overlap is compute_overlap
+    assert shim.transitive_imports is transitive_imports
 
 
 # -- 4. Canonical-qualified symbol reachability (Task 4). -------------------
