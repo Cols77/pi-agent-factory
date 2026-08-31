@@ -12,9 +12,6 @@ from factory.orchestrator.runner import run_next
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, TaskResult
 from ._repo_fixtures import copy_repo_seed
 
-pytestmark = pytest.mark.unit
-
-
 def _repo(tmp_path):
     return copy_repo_seed(tmp_path / "repo", "evidence")
 
@@ -25,6 +22,7 @@ def _head(repo):
     ).stdout.strip()
 
 
+@pytest.mark.integration
 def test_run_next_writes_manifest_and_separate_exact_path_evidence_commit(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     code_commit = _head(repo)
@@ -68,6 +66,7 @@ def test_run_next_writes_manifest_and_separate_exact_path_evidence_commit(tmp_pa
     assert committed == ["evidence/runs/run-1.json", "tasks/T-001-example.md"]
 
 
+@pytest.mark.integration
 def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     blocked = repo / "published"
@@ -101,6 +100,7 @@ def test_run_next_blocks_completed_outcome_when_publication_target_fails(tmp_pat
     assert load_tasks(repo / "tasks")[0].status == "todo"
 
 
+@pytest.mark.integration
 def test_optional_publication_failure_keeps_completed_outcome(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     blocked = repo / "published"
@@ -130,6 +130,7 @@ def test_optional_publication_failure_keeps_completed_outcome(tmp_path, monkeypa
     assert load_tasks(repo / "tasks")[0].status == "done"
 
 
+@pytest.mark.integration
 def test_run_next_requires_store_and_evidence_dir_together(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     backend = FakeAgentBackend(

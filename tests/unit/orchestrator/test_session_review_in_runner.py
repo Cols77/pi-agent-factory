@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pytest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.nodes import run_session_review
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.runner import run_next
@@ -53,7 +54,10 @@ def test_session_review_invoked_at_end_of_run_next_with_events_and_kb_titles(tmp
     scripts[AgentRole.SESSION_REVIEW] = [AgentResult(True, {})]
     backend = CapturingBackend(scripts)
 
-    run_next(repo, backend, FakeGateRunner(), session_id="s1", git_info={"branch": "main"})
+    run_next(
+        repo, backend, FakeGateRunner(), session_id="s1", git_info={"branch": "main"},
+        git_ops=FakeGitOps(),
+    )
 
     # FakeAgentBackend-style assertion failure would already have fired if
     # SESSION_REVIEW's scripted queue were never consumed -- but the prompt

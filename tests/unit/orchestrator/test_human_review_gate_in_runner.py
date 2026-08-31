@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
+from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.human_review import Annotation, FakeHumanReviewGate, HumanReviewDecision
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
@@ -88,12 +88,13 @@ def test_blocked_report_carries_start_commit_for_diff_browser(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
     human_review = FakeHumanReviewGate([HumanReviewDecision("approve", [])])
-    expected_start_commit = SubprocessGitOps().head_commit(repo)
+    git_ops = FakeGitOps(head="abc123")
+    expected_start_commit = git_ops.head_commit(repo)
 
     path = run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
-        human_review=human_review, status=status,
+        human_review=human_review, status=status, git_ops=git_ops,
     )
 
     assert path is not None
@@ -108,7 +109,7 @@ def test_no_gate_configured_behaves_exactly_as_before(tmp_path):
     repo = _repo(tmp_path)
     path = run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
-        session_id="s1", git_info={"branch": "main"},
+        session_id="s1", git_info={"branch": "main"}, git_ops=FakeGitOps(),
     )
     assert path is not None
 
@@ -128,7 +129,7 @@ def test_human_review_entry_resolves_after_each_decision(tmp_path):
     run_next(
         repo, FakeAgentBackend(_scripts(n_review_calls=2)), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
-        human_review=human_review, status=status,
+        human_review=human_review, status=status, git_ops=FakeGitOps(),
     )
 
     states = [c["node_state"] for c in status.calls if c["node"] == "human-review"]
@@ -143,7 +144,7 @@ def test_human_review_entry_resolves_on_approve(tmp_path):
     run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
-        human_review=human_review, status=status,
+        human_review=human_review, status=status, git_ops=FakeGitOps(),
     )
 
     states = [c["node_state"] for c in status.calls if c["node"] == "human-review"]
@@ -175,7 +176,7 @@ def test_already_done_skips_dev_runs_validation_and_completes(tmp_path):
     # dev is skipped on the already-done first pass.
     path = run_next(
         repo, FakeAgentBackend(_already_done_scripts()), FakeGateRunner(),
-        session_id="s1", git_info={"branch": "main"}, status=status,
+        session_id="s1", git_info={"branch": "main"}, status=status, git_ops=FakeGitOps(),
     )
     assert path is not None
     nodes = [c["node"] for c in status.calls]
@@ -197,7 +198,7 @@ def test_already_done_human_review_block_carries_deliverables(tmp_path):
     run_next(
         repo, FakeAgentBackend(_already_done_scripts()), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"}, task_id="T-001",
-        human_review=human_review, status=status,
+        human_review=human_review, status=status, git_ops=FakeGitOps(),
     )
     blocked = [c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"]
     assert len(blocked) == 1
@@ -213,7 +214,7 @@ def test_already_done_but_sim_fails_falls_through_to_dev(tmp_path):
     gates = FakeGateRunner({"sim": [1, 0], "unit": [0], "full": [0]})
     path = run_next(
         repo, FakeAgentBackend(_already_done_scripts(with_dev=True)), gates,
-        session_id="s1", git_info={"branch": "main"}, status=status,
+        session_id="s1", git_info={"branch": "main"}, status=status, git_ops=FakeGitOps(),
     )
     assert path is not None
     nodes = [c["node"] for c in status.calls]
@@ -252,7 +253,7 @@ def test_reject_then_llm_keeps_requesting_changes_still_returns_to_human(tmp_pat
     status = FakeStatusReporter()
     path = run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
                     session_id="s1", git_info={"branch": "main"},
-                    human_review=human_review, status=status)
+                    human_review=human_review, status=status, git_ops=FakeGitOps())
     assert path is not None
     hr = [c for c in status.calls if c["node"] == "human-review"]
     assert [c["node_state"] for c in hr] == ["blocked", "changes-requested", "blocked", "approved"]
@@ -275,7 +276,7 @@ def test_escalates_only_after_max_human_rounds_of_rejects(tmp_path):
     status = FakeStatusReporter()
     run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
              session_id="s1", git_info={"branch": "main"},
-             human_review=human_review, status=status)
+             human_review=human_review, status=status, git_ops=FakeGitOps())
     blocked = [c for c in status.calls if c["node"] == "human-review" and c["node_state"] == "blocked"]
     assert len(blocked) == 3  # max_human_rounds
     assert [c for c in status.calls if c.get("outcome") == "escalated"]
@@ -297,6 +298,7 @@ def test_human_review_writes_a_focus_guide(tmp_path):
         repo, FakeAgentBackend(scripts), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"}, task_id="T-001",
         human_review=human_review, status=FakeStatusReporter(), transcript_dir=td,
+        git_ops=FakeGitOps(),
     )
     import json
     guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
@@ -321,6 +323,7 @@ def test_addressed_accumulator_survives_human_reject_round_and_reblocks(tmp_path
         repo, FakeAgentBackend(_scripts(n_review_calls=2)), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
         human_review=human_review, status=FakeStatusReporter(), transcript_dir=td,
+        git_ops=FakeGitOps(),
     )
     import json
     guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
@@ -337,6 +340,7 @@ def test_auto_still_escalates_when_llm_never_passes(tmp_path):
     }
     status = FakeStatusReporter()
     run_next(repo, FakeAgentBackend(scripts), FakeGateRunner(),
-             session_id="s1", git_info={"branch": "main"}, status=status)  # no human_review -> auto
+             session_id="s1", git_info={"branch": "main"}, status=status,
+             git_ops=FakeGitOps())  # no human_review -> auto
     assert not [c for c in status.calls if c["node"] == "human-review"]
     assert [c for c in status.calls if c.get("outcome") == "escalated"]

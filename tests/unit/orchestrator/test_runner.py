@@ -6,6 +6,7 @@ execution of the same gate merely to see its output)."""
 import pytest
 
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner, GateRun
+from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.runner import run_task
 from factory.orchestrator.types import AgentRole, AgentResult
@@ -89,7 +90,9 @@ def test_failed_unit_gate_signature_reselects_kb_for_next_dev_attempt(tmp_path):
     })
     backend = FakeAgentBackend(scripts)
 
-    r = run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+    r = run_task(
+        task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1, git_ops=FakeGitOps()
+    )
 
     assert r.outcome == "completed"
     dev_prompts = _dev_prompts(backend)
@@ -127,7 +130,9 @@ def test_nonmatching_failure_signature_never_selects_the_entry(tmp_path):
     })
     backend = FakeAgentBackend(scripts)
 
-    r = run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+    r = run_task(
+        task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1, git_ops=FakeGitOps()
+    )
 
     assert r.outcome == "completed"
     dev_prompts = _dev_prompts(backend)
@@ -151,7 +156,9 @@ def test_successful_gate_adds_no_signature_and_no_entry(tmp_path):
     gates = FakeGateRunner({"unit": [0], "full": [0]})
     backend = FakeAgentBackend(scripts)
 
-    r = run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+    r = run_task(
+        task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1, git_ops=FakeGitOps()
+    )
 
     assert r.outcome == "completed"
     dev_prompts = _dev_prompts(backend)
@@ -191,7 +198,9 @@ def test_self_resolving_dev_failure_signature_still_reaches_the_review_prompt(tm
     })
     backend = FakeAgentBackend(scripts)
 
-    r = run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+    r = run_task(
+        task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1, git_ops=FakeGitOps()
+    )
 
     assert r.outcome == "completed"
     dev_prompts = _dev_prompts(backend)
@@ -226,7 +235,9 @@ def test_gate_never_executed_twice_to_obtain_output(tmp_path, monkeypatch):
     gates = FakeGateRunner({"unit": [0], "full": [0]})
     backend = FakeAgentBackend(scripts)
 
-    run_task(task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1)
+    run_task(
+        task, backend, gates, repo, max_dev_iters=2, max_review_cycles=1, git_ops=FakeGitOps()
+    )
 
     assert calls.count("unit") == 1
     assert calls.count("full") == 1

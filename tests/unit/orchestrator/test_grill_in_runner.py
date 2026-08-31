@@ -3,16 +3,13 @@ from __future__ import annotations
 import pytest
 
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.git_ops import SubprocessGitOps
+from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
 from factory.orchestrator.grill import FakeGrillGate, GrillResult
 from factory.orchestrator.human_review import FakeHumanReviewGate, HumanReviewDecision
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
 from factory.orchestrator.types import AgentRole, AgentResult
 from ._repo_fixtures import copy_repo_seed
-
-pytestmark = pytest.mark.unit
-
 
 def _repo(tmp_path):
     return copy_repo_seed(tmp_path, "run_next")
@@ -39,6 +36,7 @@ def _approve_human():
     return FakeHumanReviewGate([HumanReviewDecision("approve", [])])
 
 
+@pytest.mark.unit
 def test_grill_runs_after_context_gather_and_proceeds(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("agreed")])
@@ -50,11 +48,13 @@ def test_grill_runs_after_context_gather_and_proceeds(tmp_path):
         git_info={"branch": "main"},
         human_review=_approve_human(),
         grill_gate=grill,
+        git_ops=FakeGitOps(),
     )
     assert path is not None
     assert grill.requests == ["T-001"]
 
 
+@pytest.mark.unit
 def test_grill_skipped_verdict_proceeds(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("skipped")])
@@ -66,11 +66,13 @@ def test_grill_skipped_verdict_proceeds(tmp_path):
         git_info={"branch": "main"},
         human_review=_approve_human(),
         grill_gate=grill,
+        git_ops=FakeGitOps(),
     )
     assert path is not None
     assert grill.requests == ["T-001"]
 
 
+@pytest.mark.unit
 def test_grill_not_agreed_proceeds_and_does_not_hard_block(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("not-agreed", "failed to demonstrate understanding")])
@@ -82,12 +84,14 @@ def test_grill_not_agreed_proceeds_and_does_not_hard_block(tmp_path):
         git_info={"branch": "main"},
         human_review=_approve_human(),
         grill_gate=grill,
+        git_ops=FakeGitOps(),
     )
     # The grill never forbids dev: not-agreed still completes the run.
     assert path is not None
     assert grill.requests == ["T-001"]
 
 
+@pytest.mark.unit
 def test_grill_reports_blocked_then_completed(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
@@ -100,11 +104,13 @@ def test_grill_reports_blocked_then_completed(tmp_path):
         human_review=_approve_human(),
         grill_gate=FakeGrillGate([GrillResult("agreed")]),
         status=status,
+        git_ops=FakeGitOps(),
     )
     states = [c["node_state"] for c in status.calls if c["node"] == "grill"]
     assert states == ["blocked", "completed"]
 
 
+@pytest.mark.unit
 def test_auto_mode_skips_the_grill_even_if_gate_supplied(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("agreed")])
@@ -116,11 +122,13 @@ def test_auto_mode_skips_the_grill_even_if_gate_supplied(tmp_path):
         git_info={"branch": "main"},
         human_review=None,
         grill_gate=grill,  # no human => auto => grill skipped
+        git_ops=FakeGitOps(),
     )
     assert path is not None
     assert grill.requests == []
 
 
+@pytest.mark.unit
 def test_human_present_but_no_grill_gate_skips_grill(tmp_path):
     repo = _repo(tmp_path)
     # No grill gate is supplied to run_task -- grill must be a no-op, never crash.
@@ -132,10 +140,12 @@ def test_human_present_but_no_grill_gate_skips_grill(tmp_path):
         git_info={"branch": "main"},
         human_review=_approve_human(),
         grill_gate=None,
+        git_ops=FakeGitOps(),
     )
     assert path is not None
 
 
+@pytest.mark.unit
 def test_grill_not_agreed_flags_review_guide(tmp_path):
     """A not-agreed grill verdict surfaces a pairing warning in the guide."""
     import json
@@ -164,6 +174,7 @@ def test_grill_not_agreed_flags_review_guide(tmp_path):
         human_review=_approve_human(),
         grill_gate=FakeGrillGate([GrillResult("not-agreed", "couldn't explain the delta")]),
         transcript_dir=td,
+        git_ops=FakeGitOps(),
     )
     guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
     assert guide["grill"] == {
@@ -172,6 +183,7 @@ def test_grill_not_agreed_flags_review_guide(tmp_path):
     }
 
 
+@pytest.mark.unit
 def test_grill_agreed_adds_no_grill_key_to_review_guide(tmp_path):
     """Agreed/skipped verdicts must NOT emit the pairing warning."""
     import json
@@ -200,11 +212,13 @@ def test_grill_agreed_adds_no_grill_key_to_review_guide(tmp_path):
         human_review=_approve_human(),
         grill_gate=FakeGrillGate([GrillResult("agreed", None)]),
         transcript_dir=td,
+        git_ops=FakeGitOps(),
     )
     guide = json.loads((td / "review-guide.json").read_text(encoding="utf-8"))
     assert "grill" not in guide
 
 
+@pytest.mark.integration
 def test_grill_uses_real_git_ops_head_commit(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("not-agreed")])
@@ -261,17 +275,20 @@ def _checkpoint(manifest, *, with_grill: bool, start_commit: str):
     )
 
 
+@pytest.mark.unit
 def test_resume_past_grill_skips_re_grilling(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("agreed")])
     manifest = _scripts()[AgentRole.CONTEXT_GATHERER][0].output
+    git_ops = FakeGitOps()
 
     path = run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
         human_review=_approve_human(), grill_gate=grill,
+        git_ops=git_ops,
         resume=_checkpoint(manifest, with_grill=True,
-                           start_commit=SubprocessGitOps().head_commit(repo)),
+                           start_commit=git_ops.head_commit(repo)),
     )
     assert path is not None
     # The checkpoint already has a completed "grill" record -> a resumed run
@@ -279,17 +296,20 @@ def test_resume_past_grill_skips_re_grilling(tmp_path):
     assert grill.requests == []
 
 
+@pytest.mark.unit
 def test_resume_without_grill_record_grills_again(tmp_path):
     repo = _repo(tmp_path)
     grill = FakeGrillGate([GrillResult("agreed")])
     manifest = _scripts()[AgentRole.CONTEXT_GATHERER][0].output
+    git_ops = FakeGitOps()
 
     run_next(
         repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
         session_id="s1", git_info={"branch": "main"},
         human_review=_approve_human(), grill_gate=grill,
+        git_ops=git_ops,
         resume=_checkpoint(manifest, with_grill=False,
-                           start_commit=SubprocessGitOps().head_commit(repo)),
+                           start_commit=git_ops.head_commit(repo)),
     )
     # No "grill" in the checkpoint's completed nodes -> the grill is offered again.
     assert grill.requests == ["T-001"]

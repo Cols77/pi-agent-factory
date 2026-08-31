@@ -3,13 +3,11 @@ import subprocess
 import pytest
 from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.ledger import TaskNotFoundError, TaskNotTodoError, load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
 from ._repo_fixtures import copy_repo_seed
-
-pytestmark = pytest.mark.unit
-
 
 def _repo(tmp_path):
     return copy_repo_seed(tmp_path, "run_next")
@@ -31,54 +29,70 @@ def _scripts(task_id="T-001"):
     }
 
 
+@pytest.mark.unit
 def test_run_next_writes_session_and_marks_done(tmp_path):
     repo = _repo(tmp_path)
     path = run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
-                    session_id="s1", git_info={"branch": "main"})
+                    session_id="s1", git_info={"branch": "main"}, git_ops=FakeGitOps())
     assert path and path.exists()
     assert json.loads(path.read_text(encoding="utf-8"))["tasks"][0]["outcome"] == "completed"
     assert load_tasks(repo / "tasks")[0].status == "done"
 
 
+@pytest.mark.unit
 def test_run_next_none_when_no_todo(tmp_path):
     (tmp_path / "tasks").mkdir()
-    assert run_next(tmp_path, FakeAgentBackend({}), FakeGateRunner(), session_id="s1") is None
+    assert run_next(
+        tmp_path, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", git_ops=FakeGitOps()
+    ) is None
 
 
+@pytest.mark.unit
 def test_run_next_passes_status_through_to_run_task(tmp_path):
     repo = _repo(tmp_path)
     status = FakeStatusReporter()
     run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
-              session_id="s1", git_info={"branch": "main"}, status=status)
+              session_id="s1", git_info={"branch": "main"}, status=status, git_ops=FakeGitOps())
     assert len(status.calls) > 0
 
 
+@pytest.mark.unit
 def test_run_next_targets_specific_task_id(tmp_path):
     repo = _repo(tmp_path)
     (repo / "tasks" / "T-002.md").write_text(
         "---\nid: T-002\ntitle: second\nstatus: todo\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
     path = run_next(repo, FakeAgentBackend(_scripts(task_id="T-002")), FakeGateRunner(),
-                    session_id="s1", git_info={"branch": "main"}, task_id="T-002")
+                    session_id="s1", git_info={"branch": "main"}, task_id="T-002",
+                    git_ops=FakeGitOps())
     assert path and path.exists()
     tasks = {t.id: t.status for t in load_tasks(repo / "tasks")}
     assert tasks["T-002"] == "done"
     assert tasks["T-001"] == "todo"  # untouched -- T-002 was targeted, not T-001
 
 
+@pytest.mark.unit
 def test_run_next_raises_for_unknown_task_id(tmp_path):
     repo = _repo(tmp_path)
     with pytest.raises(TaskNotFoundError):
-        run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-999")
+        run_next(
+            repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-999",
+            git_ops=FakeGitOps(),
+        )
 
 
+@pytest.mark.unit
 def test_run_next_raises_for_non_todo_task_id(tmp_path):
     repo = _repo(tmp_path)
     (repo / "tasks" / "T-001.md").write_text(
         "---\nid: T-001\ntitle: t\nstatus: done\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
     with pytest.raises(TaskNotTodoError):
-        run_next(repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-001")
+        run_next(
+            repo, FakeAgentBackend({}), FakeGateRunner(), session_id="s1", task_id="T-001",
+            git_ops=FakeGitOps(),
+        )
 
 
+@pytest.mark.unit
 def test_run_next_force_reruns_a_non_todo_task(tmp_path):
     # After manual intervention a task can be left `done`/`in-progress`; force
     # lets the pipeline be re-triggered on it instead of dead-ending with
@@ -87,11 +101,13 @@ def test_run_next_force_reruns_a_non_todo_task(tmp_path):
     (repo / "tasks" / "T-001.md").write_text(
         "---\nid: T-001\ntitle: t\nstatus: done\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
     path = run_next(repo, FakeAgentBackend(_scripts()), FakeGateRunner(),
-                    session_id="s1", git_info={"branch": "main"}, task_id="T-001", force=True)
+                    session_id="s1", git_info={"branch": "main"}, task_id="T-001", force=True,
+                    git_ops=FakeGitOps())
     assert path and path.exists()
     assert load_tasks(repo / "tasks")[0].status == "done"
 
 
+@pytest.mark.integration
 def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_path):
     repo = _repo(tmp_path)
 
@@ -147,6 +163,7 @@ def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_p
     assert "New thing needs a longer timeout" in captured["prompt"]
 
 
+@pytest.mark.unit
 def test_auto_pick_selects_todo_task_even_if_deliverables_exist(tmp_path):
     # A todo task whose Create: deliverable already exists on disk must still be
     # auto-picked and run -- file presence alone doesn't prove the task is done
@@ -159,6 +176,6 @@ def test_auto_pick_selects_todo_task_even_if_deliverables_exist(tmp_path):
         "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\n- Create: `src/x.py`\n",
         encoding="utf-8")
     backend = FakeAgentBackend(_scripts())
-    result = run_next(repo, backend, FakeGateRunner(), session_id="s1")
+    result = run_next(repo, backend, FakeGateRunner(), session_id="s1", git_ops=FakeGitOps())
     # It must run the task (not return None / "no todo tasks") despite src/x.py existing.
     assert result is not None
