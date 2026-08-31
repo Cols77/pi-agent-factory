@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import hashlib
 import shutil
 import subprocess
@@ -28,7 +29,7 @@ def _tree_digest(root: Path) -> str:
 
 
 @pytest.fixture(scope="session")
-def deps_seed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def deps_seed(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Build the common dependency repository once for this pytest session."""
     from tests.unit.freshness.test_deps import (
         _code,
@@ -80,7 +81,7 @@ def repo(tmp_path: Path, deps_seed: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def historical_seed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def historical_seed(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Build the historical-preservation repository once per pytest session."""
     from tests.unit.freshness.test_historical_preservation import _seeded_repo
 
