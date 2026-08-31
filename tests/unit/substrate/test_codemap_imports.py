@@ -284,6 +284,18 @@ def _import_tree(root: Path) -> None:
     )
 
 
+def _transitive_import_tree(root: Path) -> None:
+    """Extend the shared overlap fixture with a two-hop import chain."""
+    _import_tree(root)
+    (root / "src" / "drone" / "entry.py").write_text(
+        "from drone.priority_filter import preempt\n"
+    )
+    (root / "tests" / "test_preempt.py").write_text(
+        "from drone.entry import preempt\n\ndef test_preempt():\n"
+        "    assert preempt()\n"
+    )
+
+
 def _norm(p: Path) -> str:
     return p.as_posix().lstrip("./")
 
@@ -300,6 +312,17 @@ def _closure_overlap(root: Path, selection: str, changed_files: list[str]) -> tu
     changed = {_norm(Path(c)) for c in changed_files}
     reached = set(closure.files) - {selection}
     return tuple(sorted(reached & changed))
+
+
+def test_transitive_imports_reaches_implementation(tmp_path: Path) -> None:
+    _transitive_import_tree(tmp_path)
+
+    result = build_import_closure(tmp_path, ["tests/test_preempt.py"])
+
+    assert result.status == "resolved"
+    assert result.diagnostics == ()
+    assert "src/drone/entry.py" in result.files
+    assert "src/drone/priority_filter.py" in result.files
 
 
 # -- 3a. build_import_closure: resolved / unresolved / unsupported status. --
