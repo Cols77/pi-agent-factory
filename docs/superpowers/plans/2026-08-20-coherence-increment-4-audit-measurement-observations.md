@@ -50,7 +50,7 @@ Move coverage scope/audit/gate/report/runner/cli to coherence.audit. Replace fac
 
 - [ ] **Step 3: Verify codemap audit cutover.**
 
-Run: rtk proxy uv run python -m pytest tests/unit/coverage/test_scope.py tests/unit/coverage/test_imports.py tests/unit/coverage/test_audit.py tests/unit/coverage/test_cli.py -q
+Run: rtk proxy uv run python -m pytest tests/unit/coverage/test_scope.py tests/unit/substrate/test_codemap_imports.py tests/unit/coverage/test_audit.py tests/unit/coverage/test_cli.py -q
 
 Expected: unchanged existing results plus explicit missing-selection findings.
 

@@ -36,7 +36,7 @@
 - src/factory/orchestrator/{backends,nodes,runner,types}.py
 - src/factory/orchestrator/context_packet.py
 - tests/unit/codeindex/test_codeindex.py
-- tests/unit/coverage/test_imports.py
+- tests/unit/substrate/test_codemap_imports.py
 - tests/unit/test_kb_{index,retrieval,validator}.py
 - tests/unit/orchestrator/test_{runner,gates,nodes}.py
 
@@ -95,13 +95,13 @@ Keep factory.coverage.imports as a warning wrapper until Increment 4 consumes su
 
 - [ ] **Step 3: Run regression tests.**
 
-Run: rtk proxy uv run python -m pytest tests/unit/coverage/test_imports.py tests/unit/substrate/test_codemap_imports.py -q
+Run: rtk proxy uv run python -m pytest tests/unit/substrate/test_codemap_imports.py -q
 
 Expected: all historical Python overlap cases pass, with new unresolved/unsupported distinctions.
 
 - [ ] **Step 4: Commit.**
 
-    git add src/substrate/codemap src/factory/coverage/imports.py tests/unit/coverage/test_imports.py tests/unit/substrate/test_codemap_imports.py
+    git add src/substrate/codemap src/factory/coverage/imports.py tests/unit/substrate/test_codemap_imports.py
     git commit -m "feat(codemap): index import edges for overlap"
 
 ### Task 3: Move KB readers and canonicalise failure signatures
@@ -167,7 +167,7 @@ Add the regression: a KB entry has only error_signatures for ConnectionResetErro
 
 Run:
 
-    rtk proxy uv run python -m pytest tests/unit/orchestrator/test_gate_run_detail.py tests/unit/orchestrator/test_runner.py tests/unit/coverage/test_imports.py tests/unit/codeindex/test_codeindex.py tests/unit/test_kb_retrieval.py tests/unit/substrate -q
+    rtk proxy uv run python -m pytest tests/unit/orchestrator/test_gate_run_detail.py tests/unit/orchestrator/test_runner.py tests/unit/substrate/test_codemap_imports.py tests/unit/codeindex/test_codeindex.py tests/unit/test_kb_retrieval.py tests/unit/substrate -q
     rtk proxy uv run ruff check src tests
     rtk proxy uv run pyright
 

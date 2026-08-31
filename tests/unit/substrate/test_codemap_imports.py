@@ -463,8 +463,11 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_exactly(
 
     _import_tree(tmp_path)
     legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    canonical = compute_overlap(tmp_path, selection, changed_files)
     converted = _closure_overlap(tmp_path, selection, changed_files)
 
+    assert canonical.overlap == expected_overlap
+    assert canonical.ok is expected_ok
     assert converted == expected_overlap
     assert legacy.overlap == expected_overlap
     assert legacy.ok is expected_ok
@@ -490,9 +493,13 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_for_relative
     changed_files = ["pkg/a.py", "pkg/b.py"]
 
     legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    canonical = compute_overlap(tmp_path, selection, changed_files)
     converted = _closure_overlap(tmp_path, selection, changed_files)
 
-    assert converted == legacy.overlap == ("pkg/a.py", "pkg/b.py")
+    assert canonical.overlap == ("pkg/a.py", "pkg/b.py")
+    assert canonical.ok is True
+    assert converted == legacy.overlap == canonical.overlap
+    assert legacy.ok is True
 
 
 def test_converted_codemap_overlap_matches_factory_coverage_imports_for_no_imports(
@@ -512,9 +519,13 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_for_no_impor
     changed_files = ["src/drone/priority_filter.py"]
 
     legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    canonical = compute_overlap(tmp_path, selection, changed_files)
     converted = _closure_overlap(tmp_path, selection, changed_files)
 
-    assert converted == legacy.overlap == ()
+    assert canonical.overlap == ()
+    assert canonical.ok is False
+    assert converted == legacy.overlap == canonical.overlap
+    assert legacy.ok is False
 
 
 def test_converted_codemap_overlap_matches_factory_coverage_imports_for_external_unresolved(
@@ -534,9 +545,13 @@ def test_converted_codemap_overlap_matches_factory_coverage_imports_for_external
     changed_files = ["x.py"]
 
     legacy = legacy_compute_overlap(tmp_path, selection, changed_files)
+    canonical = compute_overlap(tmp_path, selection, changed_files)
     converted = _closure_overlap(tmp_path, selection, changed_files)
 
-    assert converted == legacy.overlap == ()
+    assert canonical.overlap == ()
+    assert canonical.ok is False
+    assert converted == legacy.overlap == canonical.overlap
+    assert legacy.ok is False
     assert legacy.unresolved == ("numpy",)  # still honest through the shim
 
 
