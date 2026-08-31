@@ -8,9 +8,10 @@ import os
 import re
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 from coherence.planning.paths import safe_resolve, safe_root
 
@@ -44,8 +45,11 @@ class AgentInvocation:
     revision: int
     attempt: int
     role: str
-    input_hashes: dict[str, str]
+    input_hashes: Mapping[str, str]
     output_path: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "input_hashes", _freeze(self.input_hashes))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -55,7 +59,9 @@ class AgentInvocation:
             "revision": self.revision,
             "attempt": self.attempt,
             "role": self.role,
-            "input_hashes": dict(sorted(self.input_hashes.items())),
+            "input_hashes": {
+                key: value for key, value in sorted(self.input_hashes.items())
+            },
             "output_path": self.output_path,
         }
 
@@ -68,10 +74,13 @@ class AgentResultRecord:
     revision: int
     attempt: int
     ok: bool
-    payload: dict[str, object]
+    payload: Mapping[str, object]
     payload_sha256: str
     session_id: str | None = None
     error: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "payload", _freeze(self.payload))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -81,7 +90,7 @@ class AgentResultRecord:
             "revision": self.revision,
             "attempt": self.attempt,
             "ok": self.ok,
-            "payload": self.payload,
+            "payload": _thaw(self.payload),
             "payload_sha256": self.payload_sha256,
             "session_id": self.session_id,
             "error": self.error,
@@ -101,7 +110,12 @@ class GateRecord:
     evidence_sha256: str
     invocation_sha256: str = ""
     result_sha256: str = ""
-    evidence: dict[str, object] | None = None
+    output_sha256: str = ""
+    evidence: Mapping[str, object] | None = None
+
+    def __post_init__(self) -> None:
+        if self.evidence is not None:
+            object.__setattr__(self, "evidence", _freeze(self.evidence))
 
     @property
     def passed(self) -> bool:
@@ -120,8 +134,26 @@ class GateRecord:
             "evidence_sha256": self.evidence_sha256,
             "invocation_sha256": self.invocation_sha256,
             "result_sha256": self.result_sha256,
-            "evidence": self.evidence if self.evidence is not None else {},
+            "output_sha256": self.output_sha256,
+            "evidence": _thaw(self.evidence) if self.evidence is not None else {},
         }
+
+
+@dataclass(frozen=True)
+class GateVerification:
+    """A parent-owned, invocation/result-bound gate attestation."""
+
+    gate_id: str
+    passed: bool
+    detail: str
+    evidence: Mapping[str, object]
+    invocation_sha256: str
+    result_sha256: str
+    output_sha256: str
+    _capability: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "evidence", _freeze(self.evidence))
 
 
 @dataclass(frozen=True)
@@ -165,7 +197,14 @@ _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_RESULT_KEYS = {"ok", "payload", "session_id", "error"}
 _ALLOWED_ACTIONS = {"begin", "result", "gate", "advance", "block"}
-_EVENT_BASE_KEYS = {"schema", "action", "run_id", "sequence"}
+_EVENT_BASE_KEYS = {
+    "schema",
+    "action",
+    "run_id",
+    "sequence",
+    "previous_sha256",
+    "event_sha256",
+}
 _EVENT_KEYS = {
     "begin": _EVENT_BASE_KEYS | {"stage", "revision", "attempt", "role", "input_hashes", "output_path"},
     "result": _EVENT_BASE_KEYS | {"stage", "revision", "attempt", "ok", "result_path", "payload_sha256", "result_sha256"},
@@ -180,6 +219,7 @@ _EVENT_KEYS = {
         "evidence_sha256",
         "invocation_sha256",
         "result_sha256",
+        "output_sha256",
     },
     "advance": _EVENT_BASE_KEYS | {"stage", "revision", "attempt", "next_stage"},
     "block": _EVENT_BASE_KEYS | {"stage", "revision", "attempt", "reason", "detail"},
@@ -218,8 +258,14 @@ _GATE_KEYS = {
     "evidence_sha256",
     "invocation_sha256",
     "result_sha256",
+    "output_sha256",
     "evidence",
 }
+_MAX_JSON_BYTES = 1_048_576
+_MAX_JSON_DEPTH = 64
+_MAX_JSON_NODES = 100_000
+_GENESIS_SHA256 = "0" * 64
+_OUTPUT_TARGET_KEYS = frozenset({"output_path", "output_target", "path", "target"})
 
 
 def _reject_constant(value: str) -> object:
@@ -236,56 +282,129 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 
 def _reject_nonfinite(value: object) -> None:
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("non-finite JSON number is not allowed")
-    if isinstance(value, list):
-        for item in value:
-            _reject_nonfinite(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            _reject_nonfinite(item)
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, float) and not math.isfinite(current):
+            raise ValueError("non-finite JSON number is not allowed")
+        if isinstance(current, Mapping):
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple)):
+            pending.extend(current)
+
+
+def _check_json_depth(text: str) -> None:
+    depth = 0
+    maximum = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            maximum = max(maximum, depth)
+            if maximum > _MAX_JSON_DEPTH:
+                raise ValueError("JSON nesting is too deep")
+        elif char in "]}":
+            depth -= 1
+    if depth != 0 or in_string:
+        raise ValueError("JSON structure is incomplete")
 
 
 def _strict_json_loads(raw: bytes | str) -> object:
     if isinstance(raw, bytes):
         text = raw.decode("utf-8")
-        if len(raw) > 1_048_576:
+        if len(raw) > _MAX_JSON_BYTES:
             raise ValueError("JSON input is oversized")
     elif isinstance(raw, str):
-        if len(raw.encode("utf-8")) > 1_048_576:
+        if len(raw.encode("utf-8")) > _MAX_JSON_BYTES:
             raise ValueError("JSON input is oversized")
         text = raw
     else:
         raise TypeError("JSON input must be UTF-8 bytes or text")
-    value = json.loads(
-        text,
-        object_pairs_hook=_reject_duplicate_keys,
-        parse_constant=_reject_constant,
-    )
+    _check_json_depth(text)
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("JSON nesting is too deep") from exc
     _reject_nonfinite(value)
     return value
 
 
 def _validate_json_value(value: object) -> None:
-    if value is None or type(value) is bool or type(value) is int:
-        return
-    if type(value) is float:
-        if not math.isfinite(value):
-            raise RunnerError("workflow value is not strict JSON")
-        return
-    if isinstance(value, str):
-        return
-    if isinstance(value, list):
-        for item in value:
-            _validate_json_value(item)
-        return
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise RunnerError("workflow object keys must be strings")
-            _validate_json_value(item)
-        return
-    raise RunnerError("workflow value is not strict JSON")
+    pending: list[tuple[object, int]] = [(value, 0)]
+    nodes = 0
+    while pending:
+        current, depth = pending.pop()
+        nodes += 1
+        if nodes > _MAX_JSON_NODES:
+            raise RunnerError("workflow JSON value is oversized")
+        if depth > _MAX_JSON_DEPTH:
+            raise RunnerError("workflow JSON nesting is too deep")
+        if current is None or type(current) is bool or type(current) is int:
+            continue
+        if type(current) is float:
+            if not math.isfinite(current):
+                raise RunnerError("workflow value is not strict JSON")
+            continue
+        if isinstance(current, str):
+            continue
+        if isinstance(current, Mapping):
+            for key, item in current.items():
+                if not isinstance(key, str):
+                    raise RunnerError("workflow object keys must be strings")
+                pending.append((item, depth + 1))
+            continue
+        if isinstance(current, (list, tuple)):
+            pending.extend((item, depth + 1) for item in current)
+            continue
+        raise RunnerError("workflow value is not strict JSON")
+
+
+def _freeze(value: object) -> object:
+    _validate_json_value(value)
+    return _freeze_unchecked(value)
+
+
+def _freeze_unchecked(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_unchecked(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_unchecked(item) for item in value)
+    return value
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _reject_output_target_spoof(value: object) -> None:
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, Mapping):
+            if any(key in _OUTPUT_TARGET_KEYS for key in current):
+                raise RunnerError("worker-selected output target is not allowed")
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple)):
+            pending.extend(current)
 
 
 def _safe_id(value: object, field: str) -> str:
@@ -328,7 +447,7 @@ def _stage(value: object) -> PlanningStage:
 
 
 def _validated_input_hashes(value: object) -> dict[str, str]:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise RunnerError("invalid input hashes")
     hashes: dict[str, str] = {}
     for raw_path, raw_hash in value.items():
@@ -346,15 +465,18 @@ def _validated_input_hashes(value: object) -> dict[str, str]:
 def _canonical(value: object) -> bytes:
     _validate_json_value(value)
     try:
-        return json.dumps(
-            value,
+        encoded = json.dumps(
+            _thaw(value),
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (RecursionError, TypeError, ValueError) as exc:
         raise RunnerError("workflow value is not strict JSON") from exc
+    if len(encoded) > _MAX_JSON_BYTES:
+        raise RunnerError("workflow JSON value is oversized")
+    return encoded
 
 
 def _sha(value: bytes) -> str:
@@ -363,6 +485,11 @@ def _sha(value: bytes) -> str:
 
 def _record_sha(record: AgentResultRecord | GateRecord | AgentInvocation) -> str:
     return _sha(_canonical(record.to_dict()))
+
+
+def _event_sha(event: Mapping[str, object]) -> str:
+    unsigned = {key: value for key, value in event.items() if key != "event_sha256"}
+    return _sha(_canonical(unsigned))
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -412,11 +539,10 @@ def _result_from_record(value: object, expected_run_id: str) -> AgentResultRecor
     attempt = _positive_int(value.get("attempt"), "attempt")
     ok = value.get("ok")
     payload = value.get("payload")
-    if type(ok) is not bool or not isinstance(payload, dict):
+    if type(ok) is not bool or not isinstance(payload, Mapping):
         raise RunnerError("result record schema is invalid")
     _validate_json_value(payload)
-    if "output_path" in payload or "path" in payload or "target" in payload:
-        raise RunnerError("worker-selected output target is not allowed")
+    _reject_output_target_spoof(payload)
     payload_sha256 = value.get("payload_sha256")
     if not isinstance(payload_sha256, str) or _SHA256.fullmatch(payload_sha256) is None:
         raise RunnerError("result payload hash is invalid")
@@ -442,12 +568,22 @@ def _result_from_record(value: object, expected_run_id: str) -> AgentResultRecor
     )
 
 
-def _gate_evidence_hash(invocation_sha256: str, result_sha256: str, evidence: dict[str, object]) -> str:
+def _output_binding_hash(output_path: str) -> str:
+    return _sha(_canonical({"output_path": output_path}))
+
+
+def _gate_evidence_hash(
+    invocation_sha256: str,
+    result_sha256: str,
+    output_sha256: str,
+    evidence: Mapping[str, object],
+) -> str:
     return _sha(
         _canonical(
             {
                 "invocation_sha256": invocation_sha256,
                 "result_sha256": result_sha256,
+                "output_sha256": output_sha256,
                 "evidence": evidence,
             }
         )
@@ -455,7 +591,7 @@ def _gate_evidence_hash(invocation_sha256: str, result_sha256: str, evidence: di
 
 
 def _gate_from_record(value: object, expected_run_id: str) -> GateRecord:
-    if not isinstance(value, dict) or set(value) != _GATE_KEYS:
+    if not isinstance(value, Mapping) or set(value) != _GATE_KEYS:
         raise RunnerError("gate record schema is invalid")
     if type(value.get("schema")) is not int or value.get("schema") != 1:
         raise RunnerError("gate record schema is invalid")
@@ -473,6 +609,7 @@ def _gate_from_record(value: object, expected_run_id: str) -> GateRecord:
     evidence_sha256 = value.get("evidence_sha256")
     invocation_sha256 = value.get("invocation_sha256")
     result_sha256 = value.get("result_sha256")
+    output_sha256 = value.get("output_sha256")
     if (
         not isinstance(evidence_sha256, str)
         or _SHA256.fullmatch(evidence_sha256) is None
@@ -480,13 +617,15 @@ def _gate_from_record(value: object, expected_run_id: str) -> GateRecord:
         or _SHA256.fullmatch(invocation_sha256) is None
         or not isinstance(result_sha256, str)
         or _SHA256.fullmatch(result_sha256) is None
+        or not isinstance(output_sha256, str)
+        or _SHA256.fullmatch(output_sha256) is None
     ):
         raise RunnerError("gate evidence binding is invalid")
     evidence = value.get("evidence")
-    if not isinstance(evidence, dict):
+    if not isinstance(evidence, Mapping):
         raise RunnerError("gate evidence is invalid")
     _validate_json_value(evidence)
-    if evidence_sha256 != _gate_evidence_hash(invocation_sha256, result_sha256, evidence):
+    if evidence_sha256 != _gate_evidence_hash(invocation_sha256, result_sha256, output_sha256, evidence):
         raise RunnerError("gate evidence hash does not match")
     return GateRecord(
         1,
@@ -500,8 +639,77 @@ def _gate_from_record(value: object, expected_run_id: str) -> GateRecord:
         evidence_sha256,
         invocation_sha256,
         result_sha256,
+        output_sha256,
         dict(evidence),
     )
+
+
+class ParentGateVerifier:
+    """Capability held by the parent workflow to attest one exact gate."""
+
+    __slots__ = ("_runner", "_capability")
+
+    def __init__(self, runner: PlanningRunner, capability: object) -> None:
+        self._runner = runner
+        self._capability = capability
+
+    def attest(
+        self,
+        invocation: AgentInvocation,
+        *,
+        gate_id: str,
+        passed: bool,
+        detail: str,
+        evidence: Mapping[str, object] | None = None,
+    ) -> GateVerification:
+        runner = self._runner
+        try:
+            runner._validate_invocation(invocation)
+            runner._assert_current_attempt(invocation)
+            runner._assert_inputs_current(invocation)
+            runner._validate_output_binding(invocation)
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            runner._durable_block(invocation, "gate_path_invalid", str(exc))
+            raise RunnerBlocked("gate path is unsafe") from exc
+        gate = _safe_id(gate_id, "gate_id")
+        if gate != f"gate-{invocation.stage.value}":
+            raise RunnerError("gate is not in the trusted allowlist")
+        if type(passed) is not bool:
+            raise RunnerError("gate result must be boolean")
+        detail_text = _safe_text(detail, "gate detail")
+        try:
+            result_record = runner._read_current_result(invocation)
+            if result_record.ok is not True:
+                raise RunnerError("failed agent result cannot pass a gate")
+            if evidence is None:
+                evidence_payload: dict[str, object] = {"detail": detail_text}
+            elif isinstance(evidence, Mapping):
+                evidence_payload = dict(evidence)
+            else:
+                raise RunnerError("gate evidence is invalid")
+            _validate_json_value(evidence_payload)
+            _reject_output_target_spoof(evidence_payload)
+            _canonical(evidence_payload)
+            invocation_sha256 = _record_sha(invocation)
+            result_sha256 = _record_sha(result_record)
+            output_sha256 = _output_binding_hash(invocation.output_path)
+            return GateVerification(
+                gate,
+                passed,
+                detail_text,
+                evidence_payload,
+                invocation_sha256,
+                result_sha256,
+                output_sha256,
+                self._capability,
+            )
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            runner._durable_block(invocation, "gate_evidence_invalid", str(exc))
+            raise RunnerBlocked("gate evidence is invalid") from exc
 
 
 class PlanningRunner:
@@ -518,8 +726,17 @@ class PlanningRunner:
             raise RunnerError("planning run path is unsafe")
         self.run_dir = run_dir
         self.events_path = self.run_dir / "workflow-events.jsonl"
+        self.integrity_path = self.run_dir / "workflow-integrity.json"
         self.state_path = self.run_dir / "workflow-state.json"
+        self._known_attempts: set[_Identity] = set()
+        self._gate_capability = object()
+        self._parent_gate_verifier = ParentGateVerifier(self, self._gate_capability)
         self._events()
+        self._recover_interrupted_attempts()
+
+    @property
+    def parent_gate_verifier(self) -> ParentGateVerifier:
+        return self._parent_gate_verifier
 
     def begin(
         self,
@@ -594,30 +811,43 @@ class PlanningRunner:
                 "output_path": relative_output,
             }
         )
+        self._known_attempts.add((requested.value, revision, attempt))
         return invocation
 
     def record_result(self, invocation: AgentInvocation, result: Mapping[str, object]) -> AgentResultRecord:
         self._validate_invocation(invocation)
         self._assert_current_attempt(invocation, require_no_result=True)
         self._assert_inputs_current(invocation)
-        if not isinstance(result, Mapping):
-            raise RunnerError("agent result schema is invalid")
-        result_data = dict(result)
-        if any(not isinstance(key, str) for key in result_data) or set(result_data) - _ALLOWED_RESULT_KEYS or "ok" not in result_data or "payload" not in result_data:
-            raise RunnerError("agent result schema is invalid")
-        ok = result_data.get("ok")
-        payload = result_data.get("payload")
-        if type(ok) is not bool or not isinstance(payload, dict):
-            raise RunnerError("agent result schema is invalid")
-        _validate_json_value(payload)
-        if "output_path" in payload or "path" in payload or "target" in payload:
-            raise RunnerError("worker-selected output target is not allowed")
-        session_id = result_data.get("session_id")
-        if session_id is not None:
-            session_id = _safe_id(session_id, "session_id")
-        error = result_data.get("error")
-        if error is not None:
-            error = _safe_text(error, "agent error", required=False)
+        try:
+            if not isinstance(result, Mapping):
+                raise RunnerError("agent result schema is invalid")
+            result_data = dict(result)
+            if (
+                any(not isinstance(key, str) for key in result_data)
+                or set(result_data) - _ALLOWED_RESULT_KEYS
+                or "ok" not in result_data
+                or "payload" not in result_data
+            ):
+                raise RunnerError("agent result schema is invalid")
+            ok = result_data.get("ok")
+            payload = result_data.get("payload")
+            if type(ok) is not bool or not isinstance(payload, Mapping):
+                raise RunnerError("agent result schema is invalid")
+            _validate_json_value(payload)
+            _reject_output_target_spoof(payload)
+            session_id = result_data.get("session_id")
+            if session_id is not None:
+                session_id = _safe_id(session_id, "session_id")
+            error = result_data.get("error")
+            if error is not None:
+                error = _safe_text(error, "agent error", required=False)
+            payload_data = dict(payload)
+            payload_sha256 = _sha(_canonical(payload_data))
+        except RunnerError as exc:
+            self._durable_block(invocation, "agent_result_invalid", str(exc))
+            raise RunnerBlocked(str(exc)) from exc
+        self._assert_inputs_current(invocation)
+        self._validate_output_binding(invocation)
         record = AgentResultRecord(
             1,
             self.run_id,
@@ -625,8 +855,8 @@ class PlanningRunner:
             invocation.revision,
             invocation.attempt,
             ok,
-            dict(payload),
-            _sha(_canonical(payload)),
+            payload_data,
+            payload_sha256,
             session_id,
             error,
         )
@@ -657,18 +887,33 @@ class PlanningRunner:
         self,
         invocation: AgentInvocation,
         *,
-        gate_id: str,
-        passed: bool,
-        detail: str,
+        verification: GateVerification | None = None,
+        gate_id: str | None = None,
+        passed: bool | None = None,
+        detail: str | None = None,
         evidence: Mapping[str, object] | None = None,
     ) -> GateRecord:
-        self._validate_invocation(invocation)
-        self._assert_current_attempt(invocation)
-        self._assert_inputs_current(invocation)
-        gate = _safe_id(gate_id, "gate_id")
-        if type(passed) is not bool:
+        del gate_id, passed, detail, evidence
+        if verification is None:
+            raise RunnerError("trusted parent gate verification is required")
+        try:
+            self._validate_invocation(invocation)
+            self._assert_current_attempt(invocation)
+            self._assert_inputs_current(invocation)
+            self._validate_output_binding(invocation)
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            self._durable_block(invocation, "gate_path_invalid", str(exc))
+            raise RunnerBlocked("gate path is unsafe") from exc
+        if not isinstance(verification, GateVerification) or verification._capability is not self._gate_capability:
+            raise RunnerError("trusted parent gate verification is invalid")
+        gate = _safe_id(verification.gate_id, "gate_id")
+        if gate != f"gate-{invocation.stage.value}":
+            raise RunnerError("gate is not in the trusted allowlist")
+        if type(verification.passed) is not bool:
             raise RunnerError("gate result must be boolean")
-        detail_text = _safe_text(detail, "gate detail")
+        detail_text = _safe_text(verification.detail, "gate detail")
         try:
             result_record = self._read_current_result(invocation)
             if result_record.ok is not True:
@@ -678,16 +923,25 @@ class PlanningRunner:
         except RunnerError as exc:
             self._durable_block(invocation, "gate_evidence_invalid", str(exc))
             raise RunnerBlocked("agent result is unreadable") from exc
-        if evidence is None:
-            evidence_payload: dict[str, object] = {"detail": detail_text}
-        elif isinstance(evidence, Mapping):
-            evidence_payload = dict(evidence)
-        else:
-            raise RunnerError("gate evidence is invalid")
+        evidence_payload = dict(verification.evidence)
         _validate_json_value(evidence_payload)
+        _reject_output_target_spoof(evidence_payload)
+        _canonical(evidence_payload)
         invocation_sha256 = _record_sha(invocation)
         result_sha256 = _record_sha(result_record)
-        evidence_sha256 = _gate_evidence_hash(invocation_sha256, result_sha256, evidence_payload)
+        output_sha256 = _output_binding_hash(invocation.output_path)
+        if (
+            verification.invocation_sha256 != invocation_sha256
+            or verification.result_sha256 != result_sha256
+            or verification.output_sha256 != output_sha256
+        ):
+            raise RunnerError("gate verification binding does not match")
+        evidence_sha256 = _gate_evidence_hash(
+            invocation_sha256,
+            result_sha256,
+            output_sha256,
+            evidence_payload,
+        )
         record = GateRecord(
             1,
             self.run_id,
@@ -695,13 +949,22 @@ class PlanningRunner:
             invocation.revision,
             invocation.attempt,
             gate,
-            "pass" if passed else "fail",
+            "pass" if verification.passed else "fail",
             detail_text,
             evidence_sha256,
             invocation_sha256,
             result_sha256,
+            output_sha256,
             evidence_payload,
         )
+        try:
+            self._assert_inputs_current(invocation)
+            self._validate_output_binding(invocation)
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            self._durable_block(invocation, "gate_path_invalid", str(exc))
+            raise RunnerBlocked("gate path is unsafe") from exc
         gate_path = self._record_file(invocation, "gate.json")
         if gate_path.exists():
             raise RunnerError("gate record already exists")
@@ -719,14 +982,21 @@ class PlanningRunner:
                 "evidence_sha256": evidence_sha256,
                 "invocation_sha256": invocation_sha256,
                 "result_sha256": result_sha256,
+                "output_sha256": output_sha256,
             }
         )
-        if not passed:
+        if not verification.passed:
             self._block(invocation, "gate_failed", detail_text)
         return record
 
     def advance(self, invocation: AgentInvocation) -> PlanningStage | None:
-        self._validate_invocation(invocation)
+        try:
+            self._validate_invocation(invocation)
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            self._durable_block(invocation, "output_binding_invalid", str(exc))
+            raise RunnerBlocked("invocation output binding is invalid") from exc
         events = self._events()
         completed, attempts = self._validate_event_history(events)
         current = _STAGE_ORDER[len(completed)] if len(completed) < len(_STAGE_ORDER) else None
@@ -737,8 +1007,12 @@ class PlanningRunner:
             raise RunnerError("invocation is not the current attempt")
         try:
             self._assert_inputs_current(invocation)
+            self._validate_output_binding(invocation)
         except RunnerBlocked:
             raise
+        except RunnerError as exc:
+            self._durable_block(invocation, "advance_path_invalid", str(exc))
+            raise RunnerBlocked("advance path is unsafe") from exc
         try:
             result_record = self._read_current_result(invocation)
             gate_record = self._read_current_gate(invocation, result_record)
@@ -751,6 +1025,14 @@ class PlanningRunner:
             raise RunnerBlocked("result and gate evidence are required") from exc
         next_index = _STAGE_ORDER.index(invocation.stage) + 1
         next_stage = _STAGE_ORDER[next_index] if next_index < len(_STAGE_ORDER) else None
+        try:
+            self._assert_inputs_current(invocation)
+            self._validate_output_binding(invocation)
+        except RunnerBlocked:
+            raise
+        except RunnerError as exc:
+            self._durable_block(invocation, "advance_path_invalid", str(exc))
+            raise RunnerBlocked("advance path is unsafe") from exc
         self._append(
             {
                 "action": "advance",
@@ -783,13 +1065,21 @@ class PlanningRunner:
             raise RunnerError(f"{label} path is unsafe")
         return safe
 
+    def _validate_output_binding(self, invocation: AgentInvocation) -> Path:
+        output_path = _safe_relative(invocation.output_path, "output target")
+        if output_path != invocation.output_path:
+            raise RunnerError("parent output binding is invalid")
+        return self._safe_path(self.project_root / output_path, "output target")
+
     def _write_json(self, path: Path, value: object, label: str) -> None:
         self._safe_path(path, label)
         _validate_json_value(value)
         try:
             content = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-        except (TypeError, ValueError) as exc:
+        except (RecursionError, TypeError, ValueError) as exc:
             raise RunnerError(f"{label} is not strict JSON") from exc
+        if len(content.encode("utf-8")) > _MAX_JSON_BYTES:
+            raise RunnerError(f"{label} is oversized")
         safe = self._safe_path(path, label)
         _atomic_write(safe, content)
 
@@ -838,9 +1128,7 @@ class PlanningRunner:
         _positive_int(invocation.attempt, "attempt")
         _safe_id(invocation.role, "role")
         _validated_input_hashes(invocation.input_hashes)
-        output_path = _safe_relative(invocation.output_path, "output target")
-        if output_path != invocation.output_path:
-            raise RunnerError("invocation output target is invalid")
+        self._validate_output_binding(invocation)
         expected = self._record_file(invocation, "invocation.json")
         if not expected.is_file():
             raise RunnerError("invocation record is missing")
@@ -885,14 +1173,17 @@ class PlanningRunner:
 
     def _assert_inputs_current(self, invocation: AgentInvocation) -> None:
         for relative, expected in invocation.input_hashes.items():
-            path = self._safe_path(self.project_root / relative, "input")
+            try:
+                path = self._safe_path(self.project_root / relative, "input")
+            except RunnerError as exc:
+                self._durable_block(invocation, "stale_input", "input is missing or unsafe")
+                raise RunnerBlocked("stale input") from exc
             if not path.is_file():
                 self._block(invocation, "stale_input", "input is missing or unsafe")
                 raise RunnerBlocked("stale input")
             try:
-                path = self._safe_path(self.project_root / relative, "input")
                 actual = _sha(path.read_bytes())
-            except OSError as exc:
+            except (OSError, RunnerError) as exc:
                 self._block(invocation, "stale_input", "input is unreadable")
                 raise RunnerBlocked("stale input") from exc
             if actual != expected:
@@ -936,13 +1227,16 @@ class PlanningRunner:
             raise RunnerError("gate record is not canonical")
         invocation_sha256 = _record_sha(invocation)
         result_sha256 = _record_sha(result_record)
+        output_sha256 = _output_binding_hash(invocation.output_path)
         if (
             record.stage is not invocation.stage
             or record.revision != invocation.revision
             or record.attempt != invocation.attempt
             or record.invocation_sha256 != invocation_sha256
             or record.result_sha256 != result_sha256
-            or record.evidence_sha256 != _gate_evidence_hash(invocation_sha256, result_sha256, record.evidence or {})
+            or record.output_sha256 != output_sha256
+            or record.evidence_sha256
+            != _gate_evidence_hash(invocation_sha256, result_sha256, output_sha256, record.evidence or {})
         ):
             raise RunnerError("gate evidence binding does not match")
         event = state.gate
@@ -953,6 +1247,7 @@ class PlanningRunner:
             or event.get("evidence_sha256") != record.evidence_sha256
             or event.get("invocation_sha256") != record.invocation_sha256
             or event.get("result_sha256") != record.result_sha256
+            or event.get("output_sha256") != record.output_sha256
         ):
             raise RunnerError("gate journal record does not match")
         return record
@@ -977,8 +1272,13 @@ class PlanningRunner:
             }
         )
 
-    def _validate_event_schema(self, event: object, expected_sequence: int) -> dict[str, object]:
-        if not isinstance(event, dict) or any(not isinstance(key, str) for key in event):
+    def _validate_event_schema(
+        self,
+        event: object,
+        expected_sequence: int,
+        expected_previous_sha256: str | None = None,
+    ) -> dict[str, object]:
+        if not isinstance(event, Mapping) or any(not isinstance(key, str) for key in event):
             raise RunnerError("workflow journal event is invalid")
         action = event.get("action")
         if not isinstance(action, str) or action not in _ALLOWED_ACTIONS or set(event) != _EVENT_KEYS[action]:
@@ -987,6 +1287,18 @@ class PlanningRunner:
             raise RunnerError("workflow journal event schema is invalid")
         if event.get("sequence") != expected_sequence or type(event.get("sequence")) is not int:
             raise RunnerError("workflow journal sequence is invalid")
+        previous_sha256 = event.get("previous_sha256")
+        event_sha256 = event.get("event_sha256")
+        expected_previous = _GENESIS_SHA256 if expected_sequence == 1 else expected_previous_sha256
+        if (
+            not isinstance(previous_sha256, str)
+            or _SHA256.fullmatch(previous_sha256) is None
+            or previous_sha256 != expected_previous
+            or not isinstance(event_sha256, str)
+            or _SHA256.fullmatch(event_sha256) is None
+            or event_sha256 != _event_sha(event)
+        ):
+            raise RunnerError("workflow journal integrity is invalid")
         run_id = _safe_id(event.get("run_id"), "run_id")
         if run_id != self.run_id:
             raise RunnerError("workflow journal run identity is invalid")
@@ -1021,6 +1333,9 @@ class PlanningRunner:
                 value = event.get(field)
                 if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
                     raise RunnerError("workflow gate hash is invalid")
+            output_sha256 = event.get("output_sha256")
+            if not isinstance(output_sha256, str) or _SHA256.fullmatch(output_sha256) is None:
+                raise RunnerError("workflow gate output binding is invalid")
         elif action == "advance":
             next_stage = event.get("next_stage")
             stage_index = _STAGE_ORDER.index(stage) + 1
@@ -1030,7 +1345,12 @@ class PlanningRunner:
         else:
             _safe_id(event.get("reason"), "block reason")
             _safe_text(event.get("detail"), "block detail")
-        return event
+        validated: dict[str, object] = {}
+        for key, item in event.items():
+            if not isinstance(key, str):
+                raise RunnerError("workflow journal event is invalid")
+            validated[key] = item
+        return validated
 
     def _validate_event_history(self, events: Sequence[dict[str, object]]) -> tuple[list[PlanningStage], dict[str, _AttemptState]]:
         completed: list[PlanningStage] = []
@@ -1102,21 +1422,27 @@ class PlanningRunner:
         invocations: dict[_Identity, AgentInvocation] = {}
         results: dict[_Identity, AgentResultRecord] = {}
         gates: dict[_Identity, GateRecord] = {}
-        blocked: set[_Identity] = set()
+        blocked: set[_Identity] = {
+            self._event_identity(event) for event in events if event["action"] == "block"
+        }
 
         for event in events:
             identity = self._event_identity(event)
             action = event["action"]
             if action == "begin":
-                invocation = _invocation_from_record(
-                    self._read_json(self._record_file_from_event(event, "invocation.json"), "invocation record"),
-                    self.run_id,
-                )
-                expected = invocation.to_dict()
-                begin_fields = {key: event[key] for key in expected}
-                if expected != begin_fields:
-                    raise RunnerError("invocation journal record does not match")
-                invocations[identity] = invocation
+                try:
+                    invocation = _invocation_from_record(
+                        self._read_json(self._record_file_from_event(event, "invocation.json"), "invocation record"),
+                        self.run_id,
+                    )
+                    expected = invocation.to_dict()
+                    begin_fields = {key: event[key] for key in expected}
+                    if expected != begin_fields:
+                        raise RunnerError("invocation journal record does not match")
+                    invocations[identity] = invocation
+                except RunnerError:
+                    if identity not in blocked:
+                        raise
             elif action == "block":
                 blocked.add(identity)
 
@@ -1168,12 +1494,14 @@ class PlanningRunner:
                     or record.attempt != invocation.attempt
                     or record.invocation_sha256 != _record_sha(invocation)
                     or record.result_sha256 != _record_sha(result_record)
+                    or record.output_sha256 != _output_binding_hash(invocation.output_path)
                     or event["gate_id"] != record.gate_id
                     or event["status"] != record.status
                     or event["detail"] != record.detail
                     or event["evidence_sha256"] != record.evidence_sha256
                     or event["invocation_sha256"] != record.invocation_sha256
                     or event["result_sha256"] != record.result_sha256
+                    or event["output_sha256"] != record.output_sha256
                 ):
                     raise RunnerError("gate journal record does not match")
                 gates[identity] = record
@@ -1196,6 +1524,9 @@ class PlanningRunner:
     def _events(self) -> list[dict[str, object]]:
         path = self._safe_path(self.events_path, "workflow journal")
         if not path.exists():
+            integrity_path = self._safe_path(self.integrity_path, "workflow integrity")
+            if integrity_path.exists() or self.state_path.exists():
+                raise RunnerError("workflow journal history is missing")
             return []
         try:
             raw = self._safe_path(self.events_path, "workflow journal").read_bytes()
@@ -1203,21 +1534,68 @@ class PlanningRunner:
             raise RunnerError("workflow journal is unreadable") from exc
         lines = raw.splitlines()
         events: list[dict[str, object]] = []
+        previous_sha256 = _GENESIS_SHA256
         for expected, line in enumerate(lines, 1):
             try:
                 event = _strict_json_loads(line)
             except (UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise RunnerError("workflow journal contains malformed JSON") from exc
-            events.append(self._validate_event_schema(event, expected))
+            validated = self._validate_event_schema(event, expected, previous_sha256)
+            events.append(validated)
+            previous_sha256 = str(validated["event_sha256"])
+        integrity = self._read_integrity()
+        if integrity is None:
+            raise RunnerError("workflow integrity record is missing")
+        if (
+            integrity["event_count"] != len(events)
+            or integrity["head_sha256"] != previous_sha256
+        ):
+            raise RunnerError("workflow journal integrity record does not match")
         self._validate_event_history(events)
         return events
+
+    def _read_integrity(self) -> dict[str, object] | None:
+        path = self._safe_path(self.integrity_path, "workflow integrity")
+        if not path.exists():
+            return None
+        value = self._read_json(path, "workflow integrity")
+        if not isinstance(value, Mapping) or set(value) != {"schema", "run_id", "event_count", "head_sha256"}:
+            raise RunnerError("workflow integrity record is invalid")
+        event_count = value.get("event_count")
+        head_sha256 = value.get("head_sha256")
+        if (
+            type(value.get("schema")) is not int
+            or value.get("schema") != 1
+            or value.get("run_id") != self.run_id
+            or type(event_count) is not int
+            or not isinstance(head_sha256, str)
+            or _SHA256.fullmatch(head_sha256) is None
+        ):
+            raise RunnerError("workflow integrity record is invalid")
+        if event_count < 1:
+            raise RunnerError("workflow integrity record is invalid")
+        result: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise RunnerError("workflow integrity record is invalid")
+            result[key] = item
+        return result
 
     def _append(self, payload: Mapping[str, object]) -> None:
         if set(payload) & {"schema", "sequence"}:
             raise RunnerError("workflow event contains reserved fields")
         existing = self._events()
-        event = {"schema": 1, **dict(payload), "sequence": len(existing) + 1}
-        event = self._validate_event_schema(event, len(existing) + 1)
+        sequence = len(existing) + 1
+        previous_sha256 = str(existing[-1]["event_sha256"]) if existing else _GENESIS_SHA256
+        event = {
+            "schema": 1,
+            **dict(payload),
+            "sequence": sequence,
+            "previous_sha256": previous_sha256,
+            "event_sha256": "",
+        }
+        event["event_sha256"] = _event_sha(event)
+        event = self._validate_event_schema(event, sequence, previous_sha256)
         run_dir = self._safe_path(self.run_dir, "planning run")
         run_dir.mkdir(parents=True, exist_ok=True)
         events_path = self._safe_path(self.events_path, "workflow journal")
@@ -1230,13 +1608,50 @@ class PlanningRunner:
                 os.fsync(stream.fileno())
         except (OSError, TypeError, ValueError) as exc:
             raise RunnerError("workflow event could not be appended") from exc
+        self._write_json(
+            self.integrity_path,
+            {
+                "schema": 1,
+                "run_id": self.run_id,
+                "event_count": sequence,
+                "head_sha256": event["event_sha256"],
+            },
+            "workflow integrity",
+        )
         self._write_json(self.state_path, self.status().to_dict(), "workflow state")
+
+    def _recover_interrupted_attempts(self) -> None:
+        events = self._events()
+        _, attempts = self._validate_event_history(events)
+        for stage_name, attempt in attempts.items():
+            if attempt.result is not None or attempt.gate is not None or attempt.blocked or attempt.advanced:
+                continue
+            identity = (
+                stage_name,
+                _positive_int(attempt.begin.get("revision"), "revision"),
+                _positive_int(attempt.begin.get("attempt"), "attempt"),
+            )
+            if identity in self._known_attempts:
+                continue
+            self._append(
+                {
+                    "action": "block",
+                    "run_id": self.run_id,
+                    "stage": stage_name,
+                    "revision": identity[1],
+                    "attempt": identity[2],
+                    "reason": "interrupted_attempt",
+                    "detail": "begin-only attempt recovered fail-closed",
+                }
+            )
 
 
 __all__ = [
     "AgentInvocation",
     "AgentResultRecord",
+    "GateVerification",
     "GateRecord",
+    "ParentGateVerifier",
     "PlanningRunner",
     "PlanningStage",
     "RunnerBlocked",

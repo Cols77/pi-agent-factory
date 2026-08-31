@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from coherence.planning.runner import (
+    AgentInvocation,
+    GateRecord,
     PlanningRunner,
     PlanningStage,
     RunnerBlocked,
     RunnerError,
 )
-from coherence.planning.run import execute_parent_stage
-
 pytestmark = pytest.mark.unit
 
 
@@ -30,7 +31,7 @@ def _complete(runner: PlanningRunner, stage: PlanningStage, input_path: Path) ->
         output_path=f".factory/planning/{runner.run_id}/{stage.value}.json",
     )
     runner.record_result(invocation, {"ok": True, "payload": {"stage": stage.value}})
-    runner.record_gate(invocation, gate_id=f"gate-{stage.value}", passed=True, detail="verified")
+    _trusted_gate(runner, invocation)
     runner.advance(invocation)
 
 
@@ -100,7 +101,7 @@ def test_failed_gate_blocks_and_retry_preserves_the_failed_attempt(tmp_path: Pat
         output_path=".intent/intent.json",
     )
     runner.record_result(first, {"ok": True, "payload": {"captured": True}})
-    runner.record_gate(first, gate_id="gate-capture", passed=False, detail="invalid evidence")
+    _trusted_gate(runner, first, passed=False, detail="invalid evidence")
 
     with pytest.raises(RunnerBlocked, match="gate"):
         runner.advance(first)
@@ -129,34 +130,6 @@ def test_invalid_transition_is_rejected_before_any_record_is_written(tmp_path: P
         )
 
     assert not (tmp_path / ".factory" / "planning" / "run-1" / "workflow-events.jsonl").exists()
-
-
-def test_execute_parent_stage_binds_agent_result_and_gate_to_runner(tmp_path: Path) -> None:
-    input_path = _input(tmp_path)
-    runner = PlanningRunner(tmp_path, "run-1")
-    calls: list[tuple[str, str]] = []
-
-    def invoke(invocation):
-        calls.append((invocation.stage.value, invocation.output_path))
-        return {"ok": True, "payload": {"content": "captured"}}
-
-    def gate(invocation, result):
-        assert result.ok is True
-        return "capture-gate", True, "capture verified", {"result": result.payload_sha256}
-
-    next_stage = execute_parent_stage(
-        runner,
-        PlanningStage.CAPTURE,
-        role="intent-capture",
-        input_paths=(input_path,),
-        output_path=".intent/intent.json",
-        invoke=invoke,
-        gate=gate,
-    )
-
-    assert next_stage is PlanningStage.PROVISIONAL_SPEC
-    assert calls == [("capture", ".intent/intent.json")]
-    assert runner.status().current_stage == PlanningStage.PROVISIONAL_SPEC.value
 
 
 def test_begin_fences_an_unfinished_attempt(tmp_path: Path) -> None:
@@ -284,12 +257,7 @@ def test_record_gate_rejects_a_result_without_a_validated_binding(tmp_path: Path
     (record_dir / "result.json").write_text('{"ok":true}\n', encoding="utf-8")
 
     with pytest.raises(RunnerBlocked, match="result|evidence"):
-        runner.record_gate(
-            invocation,
-            gate_id="gate-capture",
-            passed=True,
-            detail="forged",
-        )
+        _trusted_gate(runner, invocation, detail="forged")
 
     assert not (record_dir / "gate.json").exists()
 
@@ -304,7 +272,7 @@ def test_advance_revalidates_result_hash_before_accepting_a_gate(tmp_path: Path)
         output_path=".intent/intent.json",
     )
     runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
-    runner.record_gate(invocation, gate_id="gate-capture", passed=True, detail="verified")
+    _trusted_gate(runner, invocation)
     result_path = tmp_path / ".factory" / "planning" / "run-1" / "stages" / "capture" / "r1" / "a1" / "result.json"
     result = json.loads(result_path.read_text(encoding="utf-8"))
     result["payload"] = {"captured": "forged"}
@@ -406,7 +374,7 @@ def test_advance_and_record_gate_rehash_inputs_after_result_recording(tmp_path: 
     input_path.write_text("changed", encoding="utf-8")
 
     with pytest.raises(RunnerBlocked, match="stale"):
-        runner.record_gate(invocation, gate_id="gate-capture", passed=True, detail="verified")
+        _trusted_gate(runner, invocation)
     assert runner.status().blocked is True
     assert not (runner._record_dir(invocation) / "gate.json").exists()
 
@@ -421,7 +389,7 @@ def test_advance_rehashes_inputs_even_after_a_gate_was_recorded(tmp_path: Path) 
         output_path=".intent/intent.json",
     )
     runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
-    runner.record_gate(invocation, gate_id="gate-capture", passed=True, detail="verified")
+    _trusted_gate(runner, invocation)
     input_path.write_text("changed", encoding="utf-8")
 
     with pytest.raises(RunnerBlocked, match="stale"):
@@ -495,7 +463,7 @@ def test_advance_rejects_a_symlinked_result_or_gate_record(tmp_path: Path) -> No
         output_path=".intent/intent.json",
     )
     runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
-    runner.record_gate(invocation, gate_id="gate-capture", passed=True, detail="verified")
+    _trusted_gate(runner, invocation)
     record_dir = runner._record_dir(invocation)
     result_path = record_dir / "result.json"
     gate_path = record_dir / "gate.json"
@@ -528,3 +496,240 @@ def test_workflow_journal_symlink_is_not_followed_on_reopen(tmp_path: Path) -> N
 
     with pytest.raises(RunnerError, match="journal|unsafe"):
         PlanningRunner(tmp_path, "run-1").status()
+
+
+def _trusted_gate(
+    runner: PlanningRunner,
+    invocation: AgentInvocation,
+    *,
+    passed: bool = True,
+    detail: str = "verified",
+    evidence: dict[str, object] | None = None,
+) -> GateRecord:
+    verification = runner.parent_gate_verifier.attest(
+        invocation,
+        gate_id=f"gate-{invocation.stage.value}",
+        passed=passed,
+        detail=detail,
+        evidence=evidence,
+    )
+    return runner.record_gate(invocation, verification=verification)
+
+
+def test_invocation_result_and_gate_records_are_deeply_immutable_and_non_aliasing(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    with pytest.raises(TypeError):
+        cast(dict[str, str], invocation.input_hashes)["forged.json"] = "0" * 64
+
+    result = runner.record_result(invocation, {"ok": True, "payload": {"nested": {"value": "kept"}}})
+    with pytest.raises(TypeError):
+        cast(dict[str, dict[str, str]], result.payload)["nested"]["value"] = "forged"
+    result_projection = result.to_dict()
+    cast(dict[str, dict[str, str]], result_projection["payload"])["nested"]["value"] = "forged"
+    assert cast(dict[str, dict[str, str]], result.payload)["nested"]["value"] == "kept"
+
+    gate = _trusted_gate(runner, invocation, evidence={"nested": {"value": "kept"}})
+    with pytest.raises(TypeError):
+        cast(dict[str, dict[str, str]], gate.evidence)["nested"]["value"] = "forged"
+    gate_projection = gate.to_dict()
+    cast(dict[str, dict[str, str]], gate_projection["evidence"])["nested"]["value"] = "forged"
+    assert cast(dict[str, dict[str, str]], gate.evidence)["nested"]["value"] == "kept"
+
+
+def test_reopening_an_interrupted_begin_recovers_a_durable_block(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    state = reopened.status()
+    assert state.blocked is True
+    assert state.reason == "interrupted_attempt"
+    assert json.loads(reopened.events_path.read_text(encoding="utf-8").splitlines()[-1])["action"] == "block"
+
+
+@pytest.mark.parametrize("tamper", ["rewrite", "truncate", "delete", "resequence"])
+def test_journal_hash_chain_rejects_history_tampering(tmp_path: Path, tamper: str) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    events_path = runner.events_path
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    if tamper == "rewrite":
+        event = json.loads(lines[0])
+        event["role"] = "rewritten"
+        events_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+    elif tamper == "truncate":
+        events_path.write_text("", encoding="utf-8")
+    elif tamper == "delete":
+        events_path.unlink()
+    else:
+        event = json.loads(lines[0])
+        event["sequence"] = 2
+        events_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+    with pytest.raises(RunnerError, match="journal|integrity|history"):
+        PlanningRunner(tmp_path, "run-1").status()
+
+
+@pytest.mark.parametrize("payload_kind", ["deep", "oversized", "nonfinite"])
+def test_hostile_result_json_bounds_and_finite_numbers_fail_as_runner_errors(
+    tmp_path: Path, payload_kind: str
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    if payload_kind == "deep":
+        payload = {}
+        for _ in range(100):
+            payload = {"nested": payload}
+    elif payload_kind == "oversized":
+        payload = {"blob": "x" * 1_100_000}
+    else:
+        payload = {"number": float("nan")}
+
+    with pytest.raises(RunnerError):
+        runner.record_result(invocation, {"ok": True, "payload": payload})
+
+
+@pytest.mark.parametrize("evidence_kind", ["deep", "oversized"])
+def test_hostile_gate_evidence_is_bounded_and_durably_blocks(tmp_path: Path, evidence_kind: str) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
+    if evidence_kind == "deep":
+        evidence: dict[str, object] = {}
+        for _ in range(100):
+            evidence = {"nested": evidence}
+    else:
+        evidence = {"blob": "x" * 1_100_000}
+
+    with pytest.raises(RunnerBlocked):
+        _trusted_gate(runner, invocation, evidence=evidence)
+    assert runner.status().blocked is True
+
+
+def test_nested_worker_output_target_spoof_is_rejected(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    with pytest.raises(RunnerError, match="output target|worker-selected"):
+        runner.record_result(
+            invocation,
+            {"ok": True, "payload": {"metadata": [{"nested": {"output_path": "forged.json"}}]}},
+        )
+
+
+def test_advance_requires_the_persisted_parent_output_binding_to_match_its_hash(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
+    _trusted_gate(runner, invocation)
+    invocation_path = runner._record_dir(invocation) / "invocation.json"
+    stored = json.loads(invocation_path.read_text(encoding="utf-8"))
+    stored["output_path"] = ".intent/forged.json"
+    invocation_path.write_text(json.dumps(stored) + "\n", encoding="utf-8")
+
+    with pytest.raises(RunnerBlocked, match="binding|evidence|invocation"):
+        runner.advance(invocation)
+    assert runner.status().blocked is True
+
+
+def test_record_gate_requires_a_trusted_parent_verification_capability(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
+
+    with pytest.raises(RunnerError, match="trusted|verification|capability"):
+        runner.record_gate(invocation, gate_id="gate-capture", passed=True, detail="self-certified")
+
+
+def test_advance_revalidates_the_parent_output_path_for_reparse_points(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {"captured": True}})
+    _trusted_gate(runner, invocation)
+    outside = tmp_path.parent / "outside-output"
+    outside.mkdir()
+    link = tmp_path / ".intent"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable")
+
+    with pytest.raises(RunnerBlocked, match="unsafe|path|evidence"):
+        runner.advance(invocation)
+    assert runner.status().blocked is True
+
+
+def test_reopened_interrupted_attempt_can_retry_with_same_revision(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    retry = reopened.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    assert (retry.revision, retry.attempt) == (1, 2)
