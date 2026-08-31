@@ -9,7 +9,6 @@ import subprocess
 import pytest
 from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
 
-pytestmark = pytest.mark.unit
 
 
 def _init_repo(tmp_path):
@@ -22,6 +21,7 @@ def _init_repo(tmp_path):
     return tmp_path
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_head_commit_matches_rev_parse(tmp_path):
     repo = _init_repo(tmp_path)
     expected = subprocess.run(
@@ -30,11 +30,13 @@ def test_subprocess_git_ops_head_commit_matches_rev_parse(tmp_path):
     assert SubprocessGitOps().head_commit(repo) == expected
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_commit_all_returns_false_when_nothing_to_commit(tmp_path):
     repo = _init_repo(tmp_path)
     assert SubprocessGitOps().commit_all(repo, "no-op") is False
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_commit_all_commits_uncommitted_changes(tmp_path):
     repo = _init_repo(tmp_path)
     (repo / "a.txt").write_text("two\n", encoding="utf-8")
@@ -49,6 +51,7 @@ def test_subprocess_git_ops_commit_all_commits_uncommitted_changes(tmp_path):
     assert log == "review: address direct edits during human review"
 
 
+@pytest.mark.unit
 def test_fake_git_ops_records_commit_messages_only_when_has_uncommitted():
     clean = FakeGitOps(head="abc123", has_uncommitted=False)
     assert clean.head_commit(None) == "abc123"
@@ -60,6 +63,7 @@ def test_fake_git_ops_records_commit_messages_only_when_has_uncommitted():
     assert dirty.commit_messages == ["msg"]
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_changed_files_lists_modified_paths(tmp_path):
     repo = _init_repo(tmp_path)
     start = SubprocessGitOps().head_commit(repo)
@@ -73,12 +77,14 @@ def test_subprocess_git_ops_changed_files_lists_modified_paths(tmp_path):
     assert sorted(files) == ["a.txt", "b.txt"]
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_changed_files_empty_when_nothing_changed(tmp_path):
     repo = _init_repo(tmp_path)
     start = SubprocessGitOps().head_commit(repo)
     assert SubprocessGitOps().changed_files(repo, start) == []
 
 
+@pytest.mark.integration
 def test_subprocess_git_ops_changed_files_sees_uncommitted_changes(tmp_path):
     # Regression test: review's changed_files call can run before dev's work
     # is committed. A single-ref `git diff <start_commit>` (no `..HEAD`)
@@ -96,15 +102,18 @@ def test_subprocess_git_ops_changed_files_sees_uncommitted_changes(tmp_path):
     assert files == ["a.txt"]
 
 
+@pytest.mark.unit
 def test_fake_git_ops_returns_scripted_changed_files():
     fake = FakeGitOps(changed_files_result=["src/a.py", "src/b.py"])
     assert fake.changed_files(None, "abc123") == ["src/a.py", "src/b.py"]
 
 
+@pytest.mark.unit
 def test_fake_git_ops_changed_files_defaults_to_empty():
     assert FakeGitOps().changed_files(None, "abc123") == []
 
 
+@pytest.mark.integration
 def test_commit_paths_does_not_stage_or_commit_unrelated_files(tmp_path):
     repo = _init_repo(tmp_path)
     wanted = repo / "evidence" / "runs" / "run-1.json"
@@ -130,6 +139,7 @@ def test_commit_paths_does_not_stage_or_commit_unrelated_files(tmp_path):
     assert committed == ["evidence/runs/run-1.json"]
 
 
+@pytest.mark.integration
 def test_commit_paths_refuses_a_path_outside_repository(tmp_path):
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -141,6 +151,7 @@ def test_commit_paths_refuses_a_path_outside_repository(tmp_path):
         SubprocessGitOps().commit_paths(repo, [outside], "not allowed")
 
 
+@pytest.mark.integration
 def test_binary_diff_and_changed_files_between_capture_committed_range(tmp_path):
     repo = _init_repo(tmp_path)
     start = SubprocessGitOps().head_commit(repo)
@@ -152,6 +163,7 @@ def test_binary_diff_and_changed_files_between_capture_committed_range(tmp_path)
     assert SubprocessGitOps().changed_files_between(repo, start, end) == ["a.txt"]
 
 
+@pytest.mark.integration
 def test_worktree_fingerprint_covers_tracked_and_untracked_bytes_not_mtime(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -168,6 +180,7 @@ def test_worktree_fingerprint_covers_tracked_and_untracked_bytes_not_mtime(tmp_p
     assert ops.worktree_fingerprint(repo, start) != first
 
 
+@pytest.mark.integration
 def test_write_patch_captures_tracked_diff_and_untracked_sidecar(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -185,6 +198,7 @@ def test_write_patch_captures_tracked_diff_and_untracked_sidecar(tmp_path):
     assert base64.b64decode(sidecar["files"][0]["data"]) == b"\x00\x01"
 
 
+@pytest.mark.integration
 def test_restore_patch_recovers_tracked_and_untracked_bytes(tmp_path):
     repo = _init_repo(tmp_path)
     (repo / ".gitignore").write_text("sessions/\n", encoding="utf-8")
@@ -207,6 +221,7 @@ def test_restore_patch_recovers_tracked_and_untracked_bytes(tmp_path):
     assert ops.worktree_fingerprint(repo, start) == expected
 
 
+@pytest.mark.integration
 def test_write_patch_rejects_recovery_data_outside_repository(tmp_path):
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
@@ -216,6 +231,7 @@ def test_write_patch_rejects_recovery_data_outside_repository(tmp_path):
         ops.write_patch(repo, ops.head_commit(repo), tmp_path / "outside.patch")
 
 
+@pytest.mark.integration
 def test_check_patch_distinguishes_clean_and_conflicting_worktrees(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -230,6 +246,7 @@ def test_check_patch_distinguishes_clean_and_conflicting_worktrees(tmp_path):
     assert ops.check_patch(repo, patch) is False
 
 
+@pytest.mark.unit
 def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):
     # A git failure (e.g. a Windows reserved-name path git refuses with exit
     # 128) must NOT crash the caller -- commit_all returns False and warns,
@@ -251,6 +268,7 @@ def test_subprocess_git_ops_commit_all_survives_git_failure(tmp_path):
     assert result is False
 
 
+@pytest.mark.integration
 def test_write_patch_never_inlines_the_factorys_own_scratch_output(tmp_path):
     """A sidecar must never embed a previous sidecar.
 
@@ -294,6 +312,7 @@ def test_write_patch_never_inlines_the_factorys_own_scratch_output(tmp_path):
     )
 
 
+@pytest.mark.unit
 def test_ensure_factory_ignores_is_additive_and_idempotent(tmp_path):
     """A target repo does not inherit the factory's .gitignore, and commit_all
     runs `git add -A` -- so unignored run output can be committed into the
@@ -320,6 +339,7 @@ def test_ensure_factory_ignores_is_additive_and_idempotent(tmp_path):
     assert gitignore.read_text(encoding="utf-8") == text
 
 
+@pytest.mark.unit
 def test_ensure_factory_ignores_creates_the_file_when_absent(tmp_path):
     from factory.orchestrator.git_ops import ensure_factory_ignores
 
@@ -329,6 +349,7 @@ def test_ensure_factory_ignores_creates_the_file_when_absent(tmp_path):
     assert not text.startswith("\n"), "no leading blank line on a fresh file"
 
 
+@pytest.mark.integration
 def test_write_patch_skips_untracked_directory_nested_repo(tmp_path):
     """A nested git worktree (reported by git as an untracked *directory*) must
     not crash patch recording nor appear in the sidecar as a file. Regression for
@@ -368,6 +389,7 @@ def _track_scratch(repo):
         _commit_file(repo, name, "v0\n")
 
 
+@pytest.mark.integration
 def test_fingerprint_ignores_factory_scratch_tracked_churn(tmp_path):
     """KB-0004: the worktree fingerprint must not flip on the factory's own
     mid-run rewrites of tracked scratch files (sessions/latest.md,
@@ -393,6 +415,7 @@ def test_fingerprint_ignores_factory_scratch_tracked_churn(tmp_path):
     assert ops.worktree_fingerprint(repo, start) != baseline
 
 
+@pytest.mark.integration
 def test_fingerprint_untracked_churn_flips_only_full_not_tracked(tmp_path):
     """Resume tolerance: a new untracked file flips the full fingerprint but not
     the tracked-only fingerprint, so a checkpoint whose tracked state matches
@@ -409,6 +432,7 @@ def test_fingerprint_untracked_churn_flips_only_full_not_tracked(tmp_path):
     assert ops.worktree_fingerprint(repo, start) != full
 
 
+@pytest.mark.integration
 def test_write_patch_excludes_tracked_scratch_from_patch_bytes(tmp_path):
     repo = _init_repo(tmp_path)
     _track_scratch(repo)
@@ -425,6 +449,7 @@ def test_write_patch_excludes_tracked_scratch_from_patch_bytes(tmp_path):
     assert b"latest.md" not in raw, "tracked scratch churn leaked into the patch"
 
 
+@pytest.mark.integration
 def test_commit_all_never_commits_factory_scratch_tracked_writes(tmp_path):
     """A run's commit must not carry the factory's own writes to tracked
     scratch files under the task's message."""
@@ -444,6 +469,7 @@ def test_commit_all_never_commits_factory_scratch_tracked_writes(tmp_path):
     assert "sessions/.factory-status.json" not in committed
 
 
+@pytest.mark.integration
 def test_commit_all_raises_commit_all_error_on_invalid_path_refusal(tmp_path):
     """KB-0004: an `invalid path 'nul'`-style staging failure must surface as a
     run-blocking CommitAllError with remediation, not a silent
@@ -468,6 +494,7 @@ def test_commit_all_raises_commit_all_error_on_invalid_path_refusal(tmp_path):
             ops.commit_all(repo, "T-999: agent work")
 
 
+@pytest.mark.integration
 def test_commit_all_raises_when_reserved_name_file_present(tmp_path):
     """A reserved-name path is detected even when git's stderr is empty (the
     Windows `nul` device-interception case is not reliably reported; on Windows
@@ -495,6 +522,7 @@ def test_commit_all_raises_when_reserved_name_file_present(tmp_path):
             ops.commit_all(repo, "T-999: agent work")
 
 
+@pytest.mark.integration
 def test_untracked_snapshot_and_sidecar_round_trip(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -514,6 +542,7 @@ def test_untracked_snapshot_and_sidecar_round_trip(tmp_path):
     assert ops.read_untracked_sidecar(patch) == snapshot
 
 
+@pytest.mark.integration
 def test_read_untracked_sidecar_tolerates_old_sidecar_without_sha256(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -528,6 +557,7 @@ def test_read_untracked_sidecar_tolerates_old_sidecar_without_sha256(tmp_path):
     }
 
 
+@pytest.mark.integration
 def test_write_patch_skips_untracked_files_over_size_cap(tmp_path):
     from factory.orchestrator.git_ops import MAX_SIDECAR_FILE_BYTES
 
@@ -549,6 +579,7 @@ def test_write_patch_skips_untracked_files_over_size_cap(tmp_path):
     assert by_path["small.bin"]["data"] == base64.b64encode(b"\x00\x01").decode("ascii")
 
 
+@pytest.mark.integration
 def test_restore_patch_ignores_skipped_untracked_entries(tmp_path):
     repo = _init_repo(tmp_path)
     ops = SubprocessGitOps()
@@ -576,6 +607,7 @@ def test_restore_patch_ignores_skipped_untracked_entries(tmp_path):
     assert not (repo / "giant.bin").exists()
 
 
+@pytest.mark.integration
 def test_commit_all_leaves_untouched_preexisting_edits_alone(tmp_path):
     """A run must not commit the human's work-in-progress under its own message.
 
@@ -612,6 +644,7 @@ def test_commit_all_leaves_untouched_preexisting_edits_alone(tmp_path):
     assert (repo / "wip.txt").read_text(encoding="utf-8") == "human edit\n"
 
 
+@pytest.mark.integration
 def test_commit_all_still_commits_a_preexisting_file_the_agent_changed(tmp_path):
     """Dirty-at-start is not ownership. If the agent changed it too, it is the
     run's work and must be committed."""

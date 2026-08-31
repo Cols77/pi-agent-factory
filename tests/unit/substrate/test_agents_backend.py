@@ -21,7 +21,6 @@ from substrate.agents.backend import (
 )
 from substrate.agents.model import InterruptionReason
 
-pytestmark = pytest.mark.unit
 
 
 @dataclass(frozen=True)
@@ -46,6 +45,7 @@ def _stub_scope_for(role: str) -> _Scope:
 # instead of importing a role catalogue (ROLE_SCOPE/AgentRole/Scope) directly.
 
 
+@pytest.mark.unit
 def test_run_never_imports_factory_or_coherence():
     for module_name in ("substrate.agents.backend", "substrate.agents.model"):
         import importlib
@@ -67,6 +67,7 @@ def test_run_never_imports_factory_or_coherence():
         assert roots.isdisjoint({"factory", "coherence"}), module_name
 
 
+@pytest.mark.unit
 def test_run_consults_the_injected_scope_for_not_a_role_catalogue(monkeypatch, tmp_path):
     injected = _Scope(allow=["src/**", "tests/**"], bash="deny")
     calls: list[str] = []
@@ -113,6 +114,7 @@ class _FakeClock:
         return self._t
 
 
+@pytest.mark.unit
 def test_idle_keeper_strikes_up_to_grace_then_kills() -> None:
     clock = _FakeClock()
     keeper = _IdleKeeper(grace=4, now=clock)
@@ -126,6 +128,7 @@ def test_idle_keeper_strikes_up_to_grace_then_kills() -> None:
     assert keeper.breaches == 5  # exceeded the 4-window grace budget
 
 
+@pytest.mark.unit
 def test_idle_keeper_note_live_resets_strike() -> None:
     clock = _FakeClock()
     keeper = _IdleKeeper(grace=2, now=clock)
@@ -145,6 +148,7 @@ def test_idle_keeper_note_live_resets_strike() -> None:
     assert keeper.breaches == 3
 
 
+@pytest.mark.unit
 def test_idle_keeper_probe_reset_keeps_silent_child_alive() -> None:
     clock = _FakeClock()
     keeper = _IdleKeeper(grace=2, now=clock)
@@ -156,6 +160,7 @@ def test_idle_keeper_probe_reset_keeps_silent_child_alive() -> None:
         assert keeper.breaches == 0
 
 
+@pytest.mark.unit
 def test_probe_file_heartbeat_detects_fresh_write_under_watch_dir(tmp_path) -> None:
     watch = tmp_path / "tasks"
     watch.mkdir()
@@ -166,6 +171,7 @@ def test_probe_file_heartbeat_detects_fresh_write_under_watch_dir(tmp_path) -> N
     assert _probe_file_heartbeat([str(watch)], since_seconds=time.time() - 1.0) is True
 
 
+@pytest.mark.unit
 def test_probe_file_heartbeat_ignores_stale_and_missing_dirs(tmp_path) -> None:
     watch = tmp_path / "docs"
     watch.mkdir()
@@ -178,6 +184,7 @@ def test_probe_file_heartbeat_ignores_stale_and_missing_dirs(tmp_path) -> None:
     assert _probe_file_heartbeat([str(tmp_path / "nope")], since_seconds=0.0) is False
 
 
+@pytest.mark.unit
 def test_drain_lines_survives_silence_while_writing_deliverables(tmp_path) -> None:
     watch = tmp_path / "tasks"
     watch.mkdir()
@@ -208,6 +215,7 @@ def test_drain_lines_survives_silence_while_writing_deliverables(tmp_path) -> No
     assert fired == []  # never tripped idle despite the silence
 
 
+@pytest.mark.unit
 def test_drain_lines_still_trips_idle_after_grace_when_truly_silent(tmp_path) -> None:
     block = threading.Event()
 
@@ -232,6 +240,7 @@ def test_drain_lines_still_trips_idle_after_grace_when_truly_silent(tmp_path) ->
     assert fired == ["idle"]  # grace of silent windows eventually trips idle
 
 
+@pytest.mark.unit
 def test_run_kills_stalled_child_only_after_idle_grace(monkeypatch, tmp_path) -> None:
     killed: list[bool] = []
     block = threading.Event()
@@ -271,6 +280,7 @@ def test_run_kills_stalled_child_only_after_idle_grace(monkeypatch, tmp_path) ->
     assert result.session_id == "sess-x"  # captured before the kill
 
 
+@pytest.mark.unit
 def test_run_does_not_kill_stalled_child_while_deliverables_are_written(
     monkeypatch, tmp_path
 ) -> None:
@@ -323,6 +333,7 @@ def test_run_does_not_kill_stalled_child_while_deliverables_are_written(
 # assertions below are POSIX-only because Windows has no killpg semantics.
 
 
+@pytest.mark.unit
 def test_kill_process_tree_escalates_to_sigkill_when_mount_survives_term():
     if sys.platform == "win32":
         pytest.skip("killpg semantics are POSIX-only")
@@ -357,6 +368,7 @@ def test_kill_process_tree_escalates_to_sigkill_when_mount_survives_term():
     assert signals_sent == [_SIG_TERM, _SIG_KILL]
 
 
+@pytest.mark.unit
 def test_kill_process_tree_winds_down_after_term_without_sigkill():
     if sys.platform == "win32":
         pytest.skip("killpg semantics are POSIX-only")
@@ -385,6 +397,7 @@ def test_kill_process_tree_winds_down_after_term_without_sigkill():
     assert signals_sent == [_SIG_TERM]
 
 
+@pytest.mark.unit
 def test_kill_process_tree_falls_back_to_direct_kill_without_group():
     # A proc with no usable leader pid (or a non-POSIX platform) must still
     # best-effort kill the direct child rather than silently leak it.
@@ -398,6 +411,7 @@ def test_kill_process_tree_falls_back_to_direct_kill_without_group():
     assert killed == [True]
 
 
+@pytest.mark.unit
 def test_run_launches_child_as_group_leader_on_posix(monkeypatch, tmp_path) -> None:
     # The child must start a new session/process group so a tree-kill can
     # TERM/KILL the whole group including grandchildren on POSIX.
@@ -426,6 +440,7 @@ def test_run_launches_child_as_group_leader_on_posix(monkeypatch, tmp_path) -> N
     assert captured.get("start_new_session") is True
 
 
+@pytest.mark.integration
 def test_kill_process_tree_terminates_real_grandchild(monkeypatch, tmp_path) -> None:
     # Integration: a real child spawned as a group leader, which itself spawns
     # a sleeping grandchild. After the tree kill, BOTH must be gone -- not just
@@ -485,6 +500,7 @@ def test_kill_process_tree_terminates_real_grandchild(monkeypatch, tmp_path) -> 
 # that STARTED and then stalled must never be relaunched (that death is a kill).
 
 
+@pytest.mark.unit
 def test_run_retries_transient_spawn_failure_then_succeeds(monkeypatch, tmp_path) -> None:
     from substrate.agents.backend import _SPAWN_RETRIES
 
@@ -520,6 +536,7 @@ def test_run_retries_transient_spawn_failure_then_succeeds(monkeypatch, tmp_path
     assert calls == [1] * (_SPAWN_RETRIES + 1)
 
 
+@pytest.mark.unit
 def test_retry_gives_up_after_budget_when_spawn_always_fails(monkeypatch, tmp_path) -> None:
     from substrate.agents.backend import _SPAWN_RETRIES
 
@@ -543,6 +560,7 @@ def test_retry_gives_up_after_budget_when_spawn_always_fails(monkeypatch, tmp_pa
     assert calls == [1] * (_SPAWN_RETRIES + 1)
 
 
+@pytest.mark.unit
 def test_retry_never_relaunches_a_started_but_stalled_child(monkeypatch, tmp_path) -> None:
     # A child that STARTED and then went silent is killed by the idle timeout;
     # it must NEVER be relaunched (only a failure to start is retried).
@@ -593,6 +611,7 @@ def test_retry_never_relaunches_a_started_but_stalled_child(monkeypatch, tmp_pat
 # over-budget runs as truncated without flipping the ok/interruption class.
 
 
+@pytest.mark.unit
 def test_run_caps_output_and_keeps_final_manifest(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("substrate.agents.backend._MAX_OUTPUT_TOTAL_CHARS", 800)
     monkeypatch.setattr("substrate.agents.backend._MAX_OUTPUT_RETAINED_CHARS", 400)
@@ -636,6 +655,7 @@ def test_run_caps_output_and_keeps_final_manifest(monkeypatch, tmp_path) -> None
     assert len(result.raw) < 800
 
 
+@pytest.mark.unit
 def test_run_output_under_cap_has_no_truncation_note(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("substrate.agents.backend._MAX_OUTPUT_TOTAL_CHARS", 1000)
     monkeypatch.setattr("substrate.agents.backend._MAX_OUTPUT_RETAINED_CHARS", 500)
@@ -667,6 +687,7 @@ def test_run_output_under_cap_has_no_truncation_note(monkeypatch, tmp_path) -> N
     assert result.session_id == "sess-small"
 
 
+@pytest.mark.unit
 def test_retain_line_capped_truncates_a_lone_oversized_line() -> None:
     # A single pathological event line must not defeat the retention cap: it is
     # truncated to the line cap (tail kept) with a marker, so one giant event
@@ -686,6 +707,7 @@ def test_retain_line_capped_truncates_a_lone_oversized_line() -> None:
     assert retained2[0] == "b" * 40
 
 
+@pytest.mark.unit
 def test_kill_process_tree_post_sigkill_poll_is_bounded(monkeypatch) -> None:
     # The post-SIGKILL poll must terminate even if the leader never reaps
     # (a zombie reads as alive via os.kill(pid,0)): the bounded budget stops
@@ -730,6 +752,7 @@ def test_kill_process_tree_post_sigkill_poll_is_bounded(monkeypatch) -> None:
     assert len(slept) <= 7
 
 
+@pytest.mark.unit
 def test_kill_process_tree_default_probe_escalates_for_a_running_child(
     monkeypatch,
 ) -> None:
@@ -779,6 +802,7 @@ def test_kill_process_tree_default_probe_escalates_for_a_running_child(
     assert signals.count(9) == 1
 
 
+@pytest.mark.unit
 def test_kill_process_tree_default_probe_stops_once_reaped(monkeypatch) -> None:
     # The DEFAULT probe must read a reaped (zombie-cleared) leader as dead so
     # teardown does not spin after a clean TERM wind-down.

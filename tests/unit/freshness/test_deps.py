@@ -25,7 +25,6 @@ from factory.freshness.deps import (
 )
 from factory.freshness.fingerprint import fingerprint_file, fingerprint_value
 
-pytestmark = pytest.mark.unit
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -166,6 +165,7 @@ def _change_code(repo: Path) -> None:
 # ── 5c failing tests ──────────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 def test_sr_change_makes_linked_downstream_artifacts_stale(repo):
     _change_sr(repo)
     # The explainer records the SR's digest -> stale on SR change.
@@ -176,6 +176,7 @@ def test_sr_change_makes_linked_downstream_artifacts_stale(repo):
     assert "explainer:NAV-PREEMPTION.md" in impact.directly_affected
 
 
+@pytest.mark.integration
 def test_implementation_change_keeps_sr_fresh_but_stales_evidence_and_explainer(repo):
     _change_code(repo)
     # SR is authoritative: stays fresh.
@@ -186,6 +187,7 @@ def test_implementation_change_keeps_sr_fresh_but_stales_evidence_and_explainer(
     assert check_artifact(repo, "explainer:NAV-PREEMPTION.md").state == FreshnessState.STALE
 
 
+@pytest.mark.integration
 def test_metric_definition_change_stales_old_evidence(repo):
     # The goal carries the metric definition; evidence recorded before the goal
     # change is stale (git-novelty vs the run's recorded commit).
@@ -199,6 +201,7 @@ def test_metric_definition_change_stales_old_evidence(repo):
     assert check_artifact(repo, "run:RUN-20260816-0100").state == FreshnessState.STALE
 
 
+@pytest.mark.integration
 def test_harness_change_stales_old_evidence(repo):
     # The harness is code the run depends on; a harness file change stales it.
     _code(repo, "sim/harness.py", "def run(): ...\n")
@@ -215,6 +218,7 @@ def test_harness_change_stales_old_evidence(repo):
     assert check_artifact(repo, "run:RUN-20260816-0200").state == FreshnessState.STALE
 
 
+@pytest.mark.integration
 def test_generator_change_stales_generated_artifact(repo):
     # The explainer's generator is a tool fingerprint; a changed generator
     # version stales the generated explainer even when inputs are unchanged.
@@ -241,6 +245,7 @@ def test_generator_change_stales_generated_artifact(repo):
     assert check_artifact(repo, "explainer:NAV-PREEMPTION.md").state == FreshnessState.FRESH
 
 
+@pytest.mark.integration
 def test_missing_dependency_fingerprint_degrades_to_unknown(repo):
     # An explainer that declares explains: but records no digest is UNKNOWN.
     _explainer(repo, "NO-FP", explains=["SR-017"])
@@ -248,6 +253,7 @@ def test_missing_dependency_fingerprint_degrades_to_unknown(repo):
     assert check_artifact(repo, "explainer:NO-FP.md").state == FreshnessState.UNKNOWN
 
 
+@pytest.mark.integration
 def test_unrelated_repository_change_causes_no_false_invalidation(repo):
     _code(repo, "src/unrelated/other.py", "x = 1\n")
     _commit_all(repo, "unrelated change")
@@ -255,6 +261,7 @@ def test_unrelated_repository_change_causes_no_false_invalidation(repo):
     assert check_artifact(repo, "explainer:NAV-PREEMPTION.md").state == FreshnessState.FRESH
 
 
+@pytest.mark.integration
 def test_propagation_uses_no_llm(repo):
     # The impact closure is pure declared-edge topology; it cannot depend on
     # free text. Change a doc string with no edges -> empty impact.
@@ -273,6 +280,7 @@ def test_propagation_uses_no_llm(repo):
 # ── 5d failing tests ──────────────────────────────────────────────────────
 
 
+@pytest.mark.integration
 def test_direct_dependency(repo):
     impact = compute_impact(repo, ["sr:SR-017"])
     assert set(impact.directly_affected) == {
@@ -282,22 +290,26 @@ def test_direct_dependency(repo):
     }
 
 
+@pytest.mark.integration
 def test_two_hop_dependency(repo):
     impact = compute_impact(repo, ["run:RUN-20260816-0100"])
     assert "diag:DIAG-NAV-009" in impact.directly_affected
 
 
+@pytest.mark.integration
 def test_multi_hop_dependency(repo):
     # sr -> run -> diag: the diagram is reachable but not direct.
     impact = compute_impact(repo, ["sr:SR-017"])
     assert "diag:DIAG-NAV-009" in impact.transitively_affected
 
 
+@pytest.mark.integration
 def test_fan_out(repo):
     impact = compute_impact(repo, ["code:src/navigation/preemption.py"])
     assert impact.directly_affected == ("explainer:NAV-PREEMPTION.md", "run:RUN-20260816-0100")
 
 
+@pytest.mark.integration
 def test_fan_in(repo):
     deps = dependencies_of(repo, "run:RUN-20260816-0100")
     sources = {d.source_ref for d in deps}
@@ -306,6 +318,7 @@ def test_fan_in(repo):
     assert "goal:GOAL-NAV-001" in sources
 
 
+@pytest.mark.integration
 def test_cycle_protection(repo):
     # A diagram illustrating its own run creates no infinite loop (and an
     # explicit self-cycle terminates).
@@ -317,6 +330,7 @@ def test_cycle_protection(repo):
     assert impact.transitively_affected.count("diag:DIAG-SELF") <= 1
 
 
+@pytest.mark.integration
 def test_deleted_artifact(repo):
     # A changed ref with no declared dependents -> empty impact, no crash.
     impact = compute_impact(repo, ["code:src/gone.py"])
@@ -324,6 +338,7 @@ def test_deleted_artifact(repo):
     assert impact.transitively_affected == ()
 
 
+@pytest.mark.integration
 def test_renamed_artifact_with_changed_identity(repo):
     # Rename = new identity. Old edges still point at the old path; the new
     # path has no declared dependents -> no false invalidation, and the run
@@ -336,12 +351,14 @@ def test_renamed_artifact_with_changed_identity(repo):
     assert run_state.state == FreshnessState.UNKNOWN
 
 
+@pytest.mark.integration
 def test_no_impact_across_unrelated_feature(repo):
     impact = compute_impact(repo, ["sr:SR-999"])
     assert impact.directly_affected == ()
     assert impact.transitively_affected == ()
 
 
+@pytest.mark.integration
 def test_deterministic_ordering(repo):
     first = compute_impact(repo, ["sr:SR-017"])
     second = compute_impact(repo, ["sr:SR-017"])
@@ -349,12 +366,14 @@ def test_deterministic_ordering(repo):
     assert first.directly_affected == tuple(sorted(first.directly_affected))
 
 
+@pytest.mark.unit
 def test_normalize_ref():
     assert normalize_ref("SR-017") == "sr:SR-017"
     assert normalize_ref("GOAL-NAV-001") == "goal:GOAL-NAV-001"
     assert normalize_ref("code:a.py") == "code:a.py"
 
 
+@pytest.mark.integration
 def test_dependency_edges_are_declared_only(repo):
     edges = collect_dependency_edges(repo)
     for edge in edges:

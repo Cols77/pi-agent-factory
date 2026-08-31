@@ -27,7 +27,6 @@ from tests.unit.freshness.test_deps import (
 )
 from tests.unit.freshness.test_policy import _code_digest, _rewrite_explainer, _sr_digest
 
-pytestmark = pytest.mark.unit
 
 
 def _seeded_repo(repo: Path):
@@ -84,6 +83,7 @@ def _clean_generators():
     policy._GENERATOR_VERSIONS.clear()
 
 
+@pytest.mark.integration
 def test_old_explainer_content_remains_in_git_history(tmp_path):
     repo = _seeded_repo(tmp_path)
     old_text = (repo / "docs" / "visual-explain" / "NAV-PREEMPTION.md").read_text(
@@ -111,6 +111,7 @@ def test_old_explainer_content_remains_in_git_history(tmp_path):
     assert historical.rstrip("\n") == old_text.rstrip("\n")
 
 
+@pytest.mark.integration
 def test_reconcile_never_deletes_old_evidence_bundles(tmp_path):
     repo = _seeded_repo(tmp_path)
     _change_sr(repo)
@@ -129,6 +130,7 @@ def test_reconcile_never_deletes_old_evidence_bundles(tmp_path):
     assert (repo / "evidence" / "runs" / "RUN-20260816-0100" / "manifest.json").exists()
 
 
+@pytest.mark.integration
 def test_invalidated_evidence_kept_but_distinguished_from_current(tmp_path):
     repo = _seeded_repo(tmp_path)
     manifest = repo / "evidence" / "runs" / "RUN-20260816-0100" / "manifest.json"
@@ -145,6 +147,7 @@ def test_invalidated_evidence_kept_but_distinguished_from_current(tmp_path):
     assert json.loads(manifest.read_text(encoding="utf-8"))["commit"] == original_commit
 
 
+@pytest.mark.integration
 def test_failure_records_and_rejected_hypotheses_stay_immutable(tmp_path):
     repo = _seeded_repo(tmp_path)
     transition_log = repo / "goals" / "GOAL-NAV-001-transitions.jsonl"

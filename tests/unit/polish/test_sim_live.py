@@ -7,7 +7,6 @@ from factory.polish.config import PLAYGROUND_TYPES
 from factory.polish.playground import Playground
 from factory.polish.sim_live import SimLivePlayground
 
-pytestmark = pytest.mark.unit
 
 
 def _mk(dir_, *parts, name, content="seed: 7\n"):
@@ -42,11 +41,13 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+@pytest.mark.unit
 def test_is_a_playground(tmp_path):
     pg = SimLivePlayground(tmp_path, ["echo"], project_root=tmp_path)
     assert isinstance(pg, Playground)
 
 
+@pytest.mark.unit
 def test_list_usecases_globs_nested_yaml_stems(tmp_path):
     _mk(tmp_path, name="scn_001.yaml")
     _mk(tmp_path, "sub", name="scn_002.yaml")
@@ -55,12 +56,14 @@ def test_list_usecases_globs_nested_yaml_stems(tmp_path):
     assert pg.list_usecases() == ["scn_001", "scn_002"]
 
 
+@pytest.mark.unit
 def test_setup_missing_scenario_raises(tmp_path):
     pg = SimLivePlayground(tmp_path, ["echo"], project_root=tmp_path)
     with pytest.raises(FileNotFoundError, match="scn_999"):
         pg.setup("scn_999")
 
 
+@pytest.mark.integration
 def test_setup_spawns_child_then_teardown_kills_it(tmp_path):
     sentinel = tmp_path / "up.txt"
     script = (
@@ -88,6 +91,7 @@ def test_setup_spawns_child_then_teardown_kills_it(tmp_path):
     assert _pid_alive(pid) is False  # teardown killed it; no process leak
 
 
+@pytest.mark.unit
 def test_from_config(tmp_path):
     _mk(tmp_path, "scenarios", "reference", name="scn_005.yaml")
     params = {
@@ -98,6 +102,7 @@ def test_from_config(tmp_path):
     assert pg.list_usecases() == ["scn_005"]
 
 
+@pytest.mark.unit
 def test_registered_in_playground_types():
     # A classmethod access returns a fresh bound method each time, so compare
     # the underlying function's identity, not the wrapper object.

@@ -7,7 +7,6 @@ import pytest
 from factory.polish.devserver import DevServerPlayground, Service, wait_healthy
 from factory.polish.playground import Playground
 
-pytestmark = pytest.mark.unit
 
 
 def _free_port() -> int:
@@ -18,12 +17,14 @@ def _free_port() -> int:
     return port
 
 
+@pytest.mark.unit
 def test_is_a_playground(tmp_path):
     pg = DevServerPlayground([], ["u"], "http://x", project_root=tmp_path)
     assert isinstance(pg, Playground)
     assert pg.list_usecases() == ["u"]
 
 
+@pytest.mark.integration
 def test_setup_refuses_when_the_port_is_already_serving(tmp_path):
     # Observed live: a second session's Next.js saw 3000 taken, fell back to 3001,
     # and its health check then went green against the FIRST session's app. Nothing
@@ -48,6 +49,7 @@ def test_setup_refuses_when_the_port_is_already_serving(tmp_path):
         squatter.close()
 
 
+@pytest.mark.integration
 def test_setup_starts_service_then_teardown_stops_it(tmp_path):
     port = _free_port()
     url = f"http://127.0.0.1:{port}"
@@ -69,6 +71,7 @@ def test_setup_starts_service_then_teardown_stops_it(tmp_path):
     assert wait_healthy(url, timeout=2) is False
 
 
+@pytest.mark.integration
 def test_setup_raises_and_cleans_up_on_unhealthy(tmp_path):
     port_a = _free_port()
     up_url = f"http://127.0.0.1:{port_a}"  # a real server that DOES come up
@@ -87,6 +90,7 @@ def test_setup_raises_and_cleans_up_on_unhealthy(tmp_path):
     assert wait_healthy(up_url, timeout=2) is False
 
 
+@pytest.mark.integration
 def test_from_config(tmp_path):
     port = _free_port()
     params = {

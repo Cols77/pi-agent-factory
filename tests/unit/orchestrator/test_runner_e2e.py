@@ -7,7 +7,6 @@ from factory.orchestrator.runner import run_task
 from factory.orchestrator.status import FakeStatusReporter
 from ._skill_fixtures import write_skill_stubs
 
-pytestmark = pytest.mark.unit
 
 
 def _repo(tmp_path):
@@ -46,6 +45,7 @@ def _scripts():
     }
 
 
+@pytest.mark.e2e
 def test_full_pipeline_completes_and_is_deterministic(tmp_path):
     repo = _repo(tmp_path)
     task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
@@ -64,6 +64,7 @@ def test_full_pipeline_completes_and_is_deterministic(tmp_path):
     assert ("review", "pass") in seq1
 
 
+@pytest.mark.e2e
 def test_context_reject_short_circuits(tmp_path):
     repo = _repo(tmp_path)
     task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
@@ -73,6 +74,7 @@ def test_context_reject_short_circuits(tmp_path):
     assert r.outcome == "rejected"
 
 
+@pytest.mark.e2e
 def test_validation_fails_until_exhausted(tmp_path):
     """Validation gate fails every cycle until max_review_cycles is exhausted.
 
@@ -100,6 +102,7 @@ def test_validation_fails_until_exhausted(tmp_path):
     assert r.iterations == max_review_cycles
 
 
+@pytest.mark.e2e
 def test_review_requests_changes_until_exhausted(tmp_path):
     """Review requests changes every cycle until max_review_cycles is exhausted.
 
@@ -131,6 +134,7 @@ def test_review_requests_changes_until_exhausted(tmp_path):
     assert r.iterations == max_review_cycles
 
 
+@pytest.mark.e2e
 def test_dev_escalates_immediately(tmp_path):
     """Dev exhausts its own max_dev_iters retries and escalates on first cycle.
 
@@ -158,6 +162,7 @@ def test_dev_escalates_immediately(tmp_path):
     assert r.iterations == 1  # Should return after first iteration, not continue looping
 
 
+@pytest.mark.e2e
 def test_run_task_reports_final_outcome(tmp_path):
     repo = _repo(tmp_path)
     task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
@@ -171,6 +176,7 @@ def test_run_task_reports_final_outcome(tmp_path):
     assert len(final_calls) >= 1
 
 
+@pytest.mark.e2e
 def test_run_task_reports_node_result_after_each_node(tmp_path):
     repo = _repo(tmp_path)
     task = Task("T-001", "t", "todo", ["c"], "body", repo / "tasks" / "T-001.md")
@@ -185,6 +191,7 @@ def test_run_task_reports_node_result_after_each_node(tmp_path):
     assert ("review", "pass") in node_states
 
 
+@pytest.mark.e2e
 def test_validation_exhaustion_reports_actual_last_node(tmp_path):
     """When validation fails until exhausted, final status report must report validation, not review.
 
@@ -225,6 +232,7 @@ def test_validation_exhaustion_reports_actual_last_node(tmp_path):
     assert final["max_attempts"] == max_review_cycles, f"Expected max_attempts={max_review_cycles}, got {final['max_attempts']}"
 
 
+@pytest.mark.e2e
 def test_review_exhaustion_reports_actual_last_node(tmp_path):
     """When review requests changes until exhausted, final status report must report review.
 
