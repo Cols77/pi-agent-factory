@@ -7,11 +7,19 @@ import math
 import os
 import re
 import tempfile
+import threading
+from contextlib import contextmanager
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
+from collections.abc import Iterator
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from coherence.planning.paths import safe_resolve, safe_root
 
@@ -22,6 +30,10 @@ class RunnerError(ValueError):
 
 class RunnerBlocked(RunnerError):
     """Raised when a run must remain blocked until a new attempt or decision."""
+
+
+class _RunnerEncodeError(RunnerError):
+    """Raised when a controlled record cannot be encoded for persistence."""
 
 
 class PlanningStage(str, Enum):
@@ -261,11 +273,75 @@ _GATE_KEYS = {
     "output_sha256",
     "evidence",
 }
+_RECOVERY_KEYS = {
+    "schema",
+    "run_id",
+    "stage",
+    "revision",
+    "attempt",
+    "reason",
+    "detail",
+}
 _MAX_JSON_BYTES = 1_048_576
 _MAX_JSON_DEPTH = 64
 _MAX_JSON_NODES = 100_000
+_MAX_WORKFLOW_JOURNAL_BYTES = 8 * _MAX_JSON_BYTES
+_MAX_STRING_BYTES = 64 * 1024
+_MAX_TEXT_BYTES = 16 * 1024
+_MAX_PAYLOAD_BYTES = 64 * 1024
+_MAX_EVIDENCE_BYTES = 64 * 1024
 _GENESIS_SHA256 = "0" * 64
 _OUTPUT_TARGET_KEYS = frozenset({"output_path", "output_target", "path", "target"})
+_RUNNER_CONTROL_NAMES = frozenset(
+    {
+        ".runner-writer.lock",
+        "workflow-events.jsonl",
+        "workflow-integrity.json",
+        "workflow-state.json",
+        "workflow-recovery.json",
+        "invocation.json",
+        "result.json",
+        "gate.json",
+    }
+)
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CLOCK$",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+        "COM¹",
+        "COM²",
+        "COM³",
+        "LPT¹",
+        "LPT²",
+        "LPT³",
+    }
+)
+_WRITER_LOCKS: dict[str, threading.RLock] = {}
+_WRITER_LOCKS_GUARD = threading.Lock()
+_WRITER_LOCK_STATE = threading.local()
+
+
+@contextmanager
+def _platform_file_lock(fd: int) -> Iterator[None]:
+    """Hold one byte of a lock file across processes on the host platform."""
+    if os.name == "nt":
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        if os.name == "nt":
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def _reject_constant(value: str) -> object:
@@ -322,9 +398,9 @@ def _check_json_depth(text: str) -> None:
 
 def _strict_json_loads(raw: bytes | str) -> object:
     if isinstance(raw, bytes):
-        text = raw.decode("utf-8")
         if len(raw) > _MAX_JSON_BYTES:
             raise ValueError("JSON input is oversized")
+        text = raw.decode("utf-8")
     elif isinstance(raw, str):
         if len(raw.encode("utf-8")) > _MAX_JSON_BYTES:
             raise ValueError("JSON input is oversized")
@@ -361,6 +437,8 @@ def _validate_json_value(value: object) -> None:
                 raise RunnerError("workflow value is not strict JSON")
             continue
         if isinstance(current, str):
+            if len(current.encode("utf-8")) > _MAX_STRING_BYTES:
+                raise RunnerError("workflow string is oversized")
             continue
         if isinstance(current, Mapping):
             for key, item in current.items():
@@ -408,27 +486,79 @@ def _reject_output_target_spoof(value: object) -> None:
 
 
 def _safe_id(value: object, field: str) -> str:
-    if not isinstance(value, str) or _ID.fullmatch(value) is None or len(value) > 128:
+    if (
+        not isinstance(value, str)
+        or _ID.fullmatch(value) is None
+        or len(value) > 128
+        or value.endswith(".")
+        or _is_windows_reserved_component(value)
+    ):
         raise RunnerError(f"invalid {field}")
     return value
 
 
 def _safe_text(value: object, field: str, *, required: bool = True) -> str:
-    if not isinstance(value, str) or (required and not value.strip()) or any(ord(char) < 32 for char in value):
+    if (
+        not isinstance(value, str)
+        or (required and not value.strip())
+        or any(ord(char) < 32 for char in value)
+        or len(value.encode("utf-8")) > _MAX_TEXT_BYTES
+    ):
         raise RunnerError(f"invalid {field}")
     return value
 
 
-def _safe_relative(value: object, field: str) -> str:
+def _is_runner_control_target(parts: Sequence[str]) -> bool:
+    lowered = [part.casefold() for part in parts]
+    return (
+        lowered[-1] in _RUNNER_CONTROL_NAMES
+        or len(lowered) >= 2 and lowered[0:2] == [".factory", "planning"]
+    )
+
+
+def _is_windows_reserved_component(part: str) -> bool:
+    stem = part.rstrip(" .").split(".", 1)[0].upper()
+    return stem in _WINDOWS_RESERVED_NAMES
+
+
+def _safe_relative(value: object, field: str, *, allow_runner_control: bool = False) -> str:
     if not isinstance(value, str) or not value or value != value.strip() or any(ord(char) < 32 for char in value):
         raise RunnerError(f"invalid {field}")
     normalized = value.replace("\\", "/")
-    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized) or ":" in normalized:
         raise RunnerError(f"invalid {field}")
     parts = normalized.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
+    if (
+        any(part in {"", ".", ".."} for part in parts)
+        or any(part.endswith((".", " ")) for part in parts)
+        or any(_is_windows_reserved_component(part) for part in parts)
+        or (not allow_runner_control and _is_runner_control_target(parts))
+    ):
         raise RunnerError(f"invalid {field}")
     return normalized
+
+
+def _bounded_json(value: object, field: str, maximum: int) -> bytes:
+    _validate_json_value(value)
+    encoded = _canonical(value)
+    if len(encoded) > maximum:
+        raise RunnerError(f"{field} is oversized")
+    return encoded
+
+
+def _read_limited(path: Path, maximum: int, label: str) -> bytes:
+    try:
+        if path.stat().st_size > maximum:
+            raise RunnerError(f"{label} is oversized")
+        with path.open("rb") as stream:
+            raw = stream.read(maximum + 1)
+    except RunnerError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise RunnerError(f"{label} is unreadable") from exc
+    if len(raw) > maximum:
+        raise RunnerError(f"{label} is oversized")
+    return raw
 
 
 def _positive_int(value: object, field: str) -> int:
@@ -541,12 +671,12 @@ def _result_from_record(value: object, expected_run_id: str) -> AgentResultRecor
     payload = value.get("payload")
     if type(ok) is not bool or not isinstance(payload, Mapping):
         raise RunnerError("result record schema is invalid")
-    _validate_json_value(payload)
     _reject_output_target_spoof(payload)
+    payload_bytes = _bounded_json(payload, "result payload", _MAX_PAYLOAD_BYTES)
     payload_sha256 = value.get("payload_sha256")
     if not isinstance(payload_sha256, str) or _SHA256.fullmatch(payload_sha256) is None:
         raise RunnerError("result payload hash is invalid")
-    if payload_sha256 != _sha(_canonical(payload)):
+    if payload_sha256 != _sha(payload_bytes):
         raise RunnerError("result payload hash does not match")
     session_id = value.get("session_id")
     if session_id is not None:
@@ -624,7 +754,10 @@ def _gate_from_record(value: object, expected_run_id: str) -> GateRecord:
     evidence = value.get("evidence")
     if not isinstance(evidence, Mapping):
         raise RunnerError("gate evidence is invalid")
-    _validate_json_value(evidence)
+    _reject_output_target_spoof(evidence)
+    _bounded_json(evidence, "gate evidence", _MAX_EVIDENCE_BYTES)
+    if gate_id != f"gate-{stage.value}":
+        raise RunnerError("gate is not in the trusted allowlist")
     if evidence_sha256 != _gate_evidence_hash(invocation_sha256, result_sha256, output_sha256, evidence):
         raise RunnerError("gate evidence hash does not match")
     return GateRecord(
@@ -689,9 +822,8 @@ class ParentGateVerifier:
                 evidence_payload = dict(evidence)
             else:
                 raise RunnerError("gate evidence is invalid")
-            _validate_json_value(evidence_payload)
             _reject_output_target_spoof(evidence_payload)
-            _canonical(evidence_payload)
+            _bounded_json(evidence_payload, "gate evidence", _MAX_EVIDENCE_BYTES)
             invocation_sha256 = _record_sha(invocation)
             result_sha256 = _record_sha(result_record)
             output_sha256 = _output_binding_hash(invocation.output_path)
@@ -728,17 +860,101 @@ class PlanningRunner:
         self.events_path = self.run_dir / "workflow-events.jsonl"
         self.integrity_path = self.run_dir / "workflow-integrity.json"
         self.state_path = self.run_dir / "workflow-state.json"
+        self.recovery_path = self.run_dir / "workflow-recovery.json"
+        self.writer_lock_path = self.run_dir / ".runner-writer.lock"
         self._known_attempts: set[_Identity] = set()
+        self._pending_invocation: AgentInvocation | None = None
         self._gate_capability = object()
         self._parent_gate_verifier = ParentGateVerifier(self, self._gate_capability)
-        self._events()
-        self._recover_interrupted_attempts()
+        recovery = self._read_recovery()
+        try:
+            self._events(allow_recovery=recovery is not None)
+        except RunnerError as exc:
+            if recovery is not None:
+                raise
+            events = self._events(allow_recovery=True)
+            identity = self._event_identity(events[-1]) if events else None
+            self._fail_closed(None, "integrity_recovery", exc, identity=identity)
+        with self._writer_lock():
+            self._recover_interrupted_attempts()
+
+    @contextmanager
+    def _writer_lock(self) -> Iterator[None]:
+        key = str(self.writer_lock_path)
+        if os.name == "nt":
+            key = key.casefold()
+        with _WRITER_LOCKS_GUARD:
+            lock = _WRITER_LOCKS.setdefault(key, threading.RLock())
+        lock.acquire()
+        depths = getattr(_WRITER_LOCK_STATE, "depths", {})
+        depth = depths.get(key, 0)
+        fd: int | None = None
+        try:
+            if depth == 0:
+                run_dir = self._safe_path(self.run_dir, "planning run")
+                run_dir.mkdir(parents=True, exist_ok=True)
+                lock_path = self._safe_path(self.writer_lock_path, "writer lock")
+                flags = os.O_RDWR | os.O_CREAT
+                if hasattr(os, "O_BINARY"):
+                    flags |= os.O_BINARY
+                fd = os.open(lock_path, flags, 0o600)
+                if os.fstat(fd).st_size == 0:
+                    os.write(fd, b"\0")
+                file_lock = _platform_file_lock(fd)
+                file_lock.__enter__()
+                depths[key] = 1
+                _WRITER_LOCK_STATE.depths = depths
+                try:
+                    yield
+                finally:
+                    depths[key] = 0
+                    file_lock.__exit__(None, None, None)
+            else:
+                depths[key] = depth + 1
+                _WRITER_LOCK_STATE.depths = depths
+                try:
+                    yield
+                finally:
+                    depths[key] = depth
+        finally:
+            if fd is not None:
+                os.close(fd)
+            lock.release()
 
     @property
     def parent_gate_verifier(self) -> ParentGateVerifier:
         return self._parent_gate_verifier
 
     def begin(
+        self,
+        stage: PlanningStage | str,
+        *,
+        role: str,
+        input_paths: Sequence[Path],
+        output_path: str,
+    ) -> AgentInvocation:
+        with self._writer_lock():
+            try:
+                return self._begin_locked(
+                    stage,
+                    role=role,
+                    input_paths=input_paths,
+                    output_path=output_path,
+                )
+            except RunnerBlocked:
+                raise
+            except _RunnerEncodeError as exc:
+                self._fail_closed(self._pending_invocation, "begin_encode_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            except RunnerError:
+                raise
+            except (OSError, UnicodeError, RecursionError, TypeError, ValueError, OverflowError) as exc:
+                self._fail_closed(self._pending_invocation, "begin_write_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            finally:
+                self._pending_invocation = None
+
+    def _begin_locked(
         self,
         stage: PlanningStage | str,
         *,
@@ -795,6 +1011,7 @@ class PlanningRunner:
                 revision, attempt = prior_revision + 1, 1
 
         invocation = AgentInvocation(1, self.run_id, requested, revision, attempt, role_id, hashes, relative_output)
+        self._pending_invocation = invocation
         invocation_path = self._record_file(invocation, "invocation.json")
         if invocation_path.exists():
             raise RunnerError("invocation record already exists")
@@ -815,6 +1032,21 @@ class PlanningRunner:
         return invocation
 
     def record_result(self, invocation: AgentInvocation, result: Mapping[str, object]) -> AgentResultRecord:
+        with self._writer_lock():
+            try:
+                return self._record_result_locked(invocation, result)
+            except RunnerBlocked:
+                raise
+            except _RunnerEncodeError as exc:
+                self._fail_closed(invocation, "result_encode_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            except RunnerError:
+                raise
+            except (OSError, UnicodeError, RecursionError, TypeError, ValueError, OverflowError) as exc:
+                self._fail_closed(invocation, "result_write_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+
+    def _record_result_locked(self, invocation: AgentInvocation, result: Mapping[str, object]) -> AgentResultRecord:
         self._validate_invocation(invocation)
         self._assert_current_attempt(invocation, require_no_result=True)
         self._assert_inputs_current(invocation)
@@ -833,7 +1065,6 @@ class PlanningRunner:
             payload = result_data.get("payload")
             if type(ok) is not bool or not isinstance(payload, Mapping):
                 raise RunnerError("agent result schema is invalid")
-            _validate_json_value(payload)
             _reject_output_target_spoof(payload)
             session_id = result_data.get("session_id")
             if session_id is not None:
@@ -842,7 +1073,7 @@ class PlanningRunner:
             if error is not None:
                 error = _safe_text(error, "agent error", required=False)
             payload_data = dict(payload)
-            payload_sha256 = _sha(_canonical(payload_data))
+            payload_sha256 = _sha(_bounded_json(payload_data, "result payload", _MAX_PAYLOAD_BYTES))
         except RunnerError as exc:
             self._durable_block(invocation, "agent_result_invalid", str(exc))
             raise RunnerBlocked(str(exc)) from exc
@@ -893,6 +1124,37 @@ class PlanningRunner:
         detail: str | None = None,
         evidence: Mapping[str, object] | None = None,
     ) -> GateRecord:
+        with self._writer_lock():
+            try:
+                return self._record_gate_locked(
+                    invocation,
+                    verification=verification,
+                    gate_id=gate_id,
+                    passed=passed,
+                    detail=detail,
+                    evidence=evidence,
+                )
+            except RunnerBlocked:
+                raise
+            except _RunnerEncodeError as exc:
+                self._fail_closed(invocation, "gate_encode_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            except RunnerError:
+                raise
+            except (OSError, UnicodeError, RecursionError, TypeError, ValueError, OverflowError) as exc:
+                self._fail_closed(invocation, "gate_write_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+
+    def _record_gate_locked(
+        self,
+        invocation: AgentInvocation,
+        *,
+        verification: GateVerification | None = None,
+        gate_id: str | None = None,
+        passed: bool | None = None,
+        detail: str | None = None,
+        evidence: Mapping[str, object] | None = None,
+    ) -> GateRecord:
         del gate_id, passed, detail, evidence
         if verification is None:
             raise RunnerError("trusted parent gate verification is required")
@@ -924,9 +1186,8 @@ class PlanningRunner:
             self._durable_block(invocation, "gate_evidence_invalid", str(exc))
             raise RunnerBlocked("agent result is unreadable") from exc
         evidence_payload = dict(verification.evidence)
-        _validate_json_value(evidence_payload)
         _reject_output_target_spoof(evidence_payload)
-        _canonical(evidence_payload)
+        _bounded_json(evidence_payload, "gate evidence", _MAX_EVIDENCE_BYTES)
         invocation_sha256 = _record_sha(invocation)
         result_sha256 = _record_sha(result_record)
         output_sha256 = _output_binding_hash(invocation.output_path)
@@ -990,6 +1251,21 @@ class PlanningRunner:
         return record
 
     def advance(self, invocation: AgentInvocation) -> PlanningStage | None:
+        with self._writer_lock():
+            try:
+                return self._advance_locked(invocation)
+            except RunnerBlocked:
+                raise
+            except _RunnerEncodeError as exc:
+                self._fail_closed(invocation, "advance_encode_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            except RunnerError:
+                raise
+            except (OSError, UnicodeError, RecursionError, TypeError, ValueError, OverflowError) as exc:
+                self._fail_closed(invocation, "advance_write_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+
+    def _advance_locked(self, invocation: AgentInvocation) -> PlanningStage | None:
         try:
             self._validate_invocation(invocation)
         except RunnerBlocked:
@@ -1046,6 +1322,13 @@ class PlanningRunner:
         return next_stage
 
     def status(self) -> WorkflowState:
+        with self._writer_lock():
+            recovery = self._read_recovery()
+            if recovery is not None:
+                return self._blocked_state(recovery)
+            return self._status_locked()
+
+    def _status_locked(self) -> WorkflowState:
         events = self._events()
         completed, attempts = self._validate_event_history(events)
         self._validate_history_records(events, attempts)
@@ -1058,6 +1341,103 @@ class PlanningRunner:
             for stage, attempt in attempts.items()
         }
         return WorkflowState(1, self.run_id, current, blocked, reason, tuple(stage.value for stage in _STAGE_ORDER[: len(completed)]), latest_attempts)
+
+    def _read_recovery(self) -> dict[str, object] | None:
+        path = self._safe_path(self.recovery_path, "workflow recovery")
+        if not path.exists():
+            return None
+        value = self._read_json(path, "workflow recovery")
+        if not isinstance(value, Mapping) or set(value) != _RECOVERY_KEYS:
+            raise RunnerError("workflow recovery record is invalid")
+        if type(value.get("schema")) is not int or value.get("schema") != 1:
+            raise RunnerError("workflow recovery record is invalid")
+        if value.get("run_id") != self.run_id:
+            raise RunnerError("workflow recovery run identity is invalid")
+        stage_value = value.get("stage")
+        if stage_value is not None:
+            stage = _stage(stage_value).value
+            revision = _positive_int(value.get("revision"), "revision")
+            attempt = _positive_int(value.get("attempt"), "attempt")
+        else:
+            stage = None
+            if value.get("revision") is not None or value.get("attempt") is not None:
+                raise RunnerError("workflow recovery identity is invalid")
+            revision = None
+            attempt = None
+        reason = _safe_id(value.get("reason"), "recovery reason")
+        detail = _safe_text(value.get("detail"), "recovery detail")
+        return {
+            "schema": 1,
+            "run_id": self.run_id,
+            "stage": stage,
+            "revision": revision,
+            "attempt": attempt,
+            "reason": reason,
+            "detail": detail,
+        }
+
+    def _blocked_state(self, recovery: Mapping[str, object]) -> WorkflowState:
+        try:
+            events = self._events(allow_recovery=True)
+            completed, attempts = self._validate_event_history(events)
+        except RunnerError:
+            completed, attempts = [], {}
+        marker_stage = recovery.get("stage")
+        current = (
+            str(marker_stage)
+            if marker_stage is not None
+            else _STAGE_ORDER[len(completed)].value if len(completed) < len(_STAGE_ORDER) else None
+        )
+        latest_attempts = {
+            stage: _positive_int(attempt.begin.get("attempt"), "attempt")
+            for stage, attempt in attempts.items()
+        }
+        return WorkflowState(
+            1,
+            self.run_id,
+            current,
+            True,
+            str(recovery["reason"]),
+            tuple(stage.value for stage in _STAGE_ORDER[: len(completed)]),
+            latest_attempts,
+        )
+
+    def _fail_closed(
+        self,
+        invocation: AgentInvocation | None,
+        reason: str,
+        error: BaseException,
+        *,
+        identity: _Identity | None = None,
+    ) -> None:
+        detail = str(error).replace("\r", " ").replace("\n", " ")
+        if not detail.strip():
+            detail = "runner mutation failed"
+        detail = detail[: _MAX_TEXT_BYTES]
+        payload: dict[str, object] = {
+            "schema": 1,
+            "run_id": self.run_id,
+            "stage": identity[0] if identity is not None else invocation.stage.value if invocation is not None else None,
+            "revision": identity[1] if identity is not None else invocation.revision if invocation is not None else None,
+            "attempt": identity[2] if identity is not None else invocation.attempt if invocation is not None else None,
+            "reason": _safe_id(reason, "recovery reason"),
+            "detail": detail,
+        }
+        try:
+            path = self._safe_path(self.recovery_path, "workflow recovery")
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+            if len(content.encode("utf-8")) > _MAX_JSON_BYTES:
+                return
+            _atomic_write(path, content)
+        except (OSError, TypeError, ValueError, RecursionError):
+            return
+
+    def _clear_recovery(self) -> None:
+        try:
+            path = self._safe_path(self.recovery_path, "workflow recovery")
+            path.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
 
     def _safe_path(self, path: Path, label: str) -> Path:
         safe = safe_resolve(self.project_root, path)
@@ -1077,7 +1457,7 @@ class PlanningRunner:
         try:
             content = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         except (RecursionError, TypeError, ValueError) as exc:
-            raise RunnerError(f"{label} is not strict JSON") from exc
+            raise _RunnerEncodeError(f"{label} is not strict JSON") from exc
         if len(content.encode("utf-8")) > _MAX_JSON_BYTES:
             raise RunnerError(f"{label} is oversized")
         safe = self._safe_path(path, label)
@@ -1086,8 +1466,10 @@ class PlanningRunner:
     def _read_json(self, path: Path, label: str) -> object:
         safe = self._safe_path(path, label)
         try:
-            raw = safe.read_bytes()
+            raw = _read_limited(safe, _MAX_JSON_BYTES, label)
             return _strict_json_loads(raw)
+        except RunnerError:
+            raise
         except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise RunnerError(f"{label} is unreadable") from exc
 
@@ -1314,7 +1696,7 @@ class PlanningRunner:
         elif action == "result":
             if type(event.get("ok")) is not bool:
                 raise RunnerError("workflow result status is invalid")
-            result_path = _safe_relative(event.get("result_path"), "result path")
+            result_path = _safe_relative(event.get("result_path"), "result path", allow_runner_control=True)
             expected_path = self._record_dir_for(stage, int(event["revision"]), int(event["attempt"])) / "result.json"
             expected_relative = expected_path.relative_to(self.project_root).as_posix()
             if result_path != event.get("result_path") or result_path != expected_relative:
@@ -1417,11 +1799,18 @@ class PlanningRunner:
                     completed.append(stage)
         return completed, attempts
 
-    def _validate_history_records(self, events: Sequence[dict[str, object]], attempts: dict[str, _AttemptState]) -> None:
+    def _validate_history_records(
+        self,
+        events: Sequence[dict[str, object]],
+        attempts: dict[str, _AttemptState],
+        *,
+        collect_errors: bool = False,
+    ) -> set[_Identity]:
         del attempts  # The event identities, not only the latest stage, are authoritative.
         invocations: dict[_Identity, AgentInvocation] = {}
         results: dict[_Identity, AgentResultRecord] = {}
         gates: dict[_Identity, GateRecord] = {}
+        invalid: set[_Identity] = set()
         blocked: set[_Identity] = {
             self._event_identity(event) for event in events if event["action"] == "block"
         }
@@ -1442,7 +1831,9 @@ class PlanningRunner:
                     invocations[identity] = invocation
                 except RunnerError:
                     if identity not in blocked:
-                        raise
+                        if not collect_errors:
+                            raise
+                        invalid.add(identity)
             elif action == "block":
                 blocked.add(identity)
 
@@ -1473,7 +1864,9 @@ class PlanningRunner:
             except RunnerError:
                 if identity in blocked:
                     continue
-                raise
+                if not collect_errors:
+                    raise
+                invalid.add(identity)
 
         for event in events:
             if event["action"] != "gate":
@@ -1508,7 +1901,9 @@ class PlanningRunner:
             except RunnerError:
                 if identity in blocked:
                     continue
-                raise
+                if not collect_errors:
+                    raise
+                invalid.add(identity)
 
         for event in events:
             if event["action"] != "advance":
@@ -1517,11 +1912,17 @@ class PlanningRunner:
             result_record = results.get(identity)
             gate_record = gates.get(identity)
             if result_record is None or gate_record is None:
-                raise RunnerError("advance evidence is missing")
+                if not collect_errors:
+                    raise RunnerError("advance evidence is missing")
+                invalid.add(identity)
+                continue
             if not result_record.ok or not gate_record.passed:
-                raise RunnerError("advance evidence did not pass")
+                if not collect_errors:
+                    raise RunnerError("advance evidence did not pass")
+                invalid.add(identity)
+        return invalid
 
-    def _events(self) -> list[dict[str, object]]:
+    def _events(self, *, allow_recovery: bool = False) -> list[dict[str, object]]:
         path = self._safe_path(self.events_path, "workflow journal")
         if not path.exists():
             integrity_path = self._safe_path(self.integrity_path, "workflow integrity")
@@ -1529,7 +1930,13 @@ class PlanningRunner:
                 raise RunnerError("workflow journal history is missing")
             return []
         try:
-            raw = self._safe_path(self.events_path, "workflow journal").read_bytes()
+            raw = _read_limited(
+                self._safe_path(self.events_path, "workflow journal"),
+                _MAX_WORKFLOW_JOURNAL_BYTES,
+                "workflow journal",
+            )
+        except RunnerError:
+            raise
         except (OSError, UnicodeError) as exc:
             raise RunnerError("workflow journal is unreadable") from exc
         lines = raw.splitlines()
@@ -1543,13 +1950,25 @@ class PlanningRunner:
             validated = self._validate_event_schema(event, expected, previous_sha256)
             events.append(validated)
             previous_sha256 = str(validated["event_sha256"])
-        integrity = self._read_integrity()
+        try:
+            integrity = self._read_integrity()
+        except RunnerError:
+            if not allow_recovery or not events and self._read_recovery() is None:
+                raise
+            self._validate_event_history(events)
+            return events
         if integrity is None:
+            if allow_recovery and (events or self._read_recovery() is not None):
+                self._validate_event_history(events)
+                return events
             raise RunnerError("workflow integrity record is missing")
         if (
             integrity["event_count"] != len(events)
             or integrity["head_sha256"] != previous_sha256
         ):
+            if allow_recovery and (events or self._read_recovery() is not None):
+                self._validate_event_history(events)
+                return events
             raise RunnerError("workflow journal integrity record does not match")
         self._validate_event_history(events)
         return events
@@ -1582,9 +2001,24 @@ class PlanningRunner:
         return result
 
     def _append(self, payload: Mapping[str, object]) -> None:
+        with self._writer_lock():
+            try:
+                self._append_locked(payload)
+            except RunnerBlocked:
+                raise
+            except _RunnerEncodeError as exc:
+                self._fail_closed(self._pending_invocation, "journal_encode_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+            except RunnerError:
+                raise
+            except (OSError, UnicodeError, RecursionError, TypeError, ValueError, OverflowError) as exc:
+                self._fail_closed(self._pending_invocation, "journal_write_failure", exc)
+                raise RunnerBlocked("runner mutation failed closed") from exc
+
+    def _append_locked(self, payload: Mapping[str, object]) -> None:
         if set(payload) & {"schema", "sequence"}:
             raise RunnerError("workflow event contains reserved fields")
-        existing = self._events()
+        existing = self._events(allow_recovery=self._read_recovery() is not None)
         sequence = len(existing) + 1
         previous_sha256 = str(existing[-1]["event_sha256"]) if existing else _GENESIS_SHA256
         event = {
@@ -1606,8 +2040,8 @@ class PlanningRunner:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
-        except (OSError, TypeError, ValueError) as exc:
-            raise RunnerError("workflow event could not be appended") from exc
+        except (OSError, TypeError, ValueError):
+            raise
         self._write_json(
             self.integrity_path,
             {
@@ -1620,11 +2054,114 @@ class PlanningRunner:
         )
         self._write_json(self.state_path, self.status().to_dict(), "workflow state")
 
+    def _record_identity_from_path(self, path: Path) -> _Identity | None:
+        try:
+            parts = path.relative_to(self.run_dir / "stages").parts
+            if len(parts) != 4:
+                return None
+            stage_name = parts[0].casefold()
+            stage = _stage(stage_name).value
+            revision_match = re.fullmatch(r"r([1-9][0-9]*)", parts[1], re.IGNORECASE)
+            attempt_match = re.fullmatch(r"a([1-9][0-9]*)", parts[2], re.IGNORECASE)
+            if revision_match is None or attempt_match is None:
+                return None
+            _positive_int(int(revision_match.group(1)), "revision")
+            _positive_int(int(attempt_match.group(1)), "attempt")
+            return stage, int(revision_match.group(1)), int(attempt_match.group(1))
+        except (RunnerError, OSError, ValueError):
+            return None
+
+    def _orphan_record_identities(self, events: Sequence[dict[str, object]]) -> set[_Identity]:
+        stages_dir = self._safe_path(self.run_dir / "stages", "stage records")
+        if not stages_dir.exists():
+            return set()
+        referenced: set[tuple[_Identity, str]] = set()
+        for event in events:
+            action = event["action"]
+            if not isinstance(action, str) or action not in {"begin", "result", "gate"}:
+                continue
+            filename = "invocation.json" if action == "begin" else action + ".json"
+            referenced.add((self._event_identity(event), filename))
+        orphaned: set[_Identity] = set()
+        for path in stages_dir.rglob("*"):
+            filename = path.name.casefold()
+            if filename not in {"invocation.json", "result.json", "gate.json"}:
+                continue
+            safe = self._safe_path(path, "stage record")
+            if not safe.is_file():
+                continue
+            identity = self._record_identity_from_path(safe)
+            if identity is not None and (identity, filename) not in referenced:
+                orphaned.add(identity)
+        return orphaned
+
+    def _append_recovery_block(self, identity: _Identity, reason: str, detail: str) -> None:
+        events = self._events(allow_recovery=self._read_recovery() is not None)
+        if any(event["action"] == "block" and self._event_identity(event) == identity for event in events):
+            return
+        self._append(
+            {
+                "action": "block",
+                "run_id": self.run_id,
+                "stage": identity[0],
+                "revision": identity[1],
+                "attempt": identity[2],
+                "reason": _safe_id(reason, "block reason"),
+                "detail": _safe_text(detail, "block detail"),
+            }
+        )
+
     def _recover_interrupted_attempts(self) -> None:
-        events = self._events()
+        recovery = self._read_recovery()
+        events = self._events(allow_recovery=recovery is not None)
+        _, attempts = self._validate_event_history(events)
+        invalid = self._validate_history_records(events, attempts, collect_errors=True)
+        orphaned = self._orphan_record_identities(events)
+        begin_identities = {
+            self._event_identity(event) for event in events if event["action"] == "begin"
+        }
+        advanced_identities = {
+            self._event_identity(event) for event in events if event["action"] == "advance"
+        }
+        unresolved = recovery is not None and recovery.get("stage") is None
+        marker_identity = None
+        if recovery is not None and recovery.get("stage") is not None:
+            marker_identity = (
+                str(recovery["stage"]),
+                _positive_int(recovery["revision"], "revision"),
+                _positive_int(recovery["attempt"], "attempt"),
+            )
+            if marker_identity not in begin_identities:
+                unresolved = True
+            if marker_identity in advanced_identities:
+                unresolved = True
+        for identity in sorted(invalid | orphaned):
+            if identity in advanced_identities:
+                unresolved = True
+                self._fail_closed(
+                    None,
+                    "recovery_integrity",
+                    RuntimeError("advanced runner evidence could not be reconciled"),
+                    identity=identity,
+                )
+                continue
+            if identity in begin_identities:
+                self._append_recovery_block(
+                    identity,
+                    "recovery_integrity",
+                    "persisted runner evidence could not be reconciled",
+                )
+            else:
+                unresolved = True
+                self._fail_closed(
+                    None,
+                    "orphan_record",
+                    RuntimeError("orphan runner record has no journal begin"),
+                )
+        events = self._events(allow_recovery=self._read_recovery() is not None)
         _, attempts = self._validate_event_history(events)
         for stage_name, attempt in attempts.items():
-            if attempt.result is not None or attempt.gate is not None or attempt.blocked or attempt.advanced:
+            if attempt.blocked or attempt.advanced:
                 continue
             identity = (
                 stage_name,
@@ -1644,6 +2181,8 @@ class PlanningRunner:
                     "detail": "begin-only attempt recovered fail-closed",
                 }
             )
+        if recovery is not None and not unresolved:
+            self._clear_recovery()
 
 
 __all__ = [

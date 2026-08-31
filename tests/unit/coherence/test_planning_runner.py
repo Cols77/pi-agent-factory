@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+import coherence.planning.runner as runner_module
 from coherence.planning.runner import (
     AgentInvocation,
     GateRecord,
@@ -28,7 +30,7 @@ def _complete(runner: PlanningRunner, stage: PlanningStage, input_path: Path) ->
         stage,
         role=f"{stage.value}-agent",
         input_paths=(input_path,),
-        output_path=f".factory/planning/{runner.run_id}/{stage.value}.json",
+        output_path=f".intent/{stage.value}.json",
     )
     runner.record_result(invocation, {"ok": True, "payload": {"stage": stage.value}})
     _trusted_gate(runner, invocation)
@@ -733,3 +735,297 @@ def test_reopened_interrupted_attempt_can_retry_with_same_revision(tmp_path: Pat
         output_path=".intent/intent.json",
     )
     assert (retry.revision, retry.attempt) == (1, 2)
+
+
+def test_writer_lock_serializes_two_runner_instances_deterministically(tmp_path: Path) -> None:
+    first = PlanningRunner(tmp_path, "run-1")
+    second = PlanningRunner(tmp_path, "run-1")
+    entered = threading.Event()
+
+    def contender() -> None:
+        with second._writer_lock():
+            entered.set()
+
+    with first._writer_lock():
+        thread = threading.Thread(target=contender)
+        thread.start()
+        assert not entered.wait(0.1)
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert entered.is_set()
+
+
+def test_concurrent_begin_allocates_one_attempt_and_preserves_one_sequence_chain(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runners = [PlanningRunner(tmp_path, "run-1"), PlanningRunner(tmp_path, "run-1")]
+    start = threading.Barrier(2)
+    outcomes: list[tuple[str, object]] = []
+    outcome_lock = threading.Lock()
+
+    def worker(runner: PlanningRunner) -> None:
+        start.wait()
+        try:
+            invocation = runner.begin(
+                PlanningStage.CAPTURE,
+                role="intent-capture",
+                input_paths=(input_path,),
+                output_path=".intent/intent.json",
+            )
+        except Exception as exc:  # noqa: BLE001 - assert the exact winner below
+            outcome = ("error", exc)
+        else:
+            outcome = ("ok", invocation)
+        with outcome_lock:
+            outcomes.append(outcome)
+
+    threads = [threading.Thread(target=worker, args=(runner,)) for runner in runners]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+    assert all(not thread.is_alive() for thread in threads)
+    assert [kind for kind, _ in outcomes].count("ok") == 1
+    assert [kind for kind, _ in outcomes].count("error") == 1
+    events = [
+        json.loads(line) for line in runners[0].events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [event["sequence"] for event in events] == [1]
+
+
+@pytest.mark.parametrize("output_path", [
+    "CON.txt",
+    "reports/trailing. ",
+    "reports/trailing.",
+    "reports/aux.log",
+    "reports/foo:bar.json",
+    ".factory/planning/run-1/workflow-events.jsonl",
+])
+def test_windows_unsafe_or_runner_control_output_targets_are_rejected(
+    tmp_path: Path, output_path: str
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+
+    with pytest.raises(RunnerError, match="output target|unsafe"):
+        runner.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(input_path,),
+            output_path=output_path,
+        )
+
+
+def test_reopening_rejects_a_persisted_windows_unsafe_output_target(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    invocation_path = runner._record_dir(invocation) / "invocation.json"
+    stored = invocation.to_dict()
+    stored["output_path"] = "CON.txt"
+    invocation_path.write_text(json.dumps(stored) + "\n", encoding="utf-8")
+
+    with pytest.raises(RunnerError, match="invocation|output target|unsafe"):
+        runner.record_result(invocation, {"ok": True, "payload": {}})
+
+
+def test_oversized_control_file_is_rejected_before_json_decoding(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    control_path = runner._record_dir(invocation) / "invocation.json"
+    control_path.write_bytes(b"x" * (1_048_576 + 1))
+
+    with pytest.raises(RunnerError, match="oversized"):
+        runner._read_json(control_path, "invocation record")
+
+
+def test_oversized_workflow_journal_is_rejected_before_reading_the_journal(tmp_path: Path) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    limit = getattr(runner_module, "_MAX_WORKFLOW_JOURNAL_BYTES", 1_048_576)
+    runner.run_dir.mkdir(parents=True, exist_ok=True)
+    runner.events_path.write_bytes(b"x" * (limit + 1))
+
+    with pytest.raises(RunnerError, match="oversized"):
+        runner.status()
+
+
+def test_oversized_result_error_is_rejected_before_result_write(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    with pytest.raises(RunnerBlocked, match="result|error|oversized"):
+        runner.record_result(
+            invocation,
+            {"ok": False, "payload": {}, "error": "x" * 100_000},
+        )
+    assert not (runner._record_dir(invocation) / "result.json").exists()
+
+
+def test_oversized_gate_evidence_is_rejected_before_gate_write(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+
+    with pytest.raises(RunnerBlocked, match="evidence|oversized"):
+        _trusted_gate(runner, invocation, evidence={"blob": "x" * 100_000})
+    assert not (runner._record_dir(invocation) / "gate.json").exists()
+
+
+@pytest.mark.parametrize(
+    "failure_boundary",
+    ["invocation.json", "result.json", "gate.json", "workflow-integrity.json", "workflow-state.json"],
+)
+def test_write_failure_reopens_as_a_durable_blocked_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_boundary: str
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    original_write_json = runner._write_json
+
+    def fail_boundary(path: Path, value: object, label: str) -> None:
+        if path.name == failure_boundary:
+            raise OSError(f"injected {failure_boundary} failure")
+        original_write_json(path, value, label)
+
+    monkeypatch.setattr(runner, "_write_json", fail_boundary)
+    if failure_boundary in {"invocation.json", "workflow-integrity.json", "workflow-state.json"}:
+        with pytest.raises(RunnerBlocked, match="mutation|write|durab"):
+            runner.begin(
+                PlanningStage.CAPTURE,
+                role="intent-capture",
+                input_paths=(input_path,),
+                output_path=".intent/intent.json",
+            )
+    else:
+        invocation = runner.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(input_path,),
+            output_path=".intent/intent.json",
+        )
+        if failure_boundary == "result.json":
+            with pytest.raises(RunnerBlocked, match="mutation|write|durab"):
+                runner.record_result(invocation, {"ok": True, "payload": {}})
+        else:
+            runner.record_result(invocation, {"ok": True, "payload": {}})
+            verification = runner.parent_gate_verifier.attest(
+                invocation,
+                gate_id="gate-capture",
+                passed=True,
+                detail="verified",
+            )
+            with pytest.raises(RunnerBlocked, match="mutation|write|durab"):
+                runner.record_gate(invocation, verification=verification)
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+
+
+def test_one_shot_journal_fsync_failure_reopens_as_a_durable_blocked_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    original_fsync = runner_module.os.fsync
+    failed = False
+
+    def fail_once(fd: int) -> None:
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("injected fsync failure")
+        original_fsync(fd)
+
+    monkeypatch.setattr(runner_module.os, "fsync", fail_once)
+    with pytest.raises(RunnerBlocked, match="mutation|write|durab"):
+        runner.record_result(invocation, {"ok": True, "payload": {}})
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+
+
+def test_reopening_missing_result_record_reconciles_a_durable_block(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    (runner._record_dir(invocation) / "result.json").unlink()
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    state = reopened.status()
+    assert state.blocked is True
+    assert json.loads(reopened.events_path.read_text(encoding="utf-8").splitlines()[-1])["action"] == "block"
+
+
+def test_reopening_an_orphan_control_record_blocks_without_deleting_it(tmp_path: Path) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    orphan = runner.run_dir / "stages" / "capture" / "r1" / "a1" / "result.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text("{}\n", encoding="utf-8")
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+    assert orphan.exists()
+
+
+@pytest.mark.parametrize("tamper", ["nested-output", "gate-id"])
+def test_persisted_gate_parser_rejects_spoofed_nested_evidence_and_gate_identity(
+    tmp_path: Path, tamper: str
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    gate = _trusted_gate(runner, invocation)
+    persisted = gate.to_dict()
+    if tamper == "nested-output":
+        persisted["evidence"] = {"nested": [{"output_path": "forged.json"}]}
+        persisted["evidence_sha256"] = runner_module._gate_evidence_hash(
+            gate.invocation_sha256,
+            gate.result_sha256,
+            gate.output_sha256,
+            persisted["evidence"],
+        )
+    else:
+        persisted["gate_id"] = "forged-gate"
+
+    with pytest.raises(RunnerError, match="gate|evidence|output"):
+        runner_module._gate_from_record(persisted, "run-1")
