@@ -6,24 +6,13 @@ from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.ledger import TaskNotFoundError, TaskNotTodoError, load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
-from ._skill_fixtures import write_skill_stubs
+from ._repo_fixtures import copy_repo_seed
 
 pytestmark = pytest.mark.unit
 
 
 def _repo(tmp_path):
-    (tmp_path / "tasks").mkdir()
-    (tmp_path / "tasks" / "T-001.md").write_text(
-        "---\nid: T-001\ntitle: t\nstatus: todo\ndod:\n  - c\n---\nbody\n", encoding="utf-8")
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
-    write_skill_stubs(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
-    return tmp_path
+    return copy_repo_seed(tmp_path, "run_next")
 
 
 def _scripts(task_id="T-001"):

@@ -10,24 +10,13 @@ from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
 from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, TaskResult
+from ._repo_fixtures import copy_repo_seed
 
 pytestmark = pytest.mark.unit
 
 
 def _repo(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
-    (repo / "tasks").mkdir()
-    (repo / "tasks" / "T-001-example.md").write_text(
-        "---\nid: T-001\ntitle: Example\nstatus: todo\ndod:\n  - works\n---\nbody\n",
-        encoding="utf-8",
-    )
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
-    return repo
+    return copy_repo_seed(tmp_path / "repo", "evidence")
 
 
 def _head(repo):

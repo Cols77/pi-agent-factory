@@ -8,17 +8,12 @@ import subprocess
 
 import pytest
 from factory.orchestrator.git_ops import FakeGitOps, SubprocessGitOps
+from ._repo_fixtures import copy_repo_seed
 
 
 
 def _init_repo(tmp_path):
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
-    (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
-    return tmp_path
+    return copy_repo_seed(tmp_path, "git_ops")
 
 
 @pytest.mark.integration
