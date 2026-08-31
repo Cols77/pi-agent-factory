@@ -7,9 +7,13 @@ from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.ledger import TaskNotFoundError, TaskNotTodoError, load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
-from ._repo_fixtures import copy_repo_seed
+from ._repo_fixtures import copy_repo_seed, write_repo_template
 
 def _repo(tmp_path):
+    return write_repo_template(tmp_path, "run_next")
+
+
+def _git_repo(tmp_path):
     return copy_repo_seed(tmp_path, "run_next")
 
 
@@ -109,7 +113,7 @@ def test_run_next_force_reruns_a_non_todo_task(tmp_path):
 
 @pytest.mark.integration
 def test_review_kb_entries_selected_from_actual_changed_files_not_manifest(tmp_path):
-    repo = _repo(tmp_path)
+    repo = _git_repo(tmp_path)
 
     # Seed a kb/ entry whose scope.files glob matches a file dev is scripted
     # to "change" -- but that file is NOT in the manifest's predicted

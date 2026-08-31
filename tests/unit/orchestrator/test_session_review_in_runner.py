@@ -8,13 +8,13 @@ from factory.orchestrator.nodes import run_session_review
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.types import AgentRole, AgentResult, NodeEvent
-from ._repo_fixtures import copy_repo_seed
+from ._repo_fixtures import write_repo_template
 
 pytestmark = pytest.mark.unit
 
 
 def _repo(tmp_path):
-    return copy_repo_seed(tmp_path, "run_next")
+    return write_repo_template(tmp_path, "run_next")
 
 
 def _scripts():

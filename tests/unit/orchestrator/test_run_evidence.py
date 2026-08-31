@@ -7,13 +7,18 @@ import pytest
 from factory.evidence.artifacts import LocalArtifactStore
 from factory.evidence.manifests import load_run_manifest
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
+from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.ledger import load_tasks
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.types import AgentResult, AgentRole, NodeEvent, TaskResult
-from ._repo_fixtures import copy_repo_seed
+from ._repo_fixtures import copy_repo_seed, write_repo_template
 
 def _repo(tmp_path):
     return copy_repo_seed(tmp_path / "repo", "evidence")
+
+
+def _unit_repo(tmp_path):
+    return write_repo_template(tmp_path / "repo", "evidence")
 
 
 def _head(repo):
@@ -130,9 +135,9 @@ def test_optional_publication_failure_keeps_completed_outcome(tmp_path, monkeypa
     assert load_tasks(repo / "tasks")[0].status == "done"
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_run_next_requires_store_and_evidence_dir_together(tmp_path, monkeypatch):
-    repo = _repo(tmp_path)
+    repo = _unit_repo(tmp_path)
     backend = FakeAgentBackend(
         {AgentRole.SESSION_REVIEW: [AgentResult(True, {}, raw="session complete")]}
     )
@@ -149,4 +154,5 @@ def test_run_next_requires_store_and_evidence_dir_together(tmp_path, monkeypatch
             session_id="run-1",
             task_id="T-001",
             artifact_store=LocalArtifactStore(repo / ".factory" / "artifacts" / "objects"),
+            git_ops=FakeGitOps(),
         )

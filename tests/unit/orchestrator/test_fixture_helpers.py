@@ -12,6 +12,30 @@ from . import _skill_fixtures as skill_fixtures
 
 
 @pytest.mark.unit
+def test_write_repo_template_writes_files_and_skills_without_git(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+
+    def fail_git_setup(*args, **kwargs):
+        pytest.fail("pure repository template must not run Git setup")
+
+    monkeypatch.setattr(repo_fixtures.subprocess, "run", fail_git_setup)
+
+    result = repo_fixtures.write_repo_template(root, "runner")
+
+    assert result == root
+    assert (root / "tasks" / "T-001.md").read_text(encoding="utf-8") == "dod"
+    assert (root / "src" / "x.py").read_text(encoding="utf-8") == "x = 1\n"
+    assert sorted(path.name for path in (root / ".pi" / "skills").iterdir()) == sorted(
+        skill_fixtures.SKILL_NAMES
+    )
+    assert all(
+        (root / ".pi" / "skills" / name / "SKILL.md").is_file()
+        for name in skill_fixtures.SKILL_NAMES
+    )
+    assert not (root / ".git").exists()
+
+
+@pytest.mark.unit
 def test_copy_repo_seed_rejects_prepopulated_destination_without_merging(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     root.mkdir()

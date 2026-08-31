@@ -10,13 +10,13 @@ from factory.orchestrator.git_ops import FakeGitOps
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.runner import run_task
 from factory.orchestrator.types import AgentRole, AgentResult
-from ._repo_fixtures import copy_repo_seed
+from ._repo_fixtures import write_repo_template
 
 pytestmark = pytest.mark.unit
 
 
 def _repo(tmp_path):
-    return copy_repo_seed(tmp_path, "runner")
+    return write_repo_template(tmp_path, "runner")
 
 
 def _write_signature_only_kb_entry(repo, entry_id="kb-0002", signature="ConnectionResetError"):

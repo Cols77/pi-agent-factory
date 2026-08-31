@@ -99,12 +99,7 @@ def _build_seed(name: str, spec: _RepoSpec) -> Path:
     seed: Path | None = None
     try:
         seed = Path(tempfile.mkdtemp(prefix=f"orchestrator-{name}-seed-"))
-        for relative_path, content in spec.files:
-            path = seed / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        if spec.include_skill_stubs:
-            write_skill_stubs(seed)
+        _write_repo_files(seed, spec)
 
         subprocess.run(["git", "init", "-q"], cwd=seed, check=True)
         subprocess.run(["git", "config", "user.email", spec.user_email], cwd=seed, check=True)
@@ -123,11 +118,24 @@ def _build_seed(name: str, spec: _RepoSpec) -> Path:
         raise
 
 
-def _seed_for(name: str) -> Path:
+def _repo_spec(name: str) -> _RepoSpec:
     try:
-        spec = _REPO_SPECS[name]
+        return _REPO_SPECS[name]
     except KeyError as exc:
         raise ValueError(f"unknown orchestrator repository fixture: {name}") from exc
+
+
+def _write_repo_files(root: Path, spec: _RepoSpec) -> None:
+    for relative_path, content in spec.files:
+        path = root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    if spec.include_skill_stubs:
+        write_skill_stubs(root)
+
+
+def _seed_for(name: str) -> Path:
+    spec = _repo_spec(name)
 
     with _SEED_LOCK:
         seed = _SEED_DIRS.get(name)
@@ -135,6 +143,13 @@ def _seed_for(name: str) -> Path:
             seed = _build_seed(name, spec)
             _SEED_DIRS[name] = seed
         return seed
+
+
+def write_repo_template(root: Path, name: str) -> Path:
+    """Write a repository-shaped fixture without initializing Git."""
+    _ensure_empty_directory(root)
+    _write_repo_files(root, _repo_spec(name))
+    return root
 
 
 def copy_repo_seed(root: Path, name: str) -> Path:

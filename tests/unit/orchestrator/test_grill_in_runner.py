@@ -9,9 +9,13 @@ from factory.orchestrator.human_review import FakeHumanReviewGate, HumanReviewDe
 from factory.orchestrator.runner import run_next
 from factory.orchestrator.status import FakeStatusReporter
 from factory.orchestrator.types import AgentRole, AgentResult
-from ._repo_fixtures import copy_repo_seed
+from ._repo_fixtures import copy_repo_seed, write_repo_template
 
 def _repo(tmp_path):
+    return write_repo_template(tmp_path, "run_next")
+
+
+def _git_repo(tmp_path):
     return copy_repo_seed(tmp_path, "run_next")
 
 
@@ -220,7 +224,7 @@ def test_grill_agreed_adds_no_grill_key_to_review_guide(tmp_path):
 
 @pytest.mark.integration
 def test_grill_uses_real_git_ops_head_commit(tmp_path):
-    repo = _repo(tmp_path)
+    repo = _git_repo(tmp_path)
     grill = FakeGrillGate([GrillResult("not-agreed")])
     status = FakeStatusReporter()
     run_next(
