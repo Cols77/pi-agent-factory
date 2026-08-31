@@ -1,24 +1,20 @@
-"""Comprehensive legacy-import compatibility matrix (Coherence Increment 1B,
-Task 4).
+"""Legacy-import compatibility matrix (Coherence Increment 1B, Task 4).
 
-Every module moved to substrate across Tasks 1-3 must still import from its
-old ``factory.*`` location for one release: it works with no ImportError, it
-warns exactly once naming the new substrate path, and calling a
-representative public callable from the old path produces results identical
-to calling the same callable's new substrate home directly.
+The warning matrices cover every whole-module and mixed-symbol shim. The
+remaining representative checks cover explicitly retained composition/callable
+gaps: manifest validation composition, Pi JSON parsing invocation, and
+evidence-manifest load/list invocation. Deep behavioral parity lives in
+``tests/unit/substrate/test_compatibility_paths.py`` and other focused suites.
 
-This file is the single read-top-to-bottom proof for the whole matrix. Most
-entries already have deep behavioral-parity coverage elsewhere (per-task
-compatibility tests written in Tasks 1-3); rather than duplicate that
-edge-case coverage, this file:
+This file is the single read-top-to-bottom proof for the whole matrix. Rather
+than duplicate the edge-case coverage already present in the per-task
+compatibility tests, this file:
 
   1. Parametrizes the "warns exactly once, names the new path" assertion
      across every whole-module shim in one table (`WHOLE_MODULE_SHIMS`).
-  2. Adds a light "still works + identical result" check per module using a
-     representative callable, reusing existing fixtures where the other
-     tasks' tests already built them (see the ``_write_via_canonical_writer``
-     reuse for evidence manifests, and the plan/task-board fixtures shared
-     with ``test_compatibility_paths.py``).
+  2. Retains light "still works + identical result" checks only for the
+     explicitly retained callable/composition gaps, reusing existing fixtures
+     where the other tasks' tests already built them.
   3. Closes the one real gap left by Tasks 1-3's own tests:
      ``factory.validation.manifest_validator`` has deep behavioral-parity
      coverage in ``tests/unit/substrate/test_validator_inversion.py`` and
@@ -36,23 +32,17 @@ edge-case coverage, this file:
 See also: ``tests/unit/substrate/test_compatibility_paths.py`` (Tasks 1-3,
 deep per-module behavioral parity) and ``tests/unit/substrate/
 test_compatibility_shims.py`` (freshness-specific matrix, Increment 1
-predecessor). Together with this file, every moved module's one-release
-compatibility is proven.
+predecessor).
 """
 from __future__ import annotations
 
 import importlib
 import sys
 import warnings
-from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.unit
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-KB_DIR = REPO_ROOT / "kb"
-
 
 def _import_fresh(module_name: str):
     sys.modules.pop(module_name, None)
@@ -173,57 +163,6 @@ def test_mixed_shim_symbol_warns_exactly_once_naming_substrate(
 # -- 3. Representative-callable "still works, identical results" checks. -----
 
 
-def test_factory_paths_representative_callable_matches_substrate():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.paths")
-
-    new = importlib.import_module("substrate.paths")
-    assert old.factory_root() == new.factory_root()
-
-
-def test_factory_validation_schema_validator_representative_callable_matches_substrate():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.validation.schema_validator")
-
-    new = importlib.import_module("substrate.validators.schema")
-    schema = {"type": "object", "required": ["x"], "properties": {"x": {"type": "string"}}}
-    assert old.validate_against({"x": "ok"}, schema) == new.validate_against({"x": "ok"}, schema) == []
-
-
-def test_factory_validation_kb_validator_representative_callable_matches_substrate():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.validation.kb_validator")
-
-    new = importlib.import_module("substrate.validators.kb")
-    path = KB_DIR / "kb-0001-example-entry.md"
-    assert old.parse_entry(path) == new.parse_entry(path)
-
-
-def test_factory_validation_session_validator_representative_callable_matches_substrate():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.validation.session_validator")
-
-    new = importlib.import_module("substrate.validators.session")
-    record = {
-        "session_id": "s1",
-        "started_at": "2026-07-16T14:30:00Z",
-        "model_backend": "anthropic:claude-opus-4-8",
-        "tasks": [
-            {
-                "task_id": "T-001",
-                "outcome": "completed",
-                "nodes": [{"node": "dev", "result": "pass"}],
-                "dod": {"met": True},
-            }
-        ],
-    }
-    assert old.validate_session(record) == new.validate_session(record) == []
-
-
 def test_factory_validation_manifest_validator_representative_callable_delegates_to_substrate(
     tmp_path,
 ):
@@ -256,47 +195,6 @@ def test_factory_validation_manifest_validator_representative_callable_delegates
     assert old.validate_manifest(manifest, tmp_path) == []
 
 
-def _write_task(tasks_dir, name, status="todo"):
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-    (tasks_dir / name).write_text(
-        f"---\nid: {name[:-3]}\ntitle: t\nstatus: {status}\ndod:\n  - x\n---\nbody\n",
-        encoding="utf-8",
-    )
-
-
-def test_factory_orchestrator_ledger_representative_callable_matches_substrate(tmp_path):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.orchestrator.ledger")
-
-    new = importlib.import_module("substrate.ledger.tasks")
-    tasks_dir = tmp_path / "tasks"
-    _write_task(tasks_dir, "T-001-a.md")
-    assert old.load_tasks(tasks_dir) == new.load_tasks(tasks_dir)
-
-
-def test_factory_orchestrator_plan_to_tasks_representative_callable_matches_substrate():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.orchestrator.plan_to_tasks")
-
-    new = importlib.import_module("substrate.ledger.plans")
-    text = "# no sections here\n"
-    assert old.parse_plan_tasks(text) == new.parse_plan_tasks(text) == []
-
-
-def test_factory_orchestrator_skills_representative_callable_matches_substrate(tmp_path):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.orchestrator.skills")
-
-    from substrate.agents.skills import load_skill_block as new_load_skill_block
-
-    (tmp_path / "s").mkdir()
-    (tmp_path / "s" / "SKILL.md").write_text("---\nname: s\n---\n\nbody\n", encoding="utf-8")
-    assert old.load_skill_block(tmp_path, "s") == new_load_skill_block(tmp_path, "s")
-
-
 def test_factory_orchestrator_pi_backend_representative_callable_delegates_to_substrate():
     # PiAgentBackend's wrapper preserves the AgentRole-typed public signature
     # (role catalogue composition stays factory-side); "identical results"
@@ -312,20 +210,6 @@ def test_factory_orchestrator_pi_backend_representative_callable_delegates_to_su
     assert old.parse_pi_json is new_parse_pi_json
     line = '{"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}'
     assert old.parse_pi_json(line) == new_parse_pi_json(line)
-
-
-def test_factory_orchestrator_types_representative_symbols_are_substrate_identity():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        old = _import_fresh("factory.orchestrator.types")
-
-    from substrate.agents.model import AgentResult as SubstrateAgentResult
-    from substrate.agents.model import InterruptionReason as SubstrateInterruptionReason
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert old.AgentResult is SubstrateAgentResult
-        assert old.InterruptionReason is SubstrateInterruptionReason
 
 
 def _manifest_dict(run_id: str = "run-1", task_id: str = "T-001") -> dict:
