@@ -3,54 +3,13 @@ name: CI
 on:
   push:
   pull_request:
-  workflow_dispatch:
-  release:
-    types: [published]
 
 jobs:
-  route:
-    runs-on: ubuntu-latest
-    outputs:
-      campaigns: ${{ steps.route.outputs.campaigns }}
-    steps:
-      - name: Check out repository for campaign routing
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve changed CI campaigns
-        id: route
-        shell: bash
-        env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GITHUB_BEFORE_SHA: ${{ github.event.before }}
-          GITHUB_AFTER_SHA: ${{ github.sha }}
-        run: |
-          set -u
-          if campaigns="$(python scripts/ci/changed_campaigns.py)" \
-            && python -c 'import json, sys; value = json.loads(sys.argv[1]); raise SystemExit(0 if isinstance(value, list) and value else 1)' "$campaigns"; then
-            printf 'campaigns=%s\n' "$campaigns" >> "$GITHUB_OUTPUT"
-          else
-            printf 'campaigns=["full"]\n' >> "$GITHUB_OUTPUT"
-          fi
-
   gates:
-    name: CI campaign (${{ matrix.campaign }})
-    needs: route
-    if: ${{ needs.route.result == 'success' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        campaign: ${{ fromJSON(needs.route.outputs.campaigns) }}
     runs-on: ubuntu-latest
-    env:
-      CI_CAMPAIGN: ${{ matrix.campaign }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -84,14 +43,6 @@ jobs:
       - name: Resolve required CI gates
         run: |
           python -c 'from pathlib import Path; from coherence.policy.ci import required_ci_commands; print("\n".join(required_ci_commands(Path("."))))' > "$RUNNER_TEMP/required-gates.txt"
-          cat "$RUNNER_TEMP/required-gates.txt"
-
-      - name: Select CI campaign commands
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -c 'import os; from pathlib import Path; from coherence.policy.ci import campaign_ci_commands; print("\n".join(campaign_ci_commands(Path("."), [os.environ["CI_CAMPAIGN"]])))' > "$RUNNER_TEMP/required-gates.txt"
-          test -s "$RUNNER_TEMP/required-gates.txt"
           cat "$RUNNER_TEMP/required-gates.txt"
 
       - name: Run required CI gates
