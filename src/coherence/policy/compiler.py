@@ -282,14 +282,33 @@ def _human_review_obligation(
     decision format.
 
     I-01 -- no self-certification -- means the producer of work is never the
-    sole authority that it is done, so `reviewed` below is `True` only for an
-    explicit human `accept` DecisionFile addressed to exactly this gate, this
-    item, and this SR's own artifact. Absence, a corrupt/malformed file, any
-    `reject`/`defer`, or a decision whose `gate_id`/`artifact_ref`/`item_id`
-    names a different gate, artifact, or SR all leave `reviewed` `False` --
-    there is no default-to-reviewed path and no path that infers a decision.
+    sole authority that it is done. Be exact about what this code can and
+    cannot prove (Critical 3, review round 3): **the substrate cannot
+    distinguish an agent-written decision from a human one.** Nothing on disk
+    carries proof of humanity, so no code here may claim to have verified it.
+    What this obligation enforces instead is that the decision is
+    *attributed* and *timestamped* -- it names a decider and says when -- so a
+    `satisfied` here is always traceable to a named party who can be asked,
+    and a decision naming nobody is nobody's decision.
+
+    `reviewed` is therefore `True` only for an `accept` DecisionFile that is
+    addressed to exactly this gate, this item and this SR's own artifact,
+    **and** carries a non-blank `decided_by` and a valid ISO-8601
+    `decided_at` (validated by `coherence.gate.model._is_iso`, the one ISO
+    validator in this repo -- not a second copy). Absence, a corrupt or
+    malformed file, any `reject`/`defer`, a decision whose
+    `gate_id`/`artifact_ref`/`item_id` names a different gate, artifact or
+    SR, and an accept with a blank/whitespace `decided_by` or a
+    blank/non-ISO `decided_at` all leave `reviewed` `False` -- there is no
+    default-to-reviewed path and no path that infers a decision.
+
+    Why here and not in `gate.model.validate_decisions`: that validator is
+    shared by every gate kind, including the `sr:` authoring-consent
+    decisions already recorded on this branch. Tightening it would
+    retroactively invalidate those. Attribution is this obligation's
+    admissibility rule, so it is enforced at this obligation.
     """
-    from coherence.gate.model import CorruptDecisionFile
+    from coherence.gate.model import CorruptDecisionFile, _is_iso
     from coherence.gate.store import decision_path, load_decision
 
     sr_id = scope_ref.partition(":")[2]
@@ -313,12 +332,20 @@ def _human_review_obligation(
                 reviewed = False
             else:
                 decisions = decision_file.decisions
+                # Attribution: a decision that names nobody, or that happened
+                # at no recorded time, is not an admissible review. Both
+                # fields are read off the DecisionFile itself, never inferred
+                # from the file's mtime or the current clock.
+                attributed = bool(decision_file.decided_by.strip()) and _is_iso(
+                    decision_file.decided_at
+                )
                 reviewed = (
                     decision_file.gate_id == item_id
                     and decision_file.artifact_ref == expected_artifact_ref
                     and len(decisions) == 1
                     and decisions[0].item_id == item_id
                     and decisions[0].action == "accept"
+                    and attributed
                 )
 
     requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
@@ -329,18 +356,24 @@ def _human_review_obligation(
     else:
         # Never claims a human review occurred -- names the exact decision
         # path/action a human reviewer (not the producer of this work) still
-        # needs to take, whether or not one has already been taken.
+        # needs to take, whether or not one has already been taken. The
+        # attribution fields are named explicitly because an accept without
+        # them does not satisfy this obligation.
         resolve_cmd = (
             f"a human reviewer must record `accept` for {item_id} in a "
             f"DecisionFile at {path} (gate_id={item_id!r}, "
-            f"artifact_ref={expected_artifact_ref!r})",
+            f"artifact_ref={expected_artifact_ref!r}), attributed with a "
+            "non-blank `decided_by` and an ISO-8601 `decided_at`",
         )
     return Obligation(
         id=f"ob:human_review:{scope_ref}",
         scope_ref=scope_ref,
         kind="human_review",
         requiredness=requiredness,
-        reason=f"{profile} requires a recorded human review decision for {sr_id}",
+        reason=(
+            f"{profile} requires a recorded, attributed review decision for {sr_id} "
+            "(non-blank `decided_by` and ISO-8601 `decided_at`)"
+        ),
         source_policy=profile,
         state="satisfied" if reviewed else "open",
         resolve_cmd=resolve_cmd,

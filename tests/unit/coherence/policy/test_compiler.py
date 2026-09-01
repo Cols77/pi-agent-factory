@@ -955,3 +955,116 @@ def test_compile_obligations_test_marker_legacy_binding_ignores_acceptance(tmp_p
     # legacy path, regardless of the unrelated unresolved acceptance ref.
     assert tm.state == "satisfied"
     assert tm.requiredness == "required"
+
+
+# --------------------------------------------------------------------------
+# Review round 3, Critical 3: an accept that names nobody must not count as
+# a human review. The substrate cannot tell an agent-written decision from a
+# human one; what it CAN enforce is that the decision is attributed and
+# timestamped, so an unattributed accept is exactly the self-certification
+# I-01 forbids -- it is nobody's decision on record.
+# --------------------------------------------------------------------------
+
+
+def _write_unattributed_review_decision(
+    tmp_path: Path,
+    sr_id: str,
+    *,
+    decided_at: str = "2026-09-01T00:00:00Z",
+    decided_by: str = "reviewer@example.invalid",
+) -> Path:
+    import json as _json
+
+    from coherence.gate.store import decision_path
+
+    # tmp_path fixture only -- never the repo's own gate store.
+    path = decision_path(tmp_path, f"review:{sr_id}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        _json.dumps(
+            {
+                "schema": 1,
+                "gate_id": f"review:{sr_id}",
+                "artifact_ref": f"artifact:requirements/{sr_id}.md",
+                "decisions": [{"item_id": f"review:{sr_id}", "action": "accept"}],
+                "decided_at": decided_at,
+                "decided_by": decided_by,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_human_review_accept_with_a_blank_decided_by_stays_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-120")
+    _write_unattributed_review_decision(tmp_path, "SR-120", decided_by="")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-120")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+    assert hr.requiredness == "blocking"
+
+
+def test_human_review_accept_with_a_whitespace_decided_by_stays_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-121")
+    _write_unattributed_review_decision(tmp_path, "SR-121", decided_by="   ")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-121")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_accept_with_a_blank_decided_at_stays_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-122")
+    _write_unattributed_review_decision(tmp_path, "SR-122", decided_at="")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-122")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_accept_with_a_non_iso_decided_at_stays_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-123")
+    _write_unattributed_review_decision(tmp_path, "SR-123", decided_at="whenever")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-123")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_accept_naming_nobody_at_no_time_stays_open(tmp_path):
+    """The exact proven shape: decided_at="" and decided_by="" with a single
+    accept flipped the obligation from blocking/open to blocking/satisfied."""
+    _seed_high_assurance_sr(tmp_path, "SR-124")
+    _write_unattributed_review_decision(tmp_path, "SR-124", decided_at="", decided_by="")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-124")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_attributed_and_timestamped_accept_still_satisfies(tmp_path):
+    """The positive control: attribution is what is newly required, not a
+    new obstacle to a genuine review decision."""
+    _seed_high_assurance_sr(tmp_path, "SR-125")
+    _write_unattributed_review_decision(
+        tmp_path, "SR-125", decided_at="2026-09-01T09:30:00Z", decided_by="a.human@example.invalid"
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-125")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"
+
+
+def test_human_review_date_only_decided_at_is_accepted(tmp_path):
+    """`_is_iso` in gate/model.py is the one ISO validator; a bare
+    YYYY-MM-DD is a supported form there and must stay supported here."""
+    _seed_high_assurance_sr(tmp_path, "SR-126")
+    _write_unattributed_review_decision(
+        tmp_path, "SR-126", decided_at="2026-09-01", decided_by="a.human@example.invalid"
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-126")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"
