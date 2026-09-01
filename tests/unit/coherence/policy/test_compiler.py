@@ -1,7 +1,9 @@
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from coherence.policy.compiler import (
     UnsupportedScopeError,
@@ -403,6 +405,44 @@ def test_compile_obligations_test_marker_rejects_duplicate_registered_ids(tmp_pa
     assert "duplicate" in tm.reason
 
 
+@pytest.mark.parametrize(
+    ("high_name", "prototype_name"),
+    [
+        ("SR-MIX-a.md", "SR-MIX-b.md"),
+        ("SR-MIX-b.md", "SR-MIX-a.md"),
+    ],
+)
+def test_compile_obligations_duplicate_profiles_are_ambiguous_and_blocking(
+    tmp_path, high_name, prototype_name
+):
+    duplicate_yaml = (
+        "---\n"
+        "id: SR-MIX\ntitle: t\nstatement: s\ndomain: d\n"
+        "acceptance:\n"
+        "  - id: AC-1\n"
+        '    criterion: "c"\n'
+        "    verification:\n"
+        "      kind: test_marker\n"
+        "      ref: \"tests/test_mixed_profile.py\"\n"
+        "---\n"
+    )
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / high_name).write_text(
+        duplicate_yaml.replace("domain: d\n", "domain: d\nprofile: high_assurance\n"),
+        encoding="utf-8",
+    )
+    (requirements / prototype_name).write_text(duplicate_yaml, encoding="utf-8")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-MIX")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+
+    assert tm.requiredness == "blocking"
+    assert tm.state == "open"
+    assert tm.source_policy == "ambiguous"
+    assert "duplicate" in tm.reason
+
+
 def test_compile_obligations_test_marker_via_acceptance_unresolved_ref_stays_open(tmp_path):
     # The ref file exists but carries no matching marker: unsatisfied.
     experiment = "tests/test_ac_unsat.py"
@@ -507,6 +547,51 @@ def test_compile_obligations_test_marker_rejects_symlink_outside_ref(tmp_path):
     )
     obligations = compile_obligations(tmp_path, "sr:SR-027")
     tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
+def test_compile_obligations_test_marker_rejects_directory_junction_ref(tmp_path):
+    target_dir = tmp_path / "tests" / "ordinary"
+    target_dir.mkdir(parents=True)
+    target = target_dir / "target.py"
+    target.write_text(
+        '@pytest.mark.sr("SR-028")\ndef test_target():\n    assert True\n',
+        encoding="utf-8",
+    )
+    alias = tmp_path / "tests" / "alias"
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(alias), str(target_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"could not create a directory junction: {result.stderr or result.stdout}")
+    else:
+        try:
+            alias.symlink_to(target_dir, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"directory symlinks are not supported: {exc}")
+
+    ref = "tests/alias/target.py"
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-028",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{ref}\"\n"
+        ),
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-028")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+
     assert tm.state == "open"
     assert ref in " ".join(tm.resolve_cmd or ())
 

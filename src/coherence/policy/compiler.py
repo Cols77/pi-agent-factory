@@ -7,6 +7,7 @@ back on coherence).
 """
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 from coherence.trace import model as trace_model
@@ -287,9 +288,9 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
             id=f"ob:test_marker:{scope_ref}",
             scope_ref=scope_ref,
             kind="test_marker",
-            requiredness=requiredness,
+            requiredness="blocking",
             reason=f"{sr_id} has duplicate requirement registrations; source is ambiguous",
-            source_policy=profile,
+            source_policy="ambiguous",
             state="open",
             resolve_cmd=(f"remove duplicate requirement registrations for {sr_id}",),
         )
@@ -330,6 +331,11 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
             ref_path = Path(ref)
             if ref_path.is_absolute():
                 raise ValueError("acceptance ref must be relative to the project root")
+            candidate = root
+            for part in ref_path.parts:
+                candidate /= part
+                if _is_symlink_or_reparse_point(candidate):
+                    raise ValueError("acceptance ref contains a link or reparse point")
             resolved_ref = (canonical_root / ref_path).resolve()
             resolved_ref.relative_to(canonical_root)
             has_marker = (
@@ -354,3 +360,11 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
             tuple(f'add @pytest.mark.sr("{sr_id}") to {ref}' for ref in missing_refs)
             if missing_refs else None
         ))
+
+
+def _is_symlink_or_reparse_point(path: Path) -> bool:
+    info = path.lstat()
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+    )
