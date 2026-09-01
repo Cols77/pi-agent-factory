@@ -273,27 +273,74 @@ def _verification_result_obligation(
 def _human_review_obligation(
     root: Path, scope_ref: str, profile: str, *, nodes, edges,
 ) -> Obligation:
+    """human_review: verification review -- "is this evidence adequate?" --
+    the second of the two human gates (R-7's agent half; T-8a). Distinct from
+    `sr:` authoring consent ("is this spec paragraph really this
+    requirement?", wired elsewhere): this reads ONLY the canonical
+    `review:<sr_id>` item, through the existing durable gate store
+    (`coherence.gate.store`), never an `sr:` decision and never a parallel
+    decision format.
+
+    I-01 -- no self-certification -- means the producer of work is never the
+    sole authority that it is done, so `reviewed` below is `True` only for an
+    explicit human `accept` DecisionFile addressed to exactly this gate, this
+    item, and this SR's own artifact. Absence, a corrupt/malformed file, any
+    `reject`/`defer`, or a decision whose `gate_id`/`artifact_ref`/`item_id`
+    names a different gate, artifact, or SR all leave `reviewed` `False` --
+    there is no default-to-reviewed path and no path that infers a decision.
+    """
+    from coherence.gate.model import CorruptDecisionFile
+    from coherence.gate.store import decision_path, load_decision
+
     sr_id = scope_ref.partition(":")[2]
     sr_path = _sr_node_path(sr_id, nodes=nodes)
-    # Identity field unresolved; do NOT read reviewer/reviewed_by yet --
-    # guide §5.3: the field contract is undecided, so absence is unknown,
-    # never satisfied. Only a later declared field may flip the flag.
+    item_id = f"review:{sr_id}"
+    path = decision_path(root, item_id)
+
     reviewed = False
+    expected_artifact_ref: str | None = None
+    if sr_path is not None:
+        try:
+            expected_artifact_ref = "artifact:" + sr_path.resolve().relative_to(
+                root.resolve()
+            ).as_posix()
+        except (OSError, ValueError):
+            expected_artifact_ref = None
+        if expected_artifact_ref is not None and path.is_file():
+            try:
+                decision_file = load_decision(path)
+            except CorruptDecisionFile:
+                reviewed = False
+            else:
+                decisions = decision_file.decisions
+                reviewed = (
+                    decision_file.gate_id == item_id
+                    and decision_file.artifact_ref == expected_artifact_ref
+                    and len(decisions) == 1
+                    and decisions[0].item_id == item_id
+                    and decisions[0].action == "accept"
+                )
+
     requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
-    resolve_cmd = (
-        (
-            f"record approved human-review identity for {sr_path.name} "
-            "once the field contract is decided",
+    if sr_path is None:
+        resolve_cmd = (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
+    elif expected_artifact_ref is None:
+        resolve_cmd = (f"{sr_id}: requirement path is outside the canonical project root",)
+    else:
+        # Never claims a human review occurred -- names the exact decision
+        # path/action a human reviewer (not the producer of this work) still
+        # needs to take, whether or not one has already been taken.
+        resolve_cmd = (
+            f"a human reviewer must record `accept` for {item_id} in a "
+            f"DecisionFile at {path} (gate_id={item_id!r}, "
+            f"artifact_ref={expected_artifact_ref!r})",
         )
-        if sr_path is not None
-        else (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
-    )
     return Obligation(
         id=f"ob:human_review:{scope_ref}",
         scope_ref=scope_ref,
         kind="human_review",
         requiredness=requiredness,
-        reason=f"{profile} requires a recorded human reviewer for high-criticality requirement {sr_id}",
+        reason=f"{profile} requires a recorded human review decision for {sr_id}",
         source_policy=profile,
         state="satisfied" if reviewed else "open",
         resolve_cmd=resolve_cmd,

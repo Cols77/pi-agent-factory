@@ -249,6 +249,206 @@ def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_
 
 
 # --------------------------------------------------------------------------
+# Task 8a: human_review wired to a durable `review:<sr_id>` DecisionFile
+# (R-7, agent half). I-01: the producer of work is never the sole authority
+# that it is done -- these tests pin that a valid HUMAN `accept` decision
+# (never authored here, always via tmp_path fixtures) is the only path to
+# `satisfied`, and that every other case (missing, malformed, reject, defer,
+# wrong item, wrong gate, wrong SR, or an `sr:` authoring-consent decision)
+# stays open.
+# --------------------------------------------------------------------------
+
+
+def _seed_high_assurance_sr(tmp_path: Path, sr_id: str, *, extra_ids: tuple[str, ...] = ()) -> None:
+    (tmp_path / "docs" / "features").mkdir(parents=True, exist_ok=True)
+    all_ids = ", ".join((sr_id, *extra_ids))
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: f\nprofile: high_assurance\n"
+        f"requirements: [{all_ids}]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir(exist_ok=True)
+    (tmp_path / "requirements" / f"{sr_id}.md").write_text(
+        f"---\nid: {sr_id}\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+
+
+def _write_review_decision(
+    tmp_path: Path,
+    sr_id: str,
+    *,
+    gate_id: str | None = None,
+    item_id: str | None = None,
+    artifact_ref: str | None = None,
+    action: str = "accept",
+    reason: str = "",
+    review_after: str | None = None,
+) -> Path:
+    from coherence.gate.model import Decision, DecisionFile
+    from coherence.gate.store import write_decision
+
+    # NOTE: every call site here is a tmp_path fixture -- this simulates a
+    # human decision for the test; it must never run against the repo's own
+    # gate store.
+    return write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id=gate_id or f"review:{sr_id}",
+            artifact_ref=artifact_ref or f"artifact:requirements/{sr_id}.md",
+            decisions=(
+                Decision(
+                    item_id or f"review:{sr_id}",
+                    action,
+                    reason=reason,
+                    review_after=review_after,
+                    decided_by="reviewer@example.invalid",
+                ),
+            ),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="reviewer@example.invalid",
+        ),
+    )
+
+
+def test_human_review_missing_decision_stays_open_under_high_assurance(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-100")
+    obligations = compile_obligations(tmp_path, "sr:SR-100")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+    assert hr.requiredness == "blocking"
+
+
+def test_human_review_valid_accept_satisfies_only_that_sr(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-101")
+    _write_review_decision(tmp_path, "SR-101")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-101")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"
+    assert hr.requiredness == "blocking"
+
+
+def test_human_review_accept_for_one_sr_does_not_satisfy_another(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-002", extra_ids=("SR-003",))
+    (tmp_path / "requirements" / "SR-003.md").write_text(
+        "---\nid: SR-003\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    _write_review_decision(tmp_path, "SR-002")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-003")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_reject_leaves_obligation_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-104")
+    _write_review_decision(tmp_path, "SR-104", action="reject", reason="insufficient evidence")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-104")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_defer_leaves_obligation_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-105")
+    _write_review_decision(
+        tmp_path, "SR-105", action="defer", reason="needs more evidence",
+        review_after="2026-12-01T00:00:00Z",
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-105")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_malformed_decision_file_stays_open(tmp_path):
+    from coherence.gate.store import decision_path
+
+    _seed_high_assurance_sr(tmp_path, "SR-106")
+    path = decision_path(tmp_path, "review:SR-106")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ not json", encoding="utf-8")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-106")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_wrong_item_id_inside_file_stays_open(tmp_path):
+    _seed_high_assurance_sr(tmp_path, "SR-107")
+    _write_review_decision(tmp_path, "SR-107", item_id="review:SR-999")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-107")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_wrong_gate_id_inside_file_stays_open(tmp_path):
+    import json as _json
+
+    from coherence.gate.store import decision_path
+
+    _seed_high_assurance_sr(tmp_path, "SR-108")
+    path = decision_path(tmp_path, "review:SR-108")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        _json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "review:SR-999",
+                "artifact_ref": "artifact:requirements/SR-108.md",
+                "decisions": [{"item_id": "review:SR-108", "action": "accept"}],
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "reviewer@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-108")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_authoring_consent_decision_does_not_satisfy(tmp_path):
+    from coherence.gate.model import Decision, DecisionFile
+    from coherence.gate.store import write_decision
+
+    _seed_high_assurance_sr(tmp_path, "SR-109")
+    write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id="sr:SR-109",
+            artifact_ref="artifact:requirements/SR-109.md",
+            decisions=(Decision("sr:SR-109", "accept"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="human@example.invalid",
+        ),
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-109")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_prototype_accept_is_satisfied_but_not_applicable(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-110.md").write_text(
+        "---\nid: SR-110\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    _write_review_decision(tmp_path, "SR-110")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-110")  # project default: prototype
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.requiredness == "not_applicable"
+    assert hr.state == "satisfied"
+
+
+# --------------------------------------------------------------------------
 # Task 6 addendum: compiled test_marker obligation (profile-aware closure)
 # --------------------------------------------------------------------------
 
