@@ -11,6 +11,8 @@ import frontmatter
 # state -- there is no status field that could disagree with the content.
 _REQUIRED = ("id", "title", "statement", "domain")
 
+_VERIFICATION_KINDS = ("test_marker", "harness", "manual")
+
 
 @dataclass(frozen=True)
 class Binding:
@@ -26,6 +28,32 @@ class Binding:
 
 
 @dataclass(frozen=True)
+class VerificationBinding:
+    """How a single acceptance criterion is satisfied.
+
+    `test_marker` and `harness` require a non-blank `ref`; `manual` requires a
+    non-blank `reason` instead and is satisfied only via a `human_review` decision.
+    """
+
+    kind: str
+    ref: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class AcceptanceCriterion:
+    """One individually addressable, verifiable criterion on a requirement."""
+
+    id: str
+    criterion: str
+    verification: VerificationBinding
+
+    def qualified_id(self, req_id: str) -> str:
+        """The `<SR-ID>/<AC-ID>` address form, e.g. `SR-025/AC-3`."""
+        return f"{req_id}/{self.id}"
+
+
+@dataclass(frozen=True)
 class Requirement:
     id: str
     title: str
@@ -37,6 +65,7 @@ class Requirement:
     path: Path
     checksum: str | None = None
     source: str | None = None
+    acceptance: tuple[AcceptanceCriterion, ...] = ()
 
 
 def _parse_binding(raw: dict) -> Binding:
@@ -52,6 +81,66 @@ def _parse_binding(raw: dict) -> Binding:
     )
 
 
+def _parse_acceptance(path: Path, raw: object) -> tuple[AcceptanceCriterion, ...]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{path.name}: acceptance: must be a list, got {type(raw).__name__}")
+
+    criteria: list[AcceptanceCriterion] = []
+    seen_ids: set[str] = set()
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path.name}: acceptance[{index}]: entry must be a mapping")
+
+        raw_id = entry.get("id")
+        if raw_id is None or not str(raw_id).strip():
+            raise ValueError(f"{path.name}: acceptance[{index}]: missing required field 'id'")
+        entry_id = str(raw_id)
+        if entry_id in seen_ids:
+            raise ValueError(f"{path.name}: acceptance[{entry_id}]: duplicate criterion id")
+        seen_ids.add(entry_id)
+
+        criterion = entry.get("criterion")
+        if criterion is None or not str(criterion).strip():
+            raise ValueError(
+                f"{path.name}: acceptance[{entry_id}]: missing required field 'criterion'"
+            )
+
+        verification_raw = entry.get("verification")
+        if not isinstance(verification_raw, dict):
+            raise ValueError(
+                f"{path.name}: acceptance[{entry_id}]: missing required field 'verification'"
+            )
+
+        kind = verification_raw.get("kind")
+        if kind not in _VERIFICATION_KINDS:
+            raise ValueError(
+                f"{path.name}: acceptance[{entry_id}]: verification.kind must be one of "
+                f"{_VERIFICATION_KINDS}, got {kind!r}"
+            )
+
+        if kind == "manual":
+            reason = verification_raw.get("reason")
+            if reason is None or not str(reason).strip():
+                raise ValueError(
+                    f"{path.name}: acceptance[{entry_id}]: verification.kind=manual requires "
+                    "a non-blank 'reason'"
+                )
+            verification = VerificationBinding(kind=kind, reason=str(reason).strip())
+        else:
+            ref = verification_raw.get("ref")
+            if ref is None or not str(ref).strip():
+                raise ValueError(
+                    f"{path.name}: acceptance[{entry_id}]: verification.kind={kind} requires "
+                    "a non-blank 'ref'"
+                )
+            verification = VerificationBinding(kind=kind, ref=str(ref).strip())
+
+        criteria.append(
+            AcceptanceCriterion(id=entry_id, criterion=str(criterion).strip(), verification=verification)
+        )
+    return tuple(criteria)
+
+
 def parse_requirement(path: Path) -> Requirement:
     post = frontmatter.load(str(path))
     meta = post.metadata
@@ -63,6 +152,7 @@ def parse_requirement(path: Path) -> Requirement:
         upstream = [upstream]
     checksum = meta.get("checksum")
     source = meta.get("source")
+    acceptance = _parse_acceptance(path, meta["acceptance"]) if "acceptance" in meta else ()
     return Requirement(
         id=str(meta["id"]),
         title=str(meta["title"]),
@@ -74,6 +164,7 @@ def parse_requirement(path: Path) -> Requirement:
         path=path,
         checksum=str(checksum) if checksum else None,
         source=str(source) if source else None,
+        acceptance=acceptance,
     )
 
 
@@ -120,8 +211,10 @@ def get_requirement(reqs: list[Requirement], req_id: str) -> Requirement | None:
 
 
 __all__ = [
+    "AcceptanceCriterion",
     "Binding",
     "Requirement",
+    "VerificationBinding",
     "content_checksum",
     "get_requirement",
     "is_checksum_current",
