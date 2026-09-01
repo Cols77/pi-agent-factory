@@ -369,6 +369,40 @@ def test_compile_obligations_test_marker_via_acceptance_satisfied(tmp_path):
     assert tm.state == "satisfied"
 
 
+def test_compile_obligations_test_marker_rejects_duplicate_registered_ids(tmp_path):
+    # Conflicting duplicate SR declarations must not let the valid acceptance
+    # source hide the invalid one: duplicate registration is ambiguous.
+    good = "tests/test_ac_duplicate_good.py"
+    bad = "tests/test_ac_duplicate_bad.py"
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / good).write_text(
+        '@pytest.mark.sr("SR-DUP")\ndef test_good():\n    assert True\n', encoding="utf-8"
+    )
+    (tmp_path / bad).write_text("def test_bad():\n    assert True\n", encoding="utf-8")
+    duplicate_yaml = (
+        "---\n"
+        "id: SR-DUP\ntitle: t\nstatement: s\ndomain: d\n"
+        "acceptance:\n"
+        "  - id: AC-1\n"
+        '    criterion: "c"\n'
+        "    verification:\n"
+        "      kind: test_marker\n"
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-DUP-a.md").write_text(
+        f"{duplicate_yaml}      ref: \"{bad}\"\n---\n", encoding="utf-8"
+    )
+    (tmp_path / "requirements" / "SR-DUP-b.md").write_text(
+        f"{duplicate_yaml}      ref: \"{good}\"\n---\n", encoding="utf-8"
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-DUP")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+
+    assert tm.state == "open"
+    assert "duplicate" in tm.reason
+
+
 def test_compile_obligations_test_marker_via_acceptance_unresolved_ref_stays_open(tmp_path):
     # The ref file exists but carries no matching marker: unsatisfied.
     experiment = "tests/test_ac_unsat.py"

@@ -279,9 +279,21 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
     from coherence.register import register as register_module
     from coherence.register.markers import MarkerCollectionError, collect_markers
     sr_id = scope_ref.partition(":")[2]
-    register = {r.id: r for r in register_module.load_register(root / "requirements")}
-    req = register.get(sr_id)
+    registered = register_module.load_register(root / "requirements")
+    matching = [req for req in registered if req.id == sr_id]
     requiredness = "blocking" if profile == "high_assurance" else "required"
+    if len(matching) > 1:
+        return Obligation(
+            id=f"ob:test_marker:{scope_ref}",
+            scope_ref=scope_ref,
+            kind="test_marker",
+            requiredness=requiredness,
+            reason=f"{sr_id} has duplicate requirement registrations; source is ambiguous",
+            source_policy=profile,
+            state="open",
+            resolve_cmd=(f"remove duplicate requirement registrations for {sr_id}",),
+        )
+    req = matching[0] if matching else None
 
     if req is not None and req.binding is not None:
         # Legacy path -- unchanged behaviour, acceptance criteria (if any) are
