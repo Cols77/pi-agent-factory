@@ -397,6 +397,62 @@ run unattended across a corpus. A bootstrap that regenerates 20 documents on eve
 destroy hand-authored prose silently, and the loss is only noticed by someone who remembered it was
 there.
 
+### S-8 — Wire the human gate so a human decision can actually move it
+
+| | |
+|---|---|
+| **Actor** | agent (mechanism only — no decision authored) |
+| **Reads** | `src/coherence/policy/compiler.py`, `src/coherence/gate/{model,store,service}.py` |
+| **Writes** | `src/coherence/policy/compiler.py`, `tests/unit/coherence/policy/test_compiler.py` |
+| **Commits** | `9119fed` |
+
+`_human_review_obligation` contained a hard-coded `reviewed = False`, with a comment saying the field
+contract was undecided. Under `high_assurance` the obligation compiled `blocking` and stayed open
+**no matter what any human decided** — the gate that invariant I-01 runs on could not be passed by a
+real reviewer. S-8 decides that contract.
+
+`reviewed` is now computed fail-closed from a durable `review:SR-###` `DecisionFile`, and every one
+of these must hold: the file exists, its `gate_id` matches, its `artifact_ref` matches the SR's
+canonical path, it carries exactly one decision, that decision's `item_id` matches, and its action is
+`accept`. A corrupt file yields False. An `sr:` authoring-consent decision cannot satisfy it, because
+the item id is `review:{sr_id}` — **the two human gates stay separate, which is the point of having
+two.**
+
+**The agent built the mechanism and authored no decision.** Every test decision lives in a `tmp_path`
+fixture. An agent writing an `accept` for a review it performed itself is the exact self-certification
+I-01 forbids, and on disk it would be indistinguishable from a real person's.
+
+**What wiring the gate revealed — the most consequential finding of the run.** `human_review` still
+reads **0/0**, and not because nothing has been reviewed. Every FEAT-001 requirement resolves to the
+`prototype` profile:
+
+```
+resolve_profile(root, "sr:SR-001")  -> prototype
+resolve_profile(root, "project")    -> prototype
+```
+
+`docs/features/FEAT-001.md` has no `profile:` field. `.factory/factory.yaml` declares none. **Nothing
+on disk assigns `high_assurance` to anything.** The value exists only in the product specification's
+prose feature map and in the slice plan's own header — both of which state "FEAT-001 is
+`high_assurance`, so `human_review` compiles as `blocking`."
+
+Under `prototype`, `human_review` compiles `not_applicable`. The denominator is zero. The dimension is
+not unsatisfied — it is *structurally absent*, and 0/0 is indistinguishable from a dimension that does
+not exist. The same understatement runs through the slice: the `test_marker` obligations compile
+`required` rather than `blocking`, and SR-006/AC-3's manual criterion, authored as failing because
+gating happens "only under `high_assurance`", is worse than it says — in this repository the marker
+gate is not blocking for *any* requirement.
+
+**This is NC-B one level up.** `requirement_quality` was a dimension that could not fail. This is an
+assurance *level* that governs a human gate, asserted in a document and never expressed anywhere the
+code can read. A profile that lives only in prose gates nothing. Every claim in this slice about
+`high_assurance` behaviour was verified by passing the profile explicitly to the compiler — never by
+the repository resolving it.
+
+**For an automated pipeline the rule is:** a declared assurance level must be a fact on disk that the
+resolver reads, and registering a feature must fail loudly when its declared profile and its resolved
+profile disagree. Otherwise the gates are ceremonial.
+
 ---
 
 ## 4. Ambiguities and how they were resolved
@@ -420,6 +476,8 @@ there.
 | A-12 | Two undocumented evidence stores feed two surfaces that answer the same question. Write one, or both? | Both, and record that they are separate. | Writing one leaves `register check` and `navigate health` disagreeing about whether a requirement has evidence |
 | A-13 | How does the generator know which lines it owns? | An explicit end sentinel bounding the generated region — never inference from line shape. | Shape-inference produced three separate silent content-loss paths in one module; ordinary Markdown eventually looks like whatever the heuristic matches |
 | A-14 | The plan says derive from "frontmatter plus the trace graph", but the graph adds nothing for these 20 files. Build the machinery anyway? | No — report it, keep the cross-check only as a safety net. | A plan's wording is a hypothesis about where data lives; unused machinery built to satisfy phrasing is cost with no evidence behind it |
+| A-15 | `human_review` reads 0/0. Is that "nothing reviewed" or "no requirement is subject to review"? | The latter: under `prototype` the obligation is `not_applicable`, so the denominator is 0. 0/0 is a dimension that is structurally absent, not one that is unsatisfied. | A reader cannot distinguish "0 of 0 done" from "this measure does not exist"; the display must, or the gate looks satisfied |
+| A-16 | The spec and plan both say FEAT-001 is `high_assurance`; the code resolves `prototype` for every one of its SRs. Which governs? | The code — and the disagreement is a finding, not something to reconcile by editing either side quietly. | A profile that exists only in prose gates nothing; treating the document as authoritative would make every gate ceremonial |
 
 ---
 
@@ -439,14 +497,18 @@ there.
   `high_assurance` it compiles `blocking` and stays open regardless of what any human decides — so the
   slice's own exit condition was unreachable as written. Wiring this is T-8a.
 - **The plan assumed a clean starting tree.** See A-0.
+- **The plan's central profile premise is false as the repository stands.** §2's exit condition and
+  T-8's brief both rest on "FEAT-001 is `high_assurance`, so `human_review` compiles as `blocking`".
+  Every FEAT-001 SR resolves to `prototype`; no `profile:` field exists on the feature and no profile
+  is configured. The plan asserted an assurance level the machinery had never been told about.
 - **T-6's Acceptance clause is unreachable by an agent alone.** "No SR in FEAT-001 remains 'no
   measurement, task, or deferral'" cannot be true while four SRs carry unreviewed `manual` criteria
   and the human gates (T-4b, T-8b) are by definition not an agent's to discharge. The plan wrote an
   acceptance sentence that only a human-plus-agent run can satisfy, and did not say so.
-- **Two of nine tasks stalled the same way: an implementer backgrounded its own verification suite,
+- **Three of nine tasks stalled the same way: an implementer backgrounded its own verification suite,
   ended its turn, and waited forever for a notification that never came.** A subagent is not
-  reliably re-invoked by its own background watcher. Both needed an explicit nudge from the
-  orchestrator to finish. Any automated registration pipeline must either make verification block,
+  reliably re-invoked by its own background watcher. All three needed an explicit nudge from the
+  orchestrator to finish. It is the single most reproducible process failure of the run. Any automated registration pipeline must either make verification block,
   or make the orchestrator own the wait and the re-invocation — never leave a worker watching its
   own background job.
 - **T-5's Verify clause was unreachable as written.** It required the `test_marker` obligation to
