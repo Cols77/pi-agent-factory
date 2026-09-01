@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from coherence.measurement.harness import Harness
@@ -12,7 +13,20 @@ from coherence.register.register import (
     is_checksum_current,
 )
 
-__all__ = ["HarnessFor", "default_harness_for", "run_requirement_validation", "write_validation_report"]
+__all__ = [
+    "HarnessFor",
+    "ValidationReportWriteError",
+    "default_harness_for",
+    "harness_provenance",
+    "run_requirement_validation",
+    "write_validation_report",
+]
+
+
+class ValidationReportWriteError(OSError):
+    """The validation report could not be written, so the file on disk does
+    not describe the run that just happened. Raised rather than swallowed --
+    see :func:`write_validation_report`."""
 
 HarnessFor = Callable[[str], Harness]
 
@@ -78,11 +92,40 @@ def run_requirement_validation(
     return {"requirements": entries}
 
 
+def harness_provenance(command: str, *, now: str | None = None) -> dict:
+    """The provenance block for a report this code actually produced.
+
+    ``recorded_by: "harness"`` is a claim only the producing code may make,
+    so it is stamped here -- at the one place a validation report is built
+    from a real ``run_requirement_validation`` sweep -- and never written by
+    hand. A hand-recorded report says ``recorded_by: "hand"`` and must cite
+    the run it transcribes; see
+    ``src/substrate/schemas/validation_report.schema.json``.
+    """
+    return {
+        "recorded_by": "harness",
+        "recorded_at": now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "command": command,
+    }
+
+
 def write_validation_report(path: Path, report: dict) -> None:
+    """Write the validation report atomically, or raise.
+
+    Important 1 (review round 3): this used to swallow ``OSError``. A failed
+    write left the *previous* report -- possibly one that says an SR passed --
+    in place while the caller carried on as though the new one had landed,
+    which is a stale claim presented as a current one (I-02). There is no
+    honest "best effort" here: either the report on disk is the report just
+    produced, or the caller must be told it is not.
+    """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(report, indent=2), encoding="utf-8")
         tmp.replace(path)
-    except OSError:
-        pass  # best-effort, mirrors review_guide.write_review_guide
+    except OSError as exc:
+        raise ValidationReportWriteError(
+            f"could not write the validation report to {path}: {exc}. The report on "
+            "disk (if any) is now stale and does not describe this run"
+        ) from exc
