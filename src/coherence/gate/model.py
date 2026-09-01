@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 
 
 #: The one allowed decision action values for this repo's gate items.
@@ -94,6 +95,10 @@ class DecisionFile:
     decided_by: str = ""
 
     def __post_init__(self) -> None:
+        if type(self.schema) is not int or self.schema != 1:
+            raise DecisionValidationError(
+                f"unsupported decision file schema {self.schema!r}"
+            )
         validate_decisions(self.decisions)
 
     def to_dict(self) -> dict:
@@ -119,7 +124,7 @@ class DecisionFile:
             raise CorruptDecisionFile(
                 f"decision file is missing a required field: {exc}"
             ) from exc
-        if schema != 1:
+        if type(schema) is not int or schema != 1:
             raise CorruptDecisionFile(f"unsupported decision file schema {schema!r}")
         if not isinstance(decisions_raw, list):
             raise CorruptDecisionFile("decision file `decisions` must be a list")
@@ -170,8 +175,7 @@ def validate_decisions(decisions: tuple[Decision, ...]) -> None:
 
 
 def _is_iso(value: str) -> bool:
-    """ISO-8601 shape check for a timestamp string (plan stores these verbatim, so
-    it validates shape, not instant semantics).
+    """Validate the supported ISO-8601 date/time forms and their semantics.
 
     Accepts ``YYYY-MM-DD`` optionally followed by a ``T``- or space-separated
     time (``HH:MM[:SS[.ffffff]]``) and an optional ``Z``/``+HH:MM`` offset --
@@ -180,12 +184,25 @@ def _is_iso(value: str) -> bool:
     like ``hello world 123``) is rejected so a `defer`'s ``review_after`` is
     a genuine ISO shape, never a free-form string.
     """
+    if not isinstance(value, str):
+        return False
     s = value.strip()
     if not s:
         return False
     # date part first: YYYY-MM-DD
     date_part = s[:10]
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
+    date_match = re.fullmatch(
+        r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})", date_part
+    )
+    if not date_match:
+        return False
+    try:
+        date(
+            int(date_match["year"]),
+            int(date_match["month"]),
+            int(date_match["day"]),
+        )
+    except ValueError:
         return False
     tail = s[10:]
     if not tail:
@@ -193,12 +210,26 @@ def _is_iso(value: str) -> bool:
     # optional T/space then a time, then optional Z / +HH:MM offset
     if tail[0] not in ("T", " "):
         return False
-    time_tail = tail[1:].rstrip("Zz")
-    match = re.match(r"^(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?((?:[+-]\d{2}:?\d{2})?)$", time_tail)
+    time_tail = tail[1:]
+    match = re.fullmatch(
+        r"(?P<hour>\d{2}):(?P<minute>\d{2})"
+        r"(?::(?P<second>\d{2})(?:\.\d+)?)?"
+        r"(?:(?:[Zz])|(?P<sign>[+-])(?P<offset_hour>\d{2}):?(?P<offset_minute>\d{2}))?",
+        time_tail,
+    )
     if not match:
         return False
     # offset is optional entirely (pure time accepted, e.g. 2026-08-20T12:00)
-    return True
+    if int(match["hour"]) > 23 or int(match["minute"]) > 59:
+        return False
+    second = match["second"]
+    if second is not None and int(second) > 59:
+        return False
+    offset_hour = match["offset_hour"]
+    offset_minute = match["offset_minute"]
+    return offset_hour is None or (
+        int(offset_hour) <= 23 and int(offset_minute) <= 59
+    )
 
 
 def _as_str(value: object) -> str:

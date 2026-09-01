@@ -125,8 +125,24 @@ def _expired_deferral_items(root: Path, now: str) -> list[InboxItem]:
             deferral = parse_deferral(raw)
         except ValueError:
             continue
-        if deferral_is_due(deferral, now):
-            sr_id = str(meta.get("id") or path.stem)
+        sr_id = str(meta.get("id") or path.stem)
+        try:
+            due = deferral_is_due(deferral, now)
+        except ValueError as exc:
+            items.append(
+                InboxItem(
+                    id=f"trace:{sr_id}",
+                    source="deferrals",
+                    kind="unresolved_deferral",
+                    ref=f"sr:{sr_id}",
+                    summary=f"deferral status for {sr_id} is unresolved ({exc})",
+                    evidence=deferral.reason,
+                    resolve_cmd=(f"coherence register show {sr_id}",),
+                    review_after=deferral.review_after,
+                )
+            )
+            continue
+        if due:
             items.append(
                 InboxItem(
                     id=f"trace:{sr_id}",
@@ -217,11 +233,31 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
         return []
 
     items: list[InboxItem] = []
-    for req in load_register(req_dir):
+    requirements = load_register(req_dir)
+    duplicate_ids = {
+        req.id for req in requirements if sum(other.id == req.id for other in requirements) > 1
+    }
+    emitted_duplicate_ids: set[str] = set()
+    project_root = root.resolve()
+    for req in requirements:
         item_id = f"sr:{req.id}"
         path = decision_path(root, item_id)
         reason: str | None = None
-        if path.is_file():
+        expected_artifact_ref = ""
+        if req.id in duplicate_ids:
+            if req.id in emitted_duplicate_ids:
+                continue
+            emitted_duplicate_ids.add(req.id)
+            reason = "duplicate requirement registration"
+        else:
+            try:
+                requirement_path = req.path.resolve().relative_to(project_root).as_posix()
+            except (OSError, ValueError):
+                reason = "requirement path is outside the canonical project root"
+            else:
+                expected_artifact_ref = f"artifact:{requirement_path}"
+
+        if reason is None and path.is_file():
             try:
                 decision_file = load_decision(path)
             except CorruptDecisionFile as exc:
@@ -230,7 +266,7 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
                 decisions = decision_file.decisions
                 if (
                     decision_file.gate_id != item_id
-                    or decision_file.artifact_ref != f"artifact:requirements/{req.id}.md"
+                    or decision_file.artifact_ref != expected_artifact_ref
                     or len(decisions) != 1
                     or decisions[0].item_id != item_id
                 ):

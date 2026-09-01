@@ -83,6 +83,15 @@ def test_from_dict_round_trip_preserves_exact_strings():
     assert again.decided_at == "2026-08-20T00:00:00Z"
 
 
+@pytest.mark.parametrize("schema", [True, 1.0])
+def test_from_dict_rejects_non_integer_schema(schema):
+    payload = _file().to_dict()
+    payload["schema"] = schema
+
+    with pytest.raises(CorruptDecisionFile):
+        DecisionFile.from_dict(payload)
+
+
 # --- validation: empty set, unknown action, item-id prefixes ---------------
 
 
@@ -189,6 +198,24 @@ def test_defer_rejects_junk_review_after():
     with pytest.raises(DecisionValidationError):
         validate_decisions(
             (Decision("doctor:001", "defer", reason="later", review_after="hello world 123"),)
+        )
+
+
+@pytest.mark.parametrize(
+    "review_after",
+    [
+        "2026-02-30T00:00:00Z",
+        "2026-09-01T24:00:00Z",
+        "2026-09-01T23:60:00Z",
+        "2026-09-01T23:59:60Z",
+        "2026-09-01T00:00:00+24:00",
+        "2026-09-01T00:00:00+01:60",
+    ],
+)
+def test_defer_rejects_invalid_iso_calendar_clock_or_offset(review_after):
+    with pytest.raises(DecisionValidationError):
+        validate_decisions(
+            (Decision("doctor:001", "defer", reason="later", review_after=review_after),)
         )
 
 

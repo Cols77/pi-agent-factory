@@ -21,12 +21,12 @@ pytestmark = pytest.mark.unit
 NOW = "2026-09-15T00:00:00Z"
 
 
-def _sr(root: Path, sid: str, *, deferred=None) -> None:
+def _sr(root: Path, sid: str, *, deferred=None, filename: str | None = None) -> None:
     (root / "requirements").mkdir(parents=True, exist_ok=True)
     defer_line = ""
     if deferred is not None:
         defer_line = f"trace_deferred: {json.dumps(deferred)}\n"
-    (root / "requirements" / f"{sid}.md").write_text(
+    (root / "requirements" / (filename or f"{sid}.md")).write_text(
         f"---\nid: {sid}\ntitle: T\nstatement: s\ndomain: d\n{defer_line}---\nbody\n",
         encoding="utf-8",
     )
@@ -100,6 +100,21 @@ def test_list_items_handles_declared_iso_future_defers(tmp_path: Path, review_af
     items = list_items(tmp_path, NOW)
 
     assert not any(i.kind == "expired_deferral" for i in items)
+
+
+def test_malformed_now_surfaces_unresolved_deferral_inbox_item(tmp_path: Path):
+    _sr(
+        tmp_path,
+        "SR-001",
+        deferred={"reason": "later", "review_after": "2026-12-31T00:00:00Z"},
+    )
+
+    items = list_items(tmp_path, "not-an-iso-timestamp")
+
+    item = next(i for i in items if i.id == "trace:SR-001")
+    assert item.source == "deferrals"
+    assert item.kind == "unresolved_deferral"
+    assert "unresolved" in item.summary
 
 
 # -- stale register bindings ------------------------------------------------
@@ -223,6 +238,42 @@ def test_recorded_sr_authoring_consent_removes_that_sr_from_pending_queue(tmp_pa
     _write_authoring_consent(tmp_path, "SR-001")
 
     assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_authoring_consent_binds_to_registered_requirement_path_not_declared_id(
+    tmp_path: Path,
+):
+    _sr(tmp_path, "SR-001", filename="SR-099.md")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-001.md",
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-099.md",
+    )
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_duplicate_registered_paths_keep_authoring_consent_pending(
+    tmp_path: Path,
+):
+    _sr(tmp_path, "SR-001", filename="SR-001.md")
+    _sr(tmp_path, "SR-001", filename="SR-002.md")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-001.md",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "duplicate" in item.summary
 
 
 def test_wrong_authoring_consent_artifact_remains_pending(tmp_path: Path):
