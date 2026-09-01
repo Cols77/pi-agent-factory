@@ -316,6 +316,10 @@ Closing that seam is S-6's, because "no SR remains unaccounted" is S-6's accepta
 0 measured-passing to **51 pending / 4 measured-passing**. This is the first executed evidence the
 repository has ever recorded.
 
+**Read that number with S-8's caveat attached: it holds only under the `prototype` profile the
+repository actually resolves, and inverts to 0/55 under the `high_assurance` the specification
+declares for this feature.**
+
 **Four of the eight SRs are now accounted. Four are not, and that is the correct answer.**
 SR-002, SR-003, SR-005 and SR-007 have only `test_marker` criteria; every one executed and passed.
 SR-001, SR-004, SR-006 and SR-050 each carry at least one `kind: manual` criterion, satisfiable only
@@ -449,6 +453,17 @@ code can read. A profile that lives only in prose gates nothing. Every claim in 
 `high_assurance` behaviour was verified by passing the profile explicitly to the compiler — never by
 the repository resolving it.
 
+> **The 4/55 is profile-contingent, and the two facts are mutually exclusive.** This was found by the
+> final whole-branch review, which declared `profile: high_assurance` on FEAT-001 and re-ran the
+> surfaces: `executed_evidence` went **4/55 → 0/55** and `human_review` **0/0 → 0/8**. The evidence
+> number exists *because* the repository resolves `prototype`. Under `high_assurance`,
+> `_verification_result_obligation`'s harness check (`src/coherence/policy/compiler.py:243-250`)
+> runs and rejects every FEAT-001 requirement for having no `binding:` — so the slice's headline
+> result and the assurance level the specification declares for this feature **cannot both hold as
+> the code stands.** Declaring the profile is a one-line change the resolver already supports; doing
+> it would erase the evidence result. That decision belongs to a human, and this record must not be
+> read as though 4/55 were unconditional.
+
 **For an automated pipeline the rule is:** a declared assurance level must be a fact on disk that the
 resolver reads, and registering a feature must fail loudly when its declared profile and its resolved
 profile disagree. Otherwise the gates are ceremonial.
@@ -497,6 +512,12 @@ profile disagree. Otherwise the gates are ceremonial.
   `high_assurance` it compiles `blocking` and stays open regardless of what any human decides — so the
   slice's own exit condition was unreachable as written. Wiring this is T-8a.
 - **The plan assumed a clean starting tree.** See A-0.
+- **The slice's headline evidence number contradicts its declared assurance level.** `executed_evidence
+  4/55` holds only under `prototype`; under the `high_assurance` the specification declares for
+  FEAT-001 it reads 0/55, because the harness check that runs only at that level rejects every
+  binding-less requirement. The plan asserted both as though they were compatible. A registration
+  process must resolve the profile *first* and report results against it, or it will publish a number
+  that its own assurance claim invalidates.
 - **The plan's central profile premise is false as the repository stands.** §2's exit condition and
   T-8's brief both rest on "FEAT-001 is `high_assurance`, so `human_review` compiles as `blocking`".
   Every FEAT-001 SR resolves to `prototype`; no `profile:` field exists on the feature and no profile
