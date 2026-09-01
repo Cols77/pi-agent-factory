@@ -167,13 +167,22 @@ def test_coverage_gate_item_for_blocked_run(tmp_path):
 # -- SR authoring consent ----------------------------------------------------
 
 
-def _write_authoring_consent(root: Path, sr_id: str, *, gate_id: str | None = None) -> None:
+def _write_authoring_consent(
+    root: Path,
+    sr_id: str,
+    *,
+    gate_id: str | None = None,
+    artifact_ref: str | None = None,
+    action: str = "accept",
+    reason: str = "",
+    review_after: str | None = None,
+) -> None:
     write_decision(
         root,
         DecisionFile(
             gate_id=gate_id or f"sr:{sr_id}",
-            artifact_ref=f"artifact:requirements/{sr_id}.md",
-            decisions=(Decision(f"sr:{sr_id}", "accept"),),
+            artifact_ref=artifact_ref or f"artifact:requirements/{sr_id}.md",
+            decisions=(Decision(f"sr:{sr_id}", action, reason=reason, review_after=review_after),),
             decided_at="2026-09-01T00:00:00Z",
             decided_by="human@example.invalid",
         ),
@@ -197,6 +206,49 @@ def test_pending_sr_produces_an_authoring_consent_inbox_item(tmp_path: Path):
 def test_recorded_sr_authoring_consent_removes_that_sr_from_pending_queue(tmp_path: Path):
     _sr(tmp_path, "SR-001")
     _write_authoring_consent(tmp_path, "SR-001")
+
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_wrong_authoring_consent_artifact_remains_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-999.md",
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_authoring_defer_is_pending_only_after_review_after(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        action="defer",
+        reason="needs review",
+        review_after="2026-09-16T00:00:00Z",
+    )
+
+    assert not any(
+        i.id == "sr:SR-001"
+        for i in list_items(tmp_path, "2026-09-15T00:00:00Z")
+    )
+    assert any(
+        i.id == "sr:SR-001"
+        for i in list_items(tmp_path, "2026-09-17T00:00:00Z")
+    )
+
+
+def test_explicit_sr_reject_is_final_and_not_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        action="reject",
+        reason="not approved",
+    )
 
     assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
 

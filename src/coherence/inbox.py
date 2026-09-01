@@ -199,7 +199,7 @@ def _suspect_edge_items(root: Path) -> list[InboxItem]:
     return items
 
 
-def _authoring_consent_items(root: Path) -> list[InboxItem]:
+def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
     """Collect SRs awaiting the authoring-consent gate.
 
     Authoring consent is deliberately a separate gate from verification review:
@@ -230,10 +230,27 @@ def _authoring_consent_items(root: Path) -> list[InboxItem]:
                 decisions = decision_file.decisions
                 if (
                     decision_file.gate_id != item_id
+                    or decision_file.artifact_ref != f"artifact:requirements/{req.id}.md"
                     or len(decisions) != 1
                     or decisions[0].item_id != item_id
                 ):
                     reason = "stale or mismatched DecisionFile"
+                elif decisions[0].action == "defer":
+                    try:
+                        due = deferral_is_due(
+                            parse_deferral(
+                                {
+                                    "reason": decisions[0].reason,
+                                    "review_after": decisions[0].review_after,
+                                }
+                            ),
+                            now,
+                        )
+                    except ValueError as exc:
+                        reason = f"invalid defer freshness ({exc})"
+                    else:
+                        if due:
+                            reason = "authoring consent defer expired"
         else:
             reason = "no DecisionFile"
 
@@ -264,7 +281,7 @@ def list_items(root: Path | str, now: str) -> list[InboxItem]:
     collected.extend(_coverage_gate_items(root))
     collected.extend(_expired_deferral_items(root, now))
     collected.extend(_stale_binding_items(root))
-    collected.extend(_authoring_consent_items(root))
+    collected.extend(_authoring_consent_items(root, now))
     collected.extend(_suspect_edge_items(root))
 
     # Stable sort by id; de-duplicate by id (first occurrence wins).
