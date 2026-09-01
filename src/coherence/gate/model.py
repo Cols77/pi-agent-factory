@@ -112,7 +112,7 @@ class DecisionFile:
             schema = raw["schema"]
             gate_id = _as_str(raw["gate_id"])
             artifact_ref = _as_str(raw.get("artifact_ref", ""))
-            decisions_raw = raw.get("decisions") or []
+            decisions_raw = raw.get("decisions", [])
             decided_at = _as_str(raw["decided_at"])
             decided_by = _as_str(raw.get("decided_by", ""))
         except (KeyError, TypeError) as exc:
@@ -121,6 +121,8 @@ class DecisionFile:
             ) from exc
         if schema != 1:
             raise CorruptDecisionFile(f"unsupported decision file schema {schema!r}")
+        if not isinstance(decisions_raw, list):
+            raise CorruptDecisionFile("decision file `decisions` must be a list")
         try:
             return cls(
                 schema=schema,

@@ -87,6 +87,21 @@ def test_expired_deferral_appears_and_future_one_does_not(tmp_path):
     assert expired.source == "deferrals"
 
 
+@pytest.mark.parametrize(
+    "review_after",
+    [
+        "2026-12-31",
+        "2026-12-31 12:30",
+    ],
+)
+def test_list_items_handles_declared_iso_future_defers(tmp_path: Path, review_after: str):
+    _sr(tmp_path, "SR-001", deferred={"reason": "later", "review_after": review_after})
+
+    items = list_items(tmp_path, NOW)
+
+    assert not any(i.kind == "expired_deferral" for i in items)
+
+
 # -- stale register bindings ------------------------------------------------
 
 
@@ -293,6 +308,32 @@ def test_malformed_or_stale_sr_consent_remains_pending(tmp_path: Path):
     item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
     assert item.kind == "authoring_consent"
     assert "invalid" in item.summary or "stale" in item.summary
+
+
+@pytest.mark.parametrize("decisions", [1, True])
+def test_non_list_decisions_in_valid_json_keep_sr_pending(
+    tmp_path: Path, decisions: object
+):
+    _sr(tmp_path, "SR-001")
+    path = decision_path(tmp_path, "sr:SR-001")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "sr:SR-001",
+                "artifact_ref": "artifact:requirements/SR-001.md",
+                "decisions": decisions,
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "human@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "invalid" in item.summary
 
 
 # -- suspect / invalid / waived edges --------------------------------------

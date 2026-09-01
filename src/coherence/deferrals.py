@@ -16,27 +16,25 @@ expired; a legacy scalar never expires. Unknown / malformed shapes are REJECTED
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
-
-_ISO_PREFIX = "%Y-%m-%dT%H:%M:%S"
-_DATE_ONLY_PREFIX = "%Y-%m-%d"
+from coherence.gate.model import _is_iso
 
 
 def _parse_instant(value: str) -> datetime:
-    """Parse an ISO-8601-ish instant to a naive/proper datetime for comparison.
-
-    Handles the repo's verbatim stamps (``2026-09-01T00:00:00Z`` and
-    ``2026-09-01``). Raises `ValueError` on an unparsable shape so garbage
-    ``review_after`` values surface as rejections, not silent aliases.
-    """
-    s = value.strip().replace("Z", "+00:00")
-    for fmt in (_ISO_PREFIX, _ISO_PREFIX + ".%f", _ISO_PREFIX + "%z", _DATE_ONLY_PREFIX):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"not an ISO-8601 instant: {value!r}")
+    """Parse a declared ISO form and normalize it to an aware UTC datetime."""
+    if not isinstance(value, str) or not _is_iso(value):
+        raise ValueError(f"not an ISO-8601 instant: {value!r}")
+    s = value.strip()
+    if s[-1] in "Zz":
+        s = s[:-1] + "+00:00"
+    try:
+        instant = datetime.fromisoformat(s)
+    except ValueError as exc:
+        raise ValueError(f"not an ISO-8601 instant: {value!r}") from exc
+    if instant.tzinfo is None:
+        return instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)
