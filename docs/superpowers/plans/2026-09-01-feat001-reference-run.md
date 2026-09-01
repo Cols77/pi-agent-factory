@@ -381,7 +381,8 @@ rather than from an owned boundary:
 3. A block ending the file with no trailing newline left its stale last entry unconsumed and
    re-appended after the new block, corrupting it.
 
-And a fourth, different in kind: the block regexes hardcoded `
+And a fourth, different in kind: the block regexes hardcoded `
+
 `, so on any LF checkout — the norm
 outside Windows — the tool raised an **uncaught exception** rather than reporting a failure, and
 aborted the remaining files mid-loop, able to leave the tree half-regenerated. Every test passed,
@@ -466,4 +467,53 @@ there.
 
 ## 6. Step list for registering the next feature by hand
 
-<!-- written at the end, from §3, and checkable without reading the slice plan -->
+This is the procedure, extracted from what actually happened. It is written to be followed **without
+reading the slice plan**. FEAT-001 needed seven schema/tooling steps that later features do not —
+those are marked *(once)* and are already done. A second feature runs only the unmarked steps.
+
+**Actor** is `agent` or `human`. A `human` step is a boundary, not a formality: no agent may perform
+it, and an automated pipeline must model it as *queue and wait*, never as a step it completes.
+
+| # | Step | Actor | Done when |
+|---|---|---|---|
+| 1 | Commit a baseline so the tree is clean and the run has a commit to anchor evidence to | agent | `git status` clean; the SHA is recorded |
+| 2 | *(once)* Add the `acceptance:` array to the SR schema | agent | Malformed entries reject the whole SR; existing SRs load unchanged |
+| 3 | *(once)* Give `requirement_quality` a real criterion | agent | The dimension can fail, and does |
+| 4 | *(once)* Add the `sr:` item-id family so the gate can express authoring consent | agent | A `sr:SR-###` decision constructs and round-trips |
+| 5 | Read each SR's `source:` section. Author acceptance criteria **from the source, never from the code** | agent | Every criterion is one checkable sentence traceable to a quoted source line |
+| 6 | For each `test_marker` criterion, **open the test** and confirm it verifies that sentence | agent | Every binding is read, not assumed; wrong suggestions are rejected and recorded |
+| 7 | Record every place source and code disagree as a finding | agent | Disagreements are reported, never silently reconciled |
+| 8 | **Author authoring consent, one decision per SR, through the gate `DecisionFile`** | **human** | A real `accept`/`reject`/`defer` exists per SR |
+| 9 | Add `@pytest.mark.sr("SR-###")` to the specific functions that verify each criterion | agent | Function-level, one per explicit clause; never a module-level `pytestmark` |
+| 10 | *(once)* Make the `test_marker` obligation resolve through acceptance criteria | agent | An SR with no legacy `binding:` still compiles the obligation |
+| 11 | Run the named tests and write a run manifest recording each SR's real result | agent | Every `passed` traces to an exit status observed in this run |
+| 12 | For any SR blocked on an unreviewed `manual` criterion, **omit `passed` entirely** and record why | agent | The register shows *not measured*, never *measured failing* |
+| 13 | Write **both** evidence stores — `evidence/runs/*.json` and `validation/validation-report.json` | agent | `register check` and `navigate health` agree |
+| 14 | *(once)* Make the wikilink mirror derived, bounded by an owned end sentinel | agent | Regeneration is idempotent and preserves hand-authored prose |
+| 15 | Regenerate the mirrors and run the divergence check | agent | `mirrors check` exits 0 across every dossier |
+| 16 | *(once)* Wire `human_review` to an explicit `review:SR-###` decision | agent | No path reaches `satisfied` without a human decision on disk |
+| 17 | **Review the evidence and record a `human_review` decision per SR** | **human** | A real decision exists; the obligation moves |
+| 18 | Re-run `register check` and `navigate health --json`; record the numbers | agent | The movement is evidenced by command output, not prose |
+| 19 | Write the run record **as you go**, including every ambiguity | agent | An implementer could follow it without this document's parent plan |
+
+### The four rules that carry the most weight
+
+1. **Derive criteria from the source, not the code.** A criterion written by reading the
+   implementation cannot fail. It looks like coverage and is a tautology wearing a requirement's
+   clothes — the same defect as `req_quality_ok = len(sr_nodes)`, moved somewhere harder to see.
+2. **`manual` is the privileged kind, not the fallback.** A `manual` criterion counts toward
+   requirement quality with no automated evidence, so its `reason` prose *is* its evidence, and
+   nothing gates that prose. Reach for `manual` when no test can exist — never when no test was
+   convenient.
+3. **Never infer ownership from content.** A generator that decides which lines it owns by looking at
+   their shape will eventually meet ordinary text that matches, and delete it silently. Bound
+   generated regions with an explicit sentinel so ownership is a fact in the file.
+4. **Partial is the honest end state.** A registration run that an agent completes alone finishes
+   with the human gates open. Four of FEAT-001's eight SRs remain unaccounted for exactly that
+   reason. A pipeline that reports "done" without them has forged the only signal that matters.
+
+### What a second feature should expect
+
+Steps 2, 3, 4, 10, 14 and 16 are already built, so a second feature is steps 1, 5–9, 11–13, 15 and
+17–19. The agent-dischargeable part is roughly one working session. It will stop twice — at step 8
+and step 17 — and it cannot proceed past either without a person.
