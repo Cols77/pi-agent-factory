@@ -8,7 +8,7 @@ back on coherence).
 from __future__ import annotations
 
 import stat
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from coherence.trace import model as trace_model
 from substrate.policy.obligation import Obligation
@@ -104,6 +104,10 @@ def compile_obligations(
     if scope_ref != "project":
         if nodes is None:
             nodes = trace_model.load_nodes(root)
+        if scope_ref.startswith("sr:"):
+            sr_id = scope_ref.partition(":")[2]
+            if _has_duplicate_sr_declarations(root, sr_id, nodes):
+                return _ambiguous_sr_obligations(scope_ref)
         if edges is None:
             edges = trace_model.extract_edges(root, nodes)
     profile = resolve_profile(root, scope_ref, nodes=nodes, edges=edges)
@@ -183,6 +187,47 @@ def _sr_node_path(sr_id: str, *, nodes) -> Path | None:
     """
     node = next((n for n in nodes if n.kind == "sr" and n.id == sr_id), None)
     return node.path if node is not None else None
+
+
+def _has_duplicate_sr_declarations(root: Path, sr_id: str, nodes) -> bool:
+    """Detect duplicate SR declarations before any profile/map lookup.
+
+    The trace loader and register loader intentionally return lists so this
+    check does not collapse same-id declarations into a dict. They are two
+    views of the requirement source, so a duplicate in either view is enough.
+    """
+    trace_matches = [node for node in nodes if node.kind == "sr" and node.id == sr_id]
+    if len(trace_matches) > 1:
+        return True
+
+    from coherence.register import register as register_module
+
+    registered = register_module.load_register(root / "requirements")
+    return sum(req.id == sr_id for req in registered) > 1
+
+
+def _ambiguous_sr_obligations(scope_ref: str) -> list[Obligation]:
+    sr_id = scope_ref.partition(":")[2]
+    reason = f"{sr_id} has duplicate SR declarations; source is ambiguous"
+    resolve_cmd = (f"remove duplicate requirement registrations for {sr_id}",)
+    return [
+        Obligation(
+            id=f"ob:{kind}:{scope_ref}",
+            scope_ref=scope_ref,
+            kind=kind,
+            requiredness="blocking",
+            reason=reason,
+            source_policy="ambiguous",
+            state="open",
+            resolve_cmd=resolve_cmd,
+        )
+        for kind in (
+            "ci_verification",
+            "verification_result",
+            "human_review",
+            "test_marker",
+        )
+    ]
 
 
 def _verification_result_obligation(
@@ -328,16 +373,7 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
     for criterion in test_marker_criteria:
         ref = criterion.verification.ref or ""
         try:
-            ref_path = Path(ref)
-            if ref_path.is_absolute():
-                raise ValueError("acceptance ref must be relative to the project root")
-            candidate = root
-            for part in ref_path.parts:
-                candidate /= part
-                if _is_symlink_or_reparse_point(candidate):
-                    raise ValueError("acceptance ref contains a link or reparse point")
-            resolved_ref = (canonical_root / ref_path).resolve()
-            resolved_ref.relative_to(canonical_root)
+            resolved_ref = _resolve_acceptance_ref(root, canonical_root, ref)
             has_marker = (
                 resolved_ref.suffix == ".py"
                 and resolved_ref.is_file()
@@ -360,6 +396,26 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
             tuple(f'add @pytest.mark.sr("{sr_id}") to {ref}' for ref in missing_refs)
             if missing_refs else None
         ))
+
+
+def _resolve_acceptance_ref(root: Path, canonical_root: Path, ref: str) -> Path:
+    """Resolve a marker ref only after rejecting unsafe lexical path forms."""
+    ref_path = Path(ref)
+    windows_ref = PureWindowsPath(ref)
+    if ref_path.is_absolute() or ref_path.anchor or windows_ref.anchor:
+        raise ValueError("acceptance ref must be relative to the project root")
+    if ".." in ref_path.parts or ".." in windows_ref.parts:
+        raise ValueError("acceptance ref must not contain a parent-directory component")
+
+    candidate = root
+    for part in ref_path.parts:
+        candidate /= part
+        if _is_symlink_or_reparse_point(candidate):
+            raise ValueError("acceptance ref contains a link or reparse point")
+
+    resolved_ref = (canonical_root / ref_path).resolve()
+    resolved_ref.relative_to(canonical_root)
+    return resolved_ref
 
 
 def _is_symlink_or_reparse_point(path: Path) -> bool:

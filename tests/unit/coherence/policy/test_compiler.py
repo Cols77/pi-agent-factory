@@ -435,12 +435,17 @@ def test_compile_obligations_duplicate_profiles_are_ambiguous_and_blocking(
     (requirements / prototype_name).write_text(duplicate_yaml, encoding="utf-8")
 
     obligations = compile_obligations(tmp_path, "sr:SR-MIX")
-    tm = next(o for o in obligations if o.kind == "test_marker")
-
-    assert tm.requiredness == "blocking"
-    assert tm.state == "open"
-    assert tm.source_policy == "ambiguous"
-    assert "duplicate" in tm.reason
+    assert {o.kind for o in obligations} == {
+        "ci_verification",
+        "verification_result",
+        "human_review",
+        "test_marker",
+    }
+    for obligation in obligations:
+        assert obligation.requiredness == "blocking"
+        assert obligation.state == "open"
+        assert obligation.source_policy == "ambiguous"
+        assert "duplicate" in obligation.reason
 
 
 def test_compile_obligations_test_marker_via_acceptance_unresolved_ref_stays_open(tmp_path):
@@ -520,6 +525,65 @@ def test_compile_obligations_test_marker_rejects_absolute_outside_ref(tmp_path):
     assert ref in " ".join(tm.resolve_cmd or ())
 
 
+def test_compile_obligations_test_marker_rejects_parent_component_inside_root_ref(tmp_path):
+    ref_target = "tests/test_ac_parent_inside_root.py"
+    target = tmp_path / ref_target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        '@pytest.mark.sr("SR-029")\ndef test_x():\n    assert True\n',
+        encoding="utf-8",
+    )
+    ref = "tests/../tests/test_ac_parent_inside_root.py"
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-029",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{ref}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-029")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows rooted paths are platform-specific")
+def test_compile_obligations_test_marker_rejects_current_drive_rooted_ref_inside_root(tmp_path):
+    target = tmp_path / "tests" / "test_ac_rooted_inside_root.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        '@pytest.mark.sr("SR-030")\ndef test_x():\n    assert True\n',
+        encoding="utf-8",
+    )
+    # On Windows this is rooted on the current drive but still resolves under
+    # tmp_path. Path.is_absolute() is false for this form.
+    ref = str(target)[2:]
+    assert ref.startswith("\\")
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-030",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: '{ref}'\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-030")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
 def test_compile_obligations_test_marker_rejects_symlink_outside_ref(tmp_path):
     outside = tmp_path.parent / f"{tmp_path.name}_outside_symlink.py"
     outside.write_text(
@@ -564,11 +628,12 @@ def test_compile_obligations_test_marker_rejects_directory_junction_ref(tmp_path
         result = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(alias), str(target_dir)],
             capture_output=True,
-            text=True,
+            text=False,
             check=False,
         )
         if result.returncode != 0:
-            pytest.skip(f"could not create a directory junction: {result.stderr or result.stdout}")
+            detail = (result.stderr or result.stdout).decode(errors="replace")
+            pytest.skip(f"could not create a directory junction: {detail}")
     else:
         try:
             alias.symlink_to(target_dir, target_is_directory=True)
