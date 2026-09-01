@@ -101,19 +101,22 @@ def test_a_criterion_is_addressable_as_sr_id_slash_ac_id(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Malformed cases -- each must raise ValueError at load, naming the file.
+# Malformed cases -- each must raise ValueError at load, naming the file, and
+# each `match=` below asserts the *specific* failure reason for that case (not
+# just the filename or the criterion id) so that a wrong-but-adjacent error
+# from a different validation branch cannot satisfy the wrong test.
 # ---------------------------------------------------------------------------
 
 
 def test_acceptance_that_is_not_a_list_is_rejected(tmp_path):
     yaml = "acceptance: not-a-list\n"
-    with pytest.raises(ValueError, match="SR-001.md"):
+    with pytest.raises(ValueError, match="acceptance: must be a list"):
         parse_requirement(_write(tmp_path, yaml))
 
 
 def test_an_entry_that_is_not_a_mapping_is_rejected(tmp_path):
     yaml = "acceptance:\n  - just a string\n"
-    with pytest.raises(ValueError, match="SR-001.md"):
+    with pytest.raises(ValueError, match="entry must be a mapping"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -124,7 +127,7 @@ def test_an_entry_missing_id_is_rejected(tmp_path):
       kind: manual
       reason: "r"
 """
-    with pytest.raises(ValueError, match="SR-001.md"):
+    with pytest.raises(ValueError, match=r"missing required field 'id'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -135,7 +138,7 @@ def test_an_entry_missing_criterion_is_rejected(tmp_path):
       kind: manual
       reason: "r"
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*missing required field 'criterion'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -147,7 +150,7 @@ def test_an_entry_with_a_blank_criterion_is_rejected(tmp_path):
       kind: manual
       reason: "r"
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*missing required field 'criterion'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -156,7 +159,7 @@ def test_an_entry_missing_verification_is_rejected(tmp_path):
   - id: AC-1
     criterion: "c"
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*missing required field 'verification'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -168,7 +171,7 @@ def test_an_unknown_verification_kind_is_rejected(tmp_path):
       kind: telepathy
       ref: "x"
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*verification\.kind must be one of"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -180,7 +183,7 @@ def test_test_marker_and_harness_require_a_ref(tmp_path, kind):
     verification:
       kind: {kind}
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*requires a non-blank 'ref'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -193,7 +196,7 @@ def test_test_marker_and_harness_reject_a_blank_ref(tmp_path, kind):
       kind: {kind}
       ref: "   "
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*requires a non-blank 'ref'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -204,7 +207,7 @@ def test_manual_requires_a_reason(tmp_path):
     verification:
       kind: manual
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*requires a non-blank 'reason'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -216,7 +219,7 @@ def test_manual_rejects_a_blank_reason(tmp_path):
       kind: manual
       reason: "   "
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*requires a non-blank 'reason'"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -233,7 +236,7 @@ def test_a_duplicate_criterion_id_within_one_sr_is_rejected(tmp_path):
       kind: manual
       reason: "r"
 """
-    with pytest.raises(ValueError, match="AC-1"):
+    with pytest.raises(ValueError, match=r"AC-1.*duplicate criterion id"):
         parse_requirement(_write(tmp_path, yaml))
 
 
@@ -249,5 +252,5 @@ def test_a_malformed_entry_is_rejected_wholesale_not_partially_kept(tmp_path):
   - id: AC-2
     criterion: "malformed: missing verification"
 """
-    with pytest.raises(ValueError, match="AC-2"):
+    with pytest.raises(ValueError, match=r"AC-2.*missing required field 'verification'"):
         parse_requirement(_write(tmp_path, yaml))
