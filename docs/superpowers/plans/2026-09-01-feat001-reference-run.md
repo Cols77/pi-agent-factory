@@ -302,6 +302,44 @@ from different data: `classify()` reads `binding`/task/deferral, the obligation 
 acceptance. They disagree, and the older, more visible surface is the one telling the bleaker story.
 Closing that seam is S-6's, because "no SR remains unaccounted" is S-6's acceptance sentence.
 
+### S-6 — Execute the evidence
+
+| | |
+|---|---|
+| **Actor** | agent |
+| **Reads** | each SR's `test_marker` criteria; `src/substrate/evidence/`; `src/coherence/register/cli.py` |
+| **Writes** | `evidence/runs/T-6-evidence-execution-*.json`, `validation/validation-report.json` |
+| **Command** | `rtk proxy uv run pytest -m sr -v -o addopts=""` |
+| **Commits** | `142b846` |
+
+`executed_evidence` moved **0/55 → 4/55**, and `coherence register check` moved from 55 pending /
+0 measured-passing to **51 pending / 4 measured-passing**. This is the first executed evidence the
+repository has ever recorded.
+
+**Four of the eight SRs are now accounted. Four are not, and that is the correct answer.**
+SR-002, SR-003, SR-005 and SR-007 have only `test_marker` criteria; every one executed and passed.
+SR-001, SR-004, SR-006 and SR-050 each carry at least one `kind: manual` criterion, satisfiable only
+by a human `human_review` decision that does not exist — and for SR-004/AC-3 and SR-006/AC-3 the
+behaviour is genuinely absent, so they were authored as failing criteria on purpose. A pipeline that
+reported those four as accounted would be forging the human gate. **The honest end state of an
+automated registration run is partial.**
+
+**The detail most likely to be got wrong by an automated pipeline.** `_validation_state` tests
+`"passed" in entry`, so writing `passed: null` for an unreviewed requirement makes `not None` true
+and reports it **measured failing**. Omitting the key entirely yields `None`, which falls through to
+`PENDING` — "not measured". The distinction between *failed* and *not yet measured* survives only if
+the writer omits the field rather than nulling it. Each withheld entry instead carries a `note`
+naming the outstanding criterion and why.
+
+**Two evidence mechanisms, neither documented.** `coherence register check` reads
+`evidence/runs/*.json`; `coherence navigate health`'s `executed_evidence` reads
+`validation/validation-report.json`. They are separate stores, and both had to be written for the two
+surfaces to agree. The legacy `coherence measurement` harness pipeline cannot serve a binding-less SR
+at all, so the validation report was written through that module's own writer function rather than
+its CLI. **Two stores answering one question is the same seam as S-5's, one layer down** — and any
+bootstrap that writes only one of them will produce two surfaces that disagree about whether a
+requirement has evidence.
+
 ---
 
 ## 4. Ambiguities and how they were resolved
@@ -321,6 +359,8 @@ Closing that seam is S-6's, because "no SR remains unaccounted" is S-6's accepta
 | A-8 | `collect_markers` is file-scoped. Mark the module once, or each verifying function? | Each verifying function, one per explicit clause of a compound criterion. | A file-scoped check satisfied by a module-level mark records a claim about every test in the file that nobody made |
 | A-9 | The acceptance `ref:` was visible to the health dimension but invisible to the obligation compiler, so the step's own Verify clause was unreachable. Give each SR a legacy `binding:`, or teach the compiler to read acceptance? | Teach the compiler; keep the legacy path first and untouched. | An SR has exactly one `binding` but may have criteria naming several files — the legacy shape cannot express the data. The array IS the binding |
 | A-10 | An SR with several `test_marker` criteria: satisfied when any resolves, or when all do? | All. And the test for it is written to fail under `any()`, not merely to pass under `all()`. | `any()` reports a requirement proven while most of its criteria have no evidence |
+| A-11 | For a requirement blocked on unreviewed `manual` criteria, write `passed: false`, `passed: null`, or omit `passed`? | Omit the key entirely, and carry a `note` saying which criterion is outstanding and why. | `_validation_state` tests `"passed" in entry`; a null reports an UNREVIEWED requirement as MEASURED FAILING. Omission is the only encoding that distinguishes "not measured" from "measured and failed" |
+| A-12 | Two undocumented evidence stores feed two surfaces that answer the same question. Write one, or both? | Both, and record that they are separate. | Writing one leaves `register check` and `navigate health` disagreeing about whether a requirement has evidence |
 
 ---
 
@@ -340,6 +380,16 @@ Closing that seam is S-6's, because "no SR remains unaccounted" is S-6's accepta
   `high_assurance` it compiles `blocking` and stays open regardless of what any human decides — so the
   slice's own exit condition was unreachable as written. Wiring this is T-8a.
 - **The plan assumed a clean starting tree.** See A-0.
+- **T-6's Acceptance clause is unreachable by an agent alone.** "No SR in FEAT-001 remains 'no
+  measurement, task, or deferral'" cannot be true while four SRs carry unreviewed `manual` criteria
+  and the human gates (T-4b, T-8b) are by definition not an agent's to discharge. The plan wrote an
+  acceptance sentence that only a human-plus-agent run can satisfy, and did not say so.
+- **Two of nine tasks stalled the same way: an implementer backgrounded its own verification suite,
+  ended its turn, and waited forever for a notification that never came.** A subagent is not
+  reliably re-invoked by its own background watcher. Both needed an explicit nudge from the
+  orchestrator to finish. Any automated registration pipeline must either make verification block,
+  or make the orchestrator own the wait and the re-invocation — never leave a worker watching its
+  own background job.
 - **T-5's Verify clause was unreachable as written.** It required the `test_marker` obligation to
   compile `blocking`, which was impossible for an SR with no legacy `binding:` — and none of the eight
   has one. The plan assumed the acceptance array was already load-bearing end to end; it was visible
