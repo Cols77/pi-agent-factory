@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from coherence.gate.model import Decision, DecisionFile
+from coherence.gate.store import decision_path, write_decision
 from coherence.inbox import InboxItem, list_items
 
 pytestmark = pytest.mark.unit
@@ -160,6 +162,85 @@ def test_coverage_gate_item_for_blocked_run(tmp_path):
     ids = {i.id for i in coverage}
     assert "coverage:r1:proposal:SR-999" in ids
     assert "coverage:r1:warning:SR-5" in ids
+
+
+# -- SR authoring consent ----------------------------------------------------
+
+
+def _write_authoring_consent(root: Path, sr_id: str, *, gate_id: str | None = None) -> None:
+    write_decision(
+        root,
+        DecisionFile(
+            gate_id=gate_id or f"sr:{sr_id}",
+            artifact_ref=f"artifact:requirements/{sr_id}.md",
+            decisions=(Decision(f"sr:{sr_id}", "accept"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="human@example.invalid",
+        ),
+    )
+
+
+def test_pending_sr_produces_an_authoring_consent_inbox_item(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+
+    assert item.source == "register"
+    assert item.kind == "authoring_consent"
+    assert item.ref == "sr:SR-001"
+    assert "SR-001" in item.summary
+    assert item.evidence == str(tmp_path / "requirements" / "SR-001.md")
+    assert item.resolve_cmd is not None
+    assert any("SR-001" in command for command in item.resolve_cmd)
+
+
+def test_recorded_sr_authoring_consent_removes_that_sr_from_pending_queue(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(tmp_path, "SR-001")
+
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_review_decision_does_not_satisfy_sr_authoring_consent(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id="review:SR-001",
+            artifact_ref="artifact:requirements/SR-001.md",
+            decisions=(Decision("review:SR-001", "accept"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="human@example.invalid",
+        ),
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_malformed_or_stale_sr_consent_remains_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    path = decision_path(tmp_path, "sr:SR-001")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "review:SR-001",
+                "artifact_ref": "artifact:requirements/SR-001.md",
+                "decisions": [
+                    {"item_id": "sr:SR-001", "action": "accept"},
+                    {"item_id": "sr:SR-001", "action": "accept"},
+                ],
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "human@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "invalid" in item.summary or "stale" in item.summary
 
 
 # -- suspect / invalid / waived edges --------------------------------------

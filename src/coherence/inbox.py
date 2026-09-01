@@ -13,12 +13,15 @@ Sources wired concretely here:
   due (Task 3 ``deferral_is_due``);
 * stale register bindings -- a requirement whose recorded checksum no longer
   matches its content (``coherence.register.cli.cmd_index``);
+* SR authoring consent -- every registered SR whose per-SR ``sr:SR-###``
+  DecisionFile is absent, malformed, stale, or addresses the wrong gate/item;
 * suspect edges -- governed SR edges classified suspect/invalid/waived by
   ``edge_validity`` (Task 6 Step 4) via the ``unresolved_staleness`` sweep.
 
 Item ids follow the Review Amendments vocabulary: ``coverage:<run>:proposal:<id>``,
-``coverage:<run>:warning:<id>``, ``trace:<id>``. The list is stable-sorted by id
-and de-duplicated; reading never creates a file.
+``coverage:<run>:warning:<id>``, ``trace:<id>``, and ``sr:SR-###`` for authoring
+consent. The list is stable-sorted by id and de-duplicated; reading never creates
+a file.
 """
 from __future__ import annotations
 
@@ -196,6 +199,63 @@ def _suspect_edge_items(root: Path) -> list[InboxItem]:
     return items
 
 
+def _authoring_consent_items(root: Path) -> list[InboxItem]:
+    """Collect SRs awaiting the authoring-consent gate.
+
+    Authoring consent is deliberately a separate gate from verification review:
+    only the exact ``sr:<requirement-id>`` gate and item can clear an SR from
+    this queue. Reads are fail-closed and side-effect free. A malformed,
+    duplicate, or mismatched DecisionFile remains visible as a pending item
+    rather than being treated as consent.
+    """
+    from coherence.gate.model import CorruptDecisionFile
+    from coherence.gate.store import decision_path, load_decision
+    from coherence.register.register import load_register
+
+    req_dir = root / "requirements"
+    if not req_dir.is_dir():
+        return []
+
+    items: list[InboxItem] = []
+    for req in load_register(req_dir):
+        item_id = f"sr:{req.id}"
+        path = decision_path(root, item_id)
+        reason: str | None = None
+        if path.is_file():
+            try:
+                decision_file = load_decision(path)
+            except CorruptDecisionFile as exc:
+                reason = f"invalid DecisionFile ({exc})"
+            else:
+                decisions = decision_file.decisions
+                if (
+                    decision_file.gate_id != item_id
+                    or len(decisions) != 1
+                    or decisions[0].item_id != item_id
+                ):
+                    reason = "stale or mismatched DecisionFile"
+        else:
+            reason = "no DecisionFile"
+
+        if reason is None:
+            continue
+        items.append(
+            InboxItem(
+                id=item_id,
+                source="register",
+                kind="authoring_consent",
+                ref=item_id,
+                summary=(
+                    f"{req.id}: authoring consent pending ({reason}; expected DecisionFile "
+                    f"at {path})"
+                ),
+                evidence=str(req.path),
+                resolve_cmd=(f"coherence register show {req.id}",),
+            )
+        )
+    return items
+
+
 def list_items(root: Path | str, now: str) -> list[InboxItem]:
     """Compose all inbox sources into one stable-sorted, de-duplicated list
     (pure read -- never writes, never executes a resolver)."""
@@ -204,6 +264,7 @@ def list_items(root: Path | str, now: str) -> list[InboxItem]:
     collected.extend(_coverage_gate_items(root))
     collected.extend(_expired_deferral_items(root, now))
     collected.extend(_stale_binding_items(root))
+    collected.extend(_authoring_consent_items(root))
     collected.extend(_suspect_edge_items(root))
 
     # Stable sort by id; de-duplicate by id (first occurrence wins).

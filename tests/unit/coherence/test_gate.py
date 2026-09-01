@@ -136,6 +136,19 @@ def test_allowed_suspect_prefix_accepted():
     validate_decisions((Decision(item_id="suspect:SR-001", action="accept"),))
 
 
+def test_allowed_canonical_sr_authoring_consent_item_round_trips():
+    decision = Decision(item_id="sr:SR-001", action="accept")
+    validate_decisions((decision,))
+    file = DecisionFile(
+        gate_id="sr:SR-001",
+        artifact_ref="artifact:requirements/SR-001.md",
+        decisions=(decision,),
+        decided_at="2026-09-01T00:00:00Z",
+        decided_by="human@example.invalid",
+    )
+    assert DecisionFile.from_dict(file.to_dict()) == file
+
+
 # --- validation: accept / reject / defer rules ------------------------------
 
 
