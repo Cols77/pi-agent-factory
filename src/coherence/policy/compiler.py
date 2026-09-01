@@ -310,17 +310,22 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
             reason=f"{sr_id} has no binding and no test_marker acceptance criteria to check",
             source_policy=profile, state="satisfied", resolve_cmd=None)
 
+    canonical_root = root.resolve()
     missing_refs: list[str] = []
     for criterion in test_marker_criteria:
         ref = criterion.verification.ref or ""
-        ref_path = root / ref
         try:
+            ref_path = Path(ref)
+            if ref_path.is_absolute():
+                raise ValueError("acceptance ref must be relative to the project root")
+            resolved_ref = (canonical_root / ref_path).resolve()
+            resolved_ref.relative_to(canonical_root)
             has_marker = (
-                ref_path.suffix == ".py"
-                and ref_path.is_file()
-                and sr_id in collect_markers(ref_path)
+                resolved_ref.suffix == ".py"
+                and resolved_ref.is_file()
+                and sr_id in collect_markers(resolved_ref)
             )
-        except MarkerCollectionError:
+        except (MarkerCollectionError, OSError, RuntimeError, TypeError, ValueError):
             has_marker = False
         if not has_marker and ref not in missing_refs:
             missing_refs.append(ref)

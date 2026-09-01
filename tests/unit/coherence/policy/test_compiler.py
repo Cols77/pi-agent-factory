@@ -396,6 +396,87 @@ def test_compile_obligations_test_marker_via_acceptance_unresolved_ref_stays_ope
     assert experiment in " ".join(tm.resolve_cmd or ())
 
 
+def test_compile_obligations_test_marker_rejects_traversal_ref(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}_outside_traversal.py"
+    outside.write_text(
+        '@pytest.mark.sr("SR-025")\ndef test_x():\n    assert True\n',
+        encoding="utf-8",
+    )
+    ref = f"../{outside.name}"
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-025",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{ref}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-025")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
+def test_compile_obligations_test_marker_rejects_absolute_outside_ref(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}_outside_absolute.py"
+    outside.write_text(
+        '@pytest.mark.sr("SR-026")\ndef test_x():\n    assert True\n',
+        encoding="utf-8",
+    )
+    ref = outside.resolve().as_posix()
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-026",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{ref}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-026")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
+def test_compile_obligations_test_marker_rejects_symlink_outside_ref(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}_outside_symlink.py"
+    outside.write_text(
+        '@pytest.mark.sr("SR-027")\ndef test_x():\n    assert True\n',
+        encoding="utf-8",
+    )
+    ref = "tests/test_ac_symlink_outside.py"
+    link = tmp_path / ref
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks are not supported: {exc}")
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-027",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{ref}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-027")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.state == "open"
+    assert ref in " ".join(tm.resolve_cmd or ())
+
+
 def test_compile_obligations_test_marker_via_acceptance_partial_is_not_satisfied(tmp_path):
     # Two test_marker criteria; only one resolves. Partial satisfaction must
     # NOT be reported as satisfied -- this is the false-green this obligation
