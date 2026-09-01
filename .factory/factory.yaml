@@ -8,5 +8,10 @@ gates:
     - { cmd: "{python} -m ruff check ." }
     - { cmd: "{python} -m pyright" }
     - { cmd: "{python} -m pytest -m unit -q" }
+    # Review round 3, Important 3: the 20 feature dossiers'
+    # '## Related requirements' blocks are derived output; this is what
+    # proves they still match their frontmatter/trace-graph derivation.
+    # It ran in no gate at all.
+    - { cmd: "{python} -m coherence mirrors check" }
     - { cmd: "{python} scripts/gates/ext.py" }
     - { cmd: "{python} scripts/gates/watch_ext.py" }
