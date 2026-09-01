@@ -320,3 +320,173 @@ def test_compile_obligations_test_marker_not_applicable_for_command_experiment(t
     tm = next(o for o in obligations if o.kind == "test_marker")
     assert tm.requiredness == "not_applicable"
     assert tm.state == "satisfied"
+
+
+# --------------------------------------------------------------------------
+# Task 5 addendum: test_marker obligation resolves through acceptance criteria
+# for an SR that carries no `binding` (the proposed/unbound state).
+# --------------------------------------------------------------------------
+
+
+def _seed_unbound_sr_with_acceptance(tmp_path, sr_id, *, acceptance_yaml, profile=None):
+    (tmp_path / "requirements").mkdir(exist_ok=True)
+    profile_line = f"profile: {profile}\n" if profile else ""
+    (tmp_path / "requirements" / f"{sr_id}.md").write_text(
+        "---\n"
+        f"id: {sr_id}\ntitle: t\nstatement: s\ndomain: d\n"
+        f"{profile_line}"
+        f"{acceptance_yaml}"
+        "---\n",
+        encoding="utf-8",
+    )
+
+
+def test_compile_obligations_test_marker_via_acceptance_satisfied(tmp_path):
+    # An unbound SR (no `binding:`) with one `test_marker` acceptance
+    # criterion whose ref file carries a matching @pytest.mark.sr marker
+    # must compile a satisfied test_marker obligation.
+    experiment = "tests/test_ac_sat.py"
+    exp = tmp_path / experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text(
+        '@pytest.mark.sr("SR-020")\ndef test_x():\n    assert True\n', encoding="utf-8",
+    )
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-020",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{experiment}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-020")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "required"  # project default: prototype
+    assert tm.state == "satisfied"
+
+
+def test_compile_obligations_test_marker_via_acceptance_unresolved_ref_stays_open(tmp_path):
+    # The ref file exists but carries no matching marker: unsatisfied.
+    experiment = "tests/test_ac_unsat.py"
+    exp = tmp_path / experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-021",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{experiment}\"\n"
+        ),
+        profile="high_assurance",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-021")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "blocking"
+    assert tm.state == "open"
+    assert "SR-021" in " ".join(tm.resolve_cmd or ())
+    assert experiment in " ".join(tm.resolve_cmd or ())
+
+
+def test_compile_obligations_test_marker_via_acceptance_partial_is_not_satisfied(tmp_path):
+    # Two test_marker criteria; only one resolves. Partial satisfaction must
+    # NOT be reported as satisfied -- this is the false-green this obligation
+    # exists to prevent.
+    good = "tests/test_ac_partial_good.py"
+    bad = "tests/test_ac_partial_bad.py"
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / good).write_text(
+        '@pytest.mark.sr("SR-022")\ndef test_x():\n    assert True\n', encoding="utf-8",
+    )
+    (tmp_path / bad).write_text("def test_y():\n    assert True\n", encoding="utf-8")
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-022",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "a"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{good}\"\n"
+            "  - id: AC-2\n"
+            '    criterion: "b"\n'
+            "    verification:\n"
+            "      kind: test_marker\n"
+            f"      ref: \"{bad}\"\n"
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-022")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.state == "open"
+    assert bad in " ".join(tm.resolve_cmd or ())
+    assert good not in " ".join(tm.resolve_cmd or ())
+
+
+def test_compile_obligations_test_marker_manual_only_criteria_is_not_applicable(tmp_path):
+    # An SR whose acceptance criteria are all `kind: manual` (no test_marker
+    # criteria at all) and carries no binding: not this obligation's concern.
+    _seed_unbound_sr_with_acceptance(
+        tmp_path,
+        "SR-023",
+        acceptance_yaml=(
+            "acceptance:\n"
+            "  - id: AC-1\n"
+            '    criterion: "c"\n'
+            "    verification:\n"
+            "      kind: manual\n"
+            '      reason: "no automated check"\n'
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-023")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "not_applicable"
+    assert tm.state == "satisfied"
+
+
+def test_compile_obligations_test_marker_legacy_binding_ignores_acceptance(tmp_path):
+    # An SR with a `binding.experiment` must behave exactly as the legacy
+    # path always has, even when it ALSO carries a test_marker acceptance
+    # criterion pointing elsewhere -- the legacy path is not merged with the
+    # acceptance-based one.
+    legacy_experiment = "tests/test_legacy_sr.py"
+    exp = tmp_path / legacy_experiment
+    exp.parent.mkdir(parents=True, exist_ok=True)
+    exp.write_text(
+        '@pytest.mark.sr("SR-024")\ndef test_x():\n    assert True\n', encoding="utf-8",
+    )
+    other_ref = "tests/test_ac_unrelated.py"
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / other_ref).write_text("def test_z():\n    assert True\n", encoding="utf-8")
+    (tmp_path / "requirements").mkdir(exist_ok=True)
+    (tmp_path / "requirements" / "SR-024.md").write_text(
+        "---\n"
+        "id: SR-024\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n"
+        f"  experiment: {legacy_experiment}\n"
+        "  metric: m\n"
+        "  assert: '>= 0.9'\n"
+        "  harness: h\n"
+        "acceptance:\n"
+        "  - id: AC-1\n"
+        '    criterion: "c"\n'
+        "    verification:\n"
+        "      kind: test_marker\n"
+        f"      ref: \"{other_ref}\"\n"
+        "---\n",
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-024")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    # The bound experiment carries the marker -> satisfied, exactly like the
+    # legacy path, regardless of the unrelated unresolved acceptance ref.
+    assert tm.state == "satisfied"
+    assert tm.requiredness == "required"

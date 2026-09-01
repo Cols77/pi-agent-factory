@@ -79,6 +79,7 @@ def _write_sr(tmp_path: Path, req_id: str, experiment: str, *, profile: str | No
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.sr("SR-006")
 def test_collect_markers_deduplicates_within_a_file(tmp_path: Path):
     path = _write_test(
         tmp_path,
@@ -98,6 +99,7 @@ def test_collect_markers_deduplicates_within_a_file(tmp_path: Path):
     assert len(collected) == 3, "duplicate marker text must collapse to a single set entry"
 
 
+@pytest.mark.sr("SR-006")
 def test_collect_markers_matches_the_sr_id_string_exactly(tmp_path: Path):
     path = _write_test(
         tmp_path,
@@ -113,6 +115,7 @@ def test_collect_markers_matches_the_sr_id_string_exactly(tmp_path: Path):
     assert "sr-0042" in collected
 
 
+@pytest.mark.sr("SR-006")
 def test_collect_markers_ignores_unrelated_decorators(tmp_path: Path):
     path = _write_test(
         tmp_path,
@@ -166,6 +169,7 @@ def test_a_bound_sr_without_the_marker_is_required_under_the_default_profile(tmp
     assert "marker" in finding.detail.lower()
 
 
+@pytest.mark.sr("SR-006")
 def test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_profile(tmp_path: Path):
     # A `profile: high_assurance` frontmatter override compiles test_marker
     # requiredness "blocking" -- preserving Task 3's original BLOCKING finding

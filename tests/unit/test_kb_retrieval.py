@@ -175,6 +175,7 @@ def _write_symbol_kb(kb_dir: Path, entry_id: str = "kb-0201") -> None:
     )
 
 
+@pytest.mark.sr("SR-007")
 def test_select_entries_matches_moved_symbol_via_reachable_symbols(tmp_path):
     _symbol_repo(tmp_path)
     _fresh_symbol_snapshot(tmp_path)
@@ -187,6 +188,7 @@ def test_select_entries_matches_moved_symbol_via_reachable_symbols(tmp_path):
     assert ids == ["kb-0201"]
 
 
+@pytest.mark.sr("SR-007")
 def test_select_entries_stale_codemap_diagnostic_and_no_file_glob_fallback(tmp_path):
     _symbol_repo(tmp_path)
     _fresh_symbol_snapshot(tmp_path)
@@ -214,6 +216,7 @@ def test_select_entries_stale_codemap_diagnostic_and_no_file_glob_fallback(tmp_p
     assert any("stale" in d.lower() for d in diagnostics)
 
 
+@pytest.mark.sr("SR-007")
 def test_select_entries_missing_codemap_diagnostic_and_no_symbol_hit(tmp_path):
     _symbol_repo(tmp_path)  # code present, no snapshot ever built
     reachable = reachable_symbols(tmp_path, ["src/factory/client.py"])
@@ -233,6 +236,7 @@ def test_select_entries_missing_codemap_diagnostic_and_no_symbol_hit(tmp_path):
     assert any("missing" in d.lower() for d in diagnostics)
 
 
+@pytest.mark.sr("SR-007")
 def test_select_entries_symbol_match_is_exact_qualified_name(tmp_path):
     kb = tmp_path / "kb"
     _write_symbol_kb(kb)

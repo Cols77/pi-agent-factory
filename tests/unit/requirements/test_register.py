@@ -115,6 +115,7 @@ def test_is_checksum_current(tmp_path):
     assert is_checksum_current(req2) is True
 
 
+@pytest.mark.sr("SR-002")
 def test_load_register_and_get(tmp_path):
     _write(tmp_path, "SR-001.md", _SR)
     _write(tmp_path, "SR-002.md", _SR.replace("SR-001", "SR-002"))

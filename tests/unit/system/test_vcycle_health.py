@@ -99,18 +99,21 @@ def _codes(findings):
     return [(f.code, f.subject) for f in findings]
 
 
+@pytest.mark.sr("SR-001")
 def test_requirement_without_test(tmp_path):
     _write_sr(tmp_path, "SR-001", binding=True)
     findings = health.vcycle_health(tmp_path)
     assert ("REQ_NO_TEST", "sr:SR-001") in _codes(findings)
 
 
+@pytest.mark.sr("SR-001")
 def test_requirement_without_implementation(tmp_path):
     _write_sr(tmp_path, "SR-002", binding=True)
     findings = health.vcycle_health(tmp_path)
     assert ("REQ_NO_IMPLEMENTATION", "sr:SR-002") in _codes(findings)
 
 
+@pytest.mark.sr("SR-001")
 def test_implementation_without_traceable_requirement(tmp_path):
     _write_task(tmp_path, "T-001")
     findings = health.vcycle_health(tmp_path)

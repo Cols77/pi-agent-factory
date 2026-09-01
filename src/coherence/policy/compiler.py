@@ -260,28 +260,80 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
     experiment is a separate configuration finding (Task 3), not this
     obligation's concern, and this kind is not_applicable for it. The
     marker-closure CHECK (Task 3) consumes THIS compiled obligation's
-    requiredness rather than re-deriving severity from a raw profile string."""
+    requiredness rather than re-deriving severity from a raw profile string.
+
+    Task 5 addendum: an SR that carries no `binding` (the proposed state --
+    every FEAT-001 SR today) can still declare one or more `kind: test_marker`
+    acceptance criteria (T-1/T-3). Those resolve THIS obligation too, alongside
+    -- never merged with -- the legacy binding.experiment path: an SR with a
+    binding.experiment behaves exactly as before regardless of any acceptance
+    block it also carries (checked first, below). Only when there is no
+    binding does acceptance become this obligation's source of truth. An SR
+    with several test_marker criteria is satisfied only when EVERY one of them
+    resolves to a file carrying a matching marker -- partial resolution is
+    reported open, never satisfied (R-2: the criterion's `ref` is a
+    navigational pointer that must be consistent with the authoritative
+    @pytest.mark.sr decorator, or the mismatch must surface, never pass
+    silently). `kind: manual`/`kind: harness` criteria are not this
+    obligation's business and are ignored here."""
     from coherence.register import register as register_module
-    from coherence.register.markers import collect_markers
+    from coherence.register.markers import MarkerCollectionError, collect_markers
     sr_id = scope_ref.partition(":")[2]
     register = {r.id: r for r in register_module.load_register(root / "requirements")}
     req = register.get(sr_id)
     requiredness = "blocking" if profile == "high_assurance" else "required"
-    if req is None or req.binding is None:
+
+    if req is not None and req.binding is not None:
+        # Legacy path -- unchanged behaviour, acceptance criteria (if any) are
+        # not consulted here.
+        experiment_path = root / req.binding.experiment
+        if not (experiment_path.suffix == ".py" and experiment_path.is_file()):
+            return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+                kind="test_marker", requiredness="not_applicable",
+                reason=f"{sr_id}'s experiment does not resolve to a test file",
+                source_policy=profile, state="satisfied", resolve_cmd=None)
+        markers = collect_markers(experiment_path)
+        present = sr_id in markers
+        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+            kind="test_marker", requiredness=requiredness,
+            reason=f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on {sr_id}'s bound experiment test file",
+            source_policy=profile, state="satisfied" if present else "open",
+            resolve_cmd=(f'add @pytest.mark.sr("{sr_id}") to {experiment_path.name}',))
+
+    test_marker_criteria = [
+        c for c in (req.acceptance if req is not None else ())
+        if c.verification.kind == "test_marker"
+    ]
+    if not test_marker_criteria:
         return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
             kind="test_marker", requiredness="not_applicable",
-            reason=f"{sr_id} has no binding to check a marker for",
+            reason=f"{sr_id} has no binding and no test_marker acceptance criteria to check",
             source_policy=profile, state="satisfied", resolve_cmd=None)
-    experiment_path = root / req.binding.experiment
-    if not (experiment_path.suffix == ".py" and experiment_path.is_file()):
-        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
-            kind="test_marker", requiredness="not_applicable",
-            reason=f"{sr_id}'s experiment does not resolve to a test file",
-            source_policy=profile, state="satisfied", resolve_cmd=None)
-    markers = collect_markers(experiment_path)
-    present = sr_id in markers
+
+    missing_refs: list[str] = []
+    for criterion in test_marker_criteria:
+        ref = criterion.verification.ref or ""
+        ref_path = root / ref
+        try:
+            has_marker = (
+                ref_path.suffix == ".py"
+                and ref_path.is_file()
+                and sr_id in collect_markers(ref_path)
+            )
+        except MarkerCollectionError:
+            has_marker = False
+        if not has_marker and ref not in missing_refs:
+            missing_refs.append(ref)
+
+    satisfied = not missing_refs
     return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
         kind="test_marker", requiredness=requiredness,
-        reason=f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on {sr_id}'s bound experiment test file",
-        source_policy=profile, state="satisfied" if present else "open",
-        resolve_cmd=(f'add @pytest.mark.sr("{sr_id}") to {experiment_path.name}',))
+        reason=(
+            f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on every file "
+            f"{sr_id}'s test_marker acceptance criteria reference"
+        ),
+        source_policy=profile, state="satisfied" if satisfied else "open",
+        resolve_cmd=(
+            tuple(f'add @pytest.mark.sr("{sr_id}") to {ref}' for ref in missing_refs)
+            if missing_refs else None
+        ))
