@@ -134,7 +134,16 @@ SR-001 and SR-050 are expected to need new tests. **That is the useful signal** 
 two SRs whose sources are the engineering-context HLRs and the newest design, and they are the
 least covered. Do not paper over it by binding them to loosely-related tests.
 
-### T-4 — Human authoring consent
+### T-4a — Expose the authoring-consent queue (agent)
+
+Make the existing gate protocol able to represent per-SR authoring consent. The queue must use
+the canonical `sr:SR-###` item-id family and surface pending SRs through the register/inbox path.
+Do not author any decisions.
+
+**Verify:** a pending SR produces a durable, inspectable consent item and a valid `sr:` decision
+round-trips through the gate model/store.
+
+### T-4b — Human authoring consent
 
 Route all 8 through the gate `DecisionFile` (`accept | reject | defer`, reason required on
 reject/defer). Not chat narration, not a bulk approval.
@@ -172,7 +181,16 @@ that fails on divergence.
 hand, and reintroducing it fails the check.
 **Acceptance:** every FEAT's mirror matches its frontmatter exactly.
 
-### T-8 — `human_review` and close
+### T-8a — Wire `human_review` to the review decision (agent)
+
+Connect the per-SR `human_review` obligation to the existing durable review DecisionFile. A valid
+human accept must satisfy the obligation; reject/defer/missing/corrupt decisions remain open or
+blocked. Do not create or infer a human decision.
+
+**Verify:** focused tests prove missing, accepted, rejected, deferred, and malformed decisions
+remain fail-closed, and accepted decisions change only `human_review`.
+
+### T-8b — `human_review` and close
 
 FEAT-001 is `high_assurance`, so `human_review` compiles as `blocking`. Real human entries; an
 agent cannot produce them.
