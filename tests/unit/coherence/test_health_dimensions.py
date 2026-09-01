@@ -149,6 +149,37 @@ def test_requirement_quality_test_marker_with_existing_ref_counts(tmp_path):
     assert (rq.satisfied, rq.expected) == (1, 1)
 
 
+def test_requirement_quality_test_marker_with_existing_directory_does_not_count(tmp_path):
+    (tmp_path / "tests" / "test_example").mkdir(parents=True, exist_ok=True)
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "tests/test_example"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
+def test_requirement_quality_test_marker_with_non_python_file_does_not_count(tmp_path):
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tests" / "test_example.txt").write_text("not a test file\n", encoding="utf-8")
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "tests/test_example.txt"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
 def test_requirement_quality_absolute_ref_outside_root_does_not_count(tmp_path):
     outside = tmp_path.parent / f"{tmp_path.name}-outside.py"
     outside.write_text("def test_x():\n    pass\n", encoding="utf-8")
@@ -248,6 +279,29 @@ def test_requirement_quality_counts_when_at_least_one_of_several_criteria_resolv
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     rq = dims["requirement_quality"]
     assert (rq.satisfied, rq.expected) == (1, 1)
+
+
+def test_requirement_quality_duplicate_register_ids_do_not_satisfy_affected_sr_nodes(tmp_path):
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tests" / "test_example.py").write_text(
+        "def test_x():\n    pass\n", encoding="utf-8",
+    )
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "tests/test_example.py"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    original = (tmp_path / "requirements" / "SR-301.md").read_text(encoding="utf-8")
+    (tmp_path / "requirements" / "SR-301-duplicate.md").write_text(
+        original, encoding="utf-8",
+    )
+
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 2)
 
 
 # -- Dimensions 4/5: the shared verification_result obligation universe -----

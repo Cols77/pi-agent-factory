@@ -653,7 +653,11 @@ def _has_resolvable_acceptance(
                 candidate.relative_to(project_root)
             except ValueError:
                 continue
-            if candidate.exists():
+            if binding.kind == "test_marker":
+                resolvable = candidate.suffix == ".py" and candidate.is_file()
+            else:
+                resolvable = candidate.exists()
+            if resolvable:
                 return True
     return False
 
@@ -706,9 +710,18 @@ def compile_health_dimensions(
     # least one acceptance criterion with a resolvable verification binding
     # (see `_has_resolvable_acceptance`). Loaded once here, not once per SR --
     # same hoisting discipline `bundle_readiness` already uses above.
-    register_by_id = {
-        r.id: r for r in register_module.load_register(root / "requirements")
-    }
+    register_by_id = {}
+    duplicate_register_ids: set[str] = set()
+    for requirement in register_module.load_register(root / "requirements"):
+        if requirement.id in register_by_id:
+            duplicate_register_ids.add(requirement.id)
+        else:
+            register_by_id[requirement.id] = requirement
+    # Do not select an arbitrary declaration when the register is ambiguous.
+    # The SR-node denominator remains unchanged, while every affected SR fails
+    # closed for requirement_quality.
+    for duplicate_id in duplicate_register_ids:
+        register_by_id.pop(duplicate_id, None)
     req_quality_ok = sum(
         1 for n in sr_nodes if _has_resolvable_acceptance(root, register_by_id.get(n.id))
     )
