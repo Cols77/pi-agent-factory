@@ -23,3 +23,4 @@ This feature registers **HEALTH-STATUS** in the Coherence / pi-agent-factory fea
 - [[SR-018]]
 - [[SR-045]]
 - [[SR-046]]
+<!-- end derived -->

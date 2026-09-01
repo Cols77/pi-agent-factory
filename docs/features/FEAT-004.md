@@ -19,3 +19,4 @@ This feature registers **NAVIGATION-UNDERSTANDING** in the Coherence / pi-agent-
 <!-- fingerprint: sha256:09dfc3876d2de06527b22dc8b054fdebae2f5447a679595bc0c3f522dcfd6c5e -->
 - [[SR-015]]
 - [[SR-016]]
+<!-- end derived -->

@@ -25,3 +25,4 @@ This feature registers **PROGRESSIVE-ASSURANCE** in the Coherence / pi-agent-fac
 - [[SR-010]]
 - [[SR-011]]
 - [[SR-048]]
+<!-- end derived -->

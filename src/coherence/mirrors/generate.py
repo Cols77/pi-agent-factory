@@ -3,11 +3,11 @@
 Design decision D-P8: the block is derived from the dossier's own
 ``requirements:`` frontmatter, cross-checked against the trace graph's
 ``contains`` edges for that feature node (:mod:`coherence.trace.graph`), and
-never hand-edited. Only the entry-list run inside each ``docs/features/FEAT-*.md``
-file's ``## Related requirements`` section is ever rewritten -- everything
-before the heading, and anything found after the entry list within that same
-section (``FEAT-017.md`` has a hand-authored sentence there), is preserved
-byte for byte.
+never hand-edited. Only the generator-owned span inside each
+``docs/features/FEAT-*.md`` file's ``## Related requirements`` section is
+ever rewritten -- everything before the heading, and anything found after
+the owned span within that same section (``FEAT-017.md`` has a
+hand-authored sentence there), is preserved byte for byte.
 
 Finding worth recording (task brief asked for one if the graph turns out not
 to add anything): for every one of the 20 feature dossiers in this repo, the
@@ -20,6 +20,37 @@ this generator -- ``canonical_requirement_ids`` below still asks the graph,
 but only as a standing cross-check that would fail loudly (not silently
 diverge) if that ever stopped being true, e.g. if the graph ever started
 deduplicating, reordering, or dropping unresolved ids.
+
+Review round 2 -- what changed and why (see task-7-report.md's appended fix
+report for the full account):
+
+* Owned boundary, not shape inference. ``render.py`` now emits an explicit
+  end sentinel (``END_MARKER_LINE``) after the entry list. Once a file
+  carries it, :func:`_locate_block` finds it with a single search and owns
+  everything between the heading and that sentinel, unconditionally -- no
+  more "does this line look like one of ours?" guessing, which is what let
+  a hand-authored bullet placed directly after the entry list (no blank
+  line separating it) get silently swallowed and deleted. A file that has
+  never been generated (no sentinel yet, including all 20 real dossiers
+  before this generator's first run) still needs a boundary to be derived
+  once; that fallback uses a strict per-line shape match (an actual
+  ``- [[SR-...]]``/``- ![[SR-...]]`` wikilink, or the exact placeholder
+  line, or one of this generator's own comment lines) that a plain
+  hand-authored bullet like ``- Note: also relates to legacy system X.``
+  does not match, so it is never mistaken for an owned entry.
+* Line-ending agnostic. Every regex in this module accepts CRLF, bare LF, or
+  end-of-string (a final line with no trailing newline at all) as a line
+  terminator. ``_detect_eol`` reads the file's own dominant line ending once
+  and that is what ``render_related_requirements_block`` is asked to emit,
+  so an LF-only checkout is processed correctly and stays LF-only; a CRLF
+  file stays CRLF. Regeneration never rewrites a file's line endings as a
+  side effect.
+* A format error is a per-file failure, not a crash that aborts the run.
+  ``MirrorFormatError`` and ``MirrorDivergenceError`` are both caught, per
+  node, in both ``regenerate_all`` and ``check_all`` -- one malformed
+  dossier is reported and the loop continues to the next file rather than
+  raising an unhandled exception that leaves the rest of the tree
+  unprocessed (and, for ``regenerate_all``, potentially half-regenerated).
 """
 
 from __future__ import annotations
@@ -31,7 +62,12 @@ import re
 
 import frontmatter
 
-from coherence.mirrors.render import render_related_requirements_block
+from coherence.mirrors.render import (
+    DEFAULT_EOL,
+    END_MARKER_LINE,
+    PLACEHOLDER_LINE,
+    render_related_requirements_block,
+)
 from coherence.trace.graph import Graph, build_graph
 from coherence.trace.model import Node, as_str_list
 
@@ -47,17 +83,38 @@ __all__ = [
     "regenerate_file",
 ]
 
-# The block being replaced is the heading, its one blank line, then a
-# contiguous run of "generated-shaped" lines (HTML-comment marker/fingerprint
-# lines, and "- ..." list items -- covering both a plain hand-authored entry
-# and this generator's own marker/fingerprint/entry lines alike). The first
-# line that is neither -- a blank line, prose, another heading -- ends the
-# block and everything from there to EOF is preserved verbatim. This matters
-# for real data: FEAT-017.md has a hand-authored sentence
-# ("Shared contracts consumed by this feature: ...") after its entry list,
-# which a naive "heading to EOF" replacement would silently delete.
-_BLOCK_START_RE = re.compile(r"(?m)^## Related requirements\r\n\r\n")
-_CONSUMABLE_LINE_RE = re.compile(r"(?:<!--.*-->|- .*)\r\n")
+# A single line terminator: CRLF, bare LF, or "nothing -- end of string"
+# (a file, or a generator-owned span, that ends with no trailing newline at
+# all). Every pattern below ends with this so none of them is CRLF-only.
+_EOL_ALT = r"(?:\r\n|\n|\Z)"
+
+_HEADING_BLANK_RE = re.compile(
+    r"^## Related requirements[ \t]*" + _EOL_ALT + r"[ \t]*" + _EOL_ALT,
+    re.MULTILINE,
+)
+
+# The end sentinel, anchored to the start of its own line. Searched for
+# anywhere after the heading+blank line -- once found, it defines the owned
+# span unconditionally: whatever lies between the heading and this sentinel
+# belongs to the generator regardless of its shape (a hand-tampered embed,
+# a reordered entry, anything). This is what makes reintroducing
+# `![[SR-019]]` between the markers still detected as a divergence rather
+# than mistaken for hand-authored content outside the block.
+_END_MARKER_RE = re.compile(
+    r"^" + re.escape(END_MARKER_LINE) + r"[ \t]*" + _EOL_ALT, re.MULTILINE
+)
+
+# Bootstrap-only fallback (used when no end sentinel exists yet -- a dossier
+# that has never been generated, or one generated by the pre-sentinel format
+# this generator wrote before this fix). Deliberately strict: only this
+# generator's own comment lines and actual wikilink/embed/placeholder entries
+# match, so a hand-authored bullet that happens to start with "- " but is not
+# one of those exact shapes (e.g. "- Note: also relates to legacy system X.")
+# does not match and correctly ends the run instead of being swallowed.
+_COMMENT_LINE_RE = re.compile(r"<!--[^\r\n]*-->[ \t]*" + _EOL_ALT)
+_ENTRY_LINE_RE = re.compile(
+    r"- (?:!?\[\[[^\[\]\r\n]+\]\]|" + re.escape(PLACEHOLDER_LINE[2:]) + r")[ \t]*" + _EOL_ALT
+)
 
 
 class MirrorFormatError(ValueError):
@@ -76,12 +133,13 @@ class FeatureMirrorResult:
     feature_id: str
     path: Path
     changed: bool
+    error: str | None = None
 
 
 def _read(path: Path) -> str:
     # Deliberately not Path.read_text(): its universal-newline handling would
     # silently rewrite every CRLF in the file to LF on read, and this module
-    # must reproduce the file's own CRLF endings exactly.
+    # must reproduce the file's own line endings exactly.
     return path.read_bytes().decode("utf-8")
 
 
@@ -89,33 +147,53 @@ def _write(path: Path, text: str) -> None:
     path.write_bytes(text.encode("utf-8"))
 
 
-def _locate_block(text: str, path: Path) -> re.Match[str]:
-    match = _BLOCK_START_RE.search(text)
-    if match is None:
+def _detect_eol(text: str) -> str:
+    """The file's own dominant line ending -- CRLF if any CRLF appears, else
+    bare LF if any LF appears, else the repo's existing convention (CRLF,
+    ``DEFAULT_EOL``) for the degenerate case of a file with no newline at
+    all. Regeneration always emits this back, never a different one.
+    """
+    idx = text.find("\n")
+    if idx == -1:
+        return DEFAULT_EOL
+    return "\r\n" if idx > 0 and text[idx - 1] == "\r" else "\n"
+
+
+def _locate_block(text: str, path: Path) -> tuple[int, int]:
+    """Return (start, end) offsets of the generator-owned span: from the
+    ``## Related requirements`` heading through either (a) the end sentinel,
+    if the file already carries one -- the *owned* boundary, honoured
+    unconditionally regardless of what lies between -- or (b) the last
+    recognizable comment/entry line for a dossier that has never been
+    generated, using a strict shape match that cannot mistake ordinary
+    hand-authored prose for an owned entry.
+    """
+    heading_match = _HEADING_BLANK_RE.search(text)
+    if heading_match is None:
         raise MirrorFormatError(
             f"{path}: no '## Related requirements' heading (followed by a blank line) found"
         )
-    return match
+    start = heading_match.start()
+    body_start = heading_match.end()
 
+    sentinel_match = _END_MARKER_RE.search(text, body_start)
+    if sentinel_match is not None:
+        return start, sentinel_match.end()
 
-def _preserved_tail(text: str, block_body_start: int) -> str:
-    """Everything after the entry-list run that this generator does not own
-    -- hand-authored prose, or anything else -- returned untouched so it can
-    be re-appended after the freshly rendered block.
-    """
-    pos = 0
+    pos = body_start
     while True:
-        m = _CONSUMABLE_LINE_RE.match(text, block_body_start + pos)
-        if m is None:
+        m = _COMMENT_LINE_RE.match(text, pos) or _ENTRY_LINE_RE.match(text, pos)
+        if m is None or m.end() == pos:
             break
-        pos = m.end() - block_body_start
-    return text[block_body_start + pos :]
+        pos = m.end()
+    return start, pos
 
 
 def _rebuilt_document(text: str, requirement_ids: Sequence[str], *, path: Path) -> str:
-    match = _locate_block(text, path)
-    tail = _preserved_tail(text, match.end())
-    return text[: match.start()] + render_related_requirements_block(requirement_ids) + tail
+    start, end = _locate_block(text, path)
+    eol = _detect_eol(text)
+    tail = text[end:]
+    return text[:start] + render_related_requirements_block(requirement_ids, eol=eol) + tail
 
 
 def frontmatter_requirement_ids(path: Path) -> list[str]:
@@ -196,11 +274,20 @@ def check_file(node: Node, requirement_ids: Sequence[str]) -> None:
 
 
 def regenerate_all(root: Path) -> list[FeatureMirrorResult]:
+    """Regenerate every feature dossier's mirror. A malformed dossier
+    (``MirrorFormatError``) is reported as a per-file failure -- ``error``
+    set, ``changed=False``, file left untouched -- and processing continues
+    with the next dossier; one bad file can never abort the run or leave the
+    tree half-regenerated.
+    """
     graph = build_graph(root)
-    results = []
+    results: list[FeatureMirrorResult] = []
     for node in feature_nodes(graph):
-        ids = canonical_requirement_ids(node, graph)
-        results.append(regenerate_file(node, ids))
+        try:
+            ids = canonical_requirement_ids(node, graph)
+            results.append(regenerate_file(node, ids))
+        except MirrorFormatError as exc:
+            results.append(FeatureMirrorResult(node.id, node.path, changed=False, error=str(exc)))
     return results
 
 
@@ -209,10 +296,10 @@ def check_all(root: Path) -> tuple[str, int]:
     nodes = feature_nodes(graph)
     errors: list[str] = []
     for node in nodes:
-        ids = canonical_requirement_ids(node, graph)
         try:
+            ids = canonical_requirement_ids(node, graph)
             check_file(node, ids)
-        except MirrorDivergenceError as exc:
+        except (MirrorFormatError, MirrorDivergenceError) as exc:
             errors.append(str(exc))
 
     lines = [f"wikilink mirrors: {len(nodes)} feature dossier(s) checked"]

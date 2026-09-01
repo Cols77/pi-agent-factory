@@ -19,3 +19,4 @@ This feature registers **GOALS-SIMULATION** in the Coherence / pi-agent-factory 
 <!-- fingerprint: sha256:84ce1217b7d481d3c398ded7913680f7e4d92b135c84b29eddccc92cd7193871 -->
 - [[SR-025]]
 - [[SR-026]]
+<!-- end derived -->

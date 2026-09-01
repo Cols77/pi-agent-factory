@@ -19,3 +19,4 @@ This feature registers **MEASURE-AUDIT** in the Coherence / pi-agent-factory fea
 <!-- fingerprint: sha256:9a7faac4e62e348751a6f7c6ce8210466d15cd30765cb84b1b150da7f0578f72 -->
 - [[SR-023]]
 - [[SR-024]]
+<!-- end derived -->

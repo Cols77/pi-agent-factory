@@ -43,3 +43,4 @@ direct contract/gate modification pauses the run and creates a control-plane fin
 <!-- fingerprint: sha256:ce871c16719c77749a85d2b5e3c5f581d43824e0fff0499463e84b6cbb399078 -->
 - [[SR-034]]
 - [[SR-049]]
+<!-- end derived -->

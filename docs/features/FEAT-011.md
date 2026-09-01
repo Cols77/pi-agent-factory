@@ -19,3 +19,4 @@ This feature registers **WORKFLOW-ENFORCEMENT** in the Coherence / pi-agent-fact
 <!-- fingerprint: sha256:56eef93eac4595e83172d842ae28d03e3e24da01526973c23e22ebbb9cc43992 -->
 - [[SR-031]]
 - [[SR-032]]
+<!-- end derived -->

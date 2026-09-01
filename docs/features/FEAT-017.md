@@ -58,5 +58,6 @@ behavior/algorithm changes add the course/mental-model and before/after evidence
 - [[SR-053]]
 - [[SR-054]]
 - [[SR-055]]
+<!-- end derived -->
 
 Shared contracts consumed by this feature: [[SR-035]], [[SR-036]], [[SR-049]], and [[SR-050]].

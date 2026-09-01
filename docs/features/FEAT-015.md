@@ -19,3 +19,4 @@ This feature registers **POLISH-FLOW** in the Coherence / pi-agent-factory featu
 <!-- fingerprint: sha256:6635344eb0ee08e88fce90c1ee53c82c3b42c02db89dadf95d7781412bb75cbc -->
 - [[SR-038]]
 - [[SR-039]]
+<!-- end derived -->

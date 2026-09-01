@@ -38,3 +38,4 @@ event stream. Editing an operational card cannot change the Coherence contract.
 <!-- fingerprint: sha256:c52de44c1a1caf1d285292af190c02340b21fcdf131a43f6f51be5f193977d04 -->
 - [[SR-029]]
 - [[SR-030]]
+<!-- end derived -->
