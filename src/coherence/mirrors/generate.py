@@ -51,6 +51,22 @@ report for the full account):
   dossier is reported and the loop continues to the next file rather than
   raising an unhandled exception that leaves the rest of the tree
   unprocessed (and, for ``regenerate_all``, potentially half-regenerated).
+
+Review round 3 -- what changed and why:
+
+* Critical 1. The end-sentinel search is bounded to the
+  ``## Related requirements`` section and the section must carry exactly one
+  sentinel. An unbounded search silently deleted every section between the
+  heading and a sentinel merely *mentioned* in later prose, and turned a
+  stray sentinel inside the owned span into a permanently-green duplicated
+  block. See :func:`_locate_block`.
+* Important 2. The per-file catch is now unconditional, so the promise two
+  bullets up ("one bad file can never abort the run") holds for unparseable
+  frontmatter (``yaml.scanner.ScannerError``) and every other single-file
+  failure, not only ``MirrorFormatError``. See :func:`_per_file_failure`.
+* Minor 1. ``_detect_eol``'s docstring said "dominant"; the code reads the
+  first line ending. The docstring was corrected -- see the function for why
+  that is the right direction.
 """
 
 from __future__ import annotations
@@ -65,6 +81,7 @@ import frontmatter
 from coherence.mirrors.render import (
     DEFAULT_EOL,
     END_MARKER_LINE,
+    MARKER_LINE,
     PLACEHOLDER_LINE,
     render_related_requirements_block,
 )
@@ -93,15 +110,29 @@ _HEADING_BLANK_RE = re.compile(
     re.MULTILINE,
 )
 
-# The end sentinel, anchored to the start of its own line. Searched for
-# anywhere after the heading+blank line -- once found, it defines the owned
-# span unconditionally: whatever lies between the heading and this sentinel
-# belongs to the generator regardless of its shape (a hand-tampered embed,
-# a reordered entry, anything). This is what makes reintroducing
-# `![[SR-019]]` between the markers still detected as a divergence rather
-# than mistaken for hand-authored content outside the block.
+# The end sentinel, anchored to the start of its own line. Searched for only
+# WITHIN the '## Related requirements' section (see `_section_end`): once
+# exactly one is found there it defines the owned span unconditionally --
+# whatever lies between the heading and this sentinel belongs to the
+# generator regardless of its shape (a hand-tampered embed, a reordered
+# entry, anything). That is what makes reintroducing `![[SR-019]]` between
+# the markers still detected as a divergence rather than mistaken for
+# hand-authored content outside the block. Zero or two-or-more sentinels in
+# the section is an ambiguous boundary, never a guess -- see `_locate_block`.
 _END_MARKER_RE = re.compile(
     r"^" + re.escape(END_MARKER_LINE) + r"[ \t]*" + _EOL_ALT, re.MULTILINE
+)
+
+# The section boundary: the next top-level ('## ') heading after the
+# '## Related requirements' heading, or end of file. A '### ' subheading does
+# not match, so a subsection stays inside the section.
+_SECTION_END_RE = re.compile(r"^## ", re.MULTILINE)
+
+# This generator's own "do not edit" marker line, used only to tell a
+# never-generated dossier (bootstrap, no marker) apart from a generated one
+# whose end sentinel has gone missing (derived content with no boundary).
+_DERIVED_MARKER_RE = re.compile(
+    r"^" + re.escape(MARKER_LINE) + r"[ \t]*" + _EOL_ALT, re.MULTILINE
 )
 
 # Bootstrap-only fallback (used when no end sentinel exists yet -- a dossier
@@ -148,10 +179,20 @@ def _write(path: Path, text: str) -> None:
 
 
 def _detect_eol(text: str) -> str:
-    """The file's own dominant line ending -- CRLF if any CRLF appears, else
-    bare LF if any LF appears, else the repo's existing convention (CRLF,
-    ``DEFAULT_EOL``) for the degenerate case of a file with no newline at
-    all. Regeneration always emits this back, never a different one.
+    """The file's **first** line ending -- CRLF if the first newline in the
+    document is preceded by a carriage return, else bare LF; the repo's
+    existing convention (CRLF, ``DEFAULT_EOL``) for the degenerate case of a
+    file with no newline at all. Regeneration always emits this back, never a
+    different one.
+
+    Minor 1 (review round 3): this docstring used to say "dominant line
+    ending" while the code has always read the *first* one. The docstring is
+    what was corrected, deliberately. First-newline is deterministic, O(1),
+    and cannot itself rewrite a file's endings; true dominance (a majority
+    vote) would, on a mixed-ending file, emit the majority ending into a
+    block whose neighbours use the other one -- an unrequested rewrite of
+    exactly the kind this module exists not to do. Nothing requires
+    dominance, and every dossier this generator touches is single-convention.
     """
     idx = text.find("\n")
     if idx == -1:
@@ -159,14 +200,59 @@ def _detect_eol(text: str) -> str:
     return "\r\n" if idx > 0 and text[idx - 1] == "\r" else "\n"
 
 
+def _section_end(text: str, body_start: int) -> int:
+    """Offset of the next top-level ``## `` heading at or after ``body_start``,
+    or ``len(text)`` at end of file. This is the hard bound on everything this
+    module will ever consider part of the '## Related requirements' section.
+    """
+    match = _SECTION_END_RE.search(text, body_start)
+    return match.start() if match is not None else len(text)
+
+
 def _locate_block(text: str, path: Path) -> tuple[int, int]:
     """Return (start, end) offsets of the generator-owned span: from the
-    ``## Related requirements`` heading through either (a) the end sentinel,
-    if the file already carries one -- the *owned* boundary, honoured
-    unconditionally regardless of what lies between -- or (b) the last
-    recognizable comment/entry line for a dossier that has never been
-    generated, using a strict shape match that cannot mistake ordinary
-    hand-authored prose for an owned entry.
+    ``## Related requirements`` heading through either (a) the section's one
+    end sentinel -- the *owned* boundary, honoured unconditionally regardless
+    of what lies between -- or (b) the last recognizable comment/entry line
+    for a dossier that has never been generated, using a strict shape match
+    that cannot mistake ordinary hand-authored prose for an owned entry.
+
+    Critical 1 (review round 3). The sentinel search used to be unbounded: it
+    took the FIRST line-anchored sentinel anywhere after the heading, however
+    far down the file, and never checked how many existed. Two harms
+    followed, both reproduced against real dossiers:
+
+    * **Silent deletion.** A never-generated dossier that merely *mentions*
+      the sentinel in later prose had every section in between swallowed into
+      the owned span and deleted -- ``changed=True``, no error, the CLI
+      printing ``regenerated:``.
+    * **Permanent self-consistent duplication.** A stray sentinel inside the
+      owned span made regeneration write the derived block twice, both halves
+      fingerprinted and sentinel-closed, after which ``check`` found the same
+      first sentinel the generator had just written and reported 0 divergent
+      forever.
+
+    Both are boundary *ambiguity*, and this module's contract is that an
+    ambiguous boundary is reported, never guessed. So the search is bounded to
+    the section (heading .. next ``## `` heading or EOF) and the section must
+    contain **exactly one** sentinel:
+
+    * one -> the owned span, as before;
+    * two or more -> :class:`MirrorFormatError` (ambiguous end);
+    * zero, with a sentinel elsewhere in the file -> :class:`MirrorFormatError`
+      (the file names this generator's boundary outside the span it owns --
+      the shape that used to delete data silently);
+    * zero, with this generator's own marker line inside the section ->
+      :class:`MirrorFormatError` (derived content with no end sentinel; the
+      bootstrap shape match below is only ever correct for a dossier that has
+      never been generated, and must not be used to re-guess a boundary that
+      once existed);
+    * zero, and none of the above -> the bootstrap shape match, unchanged,
+      now also hard-bounded at the section end.
+
+    A ``MirrorFormatError`` is caught per file by both ``regenerate_all`` and
+    ``check_all``, so each of these is a reported per-file failure with the
+    file left byte-for-byte untouched.
     """
     heading_match = _HEADING_BLANK_RE.search(text)
     if heading_match is None:
@@ -175,15 +261,43 @@ def _locate_block(text: str, path: Path) -> tuple[int, int]:
         )
     start = heading_match.start()
     body_start = heading_match.end()
+    section_end = _section_end(text, body_start)
 
-    sentinel_match = _END_MARKER_RE.search(text, body_start)
-    if sentinel_match is not None:
-        return start, sentinel_match.end()
+    all_sentinels = list(_END_MARKER_RE.finditer(text))
+    in_section = [m for m in all_sentinels if body_start <= m.start() < section_end]
+
+    if len(in_section) > 1:
+        raise MirrorFormatError(
+            f"{path}: the '## Related requirements' section contains "
+            f"{len(in_section)} '{END_MARKER_LINE}' lines; the generator-owned "
+            "span has no unambiguous end. Delete the stray sentinel(s) so exactly "
+            "one remains, then rerun `coherence mirrors generate`"
+        )
+    if len(in_section) == 1:
+        return start, in_section[0].end()
+
+    if all_sentinels:
+        raise MirrorFormatError(
+            f"{path}: '{END_MARKER_LINE}' appears outside the "
+            "'## Related requirements' section, which itself carries none. This "
+            "generator only ever owns a span inside that section, so the boundary "
+            "is ambiguous and the file is left untouched. Remove or reword the "
+            "out-of-section sentinel, then rerun `coherence mirrors generate`"
+        )
+
+    marker = _DERIVED_MARKER_RE.search(text)
+    if marker is not None and body_start <= marker.start() < section_end:
+        raise MirrorFormatError(
+            f"{path}: the '## Related requirements' section carries this "
+            f"generator's marker line but no '{END_MARKER_LINE}'; it is derived "
+            "content with no recorded end. Restore the sentinel on its own line "
+            "after the entry list, then rerun `coherence mirrors generate`"
+        )
 
     pos = body_start
-    while True:
+    while pos < section_end:
         m = _COMMENT_LINE_RE.match(text, pos) or _ENTRY_LINE_RE.match(text, pos)
-        if m is None or m.end() == pos:
+        if m is None or m.end() == pos or m.end() > section_end:
             break
         pos = m.end()
     return start, pos
@@ -273,12 +387,36 @@ def check_file(node: Node, requirement_ids: Sequence[str]) -> None:
         )
 
 
+def _per_file_failure(node: Node, exc: Exception) -> str:
+    """The one place a per-file failure is turned into a report line.
+
+    Important 2 (review round 3): only ``MirrorFormatError`` used to be
+    caught, so anything else raised while processing one dossier -- most
+    realistically a ``yaml.scanner.ScannerError`` out of ``frontmatter.load``
+    on unparseable frontmatter, but equally an ``OSError`` on an unreadable
+    file or a ``UnicodeDecodeError`` on a non-UTF-8 one -- escaped the loop
+    *after earlier dossiers had already been written*, which is precisely the
+    half-regenerated tree the module docstring promises can never happen.
+
+    The catch is deliberately unconditional (``Exception``) rather than a
+    hand-maintained tuple: the docstring's promise is unconditional, and a
+    tuple would silently reacquire the same defect the first time a
+    dependency raised a type nobody had listed. Nothing is swallowed -- the
+    exception's type and message become the file's reported error, and both
+    ``regenerate_all`` and ``check_all`` surface every one of them.
+    """
+    if isinstance(exc, (MirrorFormatError, MirrorDivergenceError)):
+        return str(exc)
+    return f"{node.path}: {type(exc).__name__}: {exc}"
+
+
 def regenerate_all(root: Path) -> list[FeatureMirrorResult]:
-    """Regenerate every feature dossier's mirror. A malformed dossier
-    (``MirrorFormatError``) is reported as a per-file failure -- ``error``
-    set, ``changed=False``, file left untouched -- and processing continues
-    with the next dossier; one bad file can never abort the run or leave the
-    tree half-regenerated.
+    """Regenerate every feature dossier's mirror. A malformed dossier is
+    reported as a per-file failure -- ``error`` set, ``changed=False``, file
+    left untouched -- and processing continues with the next dossier; one bad
+    file can never abort the run or leave the tree half-regenerated. That
+    holds for *any* failure raised while processing a single dossier, not
+    only ``MirrorFormatError`` (see :func:`_per_file_failure`).
     """
     graph = build_graph(root)
     results: list[FeatureMirrorResult] = []
@@ -286,8 +424,12 @@ def regenerate_all(root: Path) -> list[FeatureMirrorResult]:
         try:
             ids = canonical_requirement_ids(node, graph)
             results.append(regenerate_file(node, ids))
-        except MirrorFormatError as exc:
-            results.append(FeatureMirrorResult(node.id, node.path, changed=False, error=str(exc)))
+        except Exception as exc:  # noqa: BLE001 -- see _per_file_failure
+            results.append(
+                FeatureMirrorResult(
+                    node.id, node.path, changed=False, error=_per_file_failure(node, exc)
+                )
+            )
     return results
 
 
@@ -299,8 +441,8 @@ def check_all(root: Path) -> tuple[str, int]:
         try:
             ids = canonical_requirement_ids(node, graph)
             check_file(node, ids)
-        except (MirrorFormatError, MirrorDivergenceError) as exc:
-            errors.append(str(exc))
+        except Exception as exc:  # noqa: BLE001 -- see _per_file_failure
+            errors.append(_per_file_failure(node, exc))
 
     lines = [f"wikilink mirrors: {len(nodes)} feature dossier(s) checked"]
     if errors:

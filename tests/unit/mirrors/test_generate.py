@@ -364,3 +364,167 @@ def test_regeneration_is_idempotent_with_the_new_end_sentinel_format(tmp_path):
     assert second[0].changed is False
     twice = (tmp_path / "docs" / "features" / "FEAT-070.md").read_bytes()
     assert once == twice
+
+
+# --- Review round 3 regression tests (Critical 1) -----------------------
+#
+# The end-sentinel search was unbounded: it took the FIRST line-anchored
+# `<!-- end derived -->` anywhere after the heading, with no check that
+# exactly one exists and no bound at the next `## ` heading. The two tests
+# below reproduce the two harms that followed from that.
+
+
+def test_a_sentinel_named_in_later_prose_never_swallows_the_sections_between(tmp_path):
+    """Critical 1, harm A -- silent data loss. A dossier whose
+    '## Related requirements' block carries no sentinel yet, and which
+    mentions the sentinel later in its own prose, must never have the
+    intervening sections deleted. The sentinel lives outside the section, so
+    it is not this generator's boundary and the file must be reported, never
+    silently rewritten.
+    """
+    path = _write_feat(tmp_path, "FEAT-099", ["SR-001"])
+    text = path.read_bytes().decode("utf-8")
+    text += (
+        "\r\n## Design notes\r\n"
+        "\r\n"
+        "The generator closes its span with:\r\n"
+        "\r\n"
+        + END_MARKER_LINE
+        + "\r\n"
+        "\r\n## Rationale\r\n"
+        "\r\n"
+        "Important hand-authored prose that must survive.\r\n"
+    )
+    path.write_bytes(text.encode("utf-8"))
+    before = path.read_bytes()
+
+    results = regenerate_all(tmp_path)
+
+    after = path.read_bytes()
+    assert after == before, "the file must not be rewritten at all"
+    assert b"## Design notes" in after
+    assert b"Important hand-authored prose that must survive." in after
+    assert results[0].changed is False
+    assert results[0].error is not None
+    assert "FEAT-099.md" in results[0].error
+
+    text_out, code = check_all(tmp_path)
+    assert code == 1
+    assert "FEAT-099.md" in text_out
+
+
+def test_a_stray_end_sentinel_inside_the_owned_span_is_reported_not_duplicated(tmp_path):
+    """Critical 1, harm B -- permanent self-consistent duplication. A stray
+    sentinel inside the owned span made `mirrors generate` write the derived
+    block twice (both fingerprinted, both sentinel-closed), after which
+    `mirrors check` reported 0 divergent forever. Two sentinels in the
+    section is an ambiguous boundary and must be a reported per-file failure.
+    """
+    path = _write_feat(tmp_path, "FEAT-098", ["SR-001", "SR-002"])
+    regenerate_all(tmp_path)
+    assert check_all(tmp_path)[1] == 0
+
+    text = path.read_bytes().decode("utf-8")
+    tampered = text.replace(
+        "- [[SR-001]]\r\n", "- [[SR-001]]\r\n" + END_MARKER_LINE + "\r\n", 1
+    )
+    path.write_bytes(tampered.encode("utf-8"))
+    before = path.read_bytes()
+
+    assert check_all(tmp_path)[1] == 1  # already true at HEAD
+
+    results = regenerate_all(tmp_path)
+
+    assert results[0].changed is False
+    assert results[0].error is not None
+    assert path.read_bytes() == before, "a file with an ambiguous boundary is never written"
+    # The divergence must still be reported -- never regenerated into a
+    # self-consistent double block that check can no longer see.
+    text_out, code = check_all(tmp_path)
+    assert code == 1
+    assert "FEAT-098.md" in text_out
+    assert path.read_bytes().count(END_MARKER_LINE.encode("utf-8")) == 2
+
+
+def test_a_derived_block_whose_sentinel_was_deleted_is_reported_not_reguessed(tmp_path):
+    """Critical 1, the zero-with-content case: the section still carries this
+    generator's own marker/fingerprint comments but no closing sentinel. That
+    is derived content with no boundary -- report it rather than fall back to
+    the bootstrap shape match, which is only ever correct for a dossier that
+    has never been generated.
+    """
+    path = _write_feat(tmp_path, "FEAT-097", ["SR-001"])
+    regenerate_all(tmp_path)
+    text = path.read_bytes().decode("utf-8")
+    path.write_bytes(text.replace(END_MARKER_LINE + "\r\n", "").encode("utf-8"))
+    before = path.read_bytes()
+
+    results = regenerate_all(tmp_path)
+
+    assert results[0].changed is False
+    assert results[0].error is not None
+    assert path.read_bytes() == before
+
+
+# --- Review round 3 regression test (Important 2) -----------------------
+
+
+def _write_malformed_yaml_feat(root: Path, feat_id: str) -> Path:
+    """A dossier whose frontmatter is not parseable YAML. It still becomes a
+    ``feat`` trace node (node ids come from the filename, not the
+    frontmatter), so the generator does reach it and ``frontmatter.load``
+    raises a ``yaml.scanner.ScannerError`` from inside it.
+    """
+    path = root / "docs" / "features" / f"{feat_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        b"---\r\n"
+        b"id: " + feat_id.encode() + b"\r\n"
+        b'title: "unterminated\r\n'
+        b"requirements: [SR-001\r\n"
+        b"\tbad: \ttab indent\r\n"
+        b"---\r\n\r\n# " + feat_id.encode() + b"\r\n\r\n"
+        b"## Related requirements\r\n\r\n- [[SR-001]]\r\n"
+    )
+    return path
+
+
+def test_a_dossier_with_unparseable_frontmatter_is_reported_and_the_run_continues(tmp_path):
+    """Important 2. The module docstring promises "one bad file can never
+    abort the run or leave the tree half-regenerated". Only ``MirrorFormatError``
+    was caught, so a YAML scanner error propagated out of ``regenerate_all``
+    after earlier dossiers had already been written.
+    """
+    early = _write_feat(tmp_path, "FEAT-059", ["SR-001"])
+    bad = _write_malformed_yaml_feat(tmp_path, "FEAT-060")
+    late = _write_feat(tmp_path, "FEAT-061", ["SR-002"])
+    bad_before = bad.read_bytes()
+
+    results = regenerate_all(tmp_path)
+
+    by_name = {r.path.name: r for r in results}
+    assert sorted(by_name) == ["FEAT-059.md", "FEAT-060.md", "FEAT-061.md"]
+    assert by_name["FEAT-060.md"].error is not None
+    assert "FEAT-060.md" in by_name["FEAT-060.md"].error
+    assert by_name["FEAT-060.md"].changed is False
+    assert bad.read_bytes() == bad_before
+    # The file AFTER the bad one was still regenerated -- no half-run.
+    assert by_name["FEAT-061.md"].changed is True
+    assert END_MARKER_LINE.encode("utf-8") in late.read_bytes()
+    assert END_MARKER_LINE.encode("utf-8") in early.read_bytes()
+
+
+def test_check_all_reports_an_unparseable_dossier_and_keeps_checking(tmp_path):
+    """Important 2, the check twin: the same non-``MirrorFormatError``
+    failure must be one named line in the report, not an exception."""
+    _write_malformed_yaml_feat(tmp_path, "FEAT-060")
+    good = _write_feat(tmp_path, "FEAT-061", ["SR-002"])
+    regenerate_all(tmp_path)
+    tampered = good.read_bytes().decode("utf-8").replace("- [[SR-002]]", "- [[SR-999]]")
+    good.write_bytes(tampered.encode("utf-8"))
+
+    text, code = check_all(tmp_path)
+
+    assert code == 1
+    assert "FEAT-060.md" in text
+    assert "FEAT-061.md" in text
