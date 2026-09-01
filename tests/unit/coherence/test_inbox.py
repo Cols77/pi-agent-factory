@@ -358,7 +358,14 @@ def test_malformed_or_stale_sr_consent_remains_pending(tmp_path: Path):
 
     item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
     assert item.kind == "authoring_consent"
-    assert "invalid" in item.summary or "stale" in item.summary
+    # Minor 5 (review round 3): this used to read `"invalid" in summary or
+    # "stale" in summary`, which cannot distinguish its two branches. The
+    # constructed case -- a duplicate item id inside the decisions array --
+    # is rejected by `validate_decisions` and deterministically yields the
+    # "invalid DecisionFile" summary, never the "stale" one, so that is what
+    # is asserted.
+    assert "invalid DecisionFile" in item.summary
+    assert "duplicate item id" in item.summary
 
 
 @pytest.mark.parametrize("decisions", [1, True])
@@ -455,3 +462,55 @@ def test_list_items_creates_no_new_file(tmp_path):
     list_items(tmp_path, NOW)
     after = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
     assert before == after
+
+# -- Review round 3, Important 7 -------------------------------------------
+
+
+def _malformed_acceptance_sr(root: Path, sr_id: str = "SR-900") -> None:
+    """A requirement whose `acceptance:` block makes `load_register` raise
+    `ValueError` -- a mapping where a list is required."""
+    req_dir = root / "requirements"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    (req_dir / f"{sr_id}.md").write_text(
+        f"---\nid: {sr_id}\ntitle: T\nstatement: s\ndomain: d\n"
+        "acceptance:\n  not: a list\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_malformed_acceptance_block_does_not_take_down_the_whole_inbox(tmp_path):
+    """Important 7. `_authoring_consent_items` (and `_stale_binding_items`)
+    called `load_register` unguarded, so a `ValueError` from one malformed
+    `acceptance:` block propagated out of `list_items` -- and the human lost
+    coverage gates, expired deferrals and suspect edges along with it. Every
+    other source in the module is per-file try/excepted; these now match.
+    """
+    _malformed_acceptance_sr(tmp_path)
+    # An unrelated source that must still be reported.
+    run_dir = tmp_path / "coverage-reviews" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "status.json").write_text(
+        json.dumps(
+            {"phase": "gates_blocked", "needed_items": ["coverage:run-1:proposal:SR-001"]}
+        ),
+        encoding="utf-8",
+    )
+
+    items = list_items(tmp_path, NOW)
+
+    ids = {i.id for i in items}
+    assert "coverage:run-1:proposal:SR-001" in ids, "an unrelated source must survive"
+
+
+def test_an_unreadable_register_is_reported_never_silently_dropped(tmp_path):
+    """I-03: missing evidence is reported, never inferred. A register that
+    cannot be loaded is not "no requirements"; it is one visible item saying
+    so, carrying the parser's own message."""
+    _malformed_acceptance_sr(tmp_path)
+
+    items = list_items(tmp_path, NOW)
+
+    unreadable = [i for i in items if i.kind == "unreadable_register"]
+    assert len(unreadable) == 1, [i.id for i in items]
+    assert "SR-900.md" in unreadable[0].evidence
+    assert "acceptance" in unreadable[0].evidence

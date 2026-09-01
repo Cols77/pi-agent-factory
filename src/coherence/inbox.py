@@ -15,6 +15,10 @@ Sources wired concretely here:
   matches its content (``coherence.register.cli.cmd_index``);
 * SR authoring consent -- every registered SR whose per-SR ``sr:SR-###``
   DecisionFile is absent, malformed, stale, or addresses the wrong gate/item;
+* an unreadable register -- a single ``register:unreadable`` item when
+  ``load_register`` cannot parse the requirements directory at all, so the
+  loss of every register-derived item is reported rather than looking like
+  an empty queue (see ``_load_register_or_report``);
 * suspect edges -- governed SR edges classified suspect/invalid/waived by
   ``edge_validity`` (Task 6 Step 4) via the ``unresolved_staleness`` sweep.
 
@@ -158,6 +162,43 @@ def _expired_deferral_items(root: Path, now: str) -> list[InboxItem]:
     return items
 
 
+def _load_register_or_report(req_dir: Path) -> tuple[list, list[InboxItem]]:
+    """The register, or the one inbox item saying it could not be read.
+
+    Important 7 (review round 3): `_stale_binding_items` and
+    `_authoring_consent_items` both called `load_register` unguarded, so a
+    single malformed `acceptance:` block raised a `ValueError` straight out
+    of `list_items` -- and the human lost coverage gates, expired deferrals
+    and suspect edges along with the register. Every other source in this
+    module is per-file try/excepted; these now match.
+
+    The failure is REPORTED, not swallowed: an unreadable register is not
+    "no requirements" (I-03 -- missing evidence is reported, never
+    inferred), so it becomes a visible `register:unreadable` item carrying
+    the parser's own message. Both callers emit the same item id, and
+    `list_items` de-duplicates by id, so the human sees it exactly once.
+    """
+    from coherence.register.register import load_register
+
+    try:
+        return load_register(req_dir), []
+    except Exception as exc:  # noqa: BLE001 -- reported below, never swallowed
+        return [], [
+            InboxItem(
+                id="register:unreadable",
+                source="register",
+                kind="unreadable_register",
+                ref="register",
+                summary=(
+                    "the requirement register could not be loaded; every "
+                    "register-derived inbox item is missing until this is fixed"
+                ),
+                evidence=f"{type(exc).__name__}: {exc}",
+                resolve_cmd=("coherence register check",),
+            )
+        ]
+
+
 def _stale_binding_items(root: Path) -> list[InboxItem]:
     """Collect register bindings whose recorded checksum is stale (read-only).
 
@@ -165,13 +206,16 @@ def _stale_binding_items(root: Path) -> list[InboxItem]:
     writer `cmd_index` (which stamps checksums and writes index.json) -- the
     inbox must not create or modify files.
     """
-    from coherence.register.register import is_checksum_current, load_register
+    from coherence.register.register import is_checksum_current
 
     req_dir = root / "requirements"
     if not req_dir.is_dir():
         return []
+    requirements, failure = _load_register_or_report(req_dir)
+    if failure:
+        return failure
     items: list[InboxItem] = []
-    for req in load_register(req_dir):
+    for req in requirements:
         if not is_checksum_current(req):
             items.append(
                 InboxItem(
@@ -226,14 +270,16 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
     """
     from coherence.gate.model import CorruptDecisionFile
     from coherence.gate.store import decision_path, load_decision
-    from coherence.register.register import load_register
 
     req_dir = root / "requirements"
     if not req_dir.is_dir():
         return []
 
+    requirements, failure = _load_register_or_report(req_dir)
+    if failure:
+        return failure
+
     items: list[InboxItem] = []
-    requirements = load_register(req_dir)
     duplicate_ids = {
         req.id for req in requirements if sum(other.id == req.id for other in requirements) > 1
     }
