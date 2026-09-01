@@ -340,6 +340,62 @@ its CLI. **Two stores answering one question is the same seam as S-5's, one laye
 bootstrap that writes only one of them will produce two surfaces that disagree about whether a
 requirement has evidence.
 
+### S-7 — Make the projection derived, and discover what rewriting documents costs
+
+| | |
+|---|---|
+| **Actor** | agent |
+| **Reads** | all 20 `docs/features/FEAT-0##.md`; `substrate.freshness.fingerprint` |
+| **Writes** | `src/coherence/mirrors/` (new package), `tests/unit/mirrors/`, all 20 dossiers |
+| **Command** | `rtk proxy uv run coherence mirrors generate` / `mirrors check` |
+| **Commits** | `af6c275` (+ fix round) |
+
+The `## Related requirements` wikilink block in each feature dossier became **derived output**:
+regenerated from the dossier's own `requirements:` frontmatter, fingerprinted with the existing
+`sha256_bytes` helper, marked *derived — do not edit*, and guarded by `coherence mirrors check`,
+which fails when a block diverges from its derivation.
+
+**The defect it closed is smaller than it sounds, and that is the point.** `FEAT-006.md` had
+`- ![[SR-019]]` — an Obsidian *embed* — where all 19 other dossiers used plain links. Membership was
+correct; every SR listed matched frontmatter. The drift was pure **syntax**, in one character, in one
+line, among 20 files. No human review catches that, and no membership check would have found it
+either. It is exactly the drift a hand-maintained mirror is guaranteed to accumulate and unable to
+detect, which is why D-P8 requires generation rather than diligence.
+
+**The trace graph contributed nothing.** The task specified deriving from "frontmatter plus the trace
+graph". For these 20 dossiers the graph adds no requirement the frontmatter does not already carry.
+That was reported as a finding and the cross-check kept only as a safety net, rather than building
+machinery to justify the phrasing. A plan's wording is a hypothesis about where data lives; when the
+data is not there, say so.
+
+**The real lesson: a generator that rewrites hand-authored documents in place is a data-loss engine.**
+Three separate content-destroying paths appeared in one 225-line module, all from a single root
+cause — the locator inferred what it owned from **line shape** ("does this look like `- ...`?")
+rather than from an owned boundary:
+
+1. A first draft replaced from the heading to end-of-file, **silently deleting** FEAT-017's
+   hand-authored closing sentence. Caught only because the author read `git diff` instead of trusting
+   a green suite.
+2. After that fix, a hand-authored bullet placed *directly* after the entry list — no blank line —
+   was still silently swallowed. Continuing a Markdown list is ordinary authoring, not an edge case.
+3. A block ending the file with no trailing newline left its stale last entry unconsumed and
+   re-appended after the new block, corrupting it.
+
+And a fourth, different in kind: the block regexes hardcoded `
+`, so on any LF checkout — the norm
+outside Windows — the tool raised an **uncaught exception** rather than reporting a failure, and
+aborted the remaining files mid-loop, able to leave the tree half-regenerated. Every test passed,
+because every fixture and every file in the repository is CRLF.
+
+The correct shape is an **owned boundary**: an explicit end sentinel so the generated region is a
+fact recorded in the file, not a heuristic re-derived on every run. Anything that infers ownership
+from content will eventually meet content that looks like something it is not.
+
+**For an automated pipeline the ordering matters.** Generation must be safe *before* it is trusted to
+run unattended across a corpus. A bootstrap that regenerates 20 documents on every registration will
+destroy hand-authored prose silently, and the loss is only noticed by someone who remembered it was
+there.
+
 ---
 
 ## 4. Ambiguities and how they were resolved
@@ -361,6 +417,8 @@ requirement has evidence.
 | A-10 | An SR with several `test_marker` criteria: satisfied when any resolves, or when all do? | All. And the test for it is written to fail under `any()`, not merely to pass under `all()`. | `any()` reports a requirement proven while most of its criteria have no evidence |
 | A-11 | For a requirement blocked on unreviewed `manual` criteria, write `passed: false`, `passed: null`, or omit `passed`? | Omit the key entirely, and carry a `note` saying which criterion is outstanding and why. | `_validation_state` tests `"passed" in entry`; a null reports an UNREVIEWED requirement as MEASURED FAILING. Omission is the only encoding that distinguishes "not measured" from "measured and failed" |
 | A-12 | Two undocumented evidence stores feed two surfaces that answer the same question. Write one, or both? | Both, and record that they are separate. | Writing one leaves `register check` and `navigate health` disagreeing about whether a requirement has evidence |
+| A-13 | How does the generator know which lines it owns? | An explicit end sentinel bounding the generated region — never inference from line shape. | Shape-inference produced three separate silent content-loss paths in one module; ordinary Markdown eventually looks like whatever the heuristic matches |
+| A-14 | The plan says derive from "frontmatter plus the trace graph", but the graph adds nothing for these 20 files. Build the machinery anyway? | No — report it, keep the cross-check only as a safety net. | A plan's wording is a hypothesis about where data lives; unused machinery built to satisfy phrasing is cost with no evidence behind it |
 
 ---
 
