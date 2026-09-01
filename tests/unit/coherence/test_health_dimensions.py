@@ -149,6 +149,59 @@ def test_requirement_quality_test_marker_with_existing_ref_counts(tmp_path):
     assert (rq.satisfied, rq.expected) == (1, 1)
 
 
+def test_requirement_quality_absolute_ref_outside_root_does_not_count(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.py"
+    outside.write_text("def test_x():\n    pass\n", encoding="utf-8")
+    yaml = f"""acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: '{outside.as_posix()}'
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
+def test_requirement_quality_traversal_ref_outside_root_does_not_count(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.py"
+    outside.write_text("def test_x():\n    pass\n", encoding="utf-8")
+    yaml = f"""acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: '../{outside.name}'
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
+def test_requirement_quality_symlink_ref_outside_root_does_not_count(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.py"
+    outside.write_text("def test_x():\n    pass\n", encoding="utf-8")
+    linked = tmp_path / "linked-test.py"
+    try:
+        linked.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "linked-test.py"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
 def test_requirement_quality_harness_ref_resolution_mirrors_test_marker(tmp_path):
     (tmp_path / "sim-testbench").mkdir(parents=True, exist_ok=True)
     yaml = """acceptance:

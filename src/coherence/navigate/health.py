@@ -642,12 +642,18 @@ def _has_resolvable_acceptance(
     """
     if req is None:
         return False
+    project_root = root.resolve()
     for criterion in req.acceptance:
         binding = criterion.verification
         if binding.kind == "manual":
             return True
         if binding.kind in ("test_marker", "harness") and binding.ref:
-            if (root / binding.ref).exists():
+            candidate = (project_root / binding.ref).resolve()
+            try:
+                candidate.relative_to(project_root)
+            except ValueError:
+                continue
+            if candidate.exists():
                 return True
     return False
 
