@@ -93,3 +93,94 @@ def test_latest_run_is_deterministic_by_run_id(tmp_path):
 
 def test_latest_run_returns_none_on_empty(tmp_path):
     assert latest_run(tmp_path / "evidence", "FEAT-NAV-017") is None
+
+
+# --- Review round 3, Important 5 ---------------------------------------
+#
+# `load_runs` skipped any manifest without a "run" key. The repository's
+# first recorded evidence (T-6) is a v1 orchestration manifest keyed
+# `run_id`, written as a flat `evidence/runs/<run_id>.json` rather than a
+# `RUN-<ts>/manifest.json` bundle. It loads fine through
+# `list_run_manifests`, so `register check` sees it -- but it never reached
+# the registry, so `freshness_universe` stayed empty and `evidence_freshness`
+# read 0/0: the first evidence this repo ever recorded could not be reported
+# stale, because it was not in the universe that staleness is measured over.
+
+
+def _write_v1_manifest(evidence_dir, run_id="T-6-evidence-execution-20260901T114021Z"):
+    import json
+
+    runs = evidence_dir / "runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    path = runs / f"{run_id}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "run_id": run_id,
+                "task_id": "T-6",
+                "started_at": "2026-09-01T11:40:21Z",
+                "ended_at": "2026-09-01T11:40:28Z",
+                "start_commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+                "result_commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+                "outcome": "completed",
+                "inputs": {
+                    "task": {"path": "tasks/T-6.md", "sha256": "0" * 64},
+                    "requirements": [],
+                    "factory_config_sha256": "0" * 64,
+                },
+                "dependencies": [],
+                "implementation": {
+                    "changed_files": [],
+                    "patch": {"sha256": "0" * 64, "size": 0, "media_type": "text/x-diff"},
+                },
+                "validation": [],
+                "reviews": [],
+                "decisions": [],
+                "publication": {"state": "local", "errors": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_load_runs_sees_a_v1_manifest_keyed_run_id(tmp_path):
+    evidence = tmp_path / "evidence"
+    path = _write_v1_manifest(evidence)
+
+    runs = load_runs(evidence)
+
+    assert [r.run_id for r in runs] == ["T-6-evidence-execution-20260901T114021Z"]
+    run = runs[0]
+    assert run.path == path, "the flat-file layout must resolve to the real file"
+    assert run.scope_errors == [], "a v1 manifest declares no experiment; that is not an error"
+    assert run.commit == "44d585a5a0898ed52b8aa296b387cac3c948120b"
+    assert run.result == "completed"
+    assert run.recorded_ts == "2026-09-01T11:40:28Z"
+
+
+def test_a_spec20_bundle_missing_its_experiment_still_reports_a_scope_error(tmp_path):
+    """The v1 accommodation must not blunt the §20 bundle's own checks."""
+    import json
+
+    evidence = tmp_path / "evidence"
+    manifest = sim_manifest()
+    del manifest["experiment"]
+    # Written directly: `write_run_manifest` validates on write, and the point
+    # here is what the tolerant READER does with a bundle already on disk.
+    bundle = evidence / "runs" / manifest["run"]
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    runs = load_runs(evidence)
+
+    assert runs[0].scope_errors == ["experiment: not a string"]
+
+
+def test_both_manifest_shapes_load_side_by_side(tmp_path):
+    evidence = tmp_path / "evidence"
+    seed(evidence, sim_manifest())
+    _write_v1_manifest(evidence)
+
+    assert len(load_runs(evidence)) == 2
