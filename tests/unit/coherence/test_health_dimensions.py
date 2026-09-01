@@ -49,6 +49,14 @@ def _write_validation_report(root: Path, passing_ids: list[str]) -> None:
     )
 
 
+def _write_sr_with_acceptance(root: Path, sr_id: str, acceptance_yaml: str) -> None:
+    (root / "requirements").mkdir(parents=True, exist_ok=True)
+    (root / "requirements" / f"{sr_id}.md").write_text(
+        f"---\nid: {sr_id}\ntitle: t\nstatement: s\ndomain: d\n{acceptance_yaml}---\nbody\n",
+        encoding="utf-8",
+    )
+
+
 def _write_nc(root: Path, nc_id: str, *, status: str = "open") -> None:
     (root / "docs" / "nonconformances").mkdir(parents=True, exist_ok=True)
     (root / "docs" / "nonconformances" / f"{nc_id}.md").write_text(
@@ -91,6 +99,102 @@ def test_compile_health_dimensions_returns_eleven_dimensions_in_fixed_order(tmp_
         "human_review",
     ]
     assert len(dims) == 11
+
+
+# -- Dimension 1: requirement_quality (NC-B first half) ---------------------
+# An SR counts only when it carries at least one acceptance criterion with a
+# *resolvable* verification binding: test_marker/harness resolve only when
+# `ref` exists on disk relative to root; manual resolves as-is (its `reason`
+# is guaranteed nonblank at parse time). Whether a `@pytest.mark.sr` decorator
+# actually appears at that ref is a stricter, separate gate (task T-5) --
+# deliberately not checked here.
+
+
+def test_requirement_quality_sr_without_acceptance_does_not_count(tmp_path):
+    _write_sr(tmp_path, "SR-301")
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected, rq.exempt) == (0, 1, 0)
+
+
+def test_requirement_quality_test_marker_with_missing_ref_does_not_count(tmp_path):
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "tests/does/not/exist.py"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (0, 1)
+
+
+def test_requirement_quality_test_marker_with_existing_ref_counts(tmp_path):
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tests" / "test_example.py").write_text(
+        "def test_x():\n    pass\n", encoding="utf-8",
+    )
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: test_marker
+      ref: "tests/test_example.py"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (1, 1)
+
+
+def test_requirement_quality_harness_ref_resolution_mirrors_test_marker(tmp_path):
+    (tmp_path / "sim-testbench").mkdir(parents=True, exist_ok=True)
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: harness
+      ref: "sim-testbench"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (1, 1)
+
+
+def test_requirement_quality_manual_criterion_counts(tmp_path):
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c"
+    verification:
+      kind: manual
+      reason: "no automated oracle exists for subjective UX quality"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (1, 1)
+
+
+def test_requirement_quality_counts_when_at_least_one_of_several_criteria_resolves(tmp_path):
+    yaml = """acceptance:
+  - id: AC-1
+    criterion: "c1"
+    verification:
+      kind: test_marker
+      ref: "tests/does/not/exist.py"
+  - id: AC-2
+    criterion: "c2"
+    verification:
+      kind: manual
+      reason: "reviewed by hand"
+"""
+    _write_sr_with_acceptance(tmp_path, "SR-301", yaml)
+    dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
+    rq = dims["requirement_quality"]
+    assert (rq.satisfied, rq.expected) == (1, 1)
 
 
 # -- Dimensions 4/5: the shared verification_result obligation universe -----
