@@ -192,8 +192,13 @@ remain fail-closed, and accepted decisions change only `human_review`.
 
 ### T-8b — `human_review` and close
 
-FEAT-001 is `high_assurance`, so `human_review` compiles as `blocking`. Real human entries; an
-agent cannot produce them.
+~~FEAT-001 is `high_assurance`, so `human_review` compiles as `blocking`.~~ **Struck (review
+round 3, Minor 8): the premise is false.** FEAT-001 carries no `profile:` field and none is
+configured, so every FEAT-001 SR resolves to `prototype`, under which `human_review` compiles
+as `not_applicable`, not `blocking` -- which is why the dimension reads 0/0 rather than 0/8.
+Declaring `high_assurance` is a human's decision, not this plan's: it would also flip
+`executed_evidence` from 4/55 to 0/55. What T-8b still asks for is unchanged: real human
+entries; an agent cannot produce them.
 
 **Verify:** re-run `coherence navigate health --json`; FEAT-001's dimensions move.
 **Acceptance:** the slice's exit condition (§2) holds, evidenced by command output rather than
