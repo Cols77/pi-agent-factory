@@ -1,6 +1,7 @@
 ---
 id: FEAT-008
 title: "GOALS-SIMULATION"
+description: Goals simulation connects measurable objectives to scenarios, metrics, and repeatable runs.
 requirements:
   - SR-025
   - SR-026
@@ -12,4 +13,7 @@ Status: declared feature dossier (Inc-9 health-resolution, decision-level regist
 
 This feature registers **GOALS-SIMULATION** in the Coherence / pi-agent-factory feature set. It covers: goals, metrics, simulation, scenarios.
 
-Owned requirements: SR-025, SR-026.
+## Related requirements
+
+- [[SR-025]]
+- [[SR-026]]

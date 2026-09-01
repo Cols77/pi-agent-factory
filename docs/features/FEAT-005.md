@@ -1,6 +1,7 @@
 ---
 id: FEAT-005
 title: "HEALTH-STATUS"
+description: Health status presents multidimensional assurance health and routes users to the evidence behind it.
 requirements:
   - SR-017
   - SR-018
@@ -14,4 +15,9 @@ Status: declared feature dossier (Inc-9 health-resolution, decision-level regist
 
 This feature registers **HEALTH-STATUS** in the Coherence / pi-agent-factory feature set. It covers: status/route/focus/explain, health vector.
 
-Owned requirements: SR-017, SR-018, SR-045, SR-046.
+## Related requirements
+
+- [[SR-017]]
+- [[SR-018]]
+- [[SR-045]]
+- [[SR-046]]

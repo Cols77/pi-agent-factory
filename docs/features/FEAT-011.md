@@ -1,6 +1,7 @@
 ---
 id: FEAT-011
 title: "WORKFLOW-ENFORCEMENT"
+description: Workflow enforcement runs deterministic stages with bound gates, context, and human review.
 requirements:
   - SR-031
   - SR-032
@@ -12,4 +13,7 @@ Status: declared feature dossier (Inc-9 health-resolution, decision-level regist
 
 This feature registers **WORKFLOW-ENFORCEMENT** in the Coherence / pi-agent-factory feature set. It covers: deterministic run loop, context injection, validation-gate binding, human-review interrupt.
 
-Owned requirements: SR-031, SR-032.
+## Related requirements
+
+- [[SR-031]]
+- [[SR-032]]

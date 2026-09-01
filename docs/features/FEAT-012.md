@@ -1,6 +1,7 @@
 ---
 id: FEAT-012
 title: "LIVE-RUN-PROGRESS"
+description: Live run progress streams canonical stage, gate, evidence, and operational progress.
 requirements:
   - SR-033
 ---
@@ -9,6 +10,22 @@ requirements:
 
 Status: declared feature dossier (Inc-9 health-resolution, decision-level register).
 
-This feature registers **LIVE-RUN-PROGRESS** in the Coherence / pi-agent-factory feature set. It covers: streamed node-progress + artifact-subscription console.
+This feature registers **LIVE-RUN-PROGRESS** in the Coherence / pi-agent-factory feature set. It covers streamed workflow, stage, gate, evidence, and artifact progress for direct and Kanban-backed runs.
 
-Owned requirements: SR-033.
+
+## Design boundary
+
+Progress events carry the Coherence Run identity, contract hash, workflow version, stage,
+attempt, transport, and evidence references. Kanban lifecycle events are included as
+operational observations, but a worker or card transition is never rendered as an assurance
+pass by itself.
+
+The stream covers goal-loop continuation, gate execution, additional-gate proposals,
+control-plane findings, human-review interruptions, explanation review, and final evidence
+reconciliation. The Pi and Hermes renderers consume the same canonical event vocabulary;
+unsupported host conveniences must produce an explicit capability state rather than a
+silent downgrade.
+
+## Related requirements
+
+- [[SR-033]]

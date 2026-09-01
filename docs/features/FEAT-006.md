@@ -1,6 +1,7 @@
 ---
 id: FEAT-006
 title: "EVIDENCE-PROVENANCE"
+description: Evidence provenance records how validation evidence was produced, fingerprinted, and kept fresh.
 requirements:
   - SR-019
   - SR-020
@@ -14,4 +15,9 @@ Status: declared feature dossier (Inc-9 health-resolution, decision-level regist
 
 This feature registers **EVIDENCE-PROVENANCE** in the Coherence / pi-agent-factory feature set. It covers: agentic-I/O, fingerprint, freshness/reconcile.
 
-Owned requirements: SR-019, SR-020, SR-021, SR-022.
+## Related requirements
+
+- ![[SR-019]]
+- [[SR-020]]
+- [[SR-021]]
+- [[SR-022]]

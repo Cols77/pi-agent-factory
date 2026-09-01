@@ -4,9 +4,10 @@ _Status: **design dossier** (2026-08-27). Owner: coherence bootstrap + plan pipe
 Defines coherence's built-in, recommended way to **start a new system**. Planning/design only.
 
 _Parent: `docs/superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md` (FEAT-17
-proposal). Companions: FEAT-16 (MODULAR-WORKFLOWS — the `bootstrap` template), FEAT-13
-(GOVERNED-EXECUTION-DRIVER executes the plans this produces), health-resolution track (SR/feature
-registration + human approval)._
+proposal). Companions: FEAT-16 (MODULAR-WORKFLOWS — the `bootstrap` template), FEAT-18
+(EXECUTION-PLAN-COMPILER — profile/workflow/GatePlan proposal and graph validation), FEAT-13
+(GOVERNED-EXECUTION-DRIVER executes approved proposals), health-resolution track (SR/feature
+registration + human approval).
 
 ---
 
@@ -15,10 +16,12 @@ registration + human approval)._
 Answer the questions: **"How does the framework handle a new system? What's the built-in /
 recommended planning workflow inside coherence?"** Today the answer is scattered and there is **no
 first-class entry point**. This FEAT makes coherence **bootstrap a new project from a blank directory
-to a governed first task** through a named, composed pipeline — the **front door** of the product.
+to a validated execution proposal ready for a governed first task** through a named, composed
+pipeline — the **front door** of the product.
 
-It is distinct from execution: execution (FEAT-13, the driver) *runs plans*; PLANNING-BOOTSTRAP
-*produces and registers* them (requirements → plan → tasks → feature registration).
+It is distinct from execution: execution (FEAT-13, the driver) *runs approved proposals*;
+PLANNING-BOOTSTRAP *produces and registers* the planning package (requirements → plan → tasks →
+feature registration) and invokes FEAT-018 to validate the proposed execution shape.
 
 ---
 
@@ -44,9 +47,11 @@ It is distinct from execution: execution (FEAT-13, the driver) *runs plans*; PLA
 - The **sequence/roles** (who authors the plan, who approves SRs, when plan_to_tasks runs, how it
   becomes FEAT-13 runnable) are not codified.
 
-So FEAT-17 = **define + wire the pipeline** as a named workflow (FEAT-16 `bootstrap` template) reusing
-all existing machinery — **NOT** building an LLM-only plan generator. The plan *format* is
-deterministic files; an agent authors the text, but the pipeline, validation, and registration are code.
+So FEAT-17 = **define + wire the planning front door** as a named workflow (FEAT-16 `bootstrap`
+template) reusing existing machinery and invoking FEAT-018 for execution preparation — **NOT**
+building an LLM-only plan generator or a runtime scheduler. The plan and proposal formats are
+deterministic artifacts; an agent may author text and suggestions, but pipeline sequencing,
+graph validation, and registration are code.
 
 ---
 
@@ -67,7 +72,9 @@ deterministic files; an agent authors the text, but the pipeline, validation, an
     └─ filesystem-first                     (canonical file; derived index; git history)
 5.  plan_to_tasks                         # decompose plan → tasks (exists)
 6.  feature + bundle registration         # health-resolution T-2/T-3 (SR/feature/bundle)
-7.  first governed run                    # FEAT-13 runs task 1 through the standard workflow
+7.  execution proposal                    # FEAT-018 suggests profile/workflow/GatePlan and graph
+8.  graph validation + human approval     # invalid proposals cannot be handed to FEAT-13
+9.  first governed-run request             # FEAT-13 receives the approved proposal
 ```
 
 #### 3a.1 The Clarify & Align phase (new)
@@ -98,7 +105,7 @@ It should be planned *before* FEAT-13 is a sealed feature (or in the same tranch
 registration depends on the health-resolution track.
 
 **Suggested roadmap position (corrected for FEAT-16 dependency):**
-`health-resolution → PLANNING-BOOTSTRAP → GOVERNED-EXECUTION-DRIVER → MODULAR-WORKFLOWS → validation/polish → console`.
+`health-resolution → PLANNING-BOOTSTRAP → EXECUTION-PLAN-COMPILER → GOVERNED-EXECUTION-DRIVER → MODULAR-WORKFLOWS → validation/polish → console`.
 
 **Sequencing resolution (from review, 2026-08-27):** B-02 consumes FEAT-16's `bootstrap` workflow
 template, but the roadmap above ships MODULAR-WORKFLOWS AFTER PLANNING-BOOTSTRAP — a dependency
@@ -129,9 +136,9 @@ it — FEAT-17 never re-implements registration).
 
 ## 4. Scope — ONE tracer-bullet through every layer
 
-Vertical: substrate (SR/plan files) → factory (init, plan_to_tasks) → coherence (register /
-requirement-doctor) → host (CLI `coherence plan/init`) → governed driver (FEAT-13 `--workflow
-bootstrap` → standard run).
+Vertical: substrate (SR/plan/proposal files) → factory (init, plan_to_tasks) → coherence (register /
+requirement-doctor/profile resolution) → host (CLI `coherence plan/init`) → FEAT-018 proposal and
+graph validation → governed driver (FEAT-13 approved run).
 
 - **B-01 — `coherence init` front-door.** Reuse factory-init. **Verify:** `coherence init tmp-proj`
   produces a valid skeleton + `factory.yaml` + empty `requirements/`. **Acceptance:** a blank dir is
@@ -144,9 +151,18 @@ bootstrap` → standard run).
   is human-approved. **Verify:** authored SRs require explicit approve (no bulk auto-adopt); a plan
   file lands under `docs/superpowers/plans/`. **Acceptance:** the human consent gate is enforced (can't
   be bypassed by an agent).
-- **B-04 — plan_to_tasks + registration + first governed run.** **Verify:** a 3-task plan decomposes →
-  registers feature/bundle (health-resolution) → task 1 runs via `standard` workflow (FEAT-13).
-  **Acceptance:** a NEW system reaches a governed, traced first task.
+- **B-04 — plan_to_tasks + registration + planning projection.** **Verify:** a 3-task plan decomposes →
+  registers feature/bundle (health-resolution) → planning tasks and dependencies are materialized
+  in the selected Kanban board or direct planning transport. **Acceptance:** the planning workflow
+  is durable/inspectable without making Kanban the semantic authority.
+- **B-05 — execution proposal + graph validation + approval.** **Verify:** FEAT-018 produces a
+  profile/workflow/GatePlan proposal and rejects a fixture with a missing gate, invalid dependency,
+  unknown reference, or unsatisfied capability. **Acceptance:** no invalid orchestration can be
+  handed to FEAT-13; approval is explicit for the valid proposal.
+- **B-06 — governed-run handoff.** **Verify:** an approved proposal is handed to FEAT-13 with its
+  graph/proposal hash and task coverage; the selected transport can then materialize the run.
+  **Acceptance:** a NEW system reaches a governed, traced first-task request without silently
+  substituting a weaker profile.
 
 ---
 

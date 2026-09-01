@@ -1,6 +1,7 @@
 ---
 id: FEAT-015
 title: "POLISH-FLOW"
+description: Polish flow supports human-guided refinement with playground feedback and regression protection.
 requirements:
   - SR-038
   - SR-039
@@ -12,4 +13,7 @@ Status: declared feature dossier (Inc-9 health-resolution, decision-level regist
 
 This feature registers **POLISH-FLOW** in the Coherence / pi-agent-factory feature set. It covers: human-in-the-loop polish loop + playground + regression guard.
 
-Owned requirements: SR-038, SR-039.
+## Related requirements
+
+- [[SR-038]]
+- [[SR-039]]
