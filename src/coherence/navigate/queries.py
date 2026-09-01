@@ -73,6 +73,7 @@ from coherence.navigate.models import (
 from coherence.navigate.vcycle import VCycleSlice
 from coherence.trace import model as trace_model
 from coherence.trace import validation_status
+from substrate.validation.model import validation_report_errors
 from coherence.trace.validation_status import SrStatus
 from substrate.ledger import tasks as ledger
 
@@ -805,8 +806,9 @@ def _resolve_task_member(
 
 def _validation_report_is_corrupt(repo_root: Path) -> bool:
     """True when the validation report file exists but either fails to parse
-    as JSON or does not parse to a JSON object -- never merely because it
-    parsed to zero usable entries.
+    as JSON, does not parse to a JSON object, or does not validate against
+    the validation-report schema -- never merely because it parsed to zero
+    usable entries.
 
     `validation_status.load_validation` swallows read/parse failures into
     `{}`, which made a genuinely corrupt file indistinguishable from a file
@@ -828,6 +830,13 @@ def _validation_report_is_corrupt(repo_root: Path) -> bool:
     every scope instead of degrading the one SR whose report is unreadable
     (the Global Constraint: missing/corrupt evidence degrades one scope, not
     the whole navigator).
+
+    Review round 3, Critical 2: schema failure counts as corrupt here. Since
+    `load_validation` now returns `{}` for a report that does not validate,
+    an unvalidatable report would otherwise be indistinguishable from "never
+    validated" -- which is precisely the silent inference I-03 forbids. The
+    navigator's existing degraded path ("validation report is unreadable")
+    is the right report for it, so it is routed there.
     """
     path = validation_status.report_path(repo_root)
     if not path.exists():
@@ -836,7 +845,9 @@ def _validation_report_is_corrupt(repo_root: Path) -> bool:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return True
-    return not isinstance(raw, dict)
+    if not isinstance(raw, dict):
+        return True
+    return bool(validation_report_errors(raw))
 
 
 def _sr_validation_claim(

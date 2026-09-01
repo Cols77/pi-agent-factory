@@ -45,7 +45,8 @@ def _write_validation_report(root: Path, passing_ids: list[str]) -> None:
     (root / "validation").mkdir(parents=True, exist_ok=True)
     entries = [{"id": sid, "passed": True, "stale": False} for sid in passing_ids]
     (root / "validation" / "validation-report.json").write_text(
-        json.dumps({"requirements": entries}), encoding="utf-8",
+        json.dumps({"provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"}, "requirements": entries}),
+        encoding="utf-8",
     )
 
 

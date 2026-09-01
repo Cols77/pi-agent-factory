@@ -180,7 +180,12 @@ def test_compile_obligations_verification_result_prototype_pass_nonstale_is_sati
     )
     (tmp_path / "validation").mkdir()
     (tmp_path / "validation" / "validation-report.json").write_text(
-        json.dumps({"requirements": [{"id": "SR-002", "passed": True, "stale": False}]}),
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-002", "passed": True, "stale": False}],
+            }
+        ),
         encoding="utf-8",
     )
     obligations = compile_obligations(tmp_path, "sr:SR-002")
@@ -202,7 +207,12 @@ def test_compile_obligations_verification_result_high_assurance_missing_harness_
     )
     (tmp_path / "validation").mkdir()
     (tmp_path / "validation" / "validation-report.json").write_text(
-        json.dumps({"requirements": [{"id": "SR-003", "passed": True, "stale": False}]}),
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-003", "passed": True, "stale": False}],
+            }
+        ),
         encoding="utf-8",
     )
     obligations = compile_obligations(tmp_path, "sr:SR-003")

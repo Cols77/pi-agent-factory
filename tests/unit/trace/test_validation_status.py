@@ -10,10 +10,17 @@ from factory.trace.validation_status import load_validation, requirement_validat
 pytestmark = pytest.mark.unit
 
 
+# A report must declare its provenance to be readable at all (review round
+# 3, Critical 2); these fixtures stand in for harness-emitted reports.
+_PROVENANCE = {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"}
+
+
 def _report(tmp_path: Path, entries: list[dict]) -> None:
     path = tmp_path / "validation" / "validation-report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"requirements": entries}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"provenance": _PROVENANCE, "requirements": entries}), encoding="utf-8"
+    )
 
 
 def test_passing_entry(tmp_path):

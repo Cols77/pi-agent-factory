@@ -182,7 +182,7 @@ def _write_common_repo(root: Path) -> None:
     validation_dir = root / "validation"
     validation_dir.mkdir(parents=True, exist_ok=True)
     (validation_dir / "validation-report.json").write_text(
-        json.dumps({"requirements": [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}]}),
+        json.dumps({"provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"}, "requirements": [{"id": "SR-001", "passed": True, "stale": False, "artifacts": []}]}),
         encoding="utf-8",
     )
 

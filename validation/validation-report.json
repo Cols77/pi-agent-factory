@@ -1,4 +1,13 @@
 {
+  "provenance": {
+    "recorded_by": "hand",
+    "recorded_at": "2026-09-01T11:40:28Z",
+    "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+    "run_id": "T-6-evidence-execution-20260901T114021Z",
+    "evidence_manifest": "evidence/runs/T-6-evidence-execution-20260901T114021Z.json",
+    "commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+    "note": "Recorded by hand, not emitted by a harness. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. A human ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that human's transcription of what the run showed, not values any code computed. The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
+  },
   "requirements": [
     {
       "id": "SR-001",

@@ -170,10 +170,25 @@ def write_plan(repo_root: Path, filename: str, *, title: str = "Plan title") -> 
     return path
 
 
+# Every validation report on disk declares its own provenance (review round
+# 3, Critical 2): a report that does not validate against
+# src/substrate/schemas/validation_report.schema.json yields no statuses at
+# all. These fixtures stand in for a report the measurement harness emitted,
+# so they say so.
+FIXTURE_PROVENANCE = {
+    "recorded_by": "harness",
+    "recorded_at": "2026-01-01T00:00:00Z",
+    "command": "coherence-measurement run",
+}
+
+
 def write_validation_report(repo_root: Path, entries: list[dict]) -> Path:
     path = repo_root / "validation" / "validation-report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"requirements": entries}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"provenance": FIXTURE_PROVENANCE, "requirements": entries}),
+        encoding="utf-8",
+    )
     return path
 
 
