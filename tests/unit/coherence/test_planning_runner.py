@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import sqlite3
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -22,6 +25,16 @@ pytestmark = pytest.mark.unit
 def _input(root: Path, text: str = "intent") -> Path:
     path = root / "input.json"
     path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _parent_output(
+    runner: PlanningRunner, invocation: AgentInvocation, content: bytes = b"parent artifact"
+) -> Path:
+    path = runner.project_root / invocation.output_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_bytes(content)
     return path
 
 
@@ -488,9 +501,15 @@ def test_advance_rejects_a_symlinked_result_or_gate_record(tmp_path: Path) -> No
 
 def test_workflow_journal_symlink_is_not_followed_on_reopen(tmp_path: Path) -> None:
     runner = PlanningRunner(tmp_path, "run-1")
-    runner.run_dir.mkdir(parents=True, exist_ok=True)
+    input_path = _input(tmp_path)
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
     target = tmp_path / "events-copy.jsonl"
-    target.write_text("", encoding="utf-8")
+    target.write_bytes(runner.events_path.read_bytes())
     try:
         runner.events_path.symlink_to(target)
     except (OSError, NotImplementedError):
@@ -498,6 +517,362 @@ def test_workflow_journal_symlink_is_not_followed_on_reopen(tmp_path: Path) -> N
 
     with pytest.raises(RunnerError, match="journal|unsafe"):
         PlanningRunner(tmp_path, "run-1").status()
+
+
+@pytest.mark.parametrize("projection", ["events_path", "integrity_path", "state_path"])
+def test_explicit_recovery_blocks_on_high_level_projection_loss(
+    tmp_path: Path, projection: str
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    _complete(runner, PlanningStage.CAPTURE, input_path)
+    getattr(runner, projection).unlink()
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    state = recovered.status()
+    assert state.blocked is True
+    assert state.reason == "recovery_integrity"
+    with recovered._transaction() as connection:
+        event = connection.execute(
+            "SELECT action, event_json FROM workflow_events WHERE run_id=? ORDER BY sequence DESC LIMIT 1",
+            (recovered.run_id,),
+        ).fetchone()
+    assert event is not None
+    assert event[0] == "block"
+    assert json.loads(event[1])["reason"] == "recovery_integrity"
+    with recovered._transaction() as connection:
+        before_count = connection.execute(
+            "SELECT COUNT(*) FROM workflow_events WHERE run_id=?", (recovered.run_id,)
+        ).fetchone()[0]
+    with pytest.raises(RunnerBlocked, match="blocked|terminal"):
+        recovered.begin(
+            PlanningStage.PROVISIONAL_SPEC,
+            role="provisional-spec-agent",
+            input_paths=(input_path,),
+            output_path="docs/spec.md",
+        )
+    with recovered._transaction() as connection:
+        after_count = connection.execute(
+            "SELECT COUNT(*) FROM workflow_events WHERE run_id=?", (recovered.run_id,)
+        ).fetchone()[0]
+    assert after_count == before_count
+
+
+def test_explicit_recovery_blocks_on_tampered_integrity_projection(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    _complete(runner, PlanningStage.CAPTURE, input_path)
+    integrity = json.loads(runner.integrity_path.read_text(encoding="utf-8"))
+    integrity["head_sha256"] = "f" * 64
+    runner.integrity_path.write_text(json.dumps(integrity) + "\n", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "recovery_integrity"
+
+
+@pytest.mark.parametrize("table", ["schema_meta", "workflow_events"])
+def test_reopen_rejects_deleted_authoritative_schema_object(
+    tmp_path: Path, table: str
+) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    with runner._transaction() as connection:
+        connection.execute(f"DROP TABLE {table}")
+
+    with pytest.raises(RunnerError, match="schema|incomplete|malformed"):
+        PlanningRunner(tmp_path, "run-1")
+
+
+def test_reopen_rejects_an_inert_immutable_trigger(tmp_path: Path) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    with runner._transaction() as connection:
+        connection.execute("DROP TRIGGER invocation_records_immutable_update")
+        connection.execute(
+            "CREATE TRIGGER invocation_records_immutable_update "
+            "BEFORE UPDATE ON invocation_records BEGIN SELECT 1; END"
+        )
+
+    with pytest.raises(RunnerError, match="schema|trigger|immutable"):
+        PlanningRunner(tmp_path, "run-1")
+
+
+@pytest.mark.parametrize("object_kind", ["table", "trigger"])
+def test_reopen_rejects_unexpected_schema_objects(
+    tmp_path: Path, object_kind: str
+) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    with runner._transaction() as connection:
+        connection.execute("CREATE TABLE injected_object (value TEXT)")
+        if object_kind == "trigger":
+            connection.execute(
+                "CREATE TRIGGER injected_trigger "
+                "AFTER INSERT ON injected_object BEGIN SELECT 1; END"
+            )
+
+    with pytest.raises(RunnerError, match="schema|object"):
+        PlanningRunner(tmp_path, "run-1")
+
+
+def test_explicit_recovery_blocks_on_tampered_leaf_projection(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {"kept": True}})
+    _trusted_gate(runner, invocation)
+    runner.advance(invocation)
+    result_path = runner._record_dir(invocation) / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["payload"]["kept"] = False
+    result_path.write_text(json.dumps(result) + "\n", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "recovery_integrity"
+
+
+def test_recovery_blocks_on_malformed_orphan_projection_path(tmp_path: Path) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    orphan = runner.run_dir / "stages" / "not-a-stage" / "r1" / "a1" / "result.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text("{}\n", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "orphan_record"
+    with pytest.raises(RunnerBlocked, match="blocked|orphan|recovery"):
+        recovered.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(),
+            output_path=".intent/intent.json",
+        )
+
+
+def test_record_gate_preflight_failure_is_durably_blocked(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+
+    with pytest.raises(RunnerBlocked, match="gate|invalid|durable"):
+        runner.record_gate(invocation, verification={})
+    assert runner.status().blocked is True
+
+
+def test_gate_binding_rejects_parent_output_replacement(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    output = _parent_output(runner, invocation, b"original artifact")
+    verification = runner._parent_gate_verifier.attest(
+        invocation, gate_id="gate-capture", passed=True, detail="verified"
+    )
+    assert verification.output_sha256 == hashlib.sha256(
+        b"original artifact"
+    ).hexdigest()
+    output.write_bytes(b"replacement artifact")
+
+    with pytest.raises(RunnerBlocked, match="gate|output|invalid"):
+        runner.record_gate(invocation, verification=verification)
+    assert runner.status().blocked is True
+
+
+def test_recovery_missing_authoritative_record_fails_closed(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    with runner._transaction() as connection:
+        connection.execute("DROP TRIGGER invocation_records_immutable_delete")
+        connection.execute(
+            "DELETE FROM invocation_records WHERE run_id=?",
+            (runner.run_id,),
+        )
+        connection.execute(
+            "CREATE TRIGGER invocation_records_immutable_delete "
+            "BEFORE DELETE ON invocation_records "
+            "BEGIN SELECT RAISE(ABORT, 'immutable invocation record'); END"
+        )
+
+    with pytest.raises(RunnerBlocked, match="durable|recovery|mutation"):
+        PlanningRunner(tmp_path, "run-1", recover=True)
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+    assert reopened.status().reason == "durable_unavailable"
+
+
+def test_recovery_block_capacity_failure_is_explicitly_durable_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    monkeypatch.setattr(
+        runner_module, "_MAX_WORKFLOW_JOURNAL_BYTES", runner.events_path.stat().st_size
+    )
+
+    with pytest.raises(RunnerBlocked, match="durable|recovery|mutation"):
+        PlanningRunner(tmp_path, "run-1", recover=True)
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+    assert reopened.status().reason == "durable_unavailable"
+
+
+def test_orphan_stage_projection_recovery_is_immutable_and_not_bypassable(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    _complete(runner, PlanningStage.CAPTURE, input_path)
+    orphan = runner.run_dir / "stages" / "capture" / "r99" / "a1" / "result.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text("{}\n", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "orphan_record"
+    with recovered._transaction() as connection:
+        block_count = connection.execute(
+            "SELECT COUNT(*) FROM blocks WHERE run_id=?", (recovered.run_id,)
+        ).fetchone()[0]
+        before_count = connection.execute(
+            "SELECT COUNT(*) FROM workflow_events WHERE run_id=?", (recovered.run_id,)
+        ).fetchone()[0]
+    assert block_count == 1
+    with pytest.raises(RunnerBlocked, match="blocked|recovery"):
+        recovered.begin(
+            PlanningStage.PROVISIONAL_SPEC,
+            role="provisional-spec-agent",
+            input_paths=(input_path,),
+            output_path="docs/spec.md",
+        )
+    with recovered._transaction() as connection:
+        after_count = connection.execute(
+            "SELECT COUNT(*) FROM workflow_events WHERE run_id=?", (recovered.run_id,)
+        ).fetchone()[0]
+    assert after_count == before_count
+
+
+def test_oversized_invocation_identity_fails_closed(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    oversized = replace(invocation, revision=2**63)
+
+    with pytest.raises(RunnerBlocked, match="durable|mutation|invalid"):
+        runner.record_result(oversized, {"ok": True, "payload": {}})
+    assert runner.status().blocked is True
+
+
+def test_begin_journal_capacity_failure_is_explicitly_durable_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    monkeypatch.setattr(runner_module, "_MAX_WORKFLOW_JOURNAL_BYTES", 1)
+
+    with pytest.raises(RunnerBlocked, match="durable|mutation"):
+        runner.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(input_path,),
+            output_path=".intent/intent.json",
+        )
+
+
+def test_immutable_block_persistence_failure_is_explicitly_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    def fail_event(*args: object, **kwargs: object) -> None:
+        raise OSError("injected event failure")
+
+    monkeypatch.setattr(runner, "_append_event", fail_event)
+    with pytest.raises(RunnerBlocked, match="durable|unavailable|mutation"):
+        runner.record_result(invocation, {"ok": True, "payload": {}})
+
+
+def test_post_advance_projection_failure_creates_immutable_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _trusted_gate(runner, invocation)
+    original_write_json = runner._write_json
+
+    def fail_state_projection(path: Path, value: object, label: str) -> None:
+        if label == "workflow state":
+            raise OSError("injected projection failure")
+        original_write_json(path, value, label)
+
+    monkeypatch.setattr(runner, "_write_json", fail_state_projection)
+    with pytest.raises(RunnerBlocked, match="advance_projection_failure"):
+        runner.advance(invocation)
+
+    with runner._transaction() as connection:
+        event = connection.execute(
+            "SELECT action, event_json FROM workflow_events WHERE run_id=? ORDER BY sequence DESC LIMIT 1",
+            (runner.run_id,),
+        ).fetchone()
+        block_count = connection.execute(
+            "SELECT COUNT(*) FROM blocks WHERE run_id=?", (runner.run_id,)
+        ).fetchone()[0]
+    assert event is not None
+    assert event[0] == "block"
+    assert json.loads(event[1])["reason"] == "advance_projection_failure"
+    assert block_count == 1
+    assert runner.status().blocked is True
 
 
 def _trusted_gate(
@@ -508,7 +883,8 @@ def _trusted_gate(
     detail: str = "verified",
     evidence: dict[str, object] | None = None,
 ) -> GateRecord:
-    verification = runner.parent_gate_verifier.attest(
+    _parent_output(runner, invocation)
+    verification = runner._parent_gate_verifier.attest(
         invocation,
         gate_id=f"gate-{invocation.stage.value}",
         passed=passed,
@@ -556,7 +932,7 @@ def test_reopening_an_interrupted_begin_recovers_a_durable_block(tmp_path: Path)
         output_path=".intent/intent.json",
     )
 
-    reopened = PlanningRunner(tmp_path, "run-1")
+    reopened = PlanningRunner(tmp_path, "run-1", recover=True)
     state = reopened.status()
     assert state.blocked is True
     assert state.reason == "interrupted_attempt"
@@ -727,7 +1103,7 @@ def test_reopened_interrupted_attempt_can_retry_with_same_revision(tmp_path: Pat
         output_path=".intent/intent.json",
     )
 
-    reopened = PlanningRunner(tmp_path, "run-1")
+    reopened = PlanningRunner(tmp_path, "run-1", recover=True)
     retry = reopened.begin(
         PlanningStage.CAPTURE,
         role="intent-capture",
@@ -798,6 +1174,12 @@ def test_concurrent_begin_allocates_one_attempt_and_preserves_one_sequence_chain
     "reports/trailing.",
     "reports/aux.log",
     "reports/foo:bar.json",
+    "reports/foo*bar.json",
+    "reports/foo<bar.json",
+    "reports/foo|bar.json",
+    "reports/foo?bar.json",
+    "CONIN$.txt",
+    "CONOUT$.txt",
     ".factory/planning/run-1/workflow-events.jsonl",
 ])
 def test_windows_unsafe_or_runner_control_output_targets_are_rejected(
@@ -893,6 +1275,53 @@ def test_oversized_gate_evidence_is_rejected_before_gate_write(tmp_path: Path) -
     assert not (runner._record_dir(invocation) / "gate.json").exists()
 
 
+def test_forged_serialized_gate_verification_cannot_authorize_advancement(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+    valid = runner._parent_gate_verifier.attest(
+        invocation, gate_id="gate-capture", passed=True, detail="verified"
+    )
+
+    with pytest.raises(RunnerError, match="trusted|provenance|verification"):
+        runner.record_gate(invocation, verification=valid.to_dict())
+
+
+@pytest.mark.parametrize("schema", [True, 1.0])
+def test_non_integer_invocation_schema_is_rejected_without_result_record(
+    tmp_path: Path, schema: object
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    malformed = AgentInvocation(
+        cast(int, schema),
+        invocation.run_id,
+        invocation.stage,
+        invocation.revision,
+        invocation.attempt,
+        invocation.role,
+        invocation.input_hashes,
+        invocation.output_path,
+    )
+
+    with pytest.raises(RunnerError, match="invocation|schema"):
+        runner.record_result(malformed, {"ok": True, "payload": {}})
+    assert not (runner._record_dir(invocation) / "result.json").exists()
+
+
 @pytest.mark.parametrize(
     "failure_boundary",
     ["invocation.json", "result.json", "gate.json", "workflow-integrity.json", "workflow-state.json"],
@@ -930,7 +1359,8 @@ def test_write_failure_reopens_as_a_durable_blocked_state(
                 runner.record_result(invocation, {"ok": True, "payload": {}})
         else:
             runner.record_result(invocation, {"ok": True, "payload": {}})
-            verification = runner.parent_gate_verifier.attest(
+            _parent_output(runner, invocation)
+            verification = runner._parent_gate_verifier.attest(
                 invocation,
                 gate_id="gate-capture",
                 passed=True,
@@ -984,7 +1414,7 @@ def test_reopening_missing_result_record_reconciles_a_durable_block(tmp_path: Pa
     runner.record_result(invocation, {"ok": True, "payload": {}})
     (runner._record_dir(invocation) / "result.json").unlink()
 
-    reopened = PlanningRunner(tmp_path, "run-1")
+    reopened = PlanningRunner(tmp_path, "run-1", recover=True)
     state = reopened.status()
     assert state.blocked is True
     assert json.loads(reopened.events_path.read_text(encoding="utf-8").splitlines()[-1])["action"] == "block"
@@ -996,9 +1426,351 @@ def test_reopening_an_orphan_control_record_blocks_without_deleting_it(tmp_path:
     orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.write_text("{}\n", encoding="utf-8")
 
-    reopened = PlanningRunner(tmp_path, "run-1")
+    reopened = PlanningRunner(tmp_path, "run-1", recover=True)
     assert reopened.status().blocked is True
     assert orphan.exists()
+
+
+def test_transactional_parent_owned_stage_contract(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    store_path = tmp_path / ".factory" / "planning" / "run-1" / "workflow.sqlite3"
+
+    assert store_path.is_file()
+    with sqlite3.connect(store_path) as connection:
+        assert connection.execute("PRAGMA synchronous").fetchone() == (2,)
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert {"run_metadata", "stage_attempts", "workflow_events"} <= tables
+
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _trusted_gate(runner, invocation)
+    runner.advance(invocation)
+
+    with sqlite3.connect(store_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM workflow_events").fetchone() == (4,)
+        assert connection.execute("SELECT COUNT(*) FROM stage_attempts").fetchone() == (1,)
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE stage_attempts SET role='worker-selected' WHERE run_id='run-1'"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE transitions SET action='block' WHERE run_id='run-1' AND sequence=1"
+            )
+
+
+def test_gate_verification_is_bound_to_the_current_lineage_and_policy(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+
+    verification = runner._parent_gate_verifier.attest(
+        invocation,
+        gate_id="gate-capture",
+        passed=True,
+        detail="verified",
+        policy_version="planning-gates-v1",
+        resolver_id="resolver-v1",
+    )
+
+    assert verification.run_id == "run-1"
+    assert verification.stage is PlanningStage.CAPTURE
+    assert verification.revision == invocation.revision
+    assert verification.attempt == invocation.attempt
+    assert dict(verification.input_hashes) == dict(invocation.input_hashes)
+    assert verification.policy_version == "planning-gates-v1"
+    assert verification.resolver_id == "resolver-v1"
+    assert runner.record_gate(invocation, verification=verification).passed is True
+
+
+def test_failed_gate_attestation_cannot_be_cloned_into_a_passing_gate(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+    failed = runner._parent_gate_verifier.attest(
+        invocation, gate_id="gate-capture", passed=False, detail="rejected"
+    )
+    forged = replace(failed, passed=True)
+
+    with pytest.raises(RunnerBlocked, match="gate|verification|mutation"):
+        runner.record_gate(invocation, verification=forged)
+    assert runner.status().blocked is True
+
+
+def test_cyclic_worker_output_is_rejected_without_hanging(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    cyclic: dict[str, object] = {}
+    cyclic["self"] = cyclic
+
+    with pytest.raises(RunnerBlocked, match="cyclic|JSON|mutation"):
+        runner.record_result(invocation, {"ok": True, "payload": cyclic})
+    assert runner.status().blocked is True
+
+
+def test_stale_input_rehashing_is_bounded_by_the_input_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    monkeypatch.setattr(runner_module, "_MAX_INPUT_BYTES", 4)
+    input_path.write_text("changed", encoding="utf-8")
+
+    assert runner._stale_input_reason(invocation) == "input set is oversized"
+
+
+@pytest.mark.parametrize("field", ["revision", "attempt"])
+@pytest.mark.parametrize("malformed", [True, 1.0])
+def test_gate_verification_lineage_requires_exact_positive_integers(
+    tmp_path: Path, field: str, malformed: object
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+    verification = runner._parent_gate_verifier.attest(
+        invocation, gate_id="gate-capture", passed=True, detail="verified"
+    )
+    malformed_verification = replace(verification, **{field: malformed})
+
+    with pytest.raises(RunnerError, match="lineage|verification|invalid"):
+        runner.record_gate(invocation, verification=malformed_verification)
+    assert not (runner._record_dir(invocation) / "gate.json").exists()
+
+
+def test_stale_input_block_persistence_failure_is_not_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    original_insert_block = runner._insert_block
+    failed_once = False
+
+    def fail_once(connection: sqlite3.Connection, target: object, reason: str, detail: str) -> None:
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            raise OSError("injected block failure")
+        original_insert_block(connection, target, reason, detail)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(runner, "_insert_block", fail_once)
+    input_path.write_text("changed", encoding="utf-8")
+
+    with pytest.raises(RunnerBlocked, match="invalid|stale"):
+        runner._parent_gate_verifier.attest(
+            invocation, gate_id="gate-capture", passed=True, detail="verified"
+        )
+    assert runner.status().blocked is True
+
+
+def test_current_invocation_projection_tamper_durably_blocks_result_recording(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    stored = json.loads((runner._record_dir(invocation) / "invocation.json").read_text())
+    stored["role"] = "forged-role"
+    (runner._record_dir(invocation) / "invocation.json").write_text(json.dumps(stored) + "\n")
+
+    with pytest.raises(RunnerBlocked, match="evidence|invalid|projection"):
+        runner.record_result(invocation, {"ok": True, "payload": {}})
+    assert runner.status().blocked is True
+
+
+def test_explicit_recovery_uses_authoritative_store_when_all_projections_are_missing(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    for path in (runner.events_path, runner.integrity_path, runner.state_path):
+        path.unlink()
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "interrupted_attempt"
+
+
+def test_malformed_invocation_stage_is_rejected_and_durably_blocks_advance(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    malformed = replace(invocation, stage="capture")
+
+    with pytest.raises(RunnerBlocked, match="invocation|invalid"):
+        runner.advance(malformed)
+    assert runner.status().blocked is True
+
+
+def test_surrogate_gate_detail_is_bounded_and_durably_blocks(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+
+    with pytest.raises(RunnerBlocked, match="gate|invalid"):
+        runner._parent_gate_verifier.attest(
+            invocation, gate_id="gate-capture", passed=True, detail="\ud800"
+        )
+    assert runner.status().blocked is True
+
+
+def test_journal_writer_overflow_durably_blocks_before_projection_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    current_size = runner.events_path.stat().st_size
+    monkeypatch.setattr(runner_module, "_MAX_WORKFLOW_JOURNAL_BYTES", current_size + 1)
+
+    with pytest.raises(RunnerBlocked, match="evidence|mutation"):
+        runner.record_result(invocation, {"ok": True, "payload": {}})
+    assert runner.status().blocked is True
+
+
+def test_projection_refresh_retries_when_store_generation_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    other = PlanningRunner(tmp_path, "run-1")
+    original_write_json = runner._write_json
+    mutation_started = False
+
+    def write_json(path: Path, value: object, label: str) -> None:
+        nonlocal mutation_started
+        original_write_json(path, value, label)
+        if label == "workflow integrity" and not mutation_started:
+            mutation_started = True
+            with other._writer_lock():
+                with other._transaction() as connection:
+                    other._insert_block(connection, invocation, "test_block", "concurrent update")
+
+    monkeypatch.setattr(runner, "_write_json", write_json)
+    runner._refresh_projections()
+
+    events = [json.loads(line) for line in runner.events_path.read_text().splitlines()]
+    assert events[-1]["action"] == "block"
+
+
+def test_projection_cannot_authorize_or_replace_store_state(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    runner.state_path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "run_id": "run-1",
+                "current_stage": None,
+                "blocked": False,
+                "reason": None,
+                "completed_stages": [stage.value for stage in PlanningStage],
+                "attempts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner.events_path.write_text('{"projection":"forged"}\n', encoding="utf-8")
+
+    with pytest.raises(RunnerError, match="projection|journal|JSON|event"):
+        runner.status()
+    with pytest.raises(RunnerBlocked, match="result|evidence"):
+        runner.advance(invocation)
 
 
 @pytest.mark.parametrize("tamper", ["nested-output", "gate-id"])
@@ -1029,3 +1801,143 @@ def test_persisted_gate_parser_rejects_spoofed_nested_evidence_and_gate_identity
 
     with pytest.raises(RunnerError, match="gate|evidence|output"):
         runner_module._gate_from_record(persisted, "run-1")
+
+
+def test_second_runner_does_not_recover_another_runner_live_attempt(tmp_path: Path) -> None:
+    input_path = _input(tmp_path)
+    first = PlanningRunner(tmp_path, "run-1")
+    invocation = first.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+
+    second = PlanningRunner(tmp_path, "run-1")
+
+    assert second.status().blocked is False
+    first.record_result(invocation, {"ok": True, "payload": {}})
+
+
+def test_begin_projection_failure_blocks_the_committed_attempt_and_allows_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+
+    def fail_refresh() -> None:
+        raise OSError("injected projection failure")
+
+    monkeypatch.setattr(runner, "_refresh_projections", fail_refresh)
+    with pytest.raises(RunnerBlocked):
+        runner.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(input_path,),
+            output_path=".intent/intent.json",
+        )
+
+    reopened = PlanningRunner(tmp_path, "run-1")
+    assert reopened.status().blocked is True
+    retry = reopened.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    assert retry.attempt == 2
+
+
+def test_mutation_failure_diagnostics_are_bounded_and_durable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+
+    def fail_refresh() -> None:
+        raise OSError("é" * 20_000 + "\n\x00")
+
+    monkeypatch.setattr(runner, "_refresh_projections", fail_refresh)
+    with pytest.raises(RunnerBlocked):
+        runner.begin(
+            PlanningStage.CAPTURE,
+            role="intent-capture",
+            input_paths=(input_path,),
+            output_path=".intent/intent.json",
+        )
+
+    with sqlite3.connect(runner.database_path) as connection:
+        block = connection.execute(
+            "SELECT detail FROM blocks WHERE run_id='run-1' ORDER BY sequence DESC LIMIT 1"
+        ).fetchone()
+    assert block is not None
+    assert len(block[0].encode("utf-8")) <= runner_module._MAX_TEXT_BYTES
+    assert "\x00" not in block[0]
+
+
+def test_recovery_blocks_on_an_unrecognized_stage_projection_file(tmp_path: Path) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    orphan = runner.run_dir / "stages" / "capture" / "r1" / "a1" / "unknown.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text("{}\n", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "orphan_record"
+
+
+def test_status_rejects_real_stage_attempt_identity_without_coercion(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    with runner._transaction() as connection:
+        connection.execute("DROP TRIGGER stage_attempts_immutable_update")
+        connection.execute(
+            "UPDATE stage_attempts SET revision=? WHERE run_id=?",
+            (1.5, runner.run_id),
+        )
+
+    with pytest.raises(RunnerError, match="revision|identity|store"):
+        runner.status()
+
+
+def test_record_gate_rejects_legacy_decision_fields_alongside_attestation(
+    tmp_path: Path,
+) -> None:
+    input_path = _input(tmp_path)
+    runner = PlanningRunner(tmp_path, "run-1")
+    invocation = runner.begin(
+        PlanningStage.CAPTURE,
+        role="intent-capture",
+        input_paths=(input_path,),
+        output_path=".intent/intent.json",
+    )
+    runner.record_result(invocation, {"ok": True, "payload": {}})
+    _parent_output(runner, invocation)
+    verification = runner._parent_gate_verifier.attest(
+        invocation, gate_id="gate-capture", passed=True, detail="verified"
+    )
+
+    with pytest.raises(RunnerBlocked, match="trusted|verification|caller"):
+        runner.record_gate(invocation, verification=verification, passed=False)
+
+
+def test_recovery_blocks_when_stage_projection_root_is_not_a_directory(
+    tmp_path: Path,
+) -> None:
+    runner = PlanningRunner(tmp_path, "run-1")
+    stages_dir = runner.run_dir / "stages"
+    stages_dir.write_text("not a directory", encoding="utf-8")
+
+    recovered = PlanningRunner(tmp_path, "run-1", recover=True)
+
+    assert recovered.status().blocked is True
+    assert recovered.status().reason == "orphan_record"
