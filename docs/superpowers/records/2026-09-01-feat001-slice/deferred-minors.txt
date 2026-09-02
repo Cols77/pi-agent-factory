@@ -1,0 +1,18 @@
+Task 1: minor (deferred): a `manual` criterion that also supplies `ref`, or a
+Task 1: minor (deferred): `register.py:151-153` `AcceptanceCriterion(...)` line is ~105 chars vs
+Task 4a: minor (deferred): no regression test for `decisions` as a bare string or None/mapping —
+Task 4a: minor (deferred): `deferrals.py:21` now imports the module-private `_is_iso` from
+Task 4a: evidence gap (recorded, not fixable retroactively): no `task-4a-report.md` was written,
+Task 4a: complete (commits 9e748db..7362062, review clean; 3 minors + 1 evidence gap deferred).
+Task 3: minor (deferred): SR-001 AC-1 drops "business intent", the first link of HLR-02's chain —
+Task 3: minor (deferred): SR-005 AC-3 replaces the source's "rather than a hand-edited file beside
+Task 3: minor (deferred): SR-050's `#canonical-relations` anchor does not match the heading
+Task 3: minor (deferred): §10 should gain sub-anchors — reviewer agrees it holds four separable
+Task 5: minor (deferred): SR-007/AC-1's criterion has an explicit negative second clause verified by
+Task 5: minor (deferred): the report's TDD narrative miscounts its own tests (says 6 new + 5
+Task 5: minor (deferred): four `Obligation(...)` construction sites in `_test_marker_obligation`
+Task 6: minor (deferred): `validation/validation-report.json` has no schema validation of its own,
+Task 6: minor (deferred): the two evidence files do not cross-reference each other (no shared
+Task 7: minor (deferred): `_detect_eol` (generate.py:592-601) documents "the file's dominant line
+Task 7: minor (deferred): RED evidence for round 2 is weak — `git stash` + ImportError proves the
+  real dossiers, and the reviewer's own severity call is "not blocking". They are parked for the
