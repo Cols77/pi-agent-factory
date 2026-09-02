@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-002",
+  "artifact_ref": "artifact:requirements/SR-002.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-002",
+      "action": "accept",
+      "reason": "",
+      "review_after": null,
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-02T03:15:04Z",
+  "decided_by": "Cols77"
+}
