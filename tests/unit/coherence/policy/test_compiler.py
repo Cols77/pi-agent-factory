@@ -34,10 +34,12 @@ def _seed_gates(root: Path) -> None:
     )
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_project_default(tmp_path):
     assert resolve_profile(tmp_path, "project") == "prototype"
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_project_scope_uses_project_default_explicitly(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text(
@@ -60,6 +62,7 @@ def test_resolve_profile_unsupported_artifact_scope_fails_closed(tmp_path):
         resolve_profile(tmp_path, "file:src/not-a-trace-artifact.py")
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_rejects_uncompiled_preset(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text("profile: exploration\n", encoding="utf-8")
@@ -67,6 +70,7 @@ def test_resolve_profile_rejects_uncompiled_preset(tmp_path):
         resolve_profile(tmp_path, "project")
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text("profile: product\n", encoding="utf-8")
@@ -115,6 +119,7 @@ def test_compile_obligations_task_justification_for_task_scope(tmp_path):
     assert tj.state == "open"  # T-900 has no justification at all
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch):
     # Increment 5's per-SR health loop calls compile_obligations(root,
     # f"sr:{n.id}", nodes=nodes, edges=edges) inside a loop over every SR --
@@ -140,6 +145,25 @@ def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch)
 
     monkeypatch.setattr(trace_model, "load_nodes", _boom)
     assert resolve_profile(tmp_path, "sr:SR-001", nodes=nodes, edges=edges) == "high_assurance"
+
+
+@pytest.mark.sr("SR-008")
+def test_resolve_profile_artifact_own_override_wins_over_feature_inheritance(tmp_path):
+    # SR-500 declares its own `profile:` override (high_assurance) while its
+    # owning feature declares a DIFFERENT one (prototype) -- artifact/
+    # requirement scope must win over feature/bundle scope (the guide's
+    # precedence order), never the other way around.
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-500.md").write_text(
+        "---\nid: FEAT-500\ntitle: f\nprofile: prototype\nrequirements: [SR-500]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-500.md").write_text(
+        "---\nid: SR-500\ntitle: t\nstatement: s\ndomain: d\nprofile: high_assurance\n---\n",
+        encoding="utf-8",
+    )
+    assert resolve_profile(tmp_path, "sr:SR-500") == "high_assurance"
 
 
 def test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open(
