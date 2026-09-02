@@ -6,7 +6,8 @@ spec: coherence-product-definition
 
 **Date:** 2026-09-01 · **Status:** plan, ready to execute
 **Parent spec:** [[2026-09-01-coherence-product-definition]] (D-P4, D-P6, D-P8, D-P14)
-**Feature:** [[FEAT-001]] · **Profile:** `high_assurance`
+**Feature:** [[FEAT-001]] · **Profile:** `high_assurance` (target, per the product spec's feature
+map) · **Resolved 2026-09-02:** kept unconfigured (defaults `prototype`) — see T-8b
 **SRs in scope:** [[SR-001]] [[SR-002]] [[SR-003]] [[SR-004]] [[SR-005]] [[SR-006]] [[SR-007]] [[SR-050]]
 
 ---
@@ -52,7 +53,7 @@ author SRs + acceptance criteria
   → human authoring consent (gate DecisionFile)
     → bind criteria to existing tests (@pytest.mark.sr)
       → execute evidence (verification_result obligation)
-        → human_review (high_assurance)
+        → human_review (blocking only if high_assurance is declared; see T-8b)
           → re-run health
 ```
 
@@ -199,6 +200,17 @@ as `not_applicable`, not `blocking` -- which is why the dimension reads 0/0 rath
 Declaring `high_assurance` is a human's decision, not this plan's: it would also flip
 `executed_evidence` from 4/55 to 0/55. What T-8b still asks for is unchanged: real human
 entries; an agent cannot produce them.
+
+**Resolved 2026-09-02:** kept `prototype` (unconfigured, project default). `high_assurance`
+remains FEAT-001's correct *target* per the product spec's feature map (§5) — that has not
+changed — but declaring it on the dossier today would flip 4 real, passing checks to 0 for no
+assurance gain, since no FEAT-001 SR has a harness `binding:` yet. Revisit once real bindings
+exist; nothing about that revisit requires `docs/features/FEAT-001.md` to declare `profile:`
+explicitly in the meantime — its silence already resolves to `prototype` via the project
+default, and writing `profile: prototype` there now would misstate the target as the destination
+rather than a transitional gap. What actually needed correcting was this plan's own header and
+flow diagram, which stated the target as though it were already true on disk; both are now
+corrected above.
 
 **Verify:** re-run `coherence navigate health --json`; FEAT-001's dimensions move.
 **Acceptance:** the slice's exit condition (§2) holds, evidenced by command output rather than
