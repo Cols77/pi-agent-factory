@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import typing
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from coherence.policy.compiler import (
     compile_obligations,
     resolve_profile,
 )
+from substrate.policy.obligation import Requiredness
 from substrate.policy.vocabulary import UncompiledPresetError
 
 pytestmark = pytest.mark.unit
@@ -121,6 +123,50 @@ def test_compile_obligations_task_justification_for_task_scope(tmp_path):
     assert tj.state == "open"  # T-900 has no justification at all
 
 
+@pytest.mark.sr("SR-010")
+def test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values(tmp_path):
+    # AC-1: Requiredness is a CLOSED four-value type -- not_applicable, advisory,
+    # required, blocking -- and never a fifth value or an untyped string.
+    # `typing.get_args` pins the type declaration itself; compiling a
+    # representative project, task:* and sr:* scope under both prototype and
+    # high_assurance pins what the compiler actually emits, and the union of
+    # everything observed below is required to be exactly this set -- not a
+    # subset -- so the sample can't pass by accident on all-"blocking" output.
+    allowed = set(typing.get_args(Requiredness))
+    assert allowed == {"not_applicable", "advisory", "required", "blocking"}
+
+    _seed_gates(tmp_path)
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks" / "T-900.md").write_text(
+        "---\nid: T-900\ntitle: t\nstatus: todo\ndod:\n- 'd'\n---\nbody\n", encoding="utf-8",
+    )
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: f\nprofile: high_assurance\nrequirements: [SR-HIGH]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-HIGH.md").write_text(
+        "---\nid: SR-HIGH\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements" / "SR-PROTO.md").write_text(
+        "---\nid: SR-PROTO\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+
+    observed: set[str] = set()
+    for scope in ("project", "task:T-900", "sr:SR-HIGH", "sr:SR-PROTO"):
+        for obligation in compile_obligations(tmp_path, scope):
+            assert obligation.requiredness in allowed, (
+                f"{scope}/{obligation.kind} produced an unlisted requiredness: "
+                f"{obligation.requiredness!r}"
+            )
+            observed.add(obligation.requiredness)
+    assert observed == allowed, f"sample never exercised: {allowed - observed}"
+
+
 @pytest.mark.sr("SR-008")
 def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch):
     # Increment 5's per-SR health loop calls compile_obligations(root,
@@ -168,6 +214,7 @@ def test_resolve_profile_artifact_own_override_wins_over_feature_inheritance(tmp
     assert resolve_profile(tmp_path, "sr:SR-500") == "high_assurance"
 
 
+@pytest.mark.sr("SR-010")
 def test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open(
     tmp_path,
 ):
@@ -220,6 +267,7 @@ def test_compile_obligations_verification_result_prototype_pass_nonstale_is_sati
     assert vr.requiredness == "required"
 
 
+@pytest.mark.sr("SR-010")
 def test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open(
     tmp_path,
 ):
