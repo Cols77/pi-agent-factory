@@ -1,0 +1,133 @@
+{
+  "schema_version": 2,
+  "run_id": "T-9008-evidence-execution-20260902T223423Z",
+  "task_id": "T-9008",
+  "started_at": "2026-09-02T22:34:23Z",
+  "ended_at": "2026-09-02T22:34:24Z",
+  "start_commit": "1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871",
+  "result_commit": "1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": "requirements/SR-008.md",
+      "sha256": "cb092381c7a27fdd0f79e1a5ecc529f1dc524e3fa44f4d9cb36c4af74a5d3eac"
+    },
+    "requirements": [
+      {
+        "id": "SR-008",
+        "path": "requirements/SR-008.md",
+        "sha256": "cb092381c7a27fdd0f79e1a5ecc529f1dc524e3fa44f4d9cb36c4af74a5d3eac"
+      }
+    ],
+    "factory_config_sha256": "9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:3eaa0452391b3db06096d69dbb8dc3fb6193797a",
+      "source": "1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-008",
+      "kind": "file",
+      "digest": "sha256:cb092381c7a27fdd0f79e1a5ecc529f1dc524e3fa44f4d9cb36c4af74a5d3eac",
+      "source": "requirements/SR-008.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_compiler.py tests/unit/substrate/policy/test_vocabulary.py -k \"resolve_profile_project_default or resolve_profile_project_scope_uses_project_default_explicitly or resolve_profile_rejects_uncompiled_preset or resolve_profile_honors_preloaded_nodes_and_edges or resolve_profile_artifact_own_override_wins_over_feature_inheritance or path_override_most_specific_wins or path_override_equal_specificity_conflict_raises or unknown_preset_name_raises_invalid_profile_error or invalid_profile_error_is_not_an_uncompiled_preset_error\"",
+      "started_at": "2026-09-02T22:34:23Z",
+      "ended_at": "2026-09-02T22:34:24Z",
+      "exit_code": 0,
+      "summary": "10 passed in 0.98s",
+      "requirements": [
+        {
+          "id": "SR-008",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_compiler.py tests/unit/substrate/policy/test_vocabulary.py",
+          "note": "Newly-bound during authoring consent (2026-09-03): SR-008 gained a binding and five kind:test_marker acceptance criteria (AC-1..AC-5), replacing the prior unbound seven-dimension-profile statement. Every criterion's referenced test in the two ref files (tests/unit/coherence/policy/test_compiler.py, tests/unit/substrate/policy/test_vocabulary.py) was collected and run; all ten @pytest.mark.sr(\"SR-008\") tests passed and none failed.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_default",
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_scope_uses_project_default_explicitly"
+              ]
+            },
+            {
+              "id": "AC-2",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_artifact_own_override_wins_over_feature_inheritance",
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_honors_preloaded_nodes_and_edges"
+              ]
+            },
+            {
+              "id": "AC-3",
+              "tests": [
+                "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_most_specific_wins",
+                "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_equal_specificity_conflict_raises"
+              ]
+            },
+            {
+              "id": "AC-4",
+              "tests": [
+                "tests/unit/substrate/policy/test_vocabulary.py::test_unknown_preset_name_raises_invalid_profile_error",
+                "tests/unit/substrate/policy/test_vocabulary.py::test_invalid_profile_error_is_not_an_uncompiled_preset_error"
+              ]
+            },
+            {
+              "id": "AC-5",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset",
+                "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset_product"
+              ]
+            }
+          ],
+          "tests": [
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_default",
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_scope_uses_project_default_explicitly",
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_artifact_own_override_wins_over_feature_inheritance",
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_honors_preloaded_nodes_and_edges",
+            "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_most_specific_wins",
+            "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_equal_specificity_conflict_raises",
+            "tests/unit/substrate/policy/test_vocabulary.py::test_unknown_preset_name_raises_invalid_profile_error",
+            "tests/unit/substrate/policy/test_vocabulary.py::test_invalid_profile_error_is_not_an_uncompiled_preset_error",
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset",
+            "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset_product"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}

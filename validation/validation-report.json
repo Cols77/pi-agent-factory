@@ -1,12 +1,12 @@
 {
   "provenance": {
     "recorded_by": "agent",
-    "recorded_at": "2026-09-01T11:40:28Z",
-    "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
-    "run_id": "T-6-evidence-execution-20260901T114021Z",
-    "evidence_manifest": "evidence/runs/T-6-evidence-execution-20260901T114021Z.json",
-    "commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
-    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. An agent ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the run showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifest this note cites records no `reviews` and no `decisions`. The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
+    "recorded_at": "2026-09-02T22:34:23Z",
+    "command": "rtk proxy uv run pytest -v -o addopts=\"\"",
+    "run_id": "T-9008-evidence-execution-20260902T223423Z",
+    "evidence_manifest": "evidence/runs/T-9008-evidence-execution-20260902T223423Z.json",
+    "commit": "1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871",
+    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR (SR-001..SR-007, SR-050), and coherence-measurement's own `run` command finds no top-level `binding:` on SR-008 either -- SR-008 is verified through kind:test_marker acceptance criteria, not a Binding. An agent ran the commands cited here, read their output, and transcribed the per-SR results into this file; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the runs showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifests cited here record no `reviews` and no `decisions`. Two runs back this file: SR-001 through SR-007 and SR-050 were recorded by evidence/runs/T-6-evidence-execution-20260901T114021Z.json (command `rtk proxy uv run pytest -m sr -v -o addopts=\"\"`, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); SR-008 was recorded by `evidence_manifest` above, added when SR-008 gained its binding and five kind:test_marker acceptance criteria (AC-1..AC-5) during authoring consent on 2026-09-03. Reproduce SR-008 with the command above restricted to tests/unit/coherence/policy/test_compiler.py and tests/unit/substrate/policy/test_vocabulary.py; it selects the @pytest.mark.sr(\"SR-008\") tests named in that entry's `artifacts`."
   },
   "requirements": [
     {
@@ -124,6 +124,29 @@
       "id": "SR-050",
       "error": "All three acceptance criteria (AC-1, AC-2, AC-3) are kind:manual. No automated coverage exists for any of them -- there is no test to run and no test_marker acceptance criterion at all. A human review and a human_review gate decision are required before this requirement can be measured; none exists yet.",
       "artifacts": []
+    },
+    {
+      "id": "SR-008",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_default",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_scope_uses_project_default_explicitly",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_artifact_own_override_wins_over_feature_inheritance",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_honors_preloaded_nodes_and_edges",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_most_specific_wins",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_equal_specificity_conflict_raises",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_unknown_preset_name_raises_invalid_profile_error",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_invalid_profile_error_is_not_an_uncompiled_preset_error",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset_product"
+      ]
     }
   ]
 }
