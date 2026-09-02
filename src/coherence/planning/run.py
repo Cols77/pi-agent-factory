@@ -18,7 +18,6 @@ from coherence.planning.model import PlanningFinding, PlanningInput, PlanningRep
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 from coherence.planning.model_policy import ModelCatalogEntry, persist_model_selection
-from coherence.planning.producers import ProducedArtifact, ProducerError, produce_provisional_spec
 from coherence.planning.runner import (
     AgentInvocation,
     AgentResultRecord,
@@ -763,7 +762,4 @@ __all__ = [
     "write_planning_run",
     "write_model_selection",
     "write_semantic_review",
-    "ProducedArtifact",
-    "ProducerError",
-    "produce_provisional_spec",
 ]
