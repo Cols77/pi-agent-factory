@@ -18,10 +18,10 @@ whose fields assert a measurement nothing computed (I-02).
 The schema closes both halves:
 
 * every report must carry a ``provenance`` block naming who or what recorded
-  it and with what command, and a ``recorded_by: hand`` report must cite the
-  run id, commit and evidence manifest of the run it transcribes -- so a
-  hand-recorded result is legible as hand-recorded rather than passing for
-  harness output;
+  it and with what command, and any non-``harness`` ``recorded_by`` value
+  (``hand`` or ``agent``) must cite the run id, commit and evidence manifest
+  of the run it transcribes -- so a hand- or agent-recorded result is legible
+  as such rather than passing for harness output;
 * entries are shape-checked: known fields only (a misspelled ``pased`` is
   rejected rather than silently read as "not passed"), correct types, and
   ``passed``/``error`` mutually exclusive, since ``_entry_state`` reads

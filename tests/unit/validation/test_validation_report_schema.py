@@ -65,15 +65,35 @@ def test_the_repositorys_validation_report_validates_against_the_schema():
     validate_validation_report(raw)  # raises ValueError if it does not
 
 
-def test_the_repositorys_validation_report_says_it_was_recorded_by_hand():
-    """The whole point of Critical 2: the entries are faithful, but nothing
-    on disk marked them hand-recorded, and the bootstrap feature this run
-    exists to specify will read this file as the reference for what evidence
-    looks like."""
-    raw = json.loads(report_path(factory_root()).read_text(encoding="utf-8"))
+def test_the_repositorys_validation_report_says_it_was_recorded_by_an_agent():
+    """The whole point of Critical 2, corrected: the entries are faithful,
+    but nothing on disk said what actually produced them, and the bootstrap
+    feature this run exists to specify will read this file as the reference
+    for what evidence looks like. An agent ran the command and transcribed
+    the results -- no human did, and no human has attested to them. Pinning
+    `recorded_by: "hand"` here would be exactly the false claim of human
+    authorship this fix exists to remove, so this test also fails if the
+    report ever claims human attribution (`hand`) without a real human
+    decision backing it -- checked against the evidence manifest's own
+    `decisions` record, since a human decision that happened would show up
+    there."""
+    root = factory_root()
+    raw = json.loads(report_path(root).read_text(encoding="utf-8"))
     provenance = raw["provenance"]
-    assert provenance["recorded_by"] == "hand"
-    assert "hand" in provenance["note"]
+    assert provenance["recorded_by"] == "agent"
+    assert "human" not in provenance["note"].lower() or "no human" in provenance["note"].lower()
+
+    manifest_path = root / provenance["evidence_manifest"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if provenance["recorded_by"] == "hand":
+        assert manifest.get("decisions"), (
+            "provenance claims recorded_by: hand (human attribution) but the "
+            "evidence manifest it cites records no human decision"
+        )
+    else:
+        # Matches reality for this run: both human gates (authoring consent,
+        # human review) are still open -- no human has acted on this branch.
+        assert manifest.get("decisions") == []
 
 
 def test_the_repositorys_validation_report_cites_the_run_that_produced_it():

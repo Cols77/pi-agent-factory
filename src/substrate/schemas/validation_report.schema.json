@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factory.local/schemas/validation_report.schema.json",
   "title": "Requirement validation report",
-  "description": "The `validation/validation-report.json` store read by coherence.trace.validation_status.load_validation, and the sole source of the executed_evidence health dimension. Every report must declare its own provenance: who or what recorded it, with what command, and -- when a human transcribed it rather than a harness emitting it -- which recorded run the numbers come from. Without that block the file is derived state with no derivation (I-10) whose fields assert a measurement nothing on disk shows was computed (I-02).",
+  "description": "The `validation/validation-report.json` store read by coherence.trace.validation_status.load_validation, and the sole source of the executed_evidence health dimension. Every report must declare its own provenance: who or what recorded it, with what command, and -- when anything other than a harness emitted it -- which recorded run the numbers come from. Without that block the file is derived state with no derivation (I-10) whose fields assert a measurement nothing on disk shows was computed (I-02).",
   "type": "object",
   "additionalProperties": false,
   "required": ["provenance", "requirements"],
@@ -28,8 +28,8 @@
       "required": ["recorded_by", "recorded_at", "command"],
       "properties": {
         "recorded_by": {
-          "enum": ["hand", "harness"],
-          "description": "`harness` means these fields were emitted by code in this repository. `hand` means a human transcribed them from a run's output; the substrate cannot recompute them, so a hand-recorded report must cite the run it transcribes."
+          "enum": ["hand", "harness", "agent"],
+          "description": "`harness` means these fields were emitted by code in this repository. `hand` means a human ran the command, read its output, and transcribed the results. `agent` means a non-human (AI) actor ran the command, read its output, and transcribed the results; no human has attested to them. The substrate cannot recompute `hand` or `agent` entries, so a report recorded by either must cite the run it transcribes."
         },
         "recorded_at": {"type": "string", "minLength": 1},
         "command": {
@@ -47,7 +47,7 @@
         "note": {"type": "string", "minLength": 1}
       },
       "if": {
-        "properties": {"recorded_by": {"const": "hand"}},
+        "properties": {"recorded_by": {"not": {"const": "harness"}}},
         "required": ["recorded_by"]
       },
       "then": {
