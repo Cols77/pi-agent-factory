@@ -5,7 +5,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterator
@@ -18,6 +18,14 @@ from coherence.planning.model import PlanningFinding, PlanningInput, PlanningRep
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 from coherence.planning.model_policy import ModelCatalogEntry, persist_model_selection
+from coherence.planning.producers import ProducedArtifact, ProducerError, produce_provisional_spec
+from coherence.planning.runner import (
+    AgentInvocation,
+    AgentResultRecord,
+    GateVerification,
+    PlanningRunner,
+    PlanningStage,
+)
 from substrate.ledger.plans import ParsedPlanTask, parse_plan_tasks
 from coherence.planning.semantic import SemanticReviewPacket, SemanticReviewReport, write_review_packet, write_review_report
 from coherence.planning.workflow import PlanningWorkflow, WorkflowStatus
@@ -29,7 +37,6 @@ from coherence.planning.handoff import (
     validate_handoff,
     write_handoff,
 )
-
 
 def execute_planning_workflow(
     workflow: PlanningWorkflow,
@@ -52,6 +59,31 @@ def execute_planning_workflow(
         derivation_context=derivation_context,
         sr_context=sr_context,
     )
+
+
+ParentStageInvoker = Callable[[AgentInvocation], Mapping[str, object]]
+ParentStageGate = Callable[
+    [AgentInvocation, AgentResultRecord],
+    GateVerification,
+]
+
+
+def execute_parent_stage(
+    runner: PlanningRunner,
+    stage: PlanningStage | str,
+    *,
+    role: str,
+    input_paths: Sequence[Path],
+    output_path: str,
+    invoke: ParentStageInvoker,
+    gate: ParentStageGate,
+) -> PlanningStage | None:
+    """Execute one parent-owned agent stage and its gate."""
+    invocation = runner.begin(stage, role=role, input_paths=input_paths, output_path=output_path)
+    result = runner.record_result(invocation, invoke(invocation))
+    verification = gate(invocation, result)
+    runner.record_gate(invocation, verification=verification)
+    return runner.advance(invocation)
 
 
 def write_semantic_review(
@@ -731,4 +763,7 @@ __all__ = [
     "write_planning_run",
     "write_model_selection",
     "write_semantic_review",
+    "ProducedArtifact",
+    "ProducerError",
+    "produce_provisional_spec",
 ]
