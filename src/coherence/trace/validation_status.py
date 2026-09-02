@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal, Protocol
 
+from substrate.validation.model import validation_report_errors
+
 SrState = Literal["passed", "failed", "error", "never_validated"]
 
 
@@ -39,12 +41,40 @@ def _entry_state(entry: dict) -> SrState:
     return "passed" if entry.get("passed") else "failed"
 
 
+def validation_report_schema_errors(root: Path) -> list[str]:
+    """Every schema violation in the report at ``root``, or ``[]``.
+
+    A report that is absent, unreadable, or not parseable JSON yields ``[]``
+    here -- that is "nothing has been validated", a separate condition from
+    "a report exists but is not a validation report". Callers that need to
+    tell the two apart check existence themselves (see
+    ``coherence.navigate.queries._validation_report_is_corrupt``).
+    """
+    try:
+        raw = json.loads(report_path(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return validation_report_errors(raw)
+
+
 def load_validation(root: Path) -> dict[str, SrStatus]:
     # A missing or unreadable report means "nothing has been validated", which is
     # never_validated for every SR -- not failed. Spec section 5.
     try:
         raw = json.loads(report_path(root).read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return {}
+    # Review round 3, Critical 2: the report is schema-validated on load,
+    # exactly as `evidence/runs/*.json` already was by
+    # `substrate.evidence.model.validate_run_manifest`. A report that does not
+    # validate yields NO statuses -- fail-closed, so nothing can be reported
+    # measured-passing out of a store whose shape nothing checked, and a
+    # `passed` key cannot arrive without the measurement that justifies it or
+    # a provenance block saying where the numbers came from. The corruption
+    # itself is surfaced separately by the navigator rather than inferred
+    # from this empty return (I-03: missing evidence is reported, never
+    # inferred) -- see `_validation_report_is_corrupt`.
+    if validation_report_errors(raw):
         return {}
     statuses: dict[str, SrStatus] = {}
     for entry in raw.get("requirements", []):

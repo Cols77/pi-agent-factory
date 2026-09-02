@@ -31,6 +31,7 @@ def _plan_with_spec_field(tmp_path: Path, spec_ref: str) -> Path:
     )
 
 
+@pytest.mark.sr("SR-003")
 def test_frontmatter_spec_emits_the_canonical_spec_node(tmp_path):
     _coherence_spec(tmp_path)
 
@@ -50,6 +51,7 @@ def test_graph_emits_spec_node_for_frontmatter_spec(tmp_path):
     assert "spec:SPEC-COHERENCE-001" in ids
 
 
+@pytest.mark.sr("SR-003")
 def test_plan_edges_target_the_canonical_spec_id(tmp_path):
     # A canonical frontmatter spec ref (`spec: SPEC-COHERENCE-001`) declared on a
     # plan must produce an edge to the canonical spec node, not a filename id.
@@ -62,6 +64,7 @@ def test_plan_edges_target_the_canonical_spec_id(tmp_path):
     assert ("plan:p1.md", "spec:SPEC-COHERENCE-001", "spec_ref") in edges
 
 
+@pytest.mark.sr("SR-003")
 def test_a_plan_body_reference_resolves_to_the_canonical_spec_id(tmp_path):
     # A literal body path must now resolve against real spec nodes, so the
     # edge targets the canonical frontmatter id, not a filename-derived id.
@@ -96,6 +99,7 @@ def test_legacy_spec_carries_a_diagnostic_migration_hint(tmp_path):
     assert "migration" in node.migration_hint.lower()
 
 
+@pytest.mark.sr("SR-003")
 def test_duplicate_spec_ids_with_differing_content_fail_deterministically(tmp_path):
     _write(
         tmp_path / "docs" / "superpowers" / "specs" / "a.md",

@@ -1,0 +1,120 @@
+{
+  "provenance": {
+    "recorded_by": "agent",
+    "recorded_at": "2026-09-01T11:40:28Z",
+    "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+    "run_id": "T-6-evidence-execution-20260901T114021Z",
+    "evidence_manifest": "evidence/runs/T-6-evidence-execution-20260901T114021Z.json",
+    "commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. An agent ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the run showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifest this note cites records no `reviews` and no `decisions`. The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
+  },
+  "requirements": [
+    {
+      "id": "SR-001",
+      "error": "AC-3 is kind:manual (mirrors typed lifecycle relations as Obsidian wikilinks in the requirement body) and unreviewed -- no human_review decision exists. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding.",
+      "artifacts": [
+        "tests/unit/system/test_feature.py::test_feature_context_contains_only_connected_recorded_facts",
+        "tests/unit/system/test_feature.py::test_feature_context_never_treats_missing_validation_as_a_pass",
+        "tests/unit/system/test_vcycle_health.py::test_requirement_without_test",
+        "tests/unit/system/test_vcycle_health.py::test_requirement_without_implementation",
+        "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement"
+      ]
+    },
+    {
+      "id": "SR-002",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/requirements/test_cli.py::test_index_stamps_checksums_and_writes_index",
+        "tests/unit/requirements/test_cli.py::test_index_leaves_a_proposed_requirement_untouched",
+        "tests/unit/requirements/test_closure.py::test_an_unbound_requirement_with_no_disposition_is_pending",
+        "tests/unit/requirements/test_register.py::test_load_register_and_get"
+      ]
+    },
+    {
+      "id": "SR-003",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/test_artifact_families.py::test_frontmatter_spec_emits_the_canonical_spec_node",
+        "tests/unit/coherence/test_artifact_families.py::test_plan_edges_target_the_canonical_spec_id",
+        "tests/unit/coherence/test_artifact_families.py::test_a_plan_body_reference_resolves_to_the_canonical_spec_id",
+        "tests/unit/coherence/test_artifact_families.py::test_duplicate_spec_ids_with_differing_content_fail_deterministically"
+      ]
+    },
+    {
+      "id": "SR-004",
+      "error": "AC-3 is kind:manual and describes behaviour the system currently does not have (import-overlap coverage for non-Python languages); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+      "artifacts": [
+        "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_renamed_binding_fixture_is_unresolved",
+        "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_distinguishes_selection_missing_from_no_overlap",
+        "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_persists_edges_beside_fingerprinted_index",
+        "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports",
+        "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_reexports_edge_and_overlap_types"
+      ]
+    },
+    {
+      "id": "SR-005",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/test_course.py::test_fails_on_unknown_frontmatter_id",
+        "tests/unit/coherence/test_course.py::test_unknown_frontmatter_id_cli_exit_1",
+        "tests/unit/coherence/test_course.py::test_fails_on_unknown_body_token",
+        "tests/unit/coherence/test_course.py::test_reports_unreached_known_nodes",
+        "tests/unit/coherence/test_course.py::test_clean_cli_exits_zero_and_emits_empty_unreached"
+      ]
+    },
+    {
+      "id": "SR-006",
+      "error": "AC-3 is kind:manual and describes behaviour the system currently does not have (gate-failing marker enforcement under every profile, not only high_assurance); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+      "artifacts": [
+        "tests/unit/coherence/test_register_markers.py::test_collect_markers_deduplicates_within_a_file",
+        "tests/unit/coherence/test_register_markers.py::test_collect_markers_matches_the_sr_id_string_exactly",
+        "tests/unit/coherence/test_register_markers.py::test_collect_markers_ignores_unrelated_decorators",
+        "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_profile"
+      ]
+    },
+    {
+      "id": "SR-007",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/orchestrator/test_runner.py::test_failed_unit_gate_signature_reselects_kb_for_next_dev_attempt",
+        "tests/unit/test_kb_retrieval.py::test_select_entries_matches_moved_symbol_via_reachable_symbols",
+        "tests/unit/test_kb_retrieval.py::test_select_entries_stale_codemap_diagnostic_and_no_file_glob_fallback",
+        "tests/unit/test_kb_retrieval.py::test_select_entries_missing_codemap_diagnostic_and_no_symbol_hit",
+        "tests/unit/test_kb_retrieval.py::test_select_entries_symbol_match_is_exact_qualified_name"
+      ]
+    },
+    {
+      "id": "SR-050",
+      "error": "All three acceptance criteria (AC-1, AC-2, AC-3) are kind:manual. No automated coverage exists for any of them -- there is no test to run and no test_marker acceptance criterion at all. A human review and a human_review gate decision are required before this requirement can be measured; none exists yet.",
+      "artifacts": []
+    }
+  ]
+}

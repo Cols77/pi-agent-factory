@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from coherence.gate.model import Decision, DecisionFile
+from coherence.gate.store import decision_path, write_decision
 from coherence.inbox import InboxItem, list_items
 
 pytestmark = pytest.mark.unit
@@ -19,12 +21,12 @@ pytestmark = pytest.mark.unit
 NOW = "2026-09-15T00:00:00Z"
 
 
-def _sr(root: Path, sid: str, *, deferred=None) -> None:
+def _sr(root: Path, sid: str, *, deferred=None, filename: str | None = None) -> None:
     (root / "requirements").mkdir(parents=True, exist_ok=True)
     defer_line = ""
     if deferred is not None:
         defer_line = f"trace_deferred: {json.dumps(deferred)}\n"
-    (root / "requirements" / f"{sid}.md").write_text(
+    (root / "requirements" / (filename or f"{sid}.md")).write_text(
         f"---\nid: {sid}\ntitle: T\nstatement: s\ndomain: d\n{defer_line}---\nbody\n",
         encoding="utf-8",
     )
@@ -83,6 +85,36 @@ def test_expired_deferral_appears_and_future_one_does_not(tmp_path):
     assert expired.ref == "sr:SR-001"
     assert expired.review_after == "2026-09-01T00:00:00Z"
     assert expired.source == "deferrals"
+
+
+@pytest.mark.parametrize(
+    "review_after",
+    [
+        "2026-12-31",
+        "2026-12-31 12:30",
+    ],
+)
+def test_list_items_handles_declared_iso_future_defers(tmp_path: Path, review_after: str):
+    _sr(tmp_path, "SR-001", deferred={"reason": "later", "review_after": review_after})
+
+    items = list_items(tmp_path, NOW)
+
+    assert not any(i.kind == "expired_deferral" for i in items)
+
+
+def test_malformed_now_surfaces_unresolved_deferral_inbox_item(tmp_path: Path):
+    _sr(
+        tmp_path,
+        "SR-001",
+        deferred={"reason": "later", "review_after": "2026-12-31T00:00:00Z"},
+    )
+
+    items = list_items(tmp_path, "not-an-iso-timestamp")
+
+    item = next(i for i in items if i.id == "trace:SR-001")
+    assert item.source == "deferrals"
+    assert item.kind == "unresolved_deferral"
+    assert "unresolved" in item.summary
 
 
 # -- stale register bindings ------------------------------------------------
@@ -162,6 +194,206 @@ def test_coverage_gate_item_for_blocked_run(tmp_path):
     assert "coverage:r1:warning:SR-5" in ids
 
 
+# -- SR authoring consent ----------------------------------------------------
+
+
+def _write_authoring_consent(
+    root: Path,
+    sr_id: str,
+    *,
+    gate_id: str | None = None,
+    artifact_ref: str | None = None,
+    action: str = "accept",
+    reason: str = "",
+    review_after: str | None = None,
+) -> None:
+    write_decision(
+        root,
+        DecisionFile(
+            gate_id=gate_id or f"sr:{sr_id}",
+            artifact_ref=artifact_ref or f"artifact:requirements/{sr_id}.md",
+            decisions=(Decision(f"sr:{sr_id}", action, reason=reason, review_after=review_after),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="human@example.invalid",
+        ),
+    )
+
+
+def test_pending_sr_produces_an_authoring_consent_inbox_item(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+
+    assert item.source == "register"
+    assert item.kind == "authoring_consent"
+    assert item.ref == "sr:SR-001"
+    assert "SR-001" in item.summary
+    assert item.evidence == str(tmp_path / "requirements" / "SR-001.md")
+    assert item.resolve_cmd is not None
+    assert any("SR-001" in command for command in item.resolve_cmd)
+
+
+def test_recorded_sr_authoring_consent_removes_that_sr_from_pending_queue(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(tmp_path, "SR-001")
+
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_authoring_consent_binds_to_registered_requirement_path_not_declared_id(
+    tmp_path: Path,
+):
+    _sr(tmp_path, "SR-001", filename="SR-099.md")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-001.md",
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-099.md",
+    )
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_duplicate_registered_paths_keep_authoring_consent_pending(
+    tmp_path: Path,
+):
+    _sr(tmp_path, "SR-001", filename="SR-001.md")
+    _sr(tmp_path, "SR-001", filename="SR-002.md")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-001.md",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "duplicate" in item.summary
+
+
+def test_wrong_authoring_consent_artifact_remains_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        artifact_ref="artifact:requirements/SR-999.md",
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_authoring_defer_is_pending_only_after_review_after(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        action="defer",
+        reason="needs review",
+        review_after="2026-09-16T00:00:00Z",
+    )
+
+    assert not any(
+        i.id == "sr:SR-001"
+        for i in list_items(tmp_path, "2026-09-15T00:00:00Z")
+    )
+    assert any(
+        i.id == "sr:SR-001"
+        for i in list_items(tmp_path, "2026-09-17T00:00:00Z")
+    )
+
+
+def test_explicit_sr_reject_is_final_and_not_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    _write_authoring_consent(
+        tmp_path,
+        "SR-001",
+        action="reject",
+        reason="not approved",
+    )
+
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_review_decision_does_not_satisfy_sr_authoring_consent(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id="review:SR-001",
+            artifact_ref="artifact:requirements/SR-001.md",
+            decisions=(Decision("review:SR-001", "accept"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="human@example.invalid",
+        ),
+    )
+
+    assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_malformed_or_stale_sr_consent_remains_pending(tmp_path: Path):
+    _sr(tmp_path, "SR-001")
+    path = decision_path(tmp_path, "sr:SR-001")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "review:SR-001",
+                "artifact_ref": "artifact:requirements/SR-001.md",
+                "decisions": [
+                    {"item_id": "sr:SR-001", "action": "accept"},
+                    {"item_id": "sr:SR-001", "action": "accept"},
+                ],
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "human@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    # Minor 5 (review round 3): this used to read `"invalid" in summary or
+    # "stale" in summary`, which cannot distinguish its two branches. The
+    # constructed case -- a duplicate item id inside the decisions array --
+    # is rejected by `validate_decisions` and deterministically yields the
+    # "invalid DecisionFile" summary, never the "stale" one, so that is what
+    # is asserted.
+    assert "invalid DecisionFile" in item.summary
+    assert "duplicate item id" in item.summary
+
+
+@pytest.mark.parametrize("decisions", [1, True])
+def test_non_list_decisions_in_valid_json_keep_sr_pending(
+    tmp_path: Path, decisions: object
+):
+    _sr(tmp_path, "SR-001")
+    path = decision_path(tmp_path, "sr:SR-001")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "sr:SR-001",
+                "artifact_ref": "artifact:requirements/SR-001.md",
+                "decisions": decisions,
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "human@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "invalid" in item.summary
+
+
 # -- suspect / invalid / waived edges --------------------------------------
 
 
@@ -230,3 +462,55 @@ def test_list_items_creates_no_new_file(tmp_path):
     list_items(tmp_path, NOW)
     after = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
     assert before == after
+
+# -- Review round 3, Important 7 -------------------------------------------
+
+
+def _malformed_acceptance_sr(root: Path, sr_id: str = "SR-900") -> None:
+    """A requirement whose `acceptance:` block makes `load_register` raise
+    `ValueError` -- a mapping where a list is required."""
+    req_dir = root / "requirements"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    (req_dir / f"{sr_id}.md").write_text(
+        f"---\nid: {sr_id}\ntitle: T\nstatement: s\ndomain: d\n"
+        "acceptance:\n  not: a list\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_malformed_acceptance_block_does_not_take_down_the_whole_inbox(tmp_path):
+    """Important 7. `_authoring_consent_items` (and `_stale_binding_items`)
+    called `load_register` unguarded, so a `ValueError` from one malformed
+    `acceptance:` block propagated out of `list_items` -- and the human lost
+    coverage gates, expired deferrals and suspect edges along with it. Every
+    other source in the module is per-file try/excepted; these now match.
+    """
+    _malformed_acceptance_sr(tmp_path)
+    # An unrelated source that must still be reported.
+    run_dir = tmp_path / "coverage-reviews" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "status.json").write_text(
+        json.dumps(
+            {"phase": "gates_blocked", "needed_items": ["coverage:run-1:proposal:SR-001"]}
+        ),
+        encoding="utf-8",
+    )
+
+    items = list_items(tmp_path, NOW)
+
+    ids = {i.id for i in items}
+    assert "coverage:run-1:proposal:SR-001" in ids, "an unrelated source must survive"
+
+
+def test_an_unreadable_register_is_reported_never_silently_dropped(tmp_path):
+    """I-03: missing evidence is reported, never inferred. A register that
+    cannot be loaded is not "no requirements"; it is one visible item saying
+    so, carrying the parser's own message."""
+    _malformed_acceptance_sr(tmp_path)
+
+    items = list_items(tmp_path, NOW)
+
+    unreadable = [i for i in items if i.kind == "unreadable_register"]
+    assert len(unreadable) == 1, [i.id for i in items]
+    assert "SR-900.md" in unreadable[0].evidence
+    assert "acceptance" in unreadable[0].evidence

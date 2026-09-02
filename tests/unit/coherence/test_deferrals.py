@@ -112,6 +112,39 @@ def test_unknown_shapes_are_rejected_not_treated_current(bad):
         parse_deferral(bad)
 
 
+@pytest.mark.parametrize(
+    "review_after",
+    [
+        "2026-12-31",
+        "2026-12-31 12:30",
+    ],
+)
+def test_parse_declared_iso_future_forms(review_after):
+    parsed = parse_deferral({"reason": "later", "review_after": review_after})
+    assert parsed.review_after == review_after
+    assert deferral_is_due(parsed, NOW) is False
+
+
+@pytest.mark.parametrize(
+    "review_after,now,expected",
+    [
+        ("2026-09-15", "2026-09-14T23:59:59Z", False),
+        ("2026-09-15", "2026-09-15T00:00:00Z", True),
+        ("2026-09-15 01:00:00+01:00", "2026-09-15T00:30:00Z", True),
+        ("2026-09-15T01:00:00+01:00", "2026-09-15 00:30:00+00:00", True),
+        ("2026-09-15T00:00:00Z", "2026-09-14 23:00:00+00:00", False),
+    ],
+)
+def test_deferral_due_normalizes_mixed_timezone_forms(review_after, now, expected):
+    parsed = parse_deferral({"reason": "later", "review_after": review_after})
+    assert deferral_is_due(parsed, now) is expected
+
+
+def test_malformed_calendar_value_stays_a_value_error():
+    with pytest.raises(ValueError):
+        parse_deferral({"reason": "later", "review_after": "2026-99-99"})
+
+
 # -- integration: writers round-trip through the shared reader ----------------
 
 

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/validation_report.schema.json",
+  "title": "Requirement validation report",
+  "description": "The `validation/validation-report.json` store read by coherence.trace.validation_status.load_validation, and the sole source of the executed_evidence health dimension. Every report must declare its own provenance: who or what recorded it, with what command, and -- when anything other than a harness emitted it -- which recorded run the numbers come from. Without that block the file is derived state with no derivation (I-10) whose fields assert a measurement nothing on disk shows was computed (I-02).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provenance", "requirements"],
+  "properties": {
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "requirements": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Optional; read by coherence.runs.measurement_adapter.measurement_run_status as the projected run's id."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "Optional; read by coherence.runs.measurement_adapter.measurement_run_status as the projected run's updated_at."
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded_by", "recorded_at", "command"],
+      "properties": {
+        "recorded_by": {
+          "enum": ["hand", "harness", "agent"],
+          "description": "`harness` means these fields were emitted by code in this repository. `hand` means a human ran the command, read its output, and transcribed the results. `agent` means a non-human (AI) actor ran the command, read its output, and transcribed the results; no human has attested to them. The substrate cannot recompute `hand` or `agent` entries, so a report recorded by either must cite the run it transcribes."
+        },
+        "recorded_at": {"type": "string", "minLength": 1},
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact command whose output these entries record."
+        },
+        "run_id": {"type": "string", "minLength": 1},
+        "evidence_manifest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo-relative path to the evidence/runs manifest for `run_id`, which carries the commit and per-input file hashes for the same event."
+        },
+        "commit": {"type": "string", "minLength": 1},
+        "note": {"type": "string", "minLength": 1}
+      },
+      "if": {
+        "properties": {"recorded_by": {"not": {"const": "harness"}}},
+        "required": ["recorded_by"]
+      },
+      "then": {
+        "required": ["run_id", "evidence_manifest", "commit", "note"]
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "domain": {"type": "string", "minLength": 1},
+        "metric": {"type": "string", "minLength": 1},
+        "value": {"type": ["number", "null"]},
+        "assert": {"type": "string", "minLength": 1},
+        "passed": {"type": "boolean"},
+        "trials": {"type": "integer", "minimum": 0},
+        "declared_trials": {"type": "integer", "minimum": 0},
+        "stale": {"type": "boolean"},
+        "artifacts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "error": {"type": "string", "minLength": 1}
+      },
+      "not": {"required": ["passed", "error"]}
+    }
+  }
+}

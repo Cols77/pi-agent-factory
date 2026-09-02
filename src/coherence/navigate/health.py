@@ -624,6 +624,44 @@ _DIMENSION_ORDER = (
 _FRESHNESS_STALE_CODES = ("EVIDENCE_STALE", "EXPLAINER_STALE", "DIAGRAM_STALE")
 
 
+def _has_resolvable_acceptance(
+    root: Path, req: register_module.Requirement | None,
+) -> bool:
+    """Dimension 1 (requirement_quality): does `req` carry at least one
+    acceptance criterion whose verification binding is *resolvable*?
+
+    `manual` is resolvable as-is -- the parser already guarantees a nonblank
+    `reason`, and its verification method is a real `human_review` decision.
+    `test_marker`/`harness` are resolvable only when `ref` exists on disk,
+    resolved relative to `root`. This deliberately does NOT check whether a
+    matching `@pytest.mark.sr` decorator actually appears at that path (that
+    is a stricter, independent gate compiled elsewhere) and does NOT accept a
+    merely well-formed-but-dangling `ref` (that is exactly the false-green
+    this dimension exists to stop). `req is None` covers an SR node with no
+    matching register entry -- it never satisfies the dimension.
+    """
+    if req is None:
+        return False
+    project_root = root.resolve()
+    for criterion in req.acceptance:
+        binding = criterion.verification
+        if binding.kind == "manual":
+            return True
+        if binding.kind in ("test_marker", "harness") and binding.ref:
+            candidate = (project_root / binding.ref).resolve()
+            try:
+                candidate.relative_to(project_root)
+            except ValueError:
+                continue
+            if binding.kind == "test_marker":
+                resolvable = candidate.suffix == ".py" and candidate.is_file()
+            else:
+                resolvable = candidate.exists()
+            if resolvable:
+                return True
+    return False
+
+
 def compile_health_dimensions(
     root: Path, *, nodes=None, edges=None, validation=None, degraded: list[str] | None = None,
 ) -> list[DimensionCount]:
@@ -668,17 +706,25 @@ def compile_health_dimensions(
     feat_nodes = [n for n in nodes if n.kind == "feat"]
     task_nodes = [n for n in nodes if n.kind == "task"]
 
-    # Dimension 1 (requirement_quality) is a deliberately honest placeholder,
-    # not a silently-implied quality gate: `statement`/`domain` are already
-    # schema-required non-blank strings (enforced at load time, not here),
-    # and this repo has no further recorded content-quality signal for an SR
-    # today (fixtures repo-wide use one-letter placeholder statements/domains
-    # by convention, so a length/placeholder heuristic here would trivially
-    # fail nearly every existing fixture and much real content without
-    # measuring anything meaningful). A real criterion needs either a schema
-    # field or a project-level convention neither exists yet -- future work,
-    # not this addendum's.
-    req_quality_ok = len(sr_nodes)
+    # Dimension 1 (requirement_quality): an SR counts only when it carries at
+    # least one acceptance criterion with a resolvable verification binding
+    # (see `_has_resolvable_acceptance`). Loaded once here, not once per SR --
+    # same hoisting discipline `bundle_readiness` already uses above.
+    register_by_id = {}
+    duplicate_register_ids: set[str] = set()
+    for requirement in register_module.load_register(root / "requirements"):
+        if requirement.id in register_by_id:
+            duplicate_register_ids.add(requirement.id)
+        else:
+            register_by_id[requirement.id] = requirement
+    # Do not select an arbitrary declaration when the register is ambiguous.
+    # The SR-node denominator remains unchanged, while every affected SR fails
+    # closed for requirement_quality.
+    for duplicate_id in duplicate_register_ids:
+        register_by_id.pop(duplicate_id, None)
+    req_quality_ok = sum(
+        1 for n in sr_nodes if _has_resolvable_acceptance(root, register_by_id.get(n.id))
+    )
     decomposition_ok = sum(
         1 for f in feat_nodes if any(e.kind == "contains" and e.src == f.id for e in edges)
     )

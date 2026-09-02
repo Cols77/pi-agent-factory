@@ -1,0 +1,250 @@
+{
+  "schema_version": 2,
+  "run_id": "T-6-evidence-execution-20260901T114021Z",
+  "task_id": "T-6",
+  "started_at": "2026-09-01T11:40:21Z",
+  "ended_at": "2026-09-01T11:40:28Z",
+  "start_commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+  "result_commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": ".superpowers/sdd/2026-09-01-feat001-first-vertical-slice/task-6-brief.md",
+      "sha256": "98319d78498b8f51b319bd14fb48303614f2a3faa810a64b1808796f8f0cd688"
+    },
+    "requirements": [
+      {
+        "id": "SR-001",
+        "path": "requirements/SR-001.md",
+        "sha256": "8b66109ea8d9a24e53d968b48be7ae20fbaac429e67f3af287224435f0a103f5"
+      },
+      {
+        "id": "SR-002",
+        "path": "requirements/SR-002.md",
+        "sha256": "710bb72b0cdbce25cfa05e83895f11f7fc69e9dba15984685c741a3328f1f69b"
+      },
+      {
+        "id": "SR-003",
+        "path": "requirements/SR-003.md",
+        "sha256": "674260630f5599f2f279f1b633f52100653ac18b24870cf475e327f529a3437e"
+      },
+      {
+        "id": "SR-004",
+        "path": "requirements/SR-004.md",
+        "sha256": "d52d2c49dea7f1730dacfcd174f7ee1ffbedf55f44a8301fbeb2675b72bbd6d2"
+      },
+      {
+        "id": "SR-005",
+        "path": "requirements/SR-005.md",
+        "sha256": "77aca05667cc3ee507cb6d8d1712da1cfadd935ebd463e907056887213ec5c1d"
+      },
+      {
+        "id": "SR-006",
+        "path": "requirements/SR-006.md",
+        "sha256": "284cde32c9b0a5f1c0004703ac185821269de734bd9e7bc2868bd009efd17c50"
+      },
+      {
+        "id": "SR-007",
+        "path": "requirements/SR-007.md",
+        "sha256": "d39878ca6c9c093845e0c03a6fcd4bdbfb7ce5c33e44feca2260a5a1ec34c0aa"
+      },
+      {
+        "id": "SR-050",
+        "path": "requirements/SR-050.md",
+        "sha256": "1b5d3930a0ddef6b1a80352beb6efcbdc8ffb7a113f579951b3dce604d705286"
+      }
+    ],
+    "factory_config_sha256": "aaf891cc84f894c5306710c84822a0b6c506c8992242318e8a820e7d21fec822"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:867e4482d5cbbbbf463af2fffdcca451fd428299",
+      "source": "44d585a5a0898ed52b8aa296b387cac3c948120b"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:aaf891cc84f894c5306710c84822a0b6c506c8992242318e8a820e7d21fec822",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-001",
+      "kind": "file",
+      "digest": "sha256:8b66109ea8d9a24e53d968b48be7ae20fbaac429e67f3af287224435f0a103f5",
+      "source": "requirements/SR-001.md"
+    },
+    {
+      "name": "requirement:SR-002",
+      "kind": "file",
+      "digest": "sha256:710bb72b0cdbce25cfa05e83895f11f7fc69e9dba15984685c741a3328f1f69b",
+      "source": "requirements/SR-002.md"
+    },
+    {
+      "name": "requirement:SR-003",
+      "kind": "file",
+      "digest": "sha256:674260630f5599f2f279f1b633f52100653ac18b24870cf475e327f529a3437e",
+      "source": "requirements/SR-003.md"
+    },
+    {
+      "name": "requirement:SR-004",
+      "kind": "file",
+      "digest": "sha256:d52d2c49dea7f1730dacfcd174f7ee1ffbedf55f44a8301fbeb2675b72bbd6d2",
+      "source": "requirements/SR-004.md"
+    },
+    {
+      "name": "requirement:SR-005",
+      "kind": "file",
+      "digest": "sha256:77aca05667cc3ee507cb6d8d1712da1cfadd935ebd463e907056887213ec5c1d",
+      "source": "requirements/SR-005.md"
+    },
+    {
+      "name": "requirement:SR-006",
+      "kind": "file",
+      "digest": "sha256:284cde32c9b0a5f1c0004703ac185821269de734bd9e7bc2868bd009efd17c50",
+      "source": "requirements/SR-006.md"
+    },
+    {
+      "name": "requirement:SR-007",
+      "kind": "file",
+      "digest": "sha256:d39878ca6c9c093845e0c03a6fcd4bdbfb7ce5c33e44feca2260a5a1ec34c0aa",
+      "source": "requirements/SR-007.md"
+    },
+    {
+      "name": "requirement:SR-050",
+      "kind": "file",
+      "digest": "sha256:1b5d3930a0ddef6b1a80352beb6efcbdc8ffb7a113f579951b3dce604d705286",
+      "source": "requirements/SR-050.md"
+    },
+    {
+      "name": "task:T-6",
+      "kind": "file",
+      "digest": "sha256:98319d78498b8f51b319bd14fb48303614f2a3faa810a64b1808796f8f0cd688",
+      "source": ".superpowers/sdd/2026-09-01-feat001-first-vertical-slice/task-6-brief.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+      "started_at": "2026-09-01T11:40:21Z",
+      "ended_at": "2026-09-01T11:40:28Z",
+      "exit_code": 0,
+      "summary": "32 passed, 2951 deselected, 111 warnings in 5.27s",
+      "requirements": [
+        {
+          "id": "SR-001",
+          "note": "AC-3 is kind:manual (mirrors typed lifecycle relations as Obsidian wikilinks in the requirement body) and unreviewed -- no human_review decision exists. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding.",
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "automated_tests_passed": [
+            "tests/unit/system/test_feature.py::test_feature_context_contains_only_connected_recorded_facts",
+            "tests/unit/system/test_feature.py::test_feature_context_never_treats_missing_validation_as_a_pass",
+            "tests/unit/system/test_vcycle_health.py::test_requirement_without_test",
+            "tests/unit/system/test_vcycle_health.py::test_requirement_without_implementation",
+            "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement"
+          ]
+        },
+        {
+          "id": "SR-002",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "every kind:test_marker acceptance criterion for SR-002 was executed and passed; no kind:manual criterion exists on this requirement.",
+          "tests": [
+            "tests/unit/requirements/test_cli.py::test_index_stamps_checksums_and_writes_index",
+            "tests/unit/requirements/test_cli.py::test_index_leaves_a_proposed_requirement_untouched",
+            "tests/unit/requirements/test_closure.py::test_an_unbound_requirement_with_no_disposition_is_pending",
+            "tests/unit/requirements/test_register.py::test_load_register_and_get"
+          ]
+        },
+        {
+          "id": "SR-003",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "every kind:test_marker acceptance criterion for SR-003 was executed and passed; no kind:manual criterion exists on this requirement.",
+          "tests": [
+            "tests/unit/coherence/test_artifact_families.py::test_frontmatter_spec_emits_the_canonical_spec_node",
+            "tests/unit/coherence/test_artifact_families.py::test_plan_edges_target_the_canonical_spec_id",
+            "tests/unit/coherence/test_artifact_families.py::test_a_plan_body_reference_resolves_to_the_canonical_spec_id",
+            "tests/unit/coherence/test_artifact_families.py::test_duplicate_spec_ids_with_differing_content_fail_deterministically"
+          ]
+        },
+        {
+          "id": "SR-004",
+          "note": "AC-3 is kind:manual and describes behaviour the system currently does not have (import-overlap coverage for non-Python languages); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "automated_tests_passed": [
+            "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_renamed_binding_fixture_is_unresolved",
+            "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_distinguishes_selection_missing_from_no_overlap",
+            "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_persists_edges_beside_fingerprinted_index",
+            "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports",
+            "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_reexports_edge_and_overlap_types"
+          ]
+        },
+        {
+          "id": "SR-005",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "every kind:test_marker acceptance criterion for SR-005 was executed and passed; no kind:manual criterion exists on this requirement.",
+          "tests": [
+            "tests/unit/coherence/test_course.py::test_fails_on_unknown_frontmatter_id",
+            "tests/unit/coherence/test_course.py::test_unknown_frontmatter_id_cli_exit_1",
+            "tests/unit/coherence/test_course.py::test_fails_on_unknown_body_token",
+            "tests/unit/coherence/test_course.py::test_reports_unreached_known_nodes",
+            "tests/unit/coherence/test_course.py::test_clean_cli_exits_zero_and_emits_empty_unreached"
+          ]
+        },
+        {
+          "id": "SR-006",
+          "note": "AC-3 is kind:manual and describes behaviour the system currently does not have (gate-failing marker enforcement under every profile, not only high_assurance); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "automated_tests_passed": [
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_deduplicates_within_a_file",
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_matches_the_sr_id_string_exactly",
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_ignores_unrelated_decorators",
+            "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_profile"
+          ]
+        },
+        {
+          "id": "SR-007",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "every kind:test_marker acceptance criterion for SR-007 was executed and passed; no kind:manual criterion exists on this requirement.",
+          "tests": [
+            "tests/unit/orchestrator/test_runner.py::test_failed_unit_gate_signature_reselects_kb_for_next_dev_attempt",
+            "tests/unit/test_kb_retrieval.py::test_select_entries_matches_moved_symbol_via_reachable_symbols",
+            "tests/unit/test_kb_retrieval.py::test_select_entries_stale_codemap_diagnostic_and_no_file_glob_fallback",
+            "tests/unit/test_kb_retrieval.py::test_select_entries_missing_codemap_diagnostic_and_no_symbol_hit",
+            "tests/unit/test_kb_retrieval.py::test_select_entries_symbol_match_is_exact_qualified_name"
+          ]
+        },
+        {
+          "id": "SR-050",
+          "note": "All three acceptance criteria (AC-1, AC-2, AC-3) are kind:manual. No automated coverage exists for any of them -- there is no test to run and no test_marker acceptance criterion at all. A human review and a human_review gate decision are required before this requirement can be measured; none exists yet."
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}

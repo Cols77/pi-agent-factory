@@ -288,7 +288,12 @@ def test_policy_bound_skips_sr_whose_verification_result_is_satisfied(
     _feat_scope(tmp_path, ["SR-001", "SR-002"])
     (tmp_path / "validation").mkdir()
     (tmp_path / "validation" / "validation-report.json").write_text(
-        json.dumps({"requirements": [{"id": "SR-001", "passed": True, "stale": False}]}),
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-001", "passed": True, "stale": False}],
+            }
+        ),
         encoding="utf-8",
     )
     run_dir = tmp_path / "coverage-reviews" / "FEAT-001-satisfied"

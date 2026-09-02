@@ -147,6 +147,7 @@ def _feature_repo(root: Path) -> None:
     )
 
 
+@pytest.mark.sr("SR-001")
 def test_feature_context_contains_only_connected_recorded_facts(tmp_path):
     _feature_repo(tmp_path)
     _write(tmp_path / "docs" / "features" / "FEAT-BROKEN.md", "---\nnot: [valid\n")
@@ -507,6 +508,7 @@ def test_recent_changes_preserves_single_git_log_order_for_inverse_author_dates(
     ]
 
 
+@pytest.mark.sr("SR-001")
 def test_feature_context_never_treats_missing_validation_as_a_pass(tmp_path):
     _feature_repo(tmp_path)
     (tmp_path / "validation" / "validation-report.json").unlink()

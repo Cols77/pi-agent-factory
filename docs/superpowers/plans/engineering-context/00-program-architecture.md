@@ -292,6 +292,12 @@ version-locked, already wired into the cockpit). A standalone MCP server is defe
 unless a non-Pi client needs it.
 
 ### D2 — Human view: **SCC browser = primary; Obsidian out of scope (locked)**
+
+> **⚠ AMENDED 2026-09-01 by `docs/superpowers/specs/2026-09-01-coherence-product-definition.md`
+> (D-P7).** "Out of scope" is narrowed to *authoring and enforcement*, not navigation. Obsidian
+> is a **read-only navigable projection** over canonical Markdown via `[[wikilinks]]`: never a
+> write surface, never a consent surface, never a second source of truth. Mirrors are generated
+> and check-gated (D-P8), not hand-authored. The browser console remains the primary surface.
 The **System Control Center browser** (`docs-server`/`system-page`, built by SCC SP-B) is the
 SOLE primary human engineering-context surface. All v2 human views are additive **tabs on top
 of that navigator** (Feature Dossier, Interactive V-cycle, Goal/metric status, Validation

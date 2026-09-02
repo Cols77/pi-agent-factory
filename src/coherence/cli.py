@@ -10,6 +10,7 @@ from coherence.explain import main as explain_main
 from coherence.focus import main as focus_main
 from coherence.goals.cli import main as goals_main
 from coherence.measurement.cli import main as measurement_main
+from coherence.mirrors.cli import main as mirrors_main
 from coherence.navigate.cli import main as navigate_main
 from coherence.presentation.cli import main as presentation_main
 from coherence.register.cli import main as register_main
@@ -29,6 +30,7 @@ GROUPS = {
     "simulation": simulation_main,
     "audit": audit_main,
     "measurement": measurement_main,
+    "mirrors": mirrors_main,
     "status": status_main,
     "route": route_main,
     "focus": focus_main,

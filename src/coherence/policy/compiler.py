@@ -7,7 +7,8 @@ back on coherence).
 """
 from __future__ import annotations
 
-from pathlib import Path
+import stat
+from pathlib import Path, PureWindowsPath
 
 from coherence.trace import model as trace_model
 from substrate.policy.obligation import Obligation
@@ -103,6 +104,10 @@ def compile_obligations(
     if scope_ref != "project":
         if nodes is None:
             nodes = trace_model.load_nodes(root)
+        if scope_ref.startswith("sr:"):
+            sr_id = scope_ref.partition(":")[2]
+            if _has_duplicate_sr_declarations(root, sr_id, nodes):
+                return _ambiguous_sr_obligations(scope_ref)
         if edges is None:
             edges = trace_model.extract_edges(root, nodes)
     profile = resolve_profile(root, scope_ref, nodes=nodes, edges=edges)
@@ -184,6 +189,47 @@ def _sr_node_path(sr_id: str, *, nodes) -> Path | None:
     return node.path if node is not None else None
 
 
+def _has_duplicate_sr_declarations(root: Path, sr_id: str, nodes) -> bool:
+    """Detect duplicate SR declarations before any profile/map lookup.
+
+    The trace loader and register loader intentionally return lists so this
+    check does not collapse same-id declarations into a dict. They are two
+    views of the requirement source, so a duplicate in either view is enough.
+    """
+    trace_matches = [node for node in nodes if node.kind == "sr" and node.id == sr_id]
+    if len(trace_matches) > 1:
+        return True
+
+    from coherence.register import register as register_module
+
+    registered = register_module.load_register(root / "requirements")
+    return sum(req.id == sr_id for req in registered) > 1
+
+
+def _ambiguous_sr_obligations(scope_ref: str) -> list[Obligation]:
+    sr_id = scope_ref.partition(":")[2]
+    reason = f"{sr_id} has duplicate SR declarations; source is ambiguous"
+    resolve_cmd = (f"remove duplicate requirement registrations for {sr_id}",)
+    return [
+        Obligation(
+            id=f"ob:{kind}:{scope_ref}",
+            scope_ref=scope_ref,
+            kind=kind,
+            requiredness="blocking",
+            reason=reason,
+            source_policy="ambiguous",
+            state="open",
+            resolve_cmd=resolve_cmd,
+        )
+        for kind in (
+            "ci_verification",
+            "verification_result",
+            "human_review",
+            "test_marker",
+        )
+    ]
+
+
 def _verification_result_obligation(
     root: Path, scope_ref: str, profile: str, *, nodes, edges,
 ) -> Obligation:
@@ -227,27 +273,107 @@ def _verification_result_obligation(
 def _human_review_obligation(
     root: Path, scope_ref: str, profile: str, *, nodes, edges,
 ) -> Obligation:
+    """human_review: verification review -- "is this evidence adequate?" --
+    the second of the two human gates (R-7's agent half; T-8a). Distinct from
+    `sr:` authoring consent ("is this spec paragraph really this
+    requirement?", wired elsewhere): this reads ONLY the canonical
+    `review:<sr_id>` item, through the existing durable gate store
+    (`coherence.gate.store`), never an `sr:` decision and never a parallel
+    decision format.
+
+    I-01 -- no self-certification -- means the producer of work is never the
+    sole authority that it is done. Be exact about what this code can and
+    cannot prove (Critical 3, review round 3): **the substrate cannot
+    distinguish an agent-written decision from a human one.** Nothing on disk
+    carries proof of humanity, so no code here may claim to have verified it.
+    What this obligation enforces instead is that the decision is
+    *attributed* and *timestamped* -- it names a decider and says when -- so a
+    `satisfied` here is always traceable to a named party who can be asked,
+    and a decision naming nobody is nobody's decision.
+
+    `reviewed` is therefore `True` only for an `accept` DecisionFile that is
+    addressed to exactly this gate, this item and this SR's own artifact,
+    **and** carries a non-blank `decided_by` and a valid ISO-8601
+    `decided_at` (validated by `coherence.gate.model._is_iso`, the one ISO
+    validator in this repo -- not a second copy). Absence, a corrupt or
+    malformed file, any `reject`/`defer`, a decision whose
+    `gate_id`/`artifact_ref`/`item_id` names a different gate, artifact or
+    SR, and an accept with a blank/whitespace `decided_by` or a
+    blank/non-ISO `decided_at` all leave `reviewed` `False` -- there is no
+    default-to-reviewed path and no path that infers a decision.
+
+    Why here and not in `gate.model.validate_decisions`: that validator is
+    shared by every gate kind, including the `sr:` authoring-consent
+    decisions already recorded on this branch. Tightening it would
+    retroactively invalidate those. Attribution is this obligation's
+    admissibility rule, so it is enforced at this obligation.
+    """
+    from coherence.gate.model import CorruptDecisionFile, _is_iso
+    from coherence.gate.store import decision_path, load_decision
+
     sr_id = scope_ref.partition(":")[2]
     sr_path = _sr_node_path(sr_id, nodes=nodes)
-    # Identity field unresolved; do NOT read reviewer/reviewed_by yet --
-    # guide §5.3: the field contract is undecided, so absence is unknown,
-    # never satisfied. Only a later declared field may flip the flag.
+    item_id = f"review:{sr_id}"
+    path = decision_path(root, item_id)
+
     reviewed = False
+    expected_artifact_ref: str | None = None
+    if sr_path is not None:
+        try:
+            expected_artifact_ref = "artifact:" + sr_path.resolve().relative_to(
+                root.resolve()
+            ).as_posix()
+        except (OSError, ValueError):
+            expected_artifact_ref = None
+        if expected_artifact_ref is not None and path.is_file():
+            try:
+                decision_file = load_decision(path)
+            except CorruptDecisionFile:
+                reviewed = False
+            else:
+                decisions = decision_file.decisions
+                # Attribution: a decision that names nobody, or that happened
+                # at no recorded time, is not an admissible review. Both
+                # fields are read off the DecisionFile itself, never inferred
+                # from the file's mtime or the current clock.
+                attributed = bool(decision_file.decided_by.strip()) and _is_iso(
+                    decision_file.decided_at
+                )
+                reviewed = (
+                    decision_file.gate_id == item_id
+                    and decision_file.artifact_ref == expected_artifact_ref
+                    and len(decisions) == 1
+                    and decisions[0].item_id == item_id
+                    and decisions[0].action == "accept"
+                    and attributed
+                )
+
     requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
-    resolve_cmd = (
-        (
-            f"record approved human-review identity for {sr_path.name} "
-            "once the field contract is decided",
+    if sr_path is None:
+        resolve_cmd = (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
+    elif expected_artifact_ref is None:
+        resolve_cmd = (f"{sr_id}: requirement path is outside the canonical project root",)
+    else:
+        # Never claims a human review occurred -- names the exact decision
+        # path/action a human reviewer (not the producer of this work) still
+        # needs to take, whether or not one has already been taken. The
+        # attribution fields are named explicitly because an accept without
+        # them does not satisfy this obligation.
+        resolve_cmd = (
+            f"a human reviewer must record `accept` for {item_id} in a "
+            f"DecisionFile at {path} (gate_id={item_id!r}, "
+            f"artifact_ref={expected_artifact_ref!r}), attributed with a "
+            "non-blank `decided_by` and an ISO-8601 `decided_at`",
         )
-        if sr_path is not None
-        else (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
-    )
     return Obligation(
         id=f"ob:human_review:{scope_ref}",
         scope_ref=scope_ref,
         kind="human_review",
         requiredness=requiredness,
-        reason=f"{profile} requires a recorded human reviewer for high-criticality requirement {sr_id}",
+        reason=(
+            f"{profile} requires a recorded, attributed review decision for {sr_id} "
+            "(non-blank `decided_by` and ISO-8601 `decided_at`)"
+        ),
         source_policy=profile,
         state="satisfied" if reviewed else "open",
         resolve_cmd=resolve_cmd,
@@ -260,28 +386,121 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
     experiment is a separate configuration finding (Task 3), not this
     obligation's concern, and this kind is not_applicable for it. The
     marker-closure CHECK (Task 3) consumes THIS compiled obligation's
-    requiredness rather than re-deriving severity from a raw profile string."""
+    requiredness rather than re-deriving severity from a raw profile string.
+
+    Task 5 addendum: an SR that carries no `binding` (the proposed state --
+    every FEAT-001 SR today) can still declare one or more `kind: test_marker`
+    acceptance criteria (T-1/T-3). Those resolve THIS obligation too, alongside
+    -- never merged with -- the legacy binding.experiment path: an SR with a
+    binding.experiment behaves exactly as before regardless of any acceptance
+    block it also carries (checked first, below). Only when there is no
+    binding does acceptance become this obligation's source of truth. An SR
+    with several test_marker criteria is satisfied only when EVERY one of them
+    resolves to a file carrying a matching marker -- partial resolution is
+    reported open, never satisfied (R-2: the criterion's `ref` is a
+    navigational pointer that must be consistent with the authoritative
+    @pytest.mark.sr decorator, or the mismatch must surface, never pass
+    silently). `kind: manual`/`kind: harness` criteria are not this
+    obligation's business and are ignored here."""
     from coherence.register import register as register_module
-    from coherence.register.markers import collect_markers
+    from coherence.register.markers import MarkerCollectionError, collect_markers
     sr_id = scope_ref.partition(":")[2]
-    register = {r.id: r for r in register_module.load_register(root / "requirements")}
-    req = register.get(sr_id)
+    registered = register_module.load_register(root / "requirements")
+    matching = [req for req in registered if req.id == sr_id]
     requiredness = "blocking" if profile == "high_assurance" else "required"
-    if req is None or req.binding is None:
+    if len(matching) > 1:
+        return Obligation(
+            id=f"ob:test_marker:{scope_ref}",
+            scope_ref=scope_ref,
+            kind="test_marker",
+            requiredness="blocking",
+            reason=f"{sr_id} has duplicate requirement registrations; source is ambiguous",
+            source_policy="ambiguous",
+            state="open",
+            resolve_cmd=(f"remove duplicate requirement registrations for {sr_id}",),
+        )
+    req = matching[0] if matching else None
+
+    if req is not None and req.binding is not None:
+        # Legacy path -- unchanged behaviour, acceptance criteria (if any) are
+        # not consulted here.
+        experiment_path = root / req.binding.experiment
+        if not (experiment_path.suffix == ".py" and experiment_path.is_file()):
+            return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+                kind="test_marker", requiredness="not_applicable",
+                reason=f"{sr_id}'s experiment does not resolve to a test file",
+                source_policy=profile, state="satisfied", resolve_cmd=None)
+        markers = collect_markers(experiment_path)
+        present = sr_id in markers
+        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
+            kind="test_marker", requiredness=requiredness,
+            reason=f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on {sr_id}'s bound experiment test file",
+            source_policy=profile, state="satisfied" if present else "open",
+            resolve_cmd=(f'add @pytest.mark.sr("{sr_id}") to {experiment_path.name}',))
+
+    test_marker_criteria = [
+        c for c in (req.acceptance if req is not None else ())
+        if c.verification.kind == "test_marker"
+    ]
+    if not test_marker_criteria:
         return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
             kind="test_marker", requiredness="not_applicable",
-            reason=f"{sr_id} has no binding to check a marker for",
+            reason=f"{sr_id} has no binding and no test_marker acceptance criteria to check",
             source_policy=profile, state="satisfied", resolve_cmd=None)
-    experiment_path = root / req.binding.experiment
-    if not (experiment_path.suffix == ".py" and experiment_path.is_file()):
-        return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
-            kind="test_marker", requiredness="not_applicable",
-            reason=f"{sr_id}'s experiment does not resolve to a test file",
-            source_policy=profile, state="satisfied", resolve_cmd=None)
-    markers = collect_markers(experiment_path)
-    present = sr_id in markers
+
+    canonical_root = root.resolve()
+    missing_refs: list[str] = []
+    for criterion in test_marker_criteria:
+        ref = criterion.verification.ref or ""
+        try:
+            resolved_ref = _resolve_acceptance_ref(root, canonical_root, ref)
+            has_marker = (
+                resolved_ref.suffix == ".py"
+                and resolved_ref.is_file()
+                and sr_id in collect_markers(resolved_ref)
+            )
+        except (MarkerCollectionError, OSError, RuntimeError, TypeError, ValueError):
+            has_marker = False
+        if not has_marker and ref not in missing_refs:
+            missing_refs.append(ref)
+
+    satisfied = not missing_refs
     return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
         kind="test_marker", requiredness=requiredness,
-        reason=f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on {sr_id}'s bound experiment test file",
-        source_policy=profile, state="satisfied" if present else "open",
-        resolve_cmd=(f'add @pytest.mark.sr("{sr_id}") to {experiment_path.name}',))
+        reason=(
+            f"{profile} requires @pytest.mark.sr(\"{sr_id}\") on every file "
+            f"{sr_id}'s test_marker acceptance criteria reference"
+        ),
+        source_policy=profile, state="satisfied" if satisfied else "open",
+        resolve_cmd=(
+            tuple(f'add @pytest.mark.sr("{sr_id}") to {ref}' for ref in missing_refs)
+            if missing_refs else None
+        ))
+
+
+def _resolve_acceptance_ref(root: Path, canonical_root: Path, ref: str) -> Path:
+    """Resolve a marker ref only after rejecting unsafe lexical path forms."""
+    ref_path = Path(ref)
+    windows_ref = PureWindowsPath(ref)
+    if ref_path.is_absolute() or ref_path.anchor or windows_ref.anchor:
+        raise ValueError("acceptance ref must be relative to the project root")
+    if ".." in ref_path.parts or ".." in windows_ref.parts:
+        raise ValueError("acceptance ref must not contain a parent-directory component")
+
+    candidate = root
+    for part in ref_path.parts:
+        candidate /= part
+        if _is_symlink_or_reparse_point(candidate):
+            raise ValueError("acceptance ref contains a link or reparse point")
+
+    resolved_ref = (canonical_root / ref_path).resolve()
+    resolved_ref.relative_to(canonical_root)
+    return resolved_ref
+
+
+def _is_symlink_or_reparse_point(path: Path) -> bool:
+    info = path.lstat()
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+    )

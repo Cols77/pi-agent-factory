@@ -13,12 +13,19 @@ Sources wired concretely here:
   due (Task 3 ``deferral_is_due``);
 * stale register bindings -- a requirement whose recorded checksum no longer
   matches its content (``coherence.register.cli.cmd_index``);
+* SR authoring consent -- every registered SR whose per-SR ``sr:SR-###``
+  DecisionFile is absent, malformed, stale, or addresses the wrong gate/item;
+* an unreadable register -- a single ``register:unreadable`` item when
+  ``load_register`` cannot parse the requirements directory at all, so the
+  loss of every register-derived item is reported rather than looking like
+  an empty queue (see ``_load_register_or_report``);
 * suspect edges -- governed SR edges classified suspect/invalid/waived by
   ``edge_validity`` (Task 6 Step 4) via the ``unresolved_staleness`` sweep.
 
 Item ids follow the Review Amendments vocabulary: ``coverage:<run>:proposal:<id>``,
-``coverage:<run>:warning:<id>``, ``trace:<id>``. The list is stable-sorted by id
-and de-duplicated; reading never creates a file.
+``coverage:<run>:warning:<id>``, ``trace:<id>``, and ``sr:SR-###`` for authoring
+consent. The list is stable-sorted by id and de-duplicated; reading never creates
+a file.
 """
 from __future__ import annotations
 
@@ -122,8 +129,24 @@ def _expired_deferral_items(root: Path, now: str) -> list[InboxItem]:
             deferral = parse_deferral(raw)
         except ValueError:
             continue
-        if deferral_is_due(deferral, now):
-            sr_id = str(meta.get("id") or path.stem)
+        sr_id = str(meta.get("id") or path.stem)
+        try:
+            due = deferral_is_due(deferral, now)
+        except ValueError as exc:
+            items.append(
+                InboxItem(
+                    id=f"trace:{sr_id}",
+                    source="deferrals",
+                    kind="unresolved_deferral",
+                    ref=f"sr:{sr_id}",
+                    summary=f"deferral status for {sr_id} is unresolved ({exc})",
+                    evidence=deferral.reason,
+                    resolve_cmd=(f"coherence register show {sr_id}",),
+                    review_after=deferral.review_after,
+                )
+            )
+            continue
+        if due:
             items.append(
                 InboxItem(
                     id=f"trace:{sr_id}",
@@ -139,6 +162,43 @@ def _expired_deferral_items(root: Path, now: str) -> list[InboxItem]:
     return items
 
 
+def _load_register_or_report(req_dir: Path) -> tuple[list, list[InboxItem]]:
+    """The register, or the one inbox item saying it could not be read.
+
+    Important 7 (review round 3): `_stale_binding_items` and
+    `_authoring_consent_items` both called `load_register` unguarded, so a
+    single malformed `acceptance:` block raised a `ValueError` straight out
+    of `list_items` -- and the human lost coverage gates, expired deferrals
+    and suspect edges along with the register. Every other source in this
+    module is per-file try/excepted; these now match.
+
+    The failure is REPORTED, not swallowed: an unreadable register is not
+    "no requirements" (I-03 -- missing evidence is reported, never
+    inferred), so it becomes a visible `register:unreadable` item carrying
+    the parser's own message. Both callers emit the same item id, and
+    `list_items` de-duplicates by id, so the human sees it exactly once.
+    """
+    from coherence.register.register import load_register
+
+    try:
+        return load_register(req_dir), []
+    except Exception as exc:  # noqa: BLE001 -- reported below, never swallowed
+        return [], [
+            InboxItem(
+                id="register:unreadable",
+                source="register",
+                kind="unreadable_register",
+                ref="register",
+                summary=(
+                    "the requirement register could not be loaded; every "
+                    "register-derived inbox item is missing until this is fixed"
+                ),
+                evidence=f"{type(exc).__name__}: {exc}",
+                resolve_cmd=("coherence register check",),
+            )
+        ]
+
+
 def _stale_binding_items(root: Path) -> list[InboxItem]:
     """Collect register bindings whose recorded checksum is stale (read-only).
 
@@ -146,13 +206,16 @@ def _stale_binding_items(root: Path) -> list[InboxItem]:
     writer `cmd_index` (which stamps checksums and writes index.json) -- the
     inbox must not create or modify files.
     """
-    from coherence.register.register import is_checksum_current, load_register
+    from coherence.register.register import is_checksum_current
 
     req_dir = root / "requirements"
     if not req_dir.is_dir():
         return []
+    requirements, failure = _load_register_or_report(req_dir)
+    if failure:
+        return failure
     items: list[InboxItem] = []
-    for req in load_register(req_dir):
+    for req in requirements:
         if not is_checksum_current(req):
             items.append(
                 InboxItem(
@@ -196,6 +259,102 @@ def _suspect_edge_items(root: Path) -> list[InboxItem]:
     return items
 
 
+def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
+    """Collect SRs awaiting the authoring-consent gate.
+
+    Authoring consent is deliberately a separate gate from verification review:
+    only the exact ``sr:<requirement-id>`` gate and item can clear an SR from
+    this queue. Reads are fail-closed and side-effect free. A malformed,
+    duplicate, or mismatched DecisionFile remains visible as a pending item
+    rather than being treated as consent.
+    """
+    from coherence.gate.model import CorruptDecisionFile
+    from coherence.gate.store import decision_path, load_decision
+
+    req_dir = root / "requirements"
+    if not req_dir.is_dir():
+        return []
+
+    requirements, failure = _load_register_or_report(req_dir)
+    if failure:
+        return failure
+
+    items: list[InboxItem] = []
+    duplicate_ids = {
+        req.id for req in requirements if sum(other.id == req.id for other in requirements) > 1
+    }
+    emitted_duplicate_ids: set[str] = set()
+    project_root = root.resolve()
+    for req in requirements:
+        item_id = f"sr:{req.id}"
+        path = decision_path(root, item_id)
+        reason: str | None = None
+        expected_artifact_ref = ""
+        if req.id in duplicate_ids:
+            if req.id in emitted_duplicate_ids:
+                continue
+            emitted_duplicate_ids.add(req.id)
+            reason = "duplicate requirement registration"
+        else:
+            try:
+                requirement_path = req.path.resolve().relative_to(project_root).as_posix()
+            except (OSError, ValueError):
+                reason = "requirement path is outside the canonical project root"
+            else:
+                expected_artifact_ref = f"artifact:{requirement_path}"
+
+        if reason is None and path.is_file():
+            try:
+                decision_file = load_decision(path)
+            except CorruptDecisionFile as exc:
+                reason = f"invalid DecisionFile ({exc})"
+            else:
+                decisions = decision_file.decisions
+                if (
+                    decision_file.gate_id != item_id
+                    or decision_file.artifact_ref != expected_artifact_ref
+                    or len(decisions) != 1
+                    or decisions[0].item_id != item_id
+                ):
+                    reason = "stale or mismatched DecisionFile"
+                elif decisions[0].action == "defer":
+                    try:
+                        due = deferral_is_due(
+                            parse_deferral(
+                                {
+                                    "reason": decisions[0].reason,
+                                    "review_after": decisions[0].review_after,
+                                }
+                            ),
+                            now,
+                        )
+                    except ValueError as exc:
+                        reason = f"invalid defer freshness ({exc})"
+                    else:
+                        if due:
+                            reason = "authoring consent defer expired"
+        else:
+            reason = "no DecisionFile"
+
+        if reason is None:
+            continue
+        items.append(
+            InboxItem(
+                id=item_id,
+                source="register",
+                kind="authoring_consent",
+                ref=item_id,
+                summary=(
+                    f"{req.id}: authoring consent pending ({reason}; expected DecisionFile "
+                    f"at {path})"
+                ),
+                evidence=str(req.path),
+                resolve_cmd=(f"coherence register show {req.id}",),
+            )
+        )
+    return items
+
+
 def list_items(root: Path | str, now: str) -> list[InboxItem]:
     """Compose all inbox sources into one stable-sorted, de-duplicated list
     (pure read -- never writes, never executes a resolver)."""
@@ -204,6 +363,7 @@ def list_items(root: Path | str, now: str) -> list[InboxItem]:
     collected.extend(_coverage_gate_items(root))
     collected.extend(_expired_deferral_items(root, now))
     collected.extend(_stale_binding_items(root))
+    collected.extend(_authoring_consent_items(root, now))
     collected.extend(_suspect_edge_items(root))
 
     # Stable sort by id; de-duplicate by id (first occurrence wins).

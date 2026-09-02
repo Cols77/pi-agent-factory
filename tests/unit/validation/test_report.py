@@ -174,3 +174,43 @@ def test_a_binding_without_a_harness_reports_an_error(tmp_path):
     assert entry["id"] == req.id
     assert "no harness" in entry["error"]
     assert "passed" not in entry
+
+
+# --- Review round 3, Important 1 ---------------------------------------
+
+
+def test_a_failed_report_write_is_raised_not_swallowed(tmp_path, monkeypatch):
+    """`write_validation_report` used to `except OSError: pass`. A failed
+    write left the previous -- possibly passing -- report in place while the
+    caller carried on as though the new one had landed.
+    """
+    from coherence.measurement.report import ValidationReportWriteError
+
+    out = tmp_path / "validation" / "validation-report.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    stale = json.dumps({"requirements": [{"id": "SR-001", "passed": True}]})
+    out.write_text(stale, encoding="utf-8")
+
+    def _boom(self, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.write_text", _boom)
+
+    with pytest.raises(ValidationReportWriteError) as excinfo:
+        write_validation_report(out, {"requirements": []})
+
+    assert "stale" in str(excinfo.value)
+    monkeypatch.undo()
+    # The previous report is untouched -- which is exactly why the caller
+    # must be told, rather than proceeding as though it had been replaced.
+    assert out.read_text(encoding="utf-8") == stale
+
+
+def test_harness_provenance_names_the_command_and_the_producer():
+    from coherence.measurement.report import harness_provenance
+
+    provenance = harness_provenance("coherence-measurement run --all")
+
+    assert provenance["recorded_by"] == "harness"
+    assert provenance["command"] == "coherence-measurement run --all"
+    assert provenance["recorded_at"].endswith("Z")

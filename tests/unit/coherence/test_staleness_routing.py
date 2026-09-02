@@ -9,6 +9,8 @@ reuses the existing freshness machinery to surface recorded staleness.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from coherence.staleness import UnresolvedStaleness, route
@@ -119,7 +121,12 @@ def test_unresolved_staleness_is_clean_for_a_satisfied_sr(tmp_path):
     )
     (tmp_path / "validation").mkdir(parents=True)
     (tmp_path / "validation" / "validation-report.json").write_text(
-        "{\"requirements\": [{\"id\": \"SR-001\", \"passed\": true}]}",
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-001", "passed": True}],
+            }
+        ),
         encoding="utf-8",
     )
 

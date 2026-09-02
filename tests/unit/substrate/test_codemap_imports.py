@@ -370,6 +370,7 @@ def test_build_import_closure_missing_import_fixture_is_unresolved(tmp_path: Pat
     assert any("numpy" in d for d in result.diagnostics)
 
 
+@pytest.mark.sr("SR-004")
 def test_build_import_closure_renamed_binding_fixture_is_unresolved(tmp_path: Path) -> None:
     # An internal project import left pointing at a module that was since
     # renamed -- a dangling reference, distinct from a missing external
@@ -415,6 +416,7 @@ def test_build_import_closure_unsupported_root_takes_precedence_over_missing(
 # -- 3b. compute_overlap: relocated, but the diagnostic split is unchanged. -
 
 
+@pytest.mark.sr("SR-004")
 def test_compute_overlap_distinguishes_selection_missing_from_no_overlap(tmp_path: Path) -> None:
     _import_tree(tmp_path)
 
@@ -584,6 +586,7 @@ def test_build_import_closure_records_relative_edge_kind(tmp_path: Path) -> None
 # -- 3d. Edge storage: beside the fingerprinted index, with a tolerant reader.
 
 
+@pytest.mark.sr("SR-004")
 def test_build_import_closure_persists_edges_beside_fingerprinted_index(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("import b\n")
@@ -625,6 +628,7 @@ def test_load_edges_is_backward_compatible_with_pre_edge_index_dirs(tmp_path: Pa
 # -- 3e. factory.coverage.imports is now a warn-and-re-export shim. ---------
 
 
+@pytest.mark.sr("SR-004")
 def test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", DeprecationWarning)
@@ -637,6 +641,7 @@ def test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports() 
     )
 
 
+@pytest.mark.sr("SR-004")
 def test_factory_coverage_imports_reexports_edge_and_overlap_types() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)

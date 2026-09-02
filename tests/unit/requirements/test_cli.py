@@ -103,6 +103,7 @@ def test_new_mints_a_proposed_requirement(tmp_path):
     assert "sim-testbench" not in text
 
 
+@pytest.mark.sr("SR-002")
 def test_index_stamps_checksums_and_writes_index(tmp_path):
     _write(tmp_path, "SR-001.md", _BOUND)
     result = cmd_index(tmp_path)
@@ -112,6 +113,7 @@ def test_index_stamps_checksums_and_writes_index(tmp_path):
     assert json.loads((tmp_path / "index.json").read_text(encoding="utf-8")) == result
 
 
+@pytest.mark.sr("SR-002")
 def test_index_leaves_a_proposed_requirement_untouched(tmp_path):
     path = _write(tmp_path, "SR-009.md", _PROPOSED)
     before = path.read_text(encoding="utf-8")

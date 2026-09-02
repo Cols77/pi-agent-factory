@@ -61,7 +61,7 @@ PHASE 5  SCC SP-D   business-requirement tier   (last; reviews through SP-B)
 | # | Direction | Documented in |
 |---|---|---|
 | D1 | agent surface = pi-ext tools (no MCP) | `00-program-architecture.md` §7 |
-| D2 | human surface = SCC browser; **Obsidian out of scope** | §7 |
+| D2 | human surface = SCC browser; Obsidian ~~out of scope~~ **amended 2026-09-01 (D-P7): read-only navigable projection, never a write/consent surface** | §7 |
 | D3 | extend in place, additive-only, v1 keeps working | §7 |
 | D4 | feature = `feat:` files AND bundles | §7 |
 | D5 | requirement-status spec vocabulary, additive | §7 |

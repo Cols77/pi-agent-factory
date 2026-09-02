@@ -49,6 +49,7 @@ def _course_dir(root: Path) -> Path:
 # -- 1. unknown frontmatter ID -----------------------------------------------
 
 
+@pytest.mark.sr("SR-005")
 def test_fails_on_unknown_frontmatter_id(tmp_path):
     _sr(tmp_path, "SR-001")
     _spec(tmp_path, "alpha")
@@ -59,6 +60,7 @@ def test_fails_on_unknown_frontmatter_id(tmp_path):
     assert any("SR-9999" in e and "traceability" in e for e in report.errors)
 
 
+@pytest.mark.sr("SR-005")
 def test_unknown_frontmatter_id_cli_exit_1(tmp_path: Path, capsys) -> None:
     _sr(tmp_path, "SR-001")
     _add_course(tmp_path, "unknown_frontmatter.md")
@@ -72,6 +74,7 @@ def test_unknown_frontmatter_id_cli_exit_1(tmp_path: Path, capsys) -> None:
 # --2. unknown body wikilink token ------------------------------------------
 
 
+@pytest.mark.sr("SR-005")
 def test_fails_on_unknown_body_token(tmp_path):
     _sr(tmp_path, "SR-001")
     _add_course(tmp_path, "unknown_body.md")
@@ -92,6 +95,7 @@ def test_unknown_body_token_cli_exits_one(tmp_path: Path, capsys) -> None:
 # -- 3. reports unreached known SR/spec nodes -----------------------
 
 
+@pytest.mark.sr("SR-005")
 def test_reports_unreached_known_nodes(tmp_path):
     _sr(tmp_path, "SR-001")
     _sr(tmp_path, "SR-002")
@@ -123,6 +127,7 @@ def test_multiple_notes_jointly_cover_all_nodes(tmp_path):
     assert len(report.notes) == 2
 
 
+@pytest.mark.sr("SR-005")
 def test_clean_cli_exits_zero_and_emits_empty_unreached(tmp_path: Path, capsys) -> None:
     _sr(tmp_path, "SR-001")
     _spec(tmp_path, "alpha")

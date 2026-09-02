@@ -62,6 +62,7 @@ def _review_prompts(backend: FakeAgentBackend) -> list[str]:
     return [prompt for role, prompt in backend.prompts if role is AgentRole.REVIEW]
 
 
+@pytest.mark.sr("SR-007")
 def test_failed_unit_gate_signature_reselects_kb_for_next_dev_attempt(tmp_path):
     """A unit gate failure whose output carries a canonical ConnectionResetError
     signature makes a signature-only (no file-glob) KB entry appear in the

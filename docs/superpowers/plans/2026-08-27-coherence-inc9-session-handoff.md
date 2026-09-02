@@ -29,6 +29,17 @@ trace-edge, CI-as-obligation, and using-coherence-dispatcher SRs; SR-036↔SR-04
 REAL human review entries — an agent cannot self-cert those.
 
 ## Agreed strategic direction (locked this session — do NOT reverse)
+
+> **⚠ AMENDED 2026-09-01 by `docs/superpowers/specs/2026-09-01-coherence-product-definition.md`
+> (D-P18).** Item 1 stands in intent — bootstrap still precedes *bulk* registration. It is
+> narrowed in one respect: **exactly one feature (FEAT-001) is registered by hand first**, as the
+> reference run that FEAT-17 then encodes. FEAT-17 cannot be built before it, because FEAT-17's
+> own design composes SR authoring, feature registration and human consent as prerequisites —
+> and those are unproven (0 evidence, 0 consent decisions, 0 marker bindings), with the
+> `acceptance:` schema not yet existing. FEAT-17's acceptance test becomes: registering FEAT-002
+> through bootstrap reproduces the shape FEAT-001 reached manually. Everything after FEAT-002
+> registers through bootstrap, as this lock intended.
+
 1. **Bootstrap-first.** Land register (done) → build FEAT-17 bootstrap front-door → then dogfood
    health-resolution THROUGH bootstrap. Do not reverse to finish T-4..T-6 before bootstrap.
 2. **FEAT-17 gains a Clarify & Align phase** (design doc §3a.1): structured brainstorming →

@@ -90,6 +90,7 @@ def test_a_deferred_requirement_is_declined(tmp_path):
     assert "no task delivers this yet" in finding.detail
 
 
+@pytest.mark.sr("SR-002")
 def test_an_unbound_requirement_with_no_disposition_is_pending(tmp_path):
     finding = classify(
         _req(tmp_path), validation=None, linked_task_status=None, deferred_reason=None,

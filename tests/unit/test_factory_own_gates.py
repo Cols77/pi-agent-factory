@@ -38,3 +38,15 @@ def test_require_gates_rejects_a_project_that_declares_none(tmp_path):
 def test_require_gates_accepts_a_project_with_gates():
     cfg = load_config(factory_root())
     assert require_gates(cfg, factory_root()) is cfg.gates
+
+
+def test_the_full_gate_checks_the_derived_wikilink_mirrors():
+    """Important 3 (review round 3). Twenty feature dossiers' '## Related
+    requirements' blocks are now derived output. `coherence mirrors check` is
+    what proves they still match their frontmatter/trace-graph derivation,
+    and it was wired into no gate at all -- a divergence (or a hand-edit of a
+    generated block) could reach main with nothing having looked. Derived
+    state that no gate checks is derived state nobody is proving.
+    """
+    cmds = [s.cmd for s in load_config(factory_root()).gates["full"]]
+    assert "{python} -m coherence mirrors check" in cmds
