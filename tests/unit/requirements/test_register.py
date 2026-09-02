@@ -134,6 +134,14 @@ def test_missing_upstream_wikilinks_reports_nothing_when_every_id_is_mirrored(tm
     assert missing_upstream_wikilinks(req) == ()
 
 
+@pytest.mark.sr("SR-001")
+def test_missing_upstream_wikilinks_recognises_a_pipe_alias_mirror(tmp_path):
+    aliased = _SR.replace("SR-001", "SR-022") + "\nSee [[BR-002|the design rationale]] for why.\n"
+    req = parse_requirement(_write(tmp_path, "SR-022.md", aliased))
+    assert req.upstream == ["BR-002"]
+    assert missing_upstream_wikilinks(req) == ()
+
+
 @pytest.mark.sr("SR-002")
 def test_load_register_and_get(tmp_path):
     _write(tmp_path, "SR-001.md", _SR)

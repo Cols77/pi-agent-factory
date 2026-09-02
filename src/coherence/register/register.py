@@ -209,6 +209,12 @@ def missing_upstream_wikilinks(req: Requirement) -> tuple[str, ...]:
     that are not upstream dependencies. Nor does it check that an upstream id
     resolves to a real requirement; pair with a register-membership check for
     that.
+
+    Recognises both the plain (``[[SR-050]]``) and Obsidian pipe-alias
+    (``[[SR-050|display title]]``) wikilink forms as a mirror -- this repo
+    uses the alias form routinely for ``source:`` links, so a bare
+    ``[[id]]`` search would false-positive "missing" the moment an upstream
+    mirror uses it too.
     """
     seen: set[str] = set()
     missing: list[str] = []
@@ -216,7 +222,7 @@ def missing_upstream_wikilinks(req: Requirement) -> tuple[str, ...]:
         if uid in seen:
             continue
         seen.add(uid)
-        if f"[[{uid}]]" not in req.body:
+        if f"[[{uid}]]" not in req.body and f"[[{uid}|" not in req.body:
             missing.append(uid)
     return tuple(missing)
 
