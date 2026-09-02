@@ -197,6 +197,30 @@ def is_checksum_current(req: Requirement) -> bool:
     return req.checksum is not None and req.checksum == content_checksum(req)
 
 
+def missing_upstream_wikilinks(req: Requirement) -> tuple[str, ...]:
+    """Ids in ``req.upstream`` that carry no ``[[id]]`` wikilink anywhere in
+    ``req.body``, in declared order, deduplicated.
+
+    Checks one direction only: every declared relation is mirrored as a
+    wikilink. It does not check the reverse (that every wikilink in the body
+    corresponds to a declared relation) -- the schema has only one typed
+    relation field (``upstream``) today, and a body routinely and
+    legitimately wikilinks other nodes for narrative context (see SR-001)
+    that are not upstream dependencies. Nor does it check that an upstream id
+    resolves to a real requirement; pair with a register-membership check for
+    that.
+    """
+    seen: set[str] = set()
+    missing: list[str] = []
+    for uid in req.upstream:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        if f"[[{uid}]]" not in req.body:
+            missing.append(uid)
+    return tuple(missing)
+
+
 def load_register(requirements_dir: Path) -> list[Requirement]:
     if not requirements_dir.exists():
         return []
@@ -219,5 +243,6 @@ __all__ = [
     "get_requirement",
     "is_checksum_current",
     "load_register",
+    "missing_upstream_wikilinks",
     "parse_requirement",
 ]

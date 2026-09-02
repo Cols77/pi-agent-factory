@@ -151,14 +151,17 @@
       "requirements": [
         {
           "id": "SR-001",
-          "note": "AC-3 is kind:manual (mirrors typed lifecycle relations as Obsidian wikilinks in the requirement body) and unreviewed -- no human_review decision exists. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding.",
+          "passed": true,
           "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
-          "automated_tests_passed": [
+          "note": "Re-measured 2026-09-02, after AC-3 was narrowed during authoring consent from a kind:manual criterion to a kind:test_marker one (the reverse-direction claim it also made -- 'no wikilink names an undeclared relation' -- was dropped, not automated; see requirements/SR-001.md). All three acceptance criteria are now kind:test_marker and all seven bound tests passed. No kind:manual criterion remains on this requirement.",
+          "tests": [
             "tests/unit/system/test_feature.py::test_feature_context_contains_only_connected_recorded_facts",
             "tests/unit/system/test_feature.py::test_feature_context_never_treats_missing_validation_as_a_pass",
             "tests/unit/system/test_vcycle_health.py::test_requirement_without_test",
             "tests/unit/system/test_vcycle_health.py::test_requirement_without_implementation",
-            "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement"
+            "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement",
+            "tests/unit/requirements/test_register.py::test_missing_upstream_wikilinks_reports_ids_absent_from_the_body",
+            "tests/unit/requirements/test_register.py::test_missing_upstream_wikilinks_reports_nothing_when_every_id_is_mirrored"
           ]
         },
         {

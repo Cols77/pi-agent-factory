@@ -11,13 +11,22 @@
   "requirements": [
     {
       "id": "SR-001",
-      "error": "AC-3 is kind:manual (mirrors typed lifecycle relations as Obsidian wikilinks in the requirement body) and unreviewed -- no human_review decision exists. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding.",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
       "artifacts": [
         "tests/unit/system/test_feature.py::test_feature_context_contains_only_connected_recorded_facts",
         "tests/unit/system/test_feature.py::test_feature_context_never_treats_missing_validation_as_a_pass",
         "tests/unit/system/test_vcycle_health.py::test_requirement_without_test",
         "tests/unit/system/test_vcycle_health.py::test_requirement_without_implementation",
-        "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement"
+        "tests/unit/system/test_vcycle_health.py::test_implementation_without_traceable_requirement",
+        "tests/unit/requirements/test_register.py::test_missing_upstream_wikilinks_reports_ids_absent_from_the_body",
+        "tests/unit/requirements/test_register.py::test_missing_upstream_wikilinks_reports_nothing_when_every_id_is_mirrored"
       ]
     },
     {

@@ -8,6 +8,7 @@ from factory.requirements.register import (
     get_requirement,
     is_checksum_current,
     load_register,
+    missing_upstream_wikilinks,
     parse_requirement,
 )
 
@@ -113,6 +114,24 @@ def test_is_checksum_current(tmp_path):
     stamped = _SR.replace("checksum: null", f"checksum: {content_checksum(req)}")
     req2 = parse_requirement(_write(tmp_path, "SR-001.md", stamped))
     assert is_checksum_current(req2) is True
+
+
+@pytest.mark.sr("SR-001")
+def test_missing_upstream_wikilinks_reports_ids_absent_from_the_body(tmp_path):
+    req = parse_requirement(
+        _write(tmp_path, "SR-020.md", _SR.replace("SR-001", "SR-020"))
+    )
+    assert req.upstream == ["BR-002"]
+    assert "[[BR-002]]" not in req.body
+    assert missing_upstream_wikilinks(req) == ("BR-002",)
+
+
+@pytest.mark.sr("SR-001")
+def test_missing_upstream_wikilinks_reports_nothing_when_every_id_is_mirrored(tmp_path):
+    mirrored = _SR.replace("SR-001", "SR-021") + "\nSee [[BR-002]] for the source rationale.\n"
+    req = parse_requirement(_write(tmp_path, "SR-021.md", mirrored))
+    assert req.upstream == ["BR-002"]
+    assert missing_upstream_wikilinks(req) == ()
 
 
 @pytest.mark.sr("SR-002")
