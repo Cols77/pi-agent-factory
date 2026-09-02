@@ -39,6 +39,7 @@ def _seed_goal(root: Path, goal_id: str = "GOAL-001") -> None:
 # -- effective_profile_view --------------------------------------------------
 
 
+@pytest.mark.sr("SR-009")
 def test_effective_profile_view_project_scope(tmp_path):
     _seed_gates(tmp_path)
     view = effective_profile_view(tmp_path, "project")

@@ -78,6 +78,7 @@ def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
         resolve_profile(tmp_path, "project")
 
 
+@pytest.mark.sr("SR-009")
 def test_compile_obligations_ci_verification_substitutes_python_like_backends_does(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")
@@ -90,6 +91,7 @@ def test_compile_obligations_ci_verification_substitutes_python_like_backends_do
     assert any("-m pytest -m unit -q" in command for command in (ci.resolve_cmd or ()))
 
 
+@pytest.mark.sr("SR-009")
 def test_compile_obligations_preserves_configured_order_and_duplicates(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")

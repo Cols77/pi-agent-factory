@@ -308,6 +308,7 @@ def test_requirement_quality_duplicate_register_ids_do_not_satisfy_affected_sr_n
 # -- Dimensions 4/5: the shared verification_result obligation universe -----
 
 
+@pytest.mark.sr("SR-009")
 def test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator(
     tmp_path,
 ):

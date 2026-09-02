@@ -4,6 +4,7 @@ from substrate.policy.obligation import Obligation
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.sr("SR-009")
 def test_obligation_is_the_documented_contract():
     ob = Obligation(
         id="ob:ci_verification:project",

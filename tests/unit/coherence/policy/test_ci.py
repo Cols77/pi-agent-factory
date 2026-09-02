@@ -27,6 +27,7 @@ def _seed(root: Path) -> None:
     )
 
 
+@pytest.mark.sr("SR-009")
 def test_includes_every_declared_gate_command_in_order_with_python_substituted(tmp_path):
     _seed(tmp_path)
 
