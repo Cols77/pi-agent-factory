@@ -1,12 +1,12 @@
 {
   "provenance": {
     "recorded_by": "agent",
-    "recorded_at": "2026-09-02T22:34:23Z",
+    "recorded_at": "2026-09-02T23:37:50Z",
     "command": "rtk proxy uv run pytest -v -o addopts=\"\"",
-    "run_id": "T-9008-evidence-execution-20260902T223423Z",
-    "evidence_manifest": "evidence/runs/T-9008-evidence-execution-20260902T223423Z.json",
-    "commit": "1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871",
-    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR (SR-001..SR-007, SR-050), and coherence-measurement's own `run` command finds no top-level `binding:` on SR-008 either -- SR-008 is verified through kind:test_marker acceptance criteria, not a Binding. An agent ran the commands cited here, read their output, and transcribed the per-SR results into this file; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the runs showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifests cited here record no `reviews` and no `decisions`. Two runs back this file: SR-001 through SR-007 and SR-050 were recorded by evidence/runs/T-6-evidence-execution-20260901T114021Z.json (command `rtk proxy uv run pytest -m sr -v -o addopts=\"\"`, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); SR-008 was recorded by `evidence_manifest` above, added when SR-008 gained its binding and five kind:test_marker acceptance criteria (AC-1..AC-5) during authoring consent on 2026-09-03. Reproduce SR-008 with the command above restricted to tests/unit/coherence/policy/test_compiler.py and tests/unit/substrate/policy/test_vocabulary.py; it selects the @pytest.mark.sr(\"SR-008\") tests named in that entry's `artifacts`."
+    "run_id": "T-9009-evidence-execution-20260902T233750Z",
+    "evidence_manifest": "evidence/runs/T-9009-evidence-execution-20260902T233750Z.json",
+    "commit": "acfd3a4f4e0e92b32c5ca376d50397b2a73ccbba",
+    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR (SR-001..SR-007, SR-050), and coherence-measurement's own `run` command finds no top-level `binding:` on SR-008 or SR-009 either -- both are verified through kind:test_marker acceptance criteria, not a Binding; `coherence measurement run --satisfies SR-009` was tried first and returned an empty requirements list for that reason. An agent ran the commands cited here, read their output, and transcribed the per-SR results into this file; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the runs showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifests cited here record no `reviews` and no `decisions`. Three runs back this file: SR-001 through SR-007 and SR-050 were recorded by evidence/runs/T-6-evidence-execution-20260901T114021Z.json (command `rtk proxy uv run pytest -m sr -v -o addopts=\"\"`, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); SR-008 was recorded by evidence/runs/T-9008-evidence-execution-20260902T223423Z.json, added when SR-008 gained its binding and five kind:test_marker acceptance criteria (AC-1..AC-5) during authoring consent on 2026-09-03; SR-009 was recorded by `evidence_manifest` above, added when SR-009 gained its binding and five kind:test_marker acceptance criteria (AC-1..AC-5) during authoring consent on 2026-09-03. Reproduce SR-008 with the command above restricted to tests/unit/coherence/policy/test_compiler.py and tests/unit/substrate/policy/test_vocabulary.py; it selects the @pytest.mark.sr(\"SR-008\") tests named in that entry's `artifacts`. Reproduce SR-009 with the command above restricted to tests/unit/substrate/policy/test_obligation.py, tests/unit/coherence/policy/test_compiler.py, tests/unit/coherence/test_health_dimensions.py, tests/unit/coherence/test_navigate_obligations.py and tests/unit/coherence/policy/test_ci.py; it selects the @pytest.mark.sr(\"SR-009\") tests named in that entry's `artifacts`."
   },
   "requirements": [
     {
@@ -146,6 +146,25 @@
         "tests/unit/substrate/policy/test_vocabulary.py::test_invalid_profile_error_is_not_an_uncompiled_preset_error",
         "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset",
         "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset_product"
+      ]
+    },
+    {
+      "id": "SR-009",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/substrate/policy/test_obligation.py::test_obligation_is_the_documented_contract",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates",
+        "tests/unit/coherence/test_health_dimensions.py::test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator",
+        "tests/unit/coherence/test_navigate_obligations.py::test_effective_profile_view_project_scope",
+        "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted"
       ]
     }
   ]
