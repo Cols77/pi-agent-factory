@@ -266,6 +266,12 @@ def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_
 # `satisfied`, and that every other case (missing, malformed, reject, defer,
 # wrong item, wrong gate, wrong SR, or an `sr:` authoring-consent decision)
 # stays open.
+#
+# Six of these tests (valid accept, missing decision, cross-SR mis-scoping,
+# reject, defer, and a blank decided_by below) are also bound to
+# SR-050/AC-3 via @pytest.mark.sr("SR-050"): they exhaustively exercise the
+# narrowed criterion's "attributed, correctly-scoped human accept, fail-
+# closed on everything else" contract.
 # --------------------------------------------------------------------------
 
 
@@ -322,6 +328,7 @@ def _write_review_decision(
     )
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_missing_decision_stays_open_under_high_assurance(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-100")
     obligations = compile_obligations(tmp_path, "sr:SR-100")
@@ -330,6 +337,7 @@ def test_human_review_missing_decision_stays_open_under_high_assurance(tmp_path)
     assert hr.requiredness == "blocking"
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_valid_accept_satisfies_only_that_sr(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-101")
     _write_review_decision(tmp_path, "SR-101")
@@ -340,6 +348,7 @@ def test_human_review_valid_accept_satisfies_only_that_sr(tmp_path):
     assert hr.requiredness == "blocking"
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_accept_for_one_sr_does_not_satisfy_another(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-002", extra_ids=("SR-003",))
     (tmp_path / "requirements" / "SR-003.md").write_text(
@@ -353,6 +362,7 @@ def test_human_review_accept_for_one_sr_does_not_satisfy_another(tmp_path):
     assert hr.state == "open"
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_reject_leaves_obligation_open(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-104")
     _write_review_decision(tmp_path, "SR-104", action="reject", reason="insufficient evidence")
@@ -362,6 +372,7 @@ def test_human_review_reject_leaves_obligation_open(tmp_path):
     assert hr.state == "open"
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_defer_leaves_obligation_open(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-105")
     _write_review_decision(
@@ -1006,6 +1017,7 @@ def _write_unattributed_review_decision(
     return path
 
 
+@pytest.mark.sr("SR-050")
 def test_human_review_accept_with_a_blank_decided_by_stays_open(tmp_path):
     _seed_high_assurance_sr(tmp_path, "SR-120")
     _write_unattributed_review_decision(tmp_path, "SR-120", decided_by="")
