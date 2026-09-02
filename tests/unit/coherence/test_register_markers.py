@@ -148,6 +148,7 @@ def _test_marker_requiredness(root: Path, sr_id: str) -> str:
     return obligation.requiredness
 
 
+@pytest.mark.sr("SR-006")
 def test_a_bound_sr_without_the_marker_is_required_under_the_default_profile(tmp_path: Path):
     # No `profile:` override -> the SR resolves to the project default
     # `prototype`, which compiles test_marker requiredness "required".
