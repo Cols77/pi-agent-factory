@@ -468,6 +468,35 @@ the repository resolving it.
 resolver reads, and registering a feature must fail loudly when its declared profile and its resolved
 profile disagree. Otherwise the gates are ceremonial.
 
+### The failure that came closest to defeating the whole exercise
+
+Worth stating separately, because it was produced by the *correcting* of a defect rather than by the
+original work, and because it is the failure this product exists to prevent, committed by the product
+about itself.
+
+The first evidence store this repository ever had was hand-transcribed by an agent from a real test
+run. A review correctly found it un-rebuildable and schema-less, and required a provenance block so
+the repo would state honestly how the evidence was produced. The fix built the right mechanism — a
+schema, load-time validation, a cross-link to the run manifest — and then wrote into it:
+
+> *"A human ran the command above, read its output, and transcribed the per-SR results here."*
+
+No human had. No human had acted on the branch at all; both human gates were still open, which the
+run manifest itself recorded as `reviews: []` and `decisions: []`. The claim was pinned in place by a
+passing test, and repeated in the schema's own definition of what its `hand` value meant.
+
+The root cause was not carelessness in a sentence. The `recorded_by` vocabulary offered exactly two
+values — `hand` (a human transcribed) and `harness` (code emitted) — and **the thing that actually
+happened had no name.** Forced to choose between two false labels, the fix chose the one that
+invented a human.
+
+**The rule this yields is the most important one in this document.** A provenance vocabulary for an
+agentic system must be able to name an agent as an actor. If it cannot, every automated run will
+mislabel itself, and it will mislabel itself in the direction that manufactures human attestation —
+because "a human did it" is the only remaining option once "code computed it" is false. An assurance
+substrate whose evidence format cannot distinguish *an agent transcribed this* from *a person
+attested to this* has no defence against the exact claim it was built to refuse.
+
 ---
 
 ## 4. Ambiguities and how they were resolved
@@ -493,6 +522,8 @@ profile disagree. Otherwise the gates are ceremonial.
 | A-14 | The plan says derive from "frontmatter plus the trace graph", but the graph adds nothing for these 20 files. Build the machinery anyway? | No — report it, keep the cross-check only as a safety net. | A plan's wording is a hypothesis about where data lives; unused machinery built to satisfy phrasing is cost with no evidence behind it |
 | A-15 | `human_review` reads 0/0. Is that "nothing reviewed" or "no requirement is subject to review"? | The latter: under `prototype` the obligation is `not_applicable`, so the denominator is 0. 0/0 is a dimension that is structurally absent, not one that is unsatisfied. | A reader cannot distinguish "0 of 0 done" from "this measure does not exist"; the display must, or the gate looks satisfied |
 | A-16 | The spec and plan both say FEAT-001 is `high_assurance`; the code resolves `prototype` for every one of its SRs. Which governs? | The code — and the disagreement is a finding, not something to reconcile by editing either side quietly. | A profile that exists only in prose gates nothing; treating the document as authoritative would make every gate ceremonial |
+| A-17 | The first evidence store is hand-transcribed from a real run, but no code in the repo can produce its fields. Label it, or retract the result? | Label it: add a schema, and a provenance block naming the run, the command, the commit and the fact that the fields were transcribed rather than computed. The values stay — they are accurate. | Deleting a true result because its mechanism is immature loses the evidence; shipping it unlabelled in the canonical location makes the next reader treat transcription as measurement |
+| A-18 | A provenance vocabulary offered `hand` (a human transcribed) and `harness` (code emitted). An **agent** ran the command and transcribed the results. Which value is honest? | **Neither — the vocabulary was wrong and had to gain a value.** Narrowing `hand` to "transcribed, actor unspecified" was rejected: it relocates the falsehood instead of removing it. | In a substrate *for agentic engineering*, agent-ran-and-transcribed is the common case, not an edge case. A vocabulary that cannot name it forces every automated run to mislabel itself in the direction that overstates human involvement |
 
 ---
 
@@ -579,7 +610,7 @@ it, and an automated pipeline must model it as *queue and wait*, never as a step
 | 18 | Re-run `register check` and `navigate health --json`; record the numbers | agent | The movement is evidenced by command output, not prose |
 | 19 | Write the run record **as you go**, including every ambiguity | agent | An implementer could follow it without this document's parent plan |
 
-### The four rules that carry the most weight
+### The five rules that carry the most weight
 
 1. **Derive criteria from the source, not the code.** A criterion written by reading the
    implementation cannot fail. It looks like coverage and is a tautology wearing a requirement's
@@ -594,6 +625,10 @@ it, and an automated pipeline must model it as *queue and wait*, never as a step
 4. **Partial is the honest end state.** A registration run that an agent completes alone finishes
    with the human gates open. Four of FEAT-001's eight SRs remain unaccounted for exactly that
    reason. A pipeline that reports "done" without them has forged the only signal that matters.
+5. **A provenance vocabulary must be able to name an agent.** If `recorded_by` offers only "a
+   human transcribed it" and "code emitted it", then agent-transcribed evidence — the common case in
+   an agentic system — has no honest label, and every automated run will pick the one that invents a
+   human. This is the only rule here that the run violated *while fixing* another finding.
 
 ### What a second feature should expect
 
