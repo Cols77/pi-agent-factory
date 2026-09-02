@@ -88,8 +88,16 @@ def classify(
 
     # 6. Overlap check
     overlap_ok = overlap is not None and overlap.get("ok", False)
+    overlap_unsupported = overlap is not None and overlap.get("status") == "unsupported"
     if not overlap_ok:
-        notes.append("import-graph overlap check failed — test does not reach changed files")
+        if overlap_unsupported:
+            notes.append(
+                "import-graph overlap check unsupported — selection or changed file is in a "
+                "language the import-edge layer does not parse (currently Python-only); "
+                "overlap could not be determined"
+            )
+        else:
+            notes.append("import-graph overlap check failed — test does not reach changed files")
 
     # 7. Measurement
     measured = sr.get("measurement") is not None

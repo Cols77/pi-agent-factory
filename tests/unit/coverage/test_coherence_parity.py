@@ -158,6 +158,8 @@ def test_binding_test_selection_missing_reports_a_distinct_reason(tmp_path: Path
         "changed_files": ("src/x.py",),
         "overlap": (),
         "unresolved": (),
+        "status": "resolved",
+        "diagnostics": (),
     }
 
 

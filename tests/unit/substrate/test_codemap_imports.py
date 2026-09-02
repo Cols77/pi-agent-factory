@@ -432,6 +432,113 @@ def test_compute_overlap_distinguishes_selection_missing_from_no_overlap(tmp_pat
     assert not missing.ok
 
 
+@pytest.mark.sr("SR-004")
+def test_compute_overlap_non_python_selection_is_unsupported(tmp_path: Path) -> None:
+    # A binding test selection written in a language the import-edge layer
+    # does not parse must not be silently treated as "resolved, no overlap"
+    # -- that is indistinguishable from a genuine verified zero-overlap.
+    (tmp_path / "widget.ts").write_text("export const x = 1;\n")
+
+    result = compute_overlap(tmp_path, "widget.ts", ["src/unrelated.py"])
+
+    assert result.status == "unsupported"
+    assert not result.ok
+    assert any("unsupported source type" in d and "widget.ts" in d for d in result.diagnostics)
+
+
+@pytest.mark.sr("SR-004")
+def test_compute_overlap_non_python_changed_file_is_unsupported(tmp_path: Path) -> None:
+    # A genuine Python overlap is still reported (ok stays trustworthy for
+    # what it did check), but the presence of a changed file in a language
+    # this layer never walks must be flagged rather than silently ignored.
+    _import_tree(tmp_path)
+
+    result = compute_overlap(
+        tmp_path,
+        "tests/test_preempt.py",
+        ["src/drone/priority_filter.py", "src/widget.go"],
+    )
+
+    assert result.status == "unsupported"
+    assert result.ok  # the real Python overlap it *could* check still holds
+    assert "src/drone/priority_filter.py" in result.overlap
+    assert any("unsupported source type" in d and "src/widget.go" in d for d in result.diagnostics)
+
+
+def test_compute_overlap_non_code_changed_file_stays_resolved(tmp_path: Path) -> None:
+    # Regression guard: a non-code changed file (docs, config) must never be
+    # mistaken for an unsupported code language -- only entries in the code
+    # index's own extension set trigger the unsupported signal.
+    _import_tree(tmp_path)
+
+    result = compute_overlap(
+        tmp_path,
+        "tests/test_preempt.py",
+        ["src/drone/priority_filter.py", "README.md"],
+    )
+
+    assert result.status == "resolved"
+    assert result.ok
+    assert result.diagnostics == ()
+
+
+@pytest.mark.sr("SR-004")
+def test_classify_unsupported_overlap_reports_distinct_note() -> None:
+    # coherence.audit.audit.classify()'s overlap note must distinguish
+    # "we could not check" (unsupported language) from "we checked and it
+    # didn't overlap" -- both currently collapse to overlap.get("ok", False)
+    # being False, but only the wording differs, which this test binds.
+    #
+    # This test lives in this file (rather than
+    # tests/unit/coverage/test_audit.py, where classify()'s other states are
+    # covered) because verification.kind: test_marker's ref is a single file
+    # that coherence.register.markers.collect_markers statically scans for
+    # @pytest.mark.sr(...) -- a test bound to SR-004/AC-3 has to physically
+    # reside in the file this requirement's frontmatter names as its ref.
+    from coherence.audit.audit import classify
+
+    sr = {
+        "sr_id": "SR-004",
+        "statement": "shall do X",
+        "binding": {
+            "experiment": "tests/test_x.ts",
+            "metric": "unit_pass_rate",
+            "assert_expr": "== 1.0",
+            "trials": 1,
+        },
+        "checksum_state": "current",
+        "tasks": ({"task_id": "T-001", "changed_files": ("src/x.ts",)},),
+        "measurement": {"passed": True, "value": 1.0},
+        "deferred": False,
+        "domain": "behavioral",
+    }
+    verdict = {
+        "sr_id": "SR-004",
+        "implemented": True,
+        "honest": True,
+        "confidence": "high",
+        "margin": None,
+        "reasoning": "Test exercises the path.",
+        "checked": ["x"],
+        "assumed": [],
+        "verify": [],
+    }
+    overlap = {
+        "ok": False,
+        "status": "unsupported",
+        "test_source": "tests/test_x.ts",
+        "reached_files": (),
+        "changed_files": ("src/x.ts",),
+        "overlap": (),
+        "unresolved": (),
+    }
+
+    state, notes = classify(sr, overlap, verdict, False)
+
+    assert any("unsupported" in n and "language" in n for n in notes)
+    assert not any("test does not reach changed files" in n for n in notes)
+
+
 # -- 3c. Parity: the new structured layer must not change old overlap answers.
 
 

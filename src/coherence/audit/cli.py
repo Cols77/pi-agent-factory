@@ -74,6 +74,15 @@ def cmd_audit(root: Path, feat: str, run_id: str | None = None) -> dict:
                 # that resolves fine but simply doesn't reach the changed
                 # files (a genuine zero-overlap result carries no "reason").
                 overlap_dict["reason"] = "binding test selection missing"
+            elif overlap_result.status == "unsupported":
+                # The selection or a changed file is written in a language
+                # the import-edge layer does not parse (non-Python) -- a
+                # distinct, non-silent signal so a caller never reads this as
+                # a verified zero-overlap.
+                overlap_dict["reason"] = (
+                    "binding test selection or a changed file is written in a language "
+                    "the import-edge layer does not parse (non-Python)"
+                )
             overlaps[sr_id] = overlap_dict
 
     audit = {

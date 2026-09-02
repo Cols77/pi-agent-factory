@@ -35,10 +35,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from substrate.codemap.build import LATEST_STEM, fingerprint_for, index_dir
+from substrate.codemap.build import _CODE_EXTS, LATEST_STEM, fingerprint_for, index_dir
 from substrate.codemap.store import load_latest
 
 EDGES_LATEST_STEM = "imports-latest.json"
+
+# Every extension the code index itself parses as code, minus Python -- kept
+# derived from _CODE_EXTS (rather than a hand-written language list) so this
+# module's notion of "non-Python code" can never drift from the index's own,
+# matching the anti-drift rationale the module docstring states for
+# _closure_walk.
+_NON_PYTHON_CODE_EXTS = _CODE_EXTS - {".py", ".pyi"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,8 @@ class OverlapResult:
     changed_files: tuple[str, ...]
     overlap: tuple[str, ...]
     unresolved: tuple[str, ...]
+    status: str = "resolved"
+    diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -245,6 +254,15 @@ def compute_overlap(root: Path, selection: str, changed_files: Iterable[str]) ->
         sorted(_norm(p.relative_to(root_resolved)) for p in reached)
     )
     overlap = tuple(sorted(set(reached_rel) & set(changed)))
+
+    diagnostics: list[str] = []
+    if source.suffix not in (".py", ".pyi"):
+        diagnostics.append(f"unsupported source type: {_norm(source)}")
+    for c in changed:
+        if Path(c).suffix in _NON_PYTHON_CODE_EXTS:
+            diagnostics.append(f"unsupported source type: {c}")
+    status = "unsupported" if diagnostics else "resolved"
+
     return OverlapResult(
         ok=bool(overlap),
         test_source=_norm(source),
@@ -252,6 +270,8 @@ def compute_overlap(root: Path, selection: str, changed_files: Iterable[str]) ->
         changed_files=changed,
         overlap=overlap,
         unresolved=tuple(sorted(unresolved)),
+        status=status,
+        diagnostics=tuple(diagnostics),
     )
 
 
