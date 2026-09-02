@@ -296,6 +296,40 @@ def test_compile_obligations_verification_result_high_assurance_missing_harness_
     assert "harness" in vr.reason
 
 
+@pytest.mark.sr("SR-010")
+def test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open(
+    tmp_path,
+):
+    # Same passing, non-stale validation entry again, but this time the SR
+    # DOES declare a `binding:` block -- it just omits `harness` specifically
+    # (every other binding field present). The compiler's actual condition is
+    # `req.binding is None or req.binding.harness is None`; the sibling test
+    # above only exercises the first half of that OR (no `binding:` block at
+    # all). This exercises the second half directly, so a regression that
+    # broke only the binding-present-but-harness-None branch is still caught.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-004.md").write_text(
+        "---\nid: SR-004\ntitle: t\nstatement: s\ndomain: d\nprofile: high_assurance\n"
+        "binding:\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "validation").mkdir()
+    (tmp_path / "validation" / "validation-report.json").write_text(
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-004", "passed": True, "stale": False}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-004")
+    vr = next(o for o in obligations if o.kind == "verification_result")
+    assert vr.requiredness == "blocking"
+    assert vr.state == "open"
+    assert "harness" in vr.reason
+
+
 def test_compile_obligations_human_review_high_assurance_no_review_identity_is_blocking_open(
     tmp_path,
 ):
