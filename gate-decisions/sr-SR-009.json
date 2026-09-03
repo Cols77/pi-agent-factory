@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-009",
+  "artifact_ref": "artifact:requirements/SR-009.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-009",
+      "action": "defer",
+      "reason": "Statement kept at the full 5-consumer source claim (status/health/inbox/navigator/gates); status/inbox obligation-consumption is not yet implemented. Deferred pending future wiring work, not accepted or rejected as authored.",
+      "review_after": "2026-12-01T00:00:00Z",
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-03T02:38:10Z",
+  "decided_by": "Cols77"
+}
