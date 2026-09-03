@@ -95,6 +95,53 @@ def test_a_bound_sr_declaring_no_implemented_by_entries_is_missing(tmp_path: Pat
 
 
 @pytest.mark.sr("SR-050")
+def test_a_bound_sr_with_only_a_legacy_verified_by_string_is_still_missing(tmp_path: Path):
+    # A legacy plain-string verified_by entry (the pre-existing SR-to-task
+    # graph edge) carries no path/symbol/test identity at all and cannot
+    # satisfy AC-1's structured relation -- its mere presence must not
+    # permanently defeat the "missing" finding for a bound SR that has zero
+    # structured verified_by entries.
+    _write_prod(tmp_path)
+    req_path = _write_meta(
+        tmp_path / "requirements" / "SR-117.md",
+        {
+            "id": "SR-117",
+            "implemented_by": [
+                {"path": "src/widgets/feature.py", "symbol": "widgets.feature:feature_context"}
+            ],
+            "verified_by": ["T-001"],
+        },
+    )
+    req = _bound("SR-117", req_path)
+    review = structural_review(tmp_path, req)
+    missing = [f for f in review.findings if f.category == "missing"]
+    assert {f.field for f in missing} == {"verified_by"}
+
+
+@pytest.mark.sr("SR-050")
+def test_a_verified_by_field_mixing_legacy_and_structured_entries_is_not_missing(tmp_path: Path):
+    _write_test_file(tmp_path)
+    req_path = _write_meta(
+        tmp_path / "requirements" / "SR-118.md",
+        {
+            "id": "SR-118",
+            "implemented_by": [],
+            "verified_by": [
+                "T-001",
+                {
+                    "path": "tests/unit/test_feature.py",
+                    "test": "tests/unit/test_feature.py::test_feature_context",
+                },
+            ],
+        },
+    )
+    req = _bound("SR-118", req_path)
+    review = structural_review(tmp_path, req)
+    missing = [f for f in review.findings if f.category == "missing"]
+    assert {f.field for f in missing} == {"implemented_by"}
+
+
+@pytest.mark.sr("SR-050")
 def test_a_verified_by_link_to_a_deleted_test_node_is_dangling(tmp_path: Path):
     # The plan's explicit fixture: "a link to a deleted test node" -- the
     # test FILE still exists, but the function it names does not (deleted).
@@ -179,6 +226,64 @@ def test_a_changed_file_with_no_sr_link_anywhere_is_unaccounted(tmp_path: Path):
     findings = unaccounted_changed_files(tmp_path, reqs, manifests)
     assert len(findings) == 1
     assert "src/widgets/orphan.py" in findings[0].detail
+
+
+@pytest.mark.sr("SR-050")
+def test_an_executed_test_with_no_sr_link_anywhere_is_unaccounted(tmp_path: Path):
+    # AC-2's criterion names two distinct unaccounted cases -- "changed
+    # production files OR executed tests with no owning SR relation" -- not
+    # just the first. A pre-existing, unmodified test file that is executed
+    # (recorded via the evidence writers' conventional
+    # validation[*].requirements[*].tests field) but never declared as any
+    # SR's implemented_by/verified_by path, and never itself a changed
+    # file, must still surface as unaccounted.
+    unrelated_path = _write_meta(tmp_path / "requirements" / "SR-108.md", {"id": "SR-108"})
+    reqs = [_unbound("SR-108", unrelated_path)]
+    manifests = [
+        {
+            "implementation": {"changed_files": []},
+            "validation": [
+                {
+                    "requirements": [
+                        {
+                            "id": "SR-902",
+                            "passed": True,
+                            "tests": ["tests/unit/test_orphan.py::test_something"],
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+    findings = unaccounted_changed_files(tmp_path, reqs, manifests)
+    assert len(findings) == 1
+    assert findings[0].category == "unaccounted"
+    assert "tests/unit/test_orphan.py" in findings[0].detail
+    assert "executed" in findings[0].detail
+
+
+@pytest.mark.sr("SR-050")
+def test_an_executed_test_also_declared_is_not_unaccounted(tmp_path: Path):
+    req_path = _write_meta(
+        tmp_path / "requirements" / "SR-109.md",
+        {
+            "id": "SR-109",
+            "verified_by": [
+                {"path": "tests/unit/test_owned.py", "test": "tests/unit/test_owned.py::test_x"}
+            ],
+        },
+    )
+    reqs = [_unbound("SR-109", req_path)]
+    manifests = [
+        {
+            "implementation": {"changed_files": []},
+            "validation": [
+                {"requirements": [{"id": "SR-109", "tests": ["tests/unit/test_owned.py::test_x"]}]}
+            ],
+        }
+    ]
+    findings = unaccounted_changed_files(tmp_path, reqs, manifests)
+    assert findings == ()
 
 
 @pytest.mark.sr("SR-050")
@@ -285,6 +390,41 @@ def test_a_linked_sr_whose_validation_entry_failed_is_linked_but_stale_or_failed
     hits = [f for f in review.findings if f.category == "linked_but_stale_or_failed"]
     assert len(hits) == 1
     assert "failed" in hits[0].detail
+
+
+@pytest.mark.sr("SR-050")
+def test_a_linked_sr_changed_again_after_its_last_recorded_validation_is_stale(tmp_path: Path):
+    # Genuine staleness, not just "never executed": evidence that WAS valid
+    # once (manifest #1: passing validation for this SR) has since gone out
+    # of date (manifest #2, later, changes the linked file again and
+    # records no validation entry for this SR at all -- so it isn't
+    # "scoped" per this reviewer's own scoping rule, and would otherwise
+    # pass as clean).
+    req_path = _write_meta(
+        tmp_path / "requirements" / "SR-902.md",
+        {
+            "id": "SR-902",
+            "verified_by": [
+                {"path": "tests/unit/test_x.py", "test": "tests/unit/test_x.py::test_it"}
+            ],
+        },
+    )
+    manifests = [
+        {
+            "ended_at": "2026-09-01T00:00:00Z",
+            "implementation": {"changed_files": ["tests/unit/test_x.py"]},
+            "validation": [{"requirements": [{"id": "SR-902", "passed": True}]}],
+        },
+        {
+            "ended_at": "2026-09-02T00:00:00Z",
+            "implementation": {"changed_files": ["tests/unit/test_x.py"]},
+            "validation": [],
+        },
+    ]
+    review = evidence_reconciliation_review(tmp_path, _unbound("SR-902", req_path), manifests)
+    hits = [f for f in review.findings if f.category == "linked_but_stale_or_failed"]
+    assert len(hits) == 1
+    assert "stale" in hits[0].detail
 
 
 @pytest.mark.sr("SR-050")

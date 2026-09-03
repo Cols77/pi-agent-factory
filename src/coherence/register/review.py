@@ -42,7 +42,8 @@ class StructuralFinding:
     ``unaccounted`` (the design's register-wide category -- see
     ``unaccounted_changed_files``, which is the only producer of that
     category; ``structural_review`` never emits it, because an unaccounted
-    changed file has no single owning SR to attach it to by definition).
+    changed file or executed test has no single owning SR to attach it to
+    by definition).
 
     ``field``/``index`` mirror ``coherence.register.relations.ReferenceIssue``
     when the finding originated from a declared relation entry; both are
@@ -180,12 +181,24 @@ def structural_review(root: Path, req: Requirement) -> StructuralReview:
     adds the one category that resolver does not cover:
 
     * ``missing``: the SR is bound (``req.binding is not None``, i.e. it has
-      a decided measurement) and declares zero entries under ``implemented_by``,
-      or zero under ``verified_by`` (absent field and an empty list are both
-      "zero"). A field with a legacy plain-string entry (``verified_by:
-      [T-001]``) is NOT zero -- the design allows that shape to coexist with
-      the structured relation this AC governs, so this check does not second
-      -guess it.
+      a decided measurement) and declares zero *structured* (dict-shaped)
+      entries under ``implemented_by``, or zero under ``verified_by``.
+      "Structured" is deliberate: a field holding only legacy plain-string
+      entries (``verified_by: [T-001]``) counts as zero here too, even
+      though that shape is a real, still-supported graph edge elsewhere
+      (``coherence.trace.model.edges_from_frontmatter``) and is not itself
+      malformed. AC-1/AC-2 exist specifically to require the canonical
+      ``path``/``symbol``/``test`` relation this module and ``relations.py``
+      resolve; a legacy string carries no path, symbol, or test-node
+      identity at all, so treating its mere presence as satisfying
+      ``missing`` would let a bound SR carry a real, resolving
+      ``implemented_by`` relation while its ``verified_by`` field -- or
+      vice versa -- stays permanently unstructured and unreviewable by
+      ``resolve_sr_relations``, including across any future implementation
+      slice that touches this SR again and never adds the new shape. A
+      field that mixes a legacy string with at least one structured entry
+      is NOT ``missing`` -- only the structured entries are what count, and
+      one is enough.
 
     Never reports ``unaccounted`` -- see ``unaccounted_changed_files``.
     """
@@ -193,13 +206,12 @@ def structural_review(root: Path, req: Requirement) -> StructuralReview:
     findings: list[StructuralFinding] = []
     if req.binding is not None:
         for field in ("implemented_by", "verified_by"):
-            raw = meta.get(field)
-            if raw is None or (isinstance(raw, list) and len(raw) == 0):
+            if not _declared_entries(meta, field):
                 findings.append(
                     StructuralFinding(
                         category="missing",
                         field=field,
-                        detail=f"{req.id}: bound requirement declares no {field} entries",
+                        detail=f"{req.id}: bound requirement declares no structured {field} entries",
                     )
                 )
     resolution = resolve_sr_relations(root, meta)
@@ -215,19 +227,80 @@ def structural_review(root: Path, req: Requirement) -> StructuralReview:
     return StructuralReview(req_id=req.id, findings=tuple(findings))
 
 
+def _executed_test_paths(manifests: list[dict]) -> list[str]:
+    """Repo-relative test file paths with at least one pytest node id
+    recorded as executed by any manifest, in first-seen order.
+
+    The evidence manifest schema (``evidence_manifest.schema.json``) types
+    ``validation`` as a bare ``array of object`` -- it names no canonical
+    field for "which test node ids ran". This repository's evidence
+    writers do, consistently, populate two conventional fields inside each
+    ``validation[*].requirements[*]`` entry: a flat ``tests`` list of
+    pytest node ids, and (when the entry also reports per-acceptance
+    -criterion detail) an ``acceptance[*].tests`` list. Every manifest
+    under ``evidence/runs/`` in this repository today uses one or both.
+    Reading them here -- rather than only ``implementation.changed_files``
+    -- is what lets AC-2's "executed tests with no owning SR relation" half
+    of its criterion (see the module docstring) actually have a code path
+    that can fire; see ``unaccounted_changed_files``, the sole caller. A
+    manifest that records no ``tests``/``acceptance[*].tests`` anywhere
+    (an untyped ``validation`` blob carrying only, say, a bare pass/fail)
+    contributes nothing here -- there is no field left to read, and this
+    function does not guess.
+    """
+    node_ids: list[str] = []
+    seen_nodes: set[str] = set()
+    for manifest in manifests:
+        for validation in manifest.get("validation") or []:
+            if not isinstance(validation, dict):
+                continue
+            for entry in validation.get("requirements") or []:
+                if not isinstance(entry, dict):
+                    continue
+                candidates = list(entry.get("tests") or [])
+                for acceptance in entry.get("acceptance") or []:
+                    if isinstance(acceptance, dict):
+                        candidates.extend(acceptance.get("tests") or [])
+                for node_id in candidates:
+                    node_id = str(node_id)
+                    if node_id not in seen_nodes:
+                        seen_nodes.add(node_id)
+                        node_ids.append(node_id)
+    paths: list[str] = []
+    seen_paths: set[str] = set()
+    for node_id in node_ids:
+        path = node_id.split("::", 1)[0]
+        if path not in seen_paths:
+            seen_paths.add(path)
+            paths.append(path)
+    return paths
+
+
 def unaccounted_changed_files(
     root: Path, reqs: Iterable[Requirement], manifests: list[dict]
 ) -> tuple[StructuralFinding, ...]:
     """Register-wide ``unaccounted`` structural findings (SR-050/AC-2).
 
-    A changed file -- read from every evidence run manifest's
-    ``implementation.changed_files`` (never from ``git diff``/``git log``,
-    per the source plan's explicit "reuse... evidence readers rather than
-    scanning Git as an authority" instruction) -- that is not named as the
-    ``path`` of ANY SR's ``implemented_by``/``verified_by`` entry anywhere in
-    the whole register. This is necessarily computed once across the whole
-    register, not per SR: an unaccounted file has, by definition, no single
-    owning SR to attach the finding to, so it is never folded into any one
+    Implements both halves of AC-2's own criterion text: "changed
+    production files **or executed tests** with no owning SR relation" --
+    two distinct cases per the source design's identical bullet ("changed
+    production files and executed tests with no owning SR relation").
+
+    * A changed file -- read from every evidence run manifest's
+      ``implementation.changed_files`` (never from ``git diff``/``git
+      log``, per the source plan's explicit "reuse... evidence readers
+      rather than scanning Git as an authority" instruction) -- that is
+      not named as the ``path`` of ANY SR's ``implemented_by``/
+      ``verified_by`` entry anywhere in the whole register.
+    * A test file -- read from every manifest's recorded executed pytest
+      node ids (``_executed_test_paths``) -- that is likewise not named as
+      the ``path`` of any SR's ``implemented_by``/``verified_by`` entry. A
+      path already reported as an unaccounted *changed* file is not
+      reported again just because it was also executed.
+
+    This is necessarily computed once across the whole register, not per
+    SR: an unaccounted file or test has, by definition, no single owning
+    SR to attach the finding to, so it is never folded into any one
     ``StructuralReview`` -- a caller merges this tuple in as its own bucket
     (see ``coherence.register.cli.cmd_review``).
     """
@@ -244,14 +317,27 @@ def unaccounted_changed_files(
             if path not in seen:
                 seen.add(path)
                 changed.append(path)
-    return tuple(
+    findings = [
         StructuralFinding(
             category="unaccounted",
             detail=f"{path}: changed but not declared as implemented_by/verified_by by any SR",
         )
         for path in changed
         if path not in declared
-    )
+    ]
+    for path in _executed_test_paths(manifests):
+        if path in seen or path in declared:
+            continue
+        findings.append(
+            StructuralFinding(
+                category="unaccounted",
+                detail=(
+                    f"{path}: executed as a test but not declared as "
+                    "implemented_by/verified_by by any SR"
+                ),
+            )
+        )
+    return tuple(findings)
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +360,39 @@ def _validation_entries(manifests: list[dict], req_id: str) -> list[dict]:
         for entry in validation.get("requirements", [])
         if isinstance(entry, dict) and entry.get("id") == req_id
     ]
+
+
+def _manifest_recency_key(manifest: dict) -> str:
+    """A manifest's ``ended_at`` (falling back to ``started_at``), or ``""``
+    when neither is recorded. ISO-8601 timestamps sort lexicographically, so
+    plain string comparison is enough to order manifests by recency without
+    parsing dates. A manifest carrying neither field sorts as the oldest
+    possible value and is never treated as "after" anything -- see
+    ``_changed_after_recency``."""
+    return str(manifest.get("ended_at") or manifest.get("started_at") or "")
+
+
+def _last_validated_recency(manifests: list[dict], req_id: str) -> str | None:
+    """The most recent recency key (``_manifest_recency_key``) among
+    manifests carrying ANY validation entry for ``req_id`` (passed or not)
+    -- ``None`` if no manifest ever recorded one."""
+    keys = [_manifest_recency_key(m) for m in manifests if _validation_entries([m], req_id)]
+    return max(keys) if keys else None
+
+
+def _changed_after_recency(manifests: list[dict], paths: set[str], after: str) -> bool:
+    """True when some manifest whose recency key sorts strictly after
+    ``after`` changed one of ``paths``. A manifest with no timestamp at all
+    (recency key ``""``) never sorts after anything, so untimestamped
+    manifests can never trigger a false "changed after" result -- absent
+    data yields no finding here, not a guess."""
+    for manifest in manifests:
+        if _manifest_recency_key(manifest) <= after:
+            continue
+        changed = {str(p) for p in (manifest.get("implementation", {}).get("changed_files") or [])}
+        if changed & paths:
+            return True
+    return False
 
 
 def evidence_reconciliation_review(
@@ -302,9 +421,26 @@ def evidence_reconciliation_review(
     * "linked" = at least one ``verified_by`` entry is declared (evidence
       integrity is about validation coverage, so this reconciles against
       ``verified_by`` specifically, not ``implemented_by``).
-    * "stale or failed" = linked, AND (some validation entry for this SR
-      says ``passed: false``, OR no manifest covers this SR's relations at
-      all, i.e. not executed).
+    * "stale or failed" = linked, AND at least one of:
+
+      - some validation entry for this SR says ``passed: false``
+        ("failed");
+      - no manifest covers this SR's relations at all, i.e. not executed
+        ("no manifest covers it");
+      - some manifest changed one of the *linked* (``verified_by``) paths
+        more recently (by ``ended_at``, falling back to ``started_at``)
+        than the most recent manifest that DID record a validation entry
+        for this SR -- i.e. the linked code moved on since the last time
+        this SR was actually validated, and nothing has re-validated it
+        since ("stale"). This is genuine staleness detection, not just
+        "never executed": a manifest that once passed can still go stale
+        later. Manifests carrying neither ``ended_at`` nor ``started_at``
+        are never treated as "after" any other manifest, so recency
+        -blind callers get no stale findings rather than an unreliable
+        guess -- see ``_changed_after_recency``.
+
+      "failed" takes priority over "stale" when both are true (a linked SR
+      whose most recent validation entry failed is reported as "failed").
     """
     meta = _raw_meta(req)
     declared = _declared_paths(meta, "implemented_by") | _declared_paths(meta, "verified_by")
@@ -347,8 +483,19 @@ def evidence_reconciliation_review(
                 f"{req.id}: a validation entry exists but no verified_by relation is declared",
             )
         )
-    if verified_paths and (any(entry.get("passed") is False for entry in entries) or not executed):
-        reason = "failed" if any(entry.get("passed") is False for entry in entries) else "no manifest covers it"
+    failed = any(entry.get("passed") is False for entry in entries)
+    stale = False
+    if verified_paths and not failed and executed:
+        last_validated = _last_validated_recency(manifests, req.id)
+        if last_validated is not None:
+            stale = _changed_after_recency(manifests, verified_paths, last_validated)
+    if verified_paths and (failed or not executed or stale):
+        if failed:
+            reason = "failed"
+        elif not executed:
+            reason = "no manifest covers it"
+        else:
+            reason = "linked paths changed after the last recorded validation (stale)"
         findings.append(
             ReconciliationFinding(
                 "linked_but_stale_or_failed", f"{req.id}: verified_by is linked but {reason}"
