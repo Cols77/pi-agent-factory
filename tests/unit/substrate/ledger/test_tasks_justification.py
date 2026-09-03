@@ -39,13 +39,17 @@ def test_justification_mixed_kinds(tmp_path):
     _write_task(
         tmp_path,
         "T-900.md",
-        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n",
+        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n"
+        "- implements: SPEC-EXAMPLE\n- maintains: INV-EXAMPLE\n- explores: EXP-EXAMPLE\n",
     )
     task = load_tasks(tmp_path / "tasks")[0]
     assert task.satisfies == ["SR-002"]
     assert task.justification == [
         Justification("satisfies", "SR-002"),
         Justification("mitigates", "FR-EXAMPLE"),
+        Justification("implements", "SPEC-EXAMPLE"),
+        Justification("maintains", "INV-EXAMPLE"),
+        Justification("explores", "EXP-EXAMPLE"),
     ]
 
 

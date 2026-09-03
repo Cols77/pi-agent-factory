@@ -217,11 +217,15 @@ def test_task_justification_mixed_kinds_produce_their_own_edges(tmp_path):
     _write(
         tmp_path / "tasks" / "T-900.md",
         "---\nid: T-900\ntitle: t\nstatus: todo\ndod: []\n"
-        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n---\n",
+        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n"
+        "- implements: SPEC-EXAMPLE\n- maintains: INV-EXAMPLE\n- explores: EXP-EXAMPLE\n---\n",
     )
     edges = _edges(tmp_path)
     assert Edge("T-900", "SR-002", "satisfies") in edges
     assert Edge("T-900", "FR-EXAMPLE", "mitigates") in edges
+    assert Edge("T-900", "SPEC-EXAMPLE", "implements") in edges
+    assert Edge("T-900", "INV-EXAMPLE", "maintains") in edges
+    assert Edge("T-900", "EXP-EXAMPLE", "explores") in edges
 
 
 def test_diagram_stub_illustrates_target_with_a_typed_edge(tmp_path):
