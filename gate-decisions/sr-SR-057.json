@@ -6,11 +6,11 @@
     {
       "item_id": "sr:SR-057",
       "action": "accept",
-      "reason": "",
+      "reason": "re-recorded: statement and ACs materially revised after the original accept (real ACs authored, time-relative statement wording fixed) -- the sr: gate has no content-checksum staleness check (see SR-059/AC-2), so this re-record is manual belt-and-suspenders, not something the mechanism required.",
       "review_after": null,
       "decided_by": null
     }
   ],
-  "decided_at": "2026-09-03T01:18:08Z",
+  "decided_at": "2026-09-03T01:43:25Z",
   "decided_by": "Cols77"
 }
