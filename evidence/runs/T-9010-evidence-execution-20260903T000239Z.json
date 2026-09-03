@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "run_id": "T-9010-evidence-execution-20260903T000239Z",
+  "task_id": "T-9010",
+  "started_at": "2026-09-03T00:02:39Z",
+  "ended_at": "2026-09-03T00:02:45Z",
+  "start_commit": "3a7e9f6f72b49e6c44dcd2e022679f3ec69c659d",
+  "result_commit": "3a7e9f6f72b49e6c44dcd2e022679f3ec69c659d",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": "requirements/SR-010.md",
+      "sha256": "2e6797e407d31d63a04bd5e00ead5c3f80d9f343b49af29ab1b6defbe25610b6"
+    },
+    "requirements": [
+      {
+        "id": "SR-010",
+        "path": "requirements/SR-010.md",
+        "sha256": "2e6797e407d31d63a04bd5e00ead5c3f80d9f343b49af29ab1b6defbe25610b6"
+      }
+    ],
+    "factory_config_sha256": "9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:395c93f4f11dbe0c489d4cbf8ac79060fc9b6f6b",
+      "source": "3a7e9f6f72b49e6c44dcd2e022679f3ec69c659d"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-010",
+      "kind": "file",
+      "digest": "sha256:2e6797e407d31d63a04bd5e00ead5c3f80d9f343b49af29ab1b6defbe25610b6",
+      "source": "requirements/SR-010.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values tests/unit/validation/test_pipeline.py::test_missing_harness_on_own_sr_blocks tests/unit/validation/test_pipeline.py::test_unrelated_periodic_sr_error_stays_a_warning tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open",
+      "started_at": "2026-09-03T00:02:39Z",
+      "ended_at": "2026-09-03T00:02:45Z",
+      "exit_code": 0,
+      "summary": "6 passed in 2.06s",
+      "requirements": [
+        {
+          "id": "SR-010",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_compiler.py tests/unit/validation/test_pipeline.py",
+          "note": "Newly-bound acceptance criteria (AC-1..AC-3), all kind:test_marker. `rtk proxy coherence measurement run --satisfies SR-010` was tried first per process and returned an empty requirements list (measurement's harness-based runner only evaluates top-level `binding:` requirements, not kind:test_marker acceptance criteria -- confirmed by inspecting the SR-009 precedent evidence, and this run itself overwrote validation/validation-report.json with an empty result, which was reverted via `git checkout -- validation/validation-report.json` before recording this entry), so evidence was recorded by directly collecting and running every criterion's referenced @pytest.mark.sr(\"SR-010\") test across the two ref files (tests/unit/coherence/policy/test_compiler.py, tests/unit/validation/test_pipeline.py). All six marked tests passed and none failed.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values"
+              ]
+            },
+            {
+              "id": "AC-2",
+              "tests": [
+                "tests/unit/validation/test_pipeline.py::test_missing_harness_on_own_sr_blocks",
+                "tests/unit/validation/test_pipeline.py::test_unrelated_periodic_sr_error_stays_a_warning"
+              ]
+            },
+            {
+              "id": "AC-3",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open",
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open",
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open"
+              ]
+            }
+          ],
+          "tests": [
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values",
+            "tests/unit/validation/test_pipeline.py::test_missing_harness_on_own_sr_blocks",
+            "tests/unit/validation/test_pipeline.py::test_unrelated_periodic_sr_error_stays_a_warning",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
