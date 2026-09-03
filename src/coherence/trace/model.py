@@ -348,15 +348,52 @@ def _read_text_or_empty(path: Path) -> str:
         return ""
 
 
-def edges_from_frontmatter(src_id: str, meta: dict) -> list[Edge]:
-    """Return declared V-cycle relationship edges without resolving their endpoints."""
+def _verified_by_edges(src_id: str, meta: dict) -> list[Edge]:
+    """``verified_by`` carries two different shapes under the same key, on
+    any node kind (including ``sr``): the pre-existing string-list graph
+    edge (e.g. ``verified_by: [T-001]``, an SR/task/etc pointing at the
+    task or run that verified it -- see tests/unit/system/test_vcycle.py's
+    ``verified_by: [T-SUBSYSTEM]`` fixture) and the SR-050 canonical
+    structured relation (``verified_by: [{path: ..., test: ...}, ...]``,
+    resolved by ``coherence.register.relations.resolve_sr_relations``, a
+    typed reference to a validation artifact, not a graph edge to another
+    node at all).
+
+    The two are told apart by the shape of each entry, not by node kind --
+    an SR can legitimately carry the legacy string form (as the fixtures
+    above show) so gating on ``node_kind == "sr"`` alone silently drops
+    real edges. A dict entry is always the structured relation and is
+    skipped here (reading it with ``as_str_list`` would stringify it, e.g.
+    ``"{'path': ..., 'test': ...}"``, into a bogus edge target and surface
+    as a spurious dangling-reference finding); a string entry is always the
+    legacy edge and is kept. ``implemented_by`` needs no such guard: it is
+    not read as a generic edge field at all.
+    """
+    raw = meta.get("verified_by")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [Edge(src_id, str(dst), "verified_by") for dst in raw if not isinstance(dst, dict)]
+
+
+def edges_from_frontmatter(src_id: str, meta: dict, node_kind: NodeKind | None = None) -> list[Edge]:
+    """Return declared V-cycle relationship edges without resolving their endpoints.
+
+    ``node_kind`` is accepted for caller-signature stability but no longer
+    gates any behaviour here: see ``_verified_by_edges`` for why the
+    ``verified_by`` shape is now detected per entry instead.
+    """
+    del node_kind
     edges: list[Edge] = []
     for dst in as_str_list(meta.get("parent_of")):
         edges.append(Edge(src_id, dst, "parent_of"))
     for parent in as_str_list(meta.get("child_of")):
         edges.append(Edge(parent, src_id, "parent_of"))
+    edges.extend(_verified_by_edges(src_id, meta))
     edge_fields: tuple[tuple[str, EdgeKind], ...] = (
-        ("verified_by", "verified_by"),
         ("demonstrates", "demonstrates"),
         ("evaluates", "evaluates"),
         ("contains", "contains"),
@@ -417,7 +454,7 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                     add(Edge(node.id, sr_id, "satisfies"))
             for upstream_id in as_str_list(meta.get("upstream")):
                 add(Edge(node.id, upstream_id, "upstream"))
-            for edge in edges_from_frontmatter(node.id, meta):
+            for edge in edges_from_frontmatter(node.id, meta, node.kind):
                 add(edge)
         elif node.kind in ("feat", "metric", "goal", "run", "diag"):
             post = _load_post(node.path)
@@ -432,7 +469,7 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                 metric_id = post.metadata.get("metric")
                 if isinstance(metric_id, str):
                     add(Edge(node.id, metric_id, "evaluates"))
-            for edge in edges_from_frontmatter(node.id, post.metadata):
+            for edge in edges_from_frontmatter(node.id, post.metadata, node.kind):
                 add(edge)
         elif node.kind == "plan":
             post = _load_post(node.path)

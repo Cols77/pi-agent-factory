@@ -220,6 +220,40 @@ def test_task_justification_mixed_kinds_produce_their_own_edges(tmp_path):
     assert Edge("T-900", "FR-EXAMPLE", "mitigates") in edges
 
 
+def test_sr_structured_verified_by_produces_no_bogus_dangling_edge(tmp_path):
+    # SR-050's canonical structured relation (verified_by: [{path, test}])
+    # is a typed artifact reference resolved by
+    # coherence.register.relations.resolve_sr_relations, not a graph edge --
+    # reading it as a string-list would stringify the dict into a bogus
+    # dangling-reference target.
+    _write(
+        tmp_path / "requirements" / "SR-100.md",
+        "---\nid: SR-100\ntitle: t\nstatement: s\ndomain: behavioral\n"
+        "verified_by:\n"
+        "  - path: tests/unit/trace/test_model_edges.py\n"
+        "    test: tests/unit/trace/test_model_edges.py::test_x\n"
+        "---\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert not any(e.kind == "verified_by" and e.src == "SR-100" for e in edges)
+
+
+def test_sr_plain_string_verified_by_still_produces_its_legacy_edge(tmp_path):
+    # The pre-existing verified_by: [task-id] graph edge (SR -> task/run)
+    # must survive on an SR node exactly as it does on any other node kind
+    # -- the two verified_by shapes are told apart by entry shape, not by
+    # node_kind == "sr" alone.
+    _write(
+        tmp_path / "requirements" / "SR-101.md",
+        "---\nid: SR-101\ntitle: t\nstatement: s\ndomain: behavioral\n"
+        "verified_by: [T-001]\n---\n",
+    )
+
+    assert Edge("SR-101", "T-001", "verified_by") in _edges(tmp_path)
+
+
 def test_diagram_stub_illustrates_target_with_a_typed_edge(tmp_path):
     _write(
         tmp_path / "docs" / "diagrams" / "DIAG-NAV-001.md",
