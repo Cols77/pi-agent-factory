@@ -28,6 +28,7 @@ def _seed(root: Path) -> None:
 
 
 @pytest.mark.sr("SR-009")
+@pytest.mark.sr("SR-048")
 def test_includes_every_declared_gate_command_in_order_with_python_substituted(tmp_path):
     _seed(tmp_path)
 
@@ -48,6 +49,7 @@ def test_includes_every_declared_gate_command_in_order_with_python_substituted(t
     ]
 
 
+@pytest.mark.sr("SR-048")
 def test_structural_checks_are_always_appended(tmp_path):
     _seed(tmp_path)
 
@@ -57,6 +59,7 @@ def test_structural_checks_are_always_appended(tmp_path):
     ]
 
 
+@pytest.mark.sr("SR-048")
 def test_no_declared_gates_raises_no_blocking_obligation_error(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text("harnesses: {}\n", encoding="utf-8")
@@ -65,6 +68,7 @@ def test_no_declared_gates_raises_no_blocking_obligation_error(tmp_path):
         required_ci_commands(tmp_path)
 
 
+@pytest.mark.sr("SR-048")
 def test_commandless_blocking_obligation_rejects_partial_results(tmp_path, monkeypatch):
     from coherence.policy import ci
 

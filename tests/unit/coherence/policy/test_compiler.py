@@ -81,6 +81,7 @@ def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
 
 
 @pytest.mark.sr("SR-009")
+@pytest.mark.sr("SR-048")
 def test_compile_obligations_ci_verification_substitutes_python_like_backends_does(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")
@@ -94,6 +95,7 @@ def test_compile_obligations_ci_verification_substitutes_python_like_backends_do
 
 
 @pytest.mark.sr("SR-009")
+@pytest.mark.sr("SR-048")
 def test_compile_obligations_preserves_configured_order_and_duplicates(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")
