@@ -1,0 +1,124 @@
+{
+  "schema_version": 2,
+  "run_id": "T-9012-evidence-execution-20260903T014536Z",
+  "task_id": "T-9012",
+  "started_at": "2026-09-03T01:45:36Z",
+  "ended_at": "2026-09-03T01:45:37Z",
+  "start_commit": "558db0298abf3314c786eb20e66af7324e8a5754",
+  "result_commit": "558db0298abf3314c786eb20e66af7324e8a5754",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": "requirements/SR-048.md",
+      "sha256": "e0fd7b4a15c478a818b76df479556a77063b9865928c9d7fb0738698ec8a1181"
+    },
+    "requirements": [
+      {
+        "id": "SR-048",
+        "path": "requirements/SR-048.md",
+        "sha256": "e0fd7b4a15c478a818b76df479556a77063b9865928c9d7fb0738698ec8a1181"
+      }
+    ],
+    "factory_config_sha256": "9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:558db0298abf3314c786eb20e66af7324e8a5754",
+      "source": "558db0298abf3314c786eb20e66af7324e8a5754"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-048",
+      "kind": "file",
+      "digest": "sha256:e0fd7b4a15c478a818b76df479556a77063b9865928c9d7fb0738698ec8a1181",
+      "source": "requirements/SR-048.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted tests/unit/coherence/policy/test_ci.py::test_structural_checks_are_always_appended tests/unit/coherence/policy/test_ci.py::test_no_declared_gates_raises_no_blocking_obligation_error tests/unit/coherence/policy/test_ci.py::test_commandless_blocking_obligation_rejects_partial_results tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates tests/integration/test_ci_workflow_dry_run.py::test_required_ci_commands_resolves_a_well_formed_list_against_this_repo tests/integration/test_ci_workflow_dry_run.py::test_resolve_step_reads_gates_directly_from_required_ci_commands",
+      "started_at": "2026-09-03T01:45:36Z",
+      "ended_at": "2026-09-03T01:45:37Z",
+      "exit_code": 0,
+      "summary": "8 passed in 0.97s",
+      "requirements": [
+        {
+          "id": "SR-048",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/coherence/policy/test_ci.py tests/unit/coherence/policy/test_compiler.py tests/integration/test_ci_workflow_dry_run.py",
+          "note": "Newly-bound acceptance criteria (AC-1..AC-4), all kind:test_marker. `rtk proxy uv run coherence measurement run --satisfies SR-048` was tried first per process (help text checked first via `coherence-measurement run --help`) and returned an empty requirements list both with and without `--all` (measurement's harness-based runner only evaluates top-level `binding:` requirements, not kind:test_marker acceptance criteria -- consistent with the SR-009/SR-010/SR-011 precedent evidence), and that command itself overwrote validation/validation-report.json with an empty result, which was reverted via `git checkout -- validation/validation-report.json` before this entry was recorded, so the empty-list result is confirmed rather than assumed. An agent then directly collected and ran every criterion's referenced @pytest.mark.sr(\"SR-048\") test across the three ref files (tests/unit/coherence/policy/test_ci.py, tests/unit/coherence/policy/test_compiler.py, tests/integration/test_ci_workflow_dry_run.py). All eight marked tests passed and none failed. AC-2 and AC-3 were narrowed during authoring consent on 2026-09-03 (see requirements/SR-048.md's body); the tests cited here are the narrowed criteria's own candidate tests, not the original broader claims.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "tests": [
+                "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted",
+                "tests/unit/coherence/policy/test_ci.py::test_structural_checks_are_always_appended"
+              ]
+            },
+            {
+              "id": "AC-2",
+              "tests": [
+                "tests/unit/coherence/policy/test_ci.py::test_no_declared_gates_raises_no_blocking_obligation_error",
+                "tests/unit/coherence/policy/test_ci.py::test_commandless_blocking_obligation_rejects_partial_results"
+              ]
+            },
+            {
+              "id": "AC-3",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates"
+              ]
+            },
+            {
+              "id": "AC-4",
+              "tests": [
+                "tests/integration/test_ci_workflow_dry_run.py::test_required_ci_commands_resolves_a_well_formed_list_against_this_repo",
+                "tests/integration/test_ci_workflow_dry_run.py::test_resolve_step_reads_gates_directly_from_required_ci_commands"
+              ]
+            }
+          ],
+          "tests": [
+            "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted",
+            "tests/unit/coherence/policy/test_ci.py::test_structural_checks_are_always_appended",
+            "tests/unit/coherence/policy/test_ci.py::test_no_declared_gates_raises_no_blocking_obligation_error",
+            "tests/unit/coherence/policy/test_ci.py::test_commandless_blocking_obligation_rejects_partial_results",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates",
+            "tests/integration/test_ci_workflow_dry_run.py::test_required_ci_commands_resolves_a_well_formed_list_against_this_repo",
+            "tests/integration/test_ci_workflow_dry_run.py::test_resolve_step_reads_gates_directly_from_required_ci_commands"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
