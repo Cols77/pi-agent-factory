@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,11 @@ from coherence.register.register import (
     is_checksum_current,
     load_register,
     parse_requirement,
+)
+from coherence.register.review import (
+    evidence_reconciliation_review,
+    structural_review,
+    unaccounted_changed_files,
 )
 from coherence.register.write import (
     ReasonRequiredError,
@@ -311,6 +317,37 @@ def cmd_next(project_root: Path) -> str:
     return "nothing pending -- every requirement is decided"
 
 
+def cmd_review(project_root: Path, req_id: str | None) -> str:
+    """SR-050/AC-2: the deterministic per-SR review, printed as JSON with two
+    top-level keys -- ``structural`` and ``evidence_reconciliation`` -- that
+    stay structurally separate (never merged into one verdict), plus the
+    register-wide ``unaccounted`` structural bucket when reviewing the whole
+    register (``req_id is None``); a single-SR review has no register-wide
+    context to compute it from."""
+    reqs = load_register(project_root / "requirements")
+    if req_id is not None and not any(r.id == req_id for r in reqs):
+        return json.dumps({"error": f"not found: {req_id}"}, indent=2)
+    targets = reqs if req_id is None else [r for r in reqs if r.id == req_id]
+    manifests = list_run_manifests(project_root / "evidence")
+
+    structural: dict[str, list[dict]] = {
+        req.id: [dataclasses.asdict(f) for f in structural_review(project_root, req).findings]
+        for req in targets
+    }
+    if req_id is None:
+        structural["_unaccounted"] = [
+            dataclasses.asdict(f) for f in unaccounted_changed_files(project_root, reqs, manifests)
+        ]
+    reconciliation = {
+        req.id: [
+            dataclasses.asdict(f)
+            for f in evidence_reconciliation_review(project_root, req, manifests).findings
+        ]
+        for req in targets
+    }
+    return json.dumps({"structural": structural, "evidence_reconciliation": reconciliation}, indent=2)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="factory-requirements")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -346,6 +383,11 @@ def main(argv: list[str] | None = None) -> int:
     p_next = sub.add_parser("next")
     p_next.add_argument("--project-root", default=Path("."), type=Path)
 
+    p_review = sub.add_parser("review")
+    p_review.add_argument("id", nargs="?", default=None)
+    p_review.add_argument("--all", action="store_true")
+    p_review.add_argument("--project-root", default=Path("."), type=Path)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "new":
@@ -380,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
         return code
     elif args.cmd == "next":
         print(cmd_next(args.project_root))
+    elif args.cmd == "review":
+        if not args.all and not args.id:
+            parser.error("review: pass an SR id or --all")
+        print(cmd_review(args.project_root, None if args.all else args.id))
     return 0
 
 
@@ -390,6 +436,7 @@ __all__ = [
     "cmd_index",
     "cmd_new",
     "cmd_next",
+    "cmd_review",
     "cmd_show",
     "cmd_status",
     "main",
