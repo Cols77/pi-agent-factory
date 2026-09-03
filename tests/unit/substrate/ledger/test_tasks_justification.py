@@ -16,6 +16,7 @@ def _write_task(root: Path, name: str, frontmatter_extra: str) -> Path:
     return path
 
 
+@pytest.mark.sr("SR-011")
 def test_legacy_satisfies_becomes_typed_justification(tmp_path):
     _write_task(tmp_path, "T-900.md", "satisfies:\n- SR-001\n")
     task = load_tasks(tmp_path / "tasks")[0]
@@ -23,6 +24,7 @@ def test_legacy_satisfies_becomes_typed_justification(tmp_path):
     assert task.justification == [Justification("satisfies", "SR-001")]
 
 
+@pytest.mark.sr("SR-011")
 def test_explicit_justification_corrects(tmp_path):
     _write_task(
         tmp_path, "T-900.md", "justification:\n- corrects: NC-0001\n"
@@ -32,6 +34,7 @@ def test_explicit_justification_corrects(tmp_path):
     assert task.justification == [Justification("corrects", "NC-0001")]
 
 
+@pytest.mark.sr("SR-011")
 def test_justification_mixed_kinds(tmp_path):
     _write_task(
         tmp_path,
@@ -46,12 +49,14 @@ def test_justification_mixed_kinds(tmp_path):
     ]
 
 
+@pytest.mark.sr("SR-011")
 def test_unknown_justification_kind_raises(tmp_path):
     _write_task(tmp_path, "T-900.md", "justification:\n- rejects: SR-001\n")
     with pytest.raises(InvalidJustificationError):
         load_tasks(tmp_path / "tasks")
 
 
+@pytest.mark.sr("SR-011")
 def test_multi_key_justification_entry_raises(tmp_path):
     _write_task(
         tmp_path, "T-900.md", "justification:\n- satisfies: SR-001\n  corrects: NC-0001\n"

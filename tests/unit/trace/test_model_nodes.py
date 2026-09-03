@@ -221,6 +221,7 @@ def test_a_malformed_requirement_still_degrades_to_a_filename_node(tmp_path):
     assert nodes["SR-bad.md"].proposed is False
 
 
+@pytest.mark.sr("SR-011")
 def test_task_with_unsupported_justification_kind_degrades_to_a_scope_error(tmp_path):
     _write(
         tmp_path / "tasks" / "T-902.md",
@@ -232,6 +233,7 @@ def test_task_with_unsupported_justification_kind_degrades_to_a_scope_error(tmp_
     assert "rejects" in nodes["T-902"].scope_error
 
 
+@pytest.mark.sr("SR-011")
 def test_task_with_well_formed_justification_has_no_scope_error(tmp_path):
     _write(
         tmp_path / "tasks" / "T-903.md",
@@ -240,3 +242,15 @@ def test_task_with_well_formed_justification_has_no_scope_error(tmp_path):
     )
     nodes = {n.id: n for n in load_nodes(tmp_path)}
     assert nodes["T-903"].scope_error is None
+
+
+@pytest.mark.sr("SR-011")
+def test_task_with_multi_key_justification_entry_degrades_to_a_scope_error(tmp_path):
+    _write(
+        tmp_path / "tasks" / "T-905.md",
+        "---\nid: T-905\ntitle: t\nstatus: todo\ndod: []\n"
+        "justification:\n- satisfies: SR-001\n  corrects: NC-0001\n---\n",
+    )
+    nodes = {n.id: n for n in load_nodes(tmp_path)}
+    assert nodes["T-905"].scope_error is not None
+    assert "single" in nodes["T-905"].scope_error
