@@ -13,5 +13,15 @@ gates:
     # proves they still match their frontmatter/trace-graph derivation.
     # It ran in no gate at all.
     - { cmd: "{python} -m coherence mirrors check" }
+    # SR-050/AC-4: proves that no high_assurance SR carries an open (not
+    # escalated, not dispositioned) semantic-fidelity finding. The
+    # profile-conditional exit logic lives entirely inside `coherence
+    # register review --check` itself (never here, and never in
+    # policy/compiler.py's _ci_verification_obligation, which treats every
+    # gate command as unconditionally blocking) -- under any profile other
+    # than high_assurance, or for an escalated/dispositioned/absent
+    # finding, the command exits 0 and findings are still recorded/printed,
+    # just not CI-blocking.
+    - { cmd: "{python} -m coherence register review --fidelity --check" }
     - { cmd: "{python} scripts/gates/ext.py" }
     - { cmd: "{python} scripts/gates/watch_ext.py" }

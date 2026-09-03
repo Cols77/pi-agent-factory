@@ -58,6 +58,8 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
     # The per-SR semantic audit child (coverage-review). The skill defines the
     # verdict protocol; the packet carries the evidence.
     AgentRole.COVERAGE_AUDIT: ["requirement-traceability-audit"],
+    # SR-050/AC-4's fidelity judge. Vendored at .pi/skills/fidelity-review.
+    AgentRole.FIDELITY_REVIEW: ["fidelity-review"],
 }
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
@@ -77,6 +79,11 @@ ROLE_SCOPE: dict[AgentRole, Scope] = {
     # Read-only audit: reads the injected packet + project files, writes nothing
     # (the verdict returns via stdout JSON; the runner validates and records it).
     AgentRole.COVERAGE_AUDIT: Scope(allow=[], bash="deny"),
+    # Read-only fidelity judge (SR-050/AC-4): reads the injected FidelityPacket
+    # + project files, writes nothing -- its verdict returns via stdout JSON
+    # and coherence.register.fidelity validates it before anything is
+    # persisted, exactly like COVERAGE_AUDIT above.
+    AgentRole.FIDELITY_REVIEW: Scope(allow=[], bash="deny"),
 }
 
 ROLE_PROMPTS: dict[AgentRole, str] = {
@@ -89,6 +96,16 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "Emit ONLY a fenced ```json block matching the verdict schema: "
         "sr_id, implemented, honest, confidence, margin, reasoning, checked, "
         "assumed, verify."
+    ),
+    AgentRole.FIDELITY_REVIEW: (
+        "You judge whether each resolved implemented_by/verified_by relation in the "
+        "injected FidelityPacket genuinely substantiates the requirement's claim. "
+        "You are read-only: bash is disabled for your role, and you may not write or "
+        "modify any file. Emit ONLY a fenced ```json block: "
+        '{"findings": [{"kind": ..., "relation": {"field":..., "path":..., "identity":...}, '
+        '"confidence": 0.0-1.0, "citations": [...], "rationale": ..., "acceptance_ref": null}]}. '
+        "A supported link gets no finding at all -- silence is the positive case. Your "
+        "verdict is advisory, never authoritative; it does not close the requirement."
     ),
     AgentRole.CONTEXT_GATHERER: (
         "You verify that spec, plan, prior session, and this task are coherent and "

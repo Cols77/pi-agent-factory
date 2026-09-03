@@ -25,6 +25,11 @@ class AgentRole(str, Enum):
     # Read-only per-SR semantic audit child for the coverage-review workflow
     # (factory.coverage.runner). Scope: read-only, no bash; emits a JSON verdict.
     COVERAGE_AUDIT = "coverage-audit"
+    # Read-only per-SR semantic-fidelity judge (SR-050/AC-4,
+    # coherence.register.fidelity's default judge). Scope: read-only, no
+    # bash; receives an injected FidelityPacket and emits a JSON findings
+    # verdict -- never authoritative on its own, see fidelity.py's docstring.
+    FIDELITY_REVIEW = "fidelity-review"
 
 
 class NodeOutcome(str, Enum):

@@ -5,6 +5,7 @@ import dataclasses
 import json
 import re
 from pathlib import Path
+from typing import Callable
 
 import frontmatter
 
@@ -14,6 +15,9 @@ from coherence.register.closure import (
     classify,
     verify_sr_marker,
 )
+from coherence.register.fidelity import FidelityJudgeUnavailable, review_fidelity
+from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet
+from coherence.register.fidelity_persistence import load_fidelity_result, save_fidelity_result
 from coherence.register.register import (
     Requirement,
     content_checksum,
@@ -317,13 +321,79 @@ def cmd_next(project_root: Path) -> str:
     return "nothing pending -- every requirement is decided"
 
 
-def cmd_review(project_root: Path, req_id: str | None) -> str:
-    """SR-050/AC-2: the deterministic per-SR review, printed as JSON with two
-    top-level keys -- ``structural`` and ``evidence_reconciliation`` -- that
-    stay structurally separate (never merged into one verdict), plus the
-    register-wide ``unaccounted`` structural bucket when reviewing the whole
-    register (``req_id is None``); a single-SR review has no register-wide
-    context to compute it from."""
+def _no_judge_configured(packet: FidelityPacket) -> list[dict]:
+    """The factory-free fallback `judge` (SR-050/AC-4): `coherence.register`
+    deliberately imports nothing from `factory.*`
+    (`tests/unit/requirements/test_coherence_parity.py` enforces this for the
+    whole package), so it cannot construct the real `PiAgentBackend`-dispatch
+    judge itself -- that lives at `coherence.audit.fidelity_dispatch.
+    default_judge` and is wired in by `coherence.cli`'s `register` group
+    dispatch (the one place allowed to import both). Calling `cmd_review`/
+    `cmd_review_check` directly with no `judge` -- e.g. `python -m
+    coherence.register review ...`, or any caller that bypasses `coherence
+    <group> ...` -- degrades to this: every SR reports `unavailable`, never a
+    silent pass, exactly like a real judge that failed to dispatch."""
+    raise FidelityJudgeUnavailable(
+        "no judge configured: coherence.register.cli has no factory.orchestrator "
+        "dependency by design; pass judge= explicitly, or invoke through "
+        "`coherence register review` (coherence.cli), which wires the real "
+        "PiAgentBackend-dispatch judge in"
+    )
+
+
+def _fidelity_result_json(
+    project_root: Path, req: Requirement, judge: Callable[[FidelityPacket], list[dict]]
+) -> dict:
+    """One SR's fidelity result as its JSON shape, persisting it (T5.4's
+    re-run disposition tracking) before returning. An SR the packet builder
+    itself cannot build a packet for (e.g. a register/frontmatter error) is
+    reported ``unavailable`` the same way an unavailable judge is -- never a
+    silent empty findings list standing in for "reviewed, found nothing"."""
+    try:
+        packet = build_fidelity_packet(project_root, req.id)
+    except ValueError as exc:
+        return {
+            "sr_id": req.id,
+            "profile": "",
+            "findings": [],
+            "unresolved": [],
+            "run_id": "",
+            "produced_at": "",
+            "status": "unavailable",
+            "error": str(exc),
+        }
+    result = review_fidelity(packet, judge)
+    save_fidelity_result(project_root, result)
+    stored = load_fidelity_result(project_root, req.id)
+    return (stored or result).to_dict()
+
+
+def _fidelity_results_json(
+    project_root: Path,
+    targets: list[Requirement],
+    *,
+    judge: Callable[[FidelityPacket], list[dict]] | None = None,
+) -> dict[str, dict]:
+    active_judge = judge or _no_judge_configured
+    return {req.id: _fidelity_result_json(project_root, req, active_judge) for req in targets}
+
+
+def cmd_review(
+    project_root: Path,
+    req_id: str | None,
+    *,
+    fidelity: bool = False,
+    judge: Callable[[FidelityPacket], list[dict]] | None = None,
+) -> str:
+    """SR-050/AC-2 + AC-4: the per-requirement review, printed as JSON with
+    ``structural`` and ``evidence_reconciliation`` (AC-2, always present) --
+    that stay structurally separate (never merged into one verdict) -- plus
+    the register-wide ``unaccounted`` structural bucket when reviewing the
+    whole register (``req_id is None``); a single-SR review has no register
+    -wide context to compute it from. When ``fidelity=True`` (``--fidelity``),
+    a THIRD top-level key, ``fidelity`` (SR-050/AC-4), is added -- also never
+    merged with the other two. ``judge`` overrides the real default judge
+    (dependency injection for tests; production callers never pass it)."""
     reqs = load_register(project_root / "requirements")
     if req_id is not None and not any(r.id == req_id for r in reqs):
         return json.dumps({"error": f"not found: {req_id}"}, indent=2)
@@ -345,10 +415,62 @@ def cmd_review(project_root: Path, req_id: str | None) -> str:
         ]
         for req in targets
     }
-    return json.dumps({"structural": structural, "evidence_reconciliation": reconciliation}, indent=2)
+    result: dict = {"structural": structural, "evidence_reconciliation": reconciliation}
+    if fidelity:
+        result["fidelity"] = _fidelity_results_json(project_root, targets, judge=judge)
+    return json.dumps(result, indent=2)
 
 
-def main(argv: list[str] | None = None) -> int:
+def cmd_review_check(
+    project_root: Path,
+    req_id: str | None,
+    *,
+    judge: Callable[[FidelityPacket], list[dict]] | None = None,
+) -> tuple[str, int]:
+    """SR-050/AC-4's high-assurance CI gate (``coherence register review
+    ... --check``): runs the fidelity reviewer across every SR in scope and
+    returns (JSON, exit code) -- exit code is non-zero ONLY when a
+    ``high_assurance``-profile SR carries an ``open`` (not ``escalated``, not
+    ``dispositioned``) fidelity finding. Under any other profile, or for an
+    ``escalated``/``dispositioned``/absent finding, the command exits 0
+    regardless -- findings are still recorded and printed, just not CI
+    -blocking. This is the profile-conditional logic
+    ``.factory/factory.yaml``'s gate entry relies on; see this module's own
+    ``main()`` wiring and ``src/coherence/policy/compiler.py``'s
+    ``_ci_verification_obligation`` docstring, which this reuses UNMODIFIED
+    (every configured gate command it lists is always blocking regardless of
+    profile -- the profile check happens here, inside the command, not
+    there)."""
+    reqs = load_register(project_root / "requirements")
+    if req_id is not None and not any(r.id == req_id for r in reqs):
+        return json.dumps({"error": f"not found: {req_id}"}, indent=2), 1
+    targets = reqs if req_id is None else [r for r in reqs if r.id == req_id]
+    fidelity = _fidelity_results_json(project_root, targets, judge=judge)
+
+    blocking: list[dict] = []
+    for sr_id, sr_result in fidelity.items():
+        if sr_result.get("profile") != "high_assurance":
+            continue
+        for finding in sr_result.get("findings", []):
+            if finding.get("status") == "open":
+                blocking.append({"sr_id": sr_id, "kind": finding.get("kind"), "relation": finding.get("relation")})
+
+    payload = json.dumps({"fidelity": fidelity, "blocking": blocking}, indent=2)
+    return payload, (1 if blocking else 0)
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    judge_factory: Callable[[Path], Callable[[FidelityPacket], list[dict]]] | None = None,
+) -> int:
+    """``judge_factory(project_root) -> judge`` overrides the fidelity
+    reviewer's real default judge for the ``review`` command's
+    ``--fidelity``/``--check`` (SR-050/AC-4). Left as an opaque, generically
+    -typed callable so this module never has to import `factory.*` itself to
+    accept one -- see `_no_judge_configured`'s docstring for why, and
+    `coherence.cli`'s ``register`` group wiring for where the real one comes
+    from. Production callers other than that wiring never need to pass it."""
     parser = argparse.ArgumentParser(prog="factory-requirements")
     sub = parser.add_subparsers(dest="cmd", required=True)
     common = argparse.ArgumentParser(add_help=False)
@@ -387,6 +509,15 @@ def main(argv: list[str] | None = None) -> int:
     p_review.add_argument("id", nargs="?", default=None)
     p_review.add_argument("--all", action="store_true")
     p_review.add_argument("--project-root", default=Path("."), type=Path)
+    p_review.add_argument(
+        "--fidelity", action="store_true", help="also run the SR-050/AC-4 fidelity reviewer"
+    )
+    p_review.add_argument(
+        "--check",
+        action="store_true",
+        help="CI-gate mode (SR-050/AC-4): run the fidelity reviewer and exit non-zero only "
+        "when a high_assurance-profile SR has an open finding",
+    )
 
     args = parser.parse_args(argv)
 
@@ -423,9 +554,19 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "next":
         print(cmd_next(args.project_root))
     elif args.cmd == "review":
-        if not args.all and not args.id:
+        # --check (the CI-gate mode, SR-050/AC-4) scopes to "every SR in
+        # scope" by its own nature -- .factory/factory.yaml's gate entry
+        # invokes it with neither an id nor --all, so only the plain (non
+        # -check) review requires one explicitly.
+        if not args.check and not args.all and not args.id:
             parser.error("review: pass an SR id or --all")
-        print(cmd_review(args.project_root, None if args.all else args.id))
+        target = None if (args.all or not args.id) else args.id
+        judge = judge_factory(args.project_root) if judge_factory is not None else None
+        if args.check:
+            text, code = cmd_review_check(args.project_root, target, judge=judge)
+            print(text)
+            return code
+        print(cmd_review(args.project_root, target, fidelity=args.fidelity, judge=judge))
     return 0
 
 
@@ -437,6 +578,7 @@ __all__ = [
     "cmd_new",
     "cmd_next",
     "cmd_review",
+    "cmd_review_check",
     "cmd_show",
     "cmd_status",
     "main",
