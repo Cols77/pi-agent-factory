@@ -1,12 +1,12 @@
 {
   "provenance": {
     "recorded_by": "agent",
-    "recorded_at": "2026-09-01T11:40:28Z",
+    "recorded_at": "2026-09-03T02:56:51Z",
     "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
-    "run_id": "T-6-evidence-execution-20260901T114021Z",
-    "evidence_manifest": "evidence/runs/T-6-evidence-execution-20260901T114021Z.json",
-    "commit": "44d585a5a0898ed52b8aa296b387cac3c948120b",
-    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. An agent ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the run showed, not values any code computed and not values any human has reviewed. No human has acted on this branch: the `authoring_consent` and `human_review` gates for these requirements are both still open, and the evidence manifest this note cites records no `reviews` and no `decisions`. The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
+    "run_id": "SR-004-006-050-evidence-refresh-20260903T025651Z",
+    "evidence_manifest": "evidence/runs/SR-004-006-050-evidence-refresh-20260903T025651Z.json",
+    "commit": "e491310a92c49499745996514928c7f5ff0780fa",
+    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. This entry supersedes the 2026-09-01 T-6 snapshot for SR-004, SR-006, and SR-050 only -- their acceptance-criteria composition changed since that run (SR-004/AC-3 and SR-006/AC-3 both narrowed from kind:manual to kind:test_marker on 2026-09-02; SR-050's original AC-2 split into AC-2/AC-4, and AC-1 and AC-3 became kind:test_marker). The SR-001/002/003/005/007 entries below are untouched by this refresh and still trace to the original T-6 run (evidence/runs/T-6-evidence-execution-20260901T114021Z.json, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); do not read their provenance as this run's. An agent ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the run showed, not values any code computed and not values any human has reviewed. A human has already acted on this branch for SR-004/006/050's `authoring_consent` gate: gate-decisions/sr-SR-004.json, gate-decisions/sr-SR-006.json, and gate-decisions/sr-SR-050.json each record an `accept` decision by `Cols77` (decided_at 2026-09-02T22:56:22Z, 2026-09-02T23:25:44Z, and 2026-09-03T00:24:43Z respectively). Only the separate `human_review` gate for these requirements is still open -- no gate-decisions/review-SR-004.json, review-SR-006.json, or review-SR-050.json files exist -- and the evidence manifest this note cites records no `reviews` and no `decisions` of its own (that manifest is not where the authoring_consent decisions live; they are recorded in the gate-decisions files named above). The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
   },
   "requirements": [
     {
@@ -65,10 +65,20 @@
     },
     {
       "id": "SR-004",
-      "error": "AC-3 is kind:manual and describes behaviour the system currently does not have (import-overlap coverage for non-Python languages); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
       "artifacts": [
         "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_renamed_binding_fixture_is_unresolved",
         "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_distinguishes_selection_missing_from_no_overlap",
+        "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_non_python_selection_is_unsupported",
+        "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_non_python_changed_file_is_unsupported",
+        "tests/unit/substrate/test_codemap_imports.py::test_classify_unsupported_overlap_reports_distinct_note",
         "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_persists_edges_beside_fingerprinted_index",
         "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports",
         "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_reexports_edge_and_overlap_types"
@@ -94,11 +104,19 @@
     },
     {
       "id": "SR-006",
-      "error": "AC-3 is kind:manual and describes behaviour the system currently does not have (gate-failing marker enforcement under every profile, not only high_assurance); it was deliberately authored as a failing/unmet criterion. AC-1/AC-2 automated tests passed (see artifacts) but the requirement is not reported measured-passing while a manual criterion is outstanding and unmet.",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
       "artifacts": [
         "tests/unit/coherence/test_register_markers.py::test_collect_markers_deduplicates_within_a_file",
         "tests/unit/coherence/test_register_markers.py::test_collect_markers_matches_the_sr_id_string_exactly",
         "tests/unit/coherence/test_register_markers.py::test_collect_markers_ignores_unrelated_decorators",
+        "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_required_under_the_default_profile",
         "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_profile"
       ]
     },
@@ -122,8 +140,33 @@
     },
     {
       "id": "SR-050",
-      "error": "All three acceptance criteria (AC-1, AC-2, AC-3) are kind:manual. No automated coverage exists for any of them -- there is no test to run and no test_marker acceptance criterion at all. A human review and a human_review gate decision are required before this requirement can be measured; none exists yet.",
-      "artifacts": []
+      "error": "AC-2 and AC-4 remain kind:manual: AC-2 (structural-coverage and evidence-integrity review reporting) has no reviewer implemented anywhere in src/coherence, and AC-4 (agent-driven semantic-fidelity findings, gated on an attributed human_review decision) has no fidelity reviewer implemented either -- both are explicitly scoped as manual in requirements/SR-050.md pending that future work. AC-1 and AC-3 are now kind:test_marker and every one of their bound tests passed (see artifacts), but the requirement is not reported measured-passing while AC-2 and AC-4 remain outstanding and unmet.",
+      "artifacts": [
+        "tests/unit/coherence/register/test_relations.py::test_a_symbol_resolving_to_a_real_definition_produces_no_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_symbol_with_no_matching_definition_is_a_reference_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_symbol_module_mismatched_with_its_declared_path_is_an_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_resolving_to_a_real_test_produces_no_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_class_scoped_pytest_node_resolving_to_a_real_method_produces_no_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_with_no_matching_test_is_a_reference_issue",
+        "tests/unit/coherence/register/test_relations.py::test_an_absolute_path_is_rejected_without_touching_the_filesystem",
+        "tests/unit/coherence/register/test_relations.py::test_a_dot_dot_escaping_path_is_rejected",
+        "tests/unit/coherence/register/test_relations.py::test_a_path_that_does_not_exist_on_disk_is_rejected",
+        "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_symbol_identity_is_rejected",
+        "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_test_node_identity_is_rejected",
+        "tests/unit/coherence/register/test_relations.py::test_a_verified_by_entry_with_only_a_path_is_file_only_validation",
+        "tests/unit/coherence/register/test_relations.py::test_legacy_plain_string_verified_by_entries_are_not_this_resolvers_concern",
+        "tests/unit/coherence/register/test_relations.py::test_no_declared_relations_at_all_resolves_ok",
+        "tests/unit/coherence/register/test_relations.py::test_multiple_entries_report_one_issue_per_failing_entry",
+        "tests/unit/coherence/register/test_relations.py::test_a_duplicate_implemented_by_entry_is_a_reference_issue",
+        "tests/unit/coherence/register/test_relations.py::test_a_duplicate_verified_by_entry_is_a_reference_issue",
+        "tests/unit/coherence/register/test_relations.py::test_the_same_path_across_different_symbols_is_not_a_duplicate",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_missing_decision_stays_open_under_high_assurance",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_valid_accept_satisfies_only_that_sr",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_for_one_sr_does_not_satisfy_another",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_reject_leaves_obligation_open",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_defer_leaves_obligation_open",
+        "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_with_a_blank_decided_by_stays_open"
+      ]
     }
   ]
 }

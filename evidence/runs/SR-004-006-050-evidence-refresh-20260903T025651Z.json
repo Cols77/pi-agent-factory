@@ -1,0 +1,221 @@
+{
+  "schema_version": 2,
+  "run_id": "SR-004-006-050-evidence-refresh-20260903T025651Z",
+  "task_id": "T-6",
+  "started_at": "2026-09-03T02:56:34Z",
+  "ended_at": "2026-09-03T02:56:43Z",
+  "start_commit": "e491310a92c49499745996514928c7f5ff0780fa",
+  "result_commit": "e491310a92c49499745996514928c7f5ff0780fa",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": ".superpowers/sdd/2026-09-01-feat001-first-vertical-slice/task-6-brief.md",
+      "sha256": "98319d78498b8f51b319bd14fb48303614f2a3faa810a64b1808796f8f0cd688"
+    },
+    "requirements": [
+      {
+        "id": "SR-001",
+        "path": "requirements/SR-001.md",
+        "sha256": "f5f58dd450fec3bb79921fecab5f728ad4fe0e819a78aea50bf943b044709969"
+      },
+      {
+        "id": "SR-002",
+        "path": "requirements/SR-002.md",
+        "sha256": "d2929d39148ba9f7d00207a4238b4284db46f3777b88b13664c8a017f85a2357"
+      },
+      {
+        "id": "SR-003",
+        "path": "requirements/SR-003.md",
+        "sha256": "674260630f5599f2f279f1b633f52100653ac18b24870cf475e327f529a3437e"
+      },
+      {
+        "id": "SR-004",
+        "path": "requirements/SR-004.md",
+        "sha256": "92e98f74034ac084ffd71ee5e8c8075343b6ccd6ea0afe0c0edd61ef57714d47"
+      },
+      {
+        "id": "SR-005",
+        "path": "requirements/SR-005.md",
+        "sha256": "77aca05667cc3ee507cb6d8d1712da1cfadd935ebd463e907056887213ec5c1d"
+      },
+      {
+        "id": "SR-006",
+        "path": "requirements/SR-006.md",
+        "sha256": "d6da300aa594cb74711abac18d6f56edf3e1c969df9550f71828be24c6d6173e"
+      },
+      {
+        "id": "SR-007",
+        "path": "requirements/SR-007.md",
+        "sha256": "d39878ca6c9c093845e0c03a6fcd4bdbfb7ce5c33e44feca2260a5a1ec34c0aa"
+      },
+      {
+        "id": "SR-050",
+        "path": "requirements/SR-050.md",
+        "sha256": "425ace009fec1c3f4c65b6ec147171c42e00460be27ac27bc4ee0943e6a4a8c8"
+      }
+    ],
+    "factory_config_sha256": "9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:42ba0792b0d3f08c1ab1bf65c12d8d01e6b65470",
+      "source": "e491310a92c49499745996514928c7f5ff0780fa"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-001",
+      "kind": "file",
+      "digest": "sha256:f5f58dd450fec3bb79921fecab5f728ad4fe0e819a78aea50bf943b044709969",
+      "source": "requirements/SR-001.md"
+    },
+    {
+      "name": "requirement:SR-002",
+      "kind": "file",
+      "digest": "sha256:d2929d39148ba9f7d00207a4238b4284db46f3777b88b13664c8a017f85a2357",
+      "source": "requirements/SR-002.md"
+    },
+    {
+      "name": "requirement:SR-003",
+      "kind": "file",
+      "digest": "sha256:674260630f5599f2f279f1b633f52100653ac18b24870cf475e327f529a3437e",
+      "source": "requirements/SR-003.md"
+    },
+    {
+      "name": "requirement:SR-004",
+      "kind": "file",
+      "digest": "sha256:92e98f74034ac084ffd71ee5e8c8075343b6ccd6ea0afe0c0edd61ef57714d47",
+      "source": "requirements/SR-004.md"
+    },
+    {
+      "name": "requirement:SR-005",
+      "kind": "file",
+      "digest": "sha256:77aca05667cc3ee507cb6d8d1712da1cfadd935ebd463e907056887213ec5c1d",
+      "source": "requirements/SR-005.md"
+    },
+    {
+      "name": "requirement:SR-006",
+      "kind": "file",
+      "digest": "sha256:d6da300aa594cb74711abac18d6f56edf3e1c969df9550f71828be24c6d6173e",
+      "source": "requirements/SR-006.md"
+    },
+    {
+      "name": "requirement:SR-007",
+      "kind": "file",
+      "digest": "sha256:d39878ca6c9c093845e0c03a6fcd4bdbfb7ce5c33e44feca2260a5a1ec34c0aa",
+      "source": "requirements/SR-007.md"
+    },
+    {
+      "name": "requirement:SR-050",
+      "kind": "file",
+      "digest": "sha256:425ace009fec1c3f4c65b6ec147171c42e00460be27ac27bc4ee0943e6a4a8c8",
+      "source": "requirements/SR-050.md"
+    },
+    {
+      "name": "task:T-6",
+      "kind": "file",
+      "digest": "sha256:98319d78498b8f51b319bd14fb48303614f2a3faa810a64b1808796f8f0cd688",
+      "source": ".superpowers/sdd/2026-09-01-feat001-first-vertical-slice/task-6-brief.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+      "started_at": "2026-09-03T02:56:34Z",
+      "ended_at": "2026-09-03T02:56:43Z",
+      "exit_code": 0,
+      "summary": "63 passed, 3016 deselected, 110 warnings in 6.95s",
+      "requirements": [
+        {
+          "id": "SR-004",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "Re-measured 2026-09-03. AC-3 was narrowed from kind:manual to kind:test_marker on 2026-09-02 (commit 9c04c0512a1f364cd46e17c418c47865442bc0af, 'fix(requirements): narrow SR-004/AC-3 to what is actually automatable') -- see the AC-3 scope note in requirements/SR-004.md for what was and was not automated. All three acceptance criteria (AC-1, AC-2, AC-3) are now kind:test_marker, all bound to tests/unit/substrate/test_codemap_imports.py, and all eight tests carrying @pytest.mark.sr(\"SR-004\") passed. No kind:manual criterion remains on this requirement.",
+          "tests": [
+            "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_renamed_binding_fixture_is_unresolved",
+            "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_distinguishes_selection_missing_from_no_overlap",
+            "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_non_python_selection_is_unsupported",
+            "tests/unit/substrate/test_codemap_imports.py::test_compute_overlap_non_python_changed_file_is_unsupported",
+            "tests/unit/substrate/test_codemap_imports.py::test_classify_unsupported_overlap_reports_distinct_note",
+            "tests/unit/substrate/test_codemap_imports.py::test_build_import_closure_persists_edges_beside_fingerprinted_index",
+            "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_shim_warns_naming_substrate_codemap_imports",
+            "tests/unit/substrate/test_codemap_imports.py::test_factory_coverage_imports_reexports_edge_and_overlap_types"
+          ]
+        },
+        {
+          "id": "SR-006",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "note": "Re-measured 2026-09-03. AC-3 was narrowed from kind:manual to kind:test_marker on 2026-09-02 (commit a7055afbc0675e88d2c4fd0b929a1d1dfcca9805, 'fix(requirements): narrow SR-006/AC-3 to what is actually automatable') -- see the authoring-consent note in requirements/SR-006.md for what was and was not automated. All three acceptance criteria (AC-1, AC-2, AC-3) are now kind:test_marker, all bound to tests/unit/coherence/test_register_markers.py, and all five tests carrying @pytest.mark.sr(\"SR-006\") passed. No kind:manual criterion remains on this requirement.",
+          "tests": [
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_deduplicates_within_a_file",
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_matches_the_sr_id_string_exactly",
+            "tests/unit/coherence/test_register_markers.py::test_collect_markers_ignores_unrelated_decorators",
+            "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_required_under_the_default_profile",
+            "tests/unit/coherence/test_register_markers.py::test_a_bound_sr_without_the_marker_is_blocking_under_the_high_assurance_profile"
+          ]
+        },
+        {
+          "id": "SR-050",
+          "note": "Re-measured 2026-09-03. AC-1 (tests/unit/coherence/register/test_relations.py) and AC-3 (tests/unit/coherence/policy/test_compiler.py) are now kind:test_marker and every one of their bound tests passed (see artifacts). AC-2 and AC-4 remain kind:manual: AC-2 (structural-coverage and evidence-integrity review reporting) has no reviewer implemented anywhere in src/coherence, and AC-4 (agent-driven semantic-fidelity findings, gated on an attributed human_review decision) has no fidelity reviewer implemented either -- both are explicitly scoped as manual in requirements/SR-050.md pending that future work. The requirement is not reported measured-passing while AC-2 and AC-4 remain outstanding and unmet.",
+          "command": "rtk proxy uv run pytest -m sr -v -o addopts=\"\"",
+          "automated_tests_passed": [
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_resolving_to_a_real_definition_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_with_no_matching_definition_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_module_mismatched_with_its_declared_path_is_an_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_resolving_to_a_real_test_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_class_scoped_pytest_node_resolving_to_a_real_method_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_with_no_matching_test_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_an_absolute_path_is_rejected_without_touching_the_filesystem",
+            "tests/unit/coherence/register/test_relations.py::test_a_dot_dot_escaping_path_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_path_that_does_not_exist_on_disk_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_symbol_identity_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_test_node_identity_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_verified_by_entry_with_only_a_path_is_file_only_validation",
+            "tests/unit/coherence/register/test_relations.py::test_legacy_plain_string_verified_by_entries_are_not_this_resolvers_concern",
+            "tests/unit/coherence/register/test_relations.py::test_no_declared_relations_at_all_resolves_ok",
+            "tests/unit/coherence/register/test_relations.py::test_multiple_entries_report_one_issue_per_failing_entry",
+            "tests/unit/coherence/register/test_relations.py::test_a_duplicate_implemented_by_entry_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_duplicate_verified_by_entry_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_the_same_path_across_different_symbols_is_not_a_duplicate",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_missing_decision_stays_open_under_high_assurance",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_valid_accept_satisfies_only_that_sr",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_for_one_sr_does_not_satisfy_another",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_reject_leaves_obligation_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_defer_leaves_obligation_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_with_a_blank_decided_by_stays_open"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
