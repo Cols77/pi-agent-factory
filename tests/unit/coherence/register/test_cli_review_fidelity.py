@@ -127,7 +127,12 @@ def test_check_exits_zero_when_the_high_assurance_finding_is_already_disposition
 
 
 @pytest.mark.sr("SR-050")
-def test_a_judge_that_fails_degrades_to_unavailable_never_crashing_or_silently_passing(tmp_path: Path):
+def test_a_judge_that_fails_degrades_to_unavailable_and_blocks_a_high_assurance_check(tmp_path: Path):
+    """A judge outage on a `high_assurance` SR must fail closed -- absence of
+    a verdict is never read as "reviewed, found nothing". The command still
+    never crashes and still records the SR's own status/error for visibility;
+    it just also joins `blocking` and pushes the exit code non-zero, exactly
+    like an actual open finding would."""
     _seed_sr(tmp_path, "SR-906", profile="high_assurance")
 
     def _broken_judge(packet):
@@ -136,8 +141,51 @@ def test_a_judge_that_fails_degrades_to_unavailable_never_crashing_or_silently_p
     text, code = cmd_review_check(tmp_path, "SR-906", judge=_broken_judge)
     payload = json.loads(text)
     assert payload["fidelity"]["SR-906"]["status"] == "unavailable"
-    assert payload["blocking"] == []
+    assert code != 0
+    assert len(payload["blocking"]) == 1
+    assert payload["blocking"][0]["sr_id"] == "SR-906"
+    assert payload["blocking"][0]["kind"] == "fidelity_unavailable"
+
+
+@pytest.mark.sr("SR-050")
+def test_a_judge_that_fails_does_not_block_a_non_high_assurance_check(tmp_path: Path):
+    _seed_sr(tmp_path, "SR-908")  # no owning high_assurance feature -> profile "prototype"
+
+    def _broken_judge(packet):
+        raise RuntimeError("no live dispatch context")
+
+    text, code = cmd_review_check(tmp_path, "SR-908", judge=_broken_judge)
+    payload = json.loads(text)
+    assert payload["fidelity"]["SR-908"]["status"] == "unavailable"
     assert code == 0
+    assert payload["blocking"] == []
+
+
+@pytest.mark.sr("SR-050")
+def test_check_blocks_when_the_packet_itself_fails_to_build_for_a_high_assurance_sr(
+    tmp_path: Path, monkeypatch
+):
+    """A packet-build failure (frontmatter error, missing register entry,
+    etc) must not masquerade as a non-`high_assurance` SR just because the
+    packet -- and with it, the packet's own resolved `profile` -- never got
+    built: the CI gate independently resolves the SR's real configured
+    profile so a `high_assurance` SR that cannot even be packaged still
+    blocks, exactly like an unavailable judge does."""
+    import coherence.register.cli as cli_module
+
+    _seed_sr(tmp_path, "SR-907", profile="high_assurance")
+
+    def _broken_packet_build(root, sr_id):
+        raise ValueError("frontmatter parse error")
+
+    monkeypatch.setattr(cli_module, "build_fidelity_packet", _broken_packet_build)
+    text, code = cmd_review_check(tmp_path, "SR-907", judge=lambda p: [])
+    payload = json.loads(text)
+    assert payload["fidelity"]["SR-907"]["profile"] == "high_assurance"
+    assert payload["fidelity"]["SR-907"]["status"] == "unavailable"
+    assert code != 0
+    assert len(payload["blocking"]) == 1
+    assert payload["blocking"][0]["sr_id"] == "SR-907"
 
 
 @pytest.mark.sr("SR-050")

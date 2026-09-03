@@ -15,6 +15,7 @@ from coherence.register.closure import (
     classify,
     verify_sr_marker,
 )
+from coherence.policy.compiler import resolve_profile
 from coherence.register.fidelity import FidelityJudgeUnavailable, review_fidelity
 from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet
 from coherence.register.fidelity_persistence import load_fidelity_result, save_fidelity_result
@@ -348,13 +349,27 @@ def _fidelity_result_json(
     re-run disposition tracking) before returning. An SR the packet builder
     itself cannot build a packet for (e.g. a register/frontmatter error) is
     reported ``unavailable`` the same way an unavailable judge is -- never a
-    silent empty findings list standing in for "reviewed, found nothing"."""
+    silent empty findings list standing in for "reviewed, found nothing".
+
+    ``profile`` is resolved independently of the packet build so it stays
+    accurate even on this failure path: `build_fidelity_packet` only ever
+    resolves `profile` as its own last step, so a packet-build failure must
+    not also erase which profile the SR is actually configured under --
+    `cmd_review_check`'s CI gate depends on this field staying correct to
+    decide whether an ``unavailable`` high_assurance SR blocks (see that
+    command's own docstring)."""
     try:
         packet = build_fidelity_packet(project_root, req.id)
     except ValueError as exc:
+        try:
+            profile = resolve_profile(project_root, f"sr:{req.id}")
+        except Exception:  # noqa: BLE001 - profile resolution is best-effort here; the SR is
+            # already `unavailable` for the real failure captured in `exc` above, and an
+            # unresolvable profile must not raise a SECOND, different error in its place.
+            profile = ""
         return {
             "sr_id": req.id,
-            "profile": "",
+            "profile": profile,
             "findings": [],
             "unresolved": [],
             "run_id": "",
@@ -429,18 +444,31 @@ def cmd_review_check(
 ) -> tuple[str, int]:
     """SR-050/AC-4's high-assurance CI gate (``coherence register review
     ... --check``): runs the fidelity reviewer across every SR in scope and
-    returns (JSON, exit code) -- exit code is non-zero ONLY when a
+    returns (JSON, exit code) -- exit code is non-zero when a
     ``high_assurance``-profile SR carries an ``open`` (not ``escalated``, not
-    ``dispositioned``) fidelity finding. Under any other profile, or for an
-    ``escalated``/``dispositioned``/absent finding, the command exits 0
-    regardless -- findings are still recorded and printed, just not CI
-    -blocking. This is the profile-conditional logic
+    ``dispositioned``) fidelity finding, OR when a ``high_assurance``-profile
+    SR's fidelity review itself came back ``status == "unavailable"`` (judge
+    raised/timed out/returned a malformed shape, or the packet itself could
+    not be built). Under any other profile, or for an
+    ``escalated``/``dispositioned``/absent finding on an ``ok`` review, the
+    command exits 0 regardless -- findings are still recorded and printed,
+    just not CI-blocking. This is the profile-conditional logic
     ``.factory/factory.yaml``'s gate entry relies on; see this module's own
     ``main()`` wiring and ``src/coherence/policy/compiler.py``'s
     ``_ci_verification_obligation`` docstring, which this reuses UNMODIFIED
     (every configured gate command it lists is always blocking regardless of
     profile -- the profile check happens here, inside the command, not
-    there)."""
+    there).
+
+    The ``unavailable``-blocks-``high_assurance`` rule exists so a judge
+    outage, dispatch failure, or malformed SR never reads as "reviewed,
+    found nothing" at the one enforcement point that actually gates CI --
+    the same "no default-to-reviewed path" posture
+    ``_human_review_obligation`` already holds AC-3's own gate to. A
+    ``blocking`` entry for this case carries ``kind: "fidelity_unavailable"``
+    (no ``relation`` -- there is no finding to point at) instead of a real
+    finding's kind, so callers can tell "review ran and found a problem"
+    apart from "review never happened" even inside the same list."""
     reqs = load_register(project_root / "requirements")
     if req_id is not None and not any(r.id == req_id for r in reqs):
         return json.dumps({"error": f"not found: {req_id}"}, indent=2), 1
@@ -450,6 +478,16 @@ def cmd_review_check(
     blocking: list[dict] = []
     for sr_id, sr_result in fidelity.items():
         if sr_result.get("profile") != "high_assurance":
+            continue
+        if sr_result.get("status") == "unavailable":
+            blocking.append(
+                {
+                    "sr_id": sr_id,
+                    "kind": "fidelity_unavailable",
+                    "relation": None,
+                    "error": sr_result.get("error"),
+                }
+            )
             continue
         for finding in sr_result.get("findings", []):
             if finding.get("status") == "open":

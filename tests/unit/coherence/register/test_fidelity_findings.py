@@ -87,6 +87,27 @@ def test_a_finding_whose_relation_matches_the_packet_is_accepted():
     assert finding.relation.path == "src/a.py"
 
 
+def test_missing_link_compound_is_rejected_for_a_packet_with_no_acceptance():
+    """Open design question #5: `missing_link_compound` names a partial-
+    coverage gap in a declared `acceptance:` list -- an SR with no
+    `acceptance:` block at all (`packet.acceptance == ()`) has no compound
+    claim to check, so `build_finding` must reject the kind at construction
+    time rather than let it land as an ordinary finding."""
+    packet = _packet(acceptance=())
+    with pytest.raises(FidelityFindingError):
+        build_finding(packet, **_kwargs(kind="missing_link_compound"))
+
+
+def test_missing_link_compound_is_accepted_for_a_packet_with_acceptance():
+    from coherence.register.fidelity_packet import AcceptanceCriterionRef
+
+    packet = _packet(
+        acceptance=(AcceptanceCriterionRef(id="AC-1", criterion="c", verification_kind="test"),)
+    )
+    finding = build_finding(packet, **_kwargs(kind="missing_link_compound", acceptance_ref="AC-1"))
+    assert finding.kind == "missing_link_compound"
+
+
 def test_confidence_outside_bounds_is_rejected():
     with pytest.raises(FidelityFindingError):
         FidelityFinding(**_kwargs(confidence=1.5))

@@ -45,7 +45,12 @@ You are judging whether it genuinely substantiates the requirement's claim.
   a clause no declared relation covers at all. Anchor this finding's
   `relation` to the closest EXISTING relation in the packet (one that
   partially covers the compound claim) and name the uncovered clause via
-  `acceptance_ref`; never fabricate a relation reference.
+  `acceptance_ref`; never fabricate a relation reference. **Do not emit this
+  kind when the packet's `acceptance` list is empty** -- a legacy SR with no
+  declared `acceptance:` block has no compound claim to check partial
+  coverage of; this kind is rejected at construction time for such a packet,
+  so use `overstated_link`/`incidental_helper`/`weaker_subset_test`/
+  `different_behavior` instead.
 
 A relation that genuinely substantiates its claim gets **no finding at all**
 -- silence is the positive case. Do not manufacture a low-confidence finding

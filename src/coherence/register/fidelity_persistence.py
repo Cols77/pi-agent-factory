@@ -7,6 +7,7 @@ from pathlib import Path
 from coherence.gate.model import CorruptDecisionFile, _is_iso
 from coherence.gate.store import decision_path, load_decision
 from coherence.register.fidelity_findings import FidelityReviewResult
+from coherence.register.register import load_register
 
 # SR-050/AC-4 (docs/superpowers/plans/2026-09-03-sr050-t5-fidelity-reviewer-plan.md,
 # T5.4): durable per-SR storage for a `FidelityReviewResult`, plus re-run
@@ -56,18 +57,47 @@ def load_fidelity_result(root: Path, sr_id: str) -> FidelityReviewResult | None:
         return None
 
 
+def _expected_artifact_ref(root: Path, sr_id: str) -> str | None:
+    """The SR's own canonical `artifact:` ref, computed the SAME way
+    `_human_review_obligation` computes `expected_artifact_ref`
+    (`src/coherence/policy/compiler.py` lines ~322-326) -- `artifact:` plus
+    the SR's own requirement file path, relative-posix, resolved through the
+    register rather than the trace graph (this module already reads the
+    register nowhere else, but `coherence.register.register.load_register`
+    is the same lower-layer source `_sr_node_path`'s trace node ultimately
+    resolves from, so this stays a SEPARATE, local computation without
+    importing `compiler.py` -- see the module docstring). `None` when the SR
+    is not in the register (no requirement file to point at) or its path
+    cannot be expressed relative to `root` -- either way there is no
+    canonical ref a decision could correctly name."""
+    reqs = load_register(root / "requirements")
+    req = next((r for r in reqs if r.id == sr_id), None)
+    if req is None:
+        return None
+    try:
+        return "artifact:" + req.path.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
 def _accepted_review_decision_at(root: Path, sr_id: str) -> str | None:
     """The `decided_at` of an attributed `accept` decision for
-    `review:<sr_id>`, or `None` when no such decision exists. Mirrors
-    `_human_review_obligation`'s own attribution rule (non-blank
-    `decided_by`, valid ISO-8601 `decided_at`) but is intentionally a
-    SEPARATE, local read -- this module never imports
+    `review:<sr_id>` that is ALSO correctly scoped to this SR's own
+    `artifact_ref`, or `None` when no such decision exists. Mirrors
+    `_human_review_obligation`'s own rule set in full now -- gate_id, item_id
+    scoping, artifact_ref scoping (`_expected_artifact_ref` above), AND
+    attribution (non-blank `decided_by`, valid ISO-8601 `decided_at`) -- but
+    is intentionally a SEPARATE, local read -- this module never imports
     `src/coherence/policy/compiler.py` (untouched by this task; see
     `coherence.register.fidelity`'s module docstring) and does not gate
     requirement closure itself. This is bookkeeping only: it decides whether
     a STORED finding should stop being re-escalated on re-run, not whether
     the SR is closed -- `_human_review_obligation` remains the sole gate for
-    that."""
+    that. The artifact_ref check matters here precisely because it is
+    bookkeeping with a real side effect: a mis-scoped decision (stale, wrong,
+    or manually-edited `artifact_ref`) must not disposition a stored finding
+    and thereby drop it out of `cmd_review_check`'s CI-blocking list while
+    AC-3's own gate would still correctly treat the SR as unreviewed."""
     item_id = f"review:{sr_id}"
     path = decision_path(root, item_id)
     if not path.is_file():
@@ -77,6 +107,9 @@ def _accepted_review_decision_at(root: Path, sr_id: str) -> str | None:
     except CorruptDecisionFile:
         return None
     if decision_file.gate_id != item_id:
+        return None
+    expected_artifact_ref = _expected_artifact_ref(root, sr_id)
+    if expected_artifact_ref is None or decision_file.artifact_ref != expected_artifact_ref:
         return None
     decisions = decision_file.decisions
     if len(decisions) != 1 or decisions[0].item_id != item_id or decisions[0].action != "accept":

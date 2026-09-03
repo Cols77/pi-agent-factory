@@ -42,6 +42,11 @@ FINDING_KINDS: tuple[str, ...] = (
 # `weaker_subset_test`/`different_behavior` remain fully applicable -- they
 # judge a single declared relation against the SR's own `statement`, which
 # every SR has, compound or not.
+#
+# This is mechanically enforced, not merely documented: `build_finding`
+# below rejects a `missing_link_compound` candidate with `FidelityFindingError`
+# whenever `packet.acceptance == ()`, and `.pi/skills/fidelity-review/
+# SKILL.md` tells the judge the same rule so it never bothers proposing one.
 
 FINDING_STATUSES: tuple[str, ...] = ("open", "escalated", "dispositioned")
 
@@ -183,6 +188,12 @@ def build_finding(
     if not relation_exists_in_packet(packet, relation):
         raise FidelityFindingError(
             f"relation {relation!r} does not match any entry {packet.sr_id}'s packet resolved"
+        )
+    if kind == "missing_link_compound" and not packet.acceptance:
+        raise FidelityFindingError(
+            f"missing_link_compound is inapplicable to {packet.sr_id}: its packet carries no "
+            "acceptance criteria to check partial coverage of (see the module docstring's "
+            "open design question #5)"
         )
     return FidelityFinding(
         sr_id=sr_id,
