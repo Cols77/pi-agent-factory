@@ -294,6 +294,11 @@
       "id": "SR-059",
       "checksum": null,
       "proposed": true
+    },
+    {
+      "id": "SR-060",
+      "checksum": null,
+      "proposed": true
     }
   ]
 }

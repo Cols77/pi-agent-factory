@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-011",
+  "artifact_ref": "artifact:requirements/SR-011.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-011",
+      "action": "accept",
+      "reason": "Statement narrowed to typed task justification (implemented/tested); the deferred lifecycle-relationship vocabulary split off to a new placeholder, SR-060 (renumbered from SR-057 after a collision with main's own SR-057, registered concurrently by another session).",
+      "review_after": null,
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-03T02:49:48Z",
+  "decided_by": "Cols77"
+}

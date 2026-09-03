@@ -21,6 +21,7 @@ def _edges(tmp_path: Path) -> list[Edge]:
     return extract_edges(tmp_path, load_nodes(tmp_path))
 
 
+@pytest.mark.sr("SR-011")
 def test_task_declares_source_plan_and_satisfies(tmp_path):
     _write(
         tmp_path / "tasks" / "T-012.md",
@@ -35,6 +36,7 @@ def test_task_declares_source_plan_and_satisfies(tmp_path):
     assert Edge("T-012", "SR-001", "satisfies") in edges
 
 
+@pytest.mark.sr("SR-011")
 def test_scalar_satisfies_is_accepted_as_single_edge(tmp_path):
     _write(
         tmp_path / "tasks" / "T-013.md",
@@ -198,6 +200,7 @@ def test_schema_valid_feature_and_goal_canonical_fields_produce_typed_edges(tmp_
     assert not any(edge.src == "GOAL-NAV-003" and edge.dst == "FEAT-NAV-017" for edge in edges)
 
 
+@pytest.mark.sr("SR-011")
 def test_task_justification_corrects_produces_a_typed_edge(tmp_path):
     _write(
         tmp_path / "tasks" / "T-031.md",
@@ -209,15 +212,20 @@ def test_task_justification_corrects_produces_a_typed_edge(tmp_path):
     assert not any(e.kind == "satisfies" for e in edges if e.src == "T-031")
 
 
+@pytest.mark.sr("SR-011")
 def test_task_justification_mixed_kinds_produce_their_own_edges(tmp_path):
     _write(
         tmp_path / "tasks" / "T-900.md",
         "---\nid: T-900\ntitle: t\nstatus: todo\ndod: []\n"
-        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n---\n",
+        "justification:\n- satisfies: SR-002\n- mitigates: FR-EXAMPLE\n"
+        "- implements: SPEC-EXAMPLE\n- maintains: INV-EXAMPLE\n- explores: EXP-EXAMPLE\n---\n",
     )
     edges = _edges(tmp_path)
     assert Edge("T-900", "SR-002", "satisfies") in edges
     assert Edge("T-900", "FR-EXAMPLE", "mitigates") in edges
+    assert Edge("T-900", "SPEC-EXAMPLE", "implements") in edges
+    assert Edge("T-900", "INV-EXAMPLE", "maintains") in edges
+    assert Edge("T-900", "EXP-EXAMPLE", "explores") in edges
 
 
 def test_sr_structured_verified_by_produces_no_bogus_dangling_edge(tmp_path):

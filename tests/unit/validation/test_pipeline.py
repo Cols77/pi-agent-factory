@@ -113,6 +113,7 @@ def test_validate_empty_when_no_register(tmp_path):
     assert report == {"requirements": []} and ok is True
 
 
+@pytest.mark.sr("SR-010")
 def test_missing_harness_on_own_sr_blocks(tmp_path):
     # SR-001 is the task's own justified SR (satisfies=["SR-001"]); its harness
     # isn't declared, so validation reports an "error" entry. Invariant kernel
@@ -125,6 +126,7 @@ def test_missing_harness_on_own_sr_blocks(tmp_path):
     assert "error" in report["requirements"][0]
 
 
+@pytest.mark.sr("SR-010")
 def test_unrelated_periodic_sr_error_stays_a_warning(tmp_path):
     # The task names nothing itself (satisfies=[]); SR-001 (every_iteration)
     # and SR-002 (periodic) are both swept in only because full_sweep=True,

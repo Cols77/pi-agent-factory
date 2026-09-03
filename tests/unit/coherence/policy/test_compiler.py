@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import typing
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from coherence.policy.compiler import (
     compile_obligations,
     resolve_profile,
 )
+from substrate.policy.obligation import Requiredness
 from substrate.policy.vocabulary import UncompiledPresetError
 
 pytestmark = pytest.mark.unit
@@ -34,10 +36,12 @@ def _seed_gates(root: Path) -> None:
     )
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_project_default(tmp_path):
     assert resolve_profile(tmp_path, "project") == "prototype"
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_project_scope_uses_project_default_explicitly(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text(
@@ -60,6 +64,7 @@ def test_resolve_profile_unsupported_artifact_scope_fails_closed(tmp_path):
         resolve_profile(tmp_path, "file:src/not-a-trace-artifact.py")
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_rejects_uncompiled_preset(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text("profile: exploration\n", encoding="utf-8")
@@ -67,6 +72,7 @@ def test_resolve_profile_rejects_uncompiled_preset(tmp_path):
         resolve_profile(tmp_path, "project")
 
 
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "factory.yaml").write_text("profile: product\n", encoding="utf-8")
@@ -74,6 +80,8 @@ def test_resolve_profile_rejects_uncompiled_preset_product(tmp_path):
         resolve_profile(tmp_path, "project")
 
 
+@pytest.mark.sr("SR-009")
+@pytest.mark.sr("SR-048")
 def test_compile_obligations_ci_verification_substitutes_python_like_backends_does(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")
@@ -86,6 +94,8 @@ def test_compile_obligations_ci_verification_substitutes_python_like_backends_do
     assert any("-m pytest -m unit -q" in command for command in (ci.resolve_cmd or ()))
 
 
+@pytest.mark.sr("SR-009")
+@pytest.mark.sr("SR-048")
 def test_compile_obligations_preserves_configured_order_and_duplicates(tmp_path):
     _seed_gates(tmp_path)
     obligations = compile_obligations(tmp_path, "project")
@@ -115,6 +125,51 @@ def test_compile_obligations_task_justification_for_task_scope(tmp_path):
     assert tj.state == "open"  # T-900 has no justification at all
 
 
+@pytest.mark.sr("SR-010")
+def test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values(tmp_path):
+    # AC-1: Requiredness is a CLOSED four-value type -- not_applicable, advisory,
+    # required, blocking -- and never a fifth value or an untyped string.
+    # `typing.get_args` pins the type declaration itself; compiling a
+    # representative project, task:* and sr:* scope under both prototype and
+    # high_assurance pins what the compiler actually emits, and the union of
+    # everything observed below is required to be exactly this set -- not a
+    # subset -- so the sample can't pass by accident on all-"blocking" output.
+    allowed = set(typing.get_args(Requiredness))
+    assert allowed == {"not_applicable", "advisory", "required", "blocking"}
+
+    _seed_gates(tmp_path)
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "tasks" / "T-900.md").write_text(
+        "---\nid: T-900\ntitle: t\nstatus: todo\ndod:\n- 'd'\n---\nbody\n", encoding="utf-8",
+    )
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
+        "---\nid: FEAT-001\ntitle: f\nprofile: high_assurance\nrequirements: [SR-HIGH]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-HIGH.md").write_text(
+        "---\nid: SR-HIGH\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements" / "SR-PROTO.md").write_text(
+        "---\nid: SR-PROTO\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+
+    observed: set[str] = set()
+    for scope in ("project", "task:T-900", "sr:SR-HIGH", "sr:SR-PROTO"):
+        for obligation in compile_obligations(tmp_path, scope):
+            assert obligation.requiredness in allowed, (
+                f"{scope}/{obligation.kind} produced an unlisted requiredness: "
+                f"{obligation.requiredness!r}"
+            )
+            observed.add(obligation.requiredness)
+    assert observed == allowed, f"sample never exercised: {allowed - observed}"
+
+
+@pytest.mark.sr("SR-008")
 def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch):
     # Increment 5's per-SR health loop calls compile_obligations(root,
     # f"sr:{n.id}", nodes=nodes, edges=edges) inside a loop over every SR --
@@ -142,6 +197,26 @@ def test_resolve_profile_honors_preloaded_nodes_and_edges(tmp_path, monkeypatch)
     assert resolve_profile(tmp_path, "sr:SR-001", nodes=nodes, edges=edges) == "high_assurance"
 
 
+@pytest.mark.sr("SR-008")
+def test_resolve_profile_artifact_own_override_wins_over_feature_inheritance(tmp_path):
+    # SR-500 declares its own `profile:` override (high_assurance) while its
+    # owning feature declares a DIFFERENT one (prototype) -- artifact/
+    # requirement scope must win over feature/bundle scope (the guide's
+    # precedence order), never the other way around.
+    (tmp_path / "docs" / "features").mkdir(parents=True)
+    (tmp_path / "docs" / "features" / "FEAT-500.md").write_text(
+        "---\nid: FEAT-500\ntitle: f\nprofile: prototype\nrequirements: [SR-500]\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-500.md").write_text(
+        "---\nid: SR-500\ntitle: t\nstatement: s\ndomain: d\nprofile: high_assurance\n---\n",
+        encoding="utf-8",
+    )
+    assert resolve_profile(tmp_path, "sr:SR-500") == "high_assurance"
+
+
+@pytest.mark.sr("SR-010")
 def test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open(
     tmp_path,
 ):
@@ -194,6 +269,7 @@ def test_compile_obligations_verification_result_prototype_pass_nonstale_is_sati
     assert vr.requiredness == "required"
 
 
+@pytest.mark.sr("SR-010")
 def test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open(
     tmp_path,
 ):
@@ -216,6 +292,40 @@ def test_compile_obligations_verification_result_high_assurance_missing_harness_
         encoding="utf-8",
     )
     obligations = compile_obligations(tmp_path, "sr:SR-003")
+    vr = next(o for o in obligations if o.kind == "verification_result")
+    assert vr.requiredness == "blocking"
+    assert vr.state == "open"
+    assert "harness" in vr.reason
+
+
+@pytest.mark.sr("SR-010")
+def test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open(
+    tmp_path,
+):
+    # Same passing, non-stale validation entry again, but this time the SR
+    # DOES declare a `binding:` block -- it just omits `harness` specifically
+    # (every other binding field present). The compiler's actual condition is
+    # `req.binding is None or req.binding.harness is None`; the sibling test
+    # above only exercises the first half of that OR (no `binding:` block at
+    # all). This exercises the second half directly, so a regression that
+    # broke only the binding-present-but-harness-None branch is still caught.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-004.md").write_text(
+        "---\nid: SR-004\ntitle: t\nstatement: s\ndomain: d\nprofile: high_assurance\n"
+        "binding:\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n---\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "validation").mkdir()
+    (tmp_path / "validation" / "validation-report.json").write_text(
+        json.dumps(
+            {
+                "provenance": {"recorded_by": "harness", "recorded_at": "2026-01-01T00:00:00Z", "command": "coherence-measurement run"},
+                "requirements": [{"id": "SR-004", "passed": True, "stale": False}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-004")
     vr = next(o for o in obligations if o.kind == "verification_result")
     assert vr.requiredness == "blocking"
     assert vr.state == "open"

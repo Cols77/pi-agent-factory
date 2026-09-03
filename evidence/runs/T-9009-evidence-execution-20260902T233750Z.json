@@ -1,0 +1,125 @@
+{
+  "schema_version": 2,
+  "run_id": "T-9009-evidence-execution-20260902T233750Z",
+  "task_id": "T-9009",
+  "started_at": "2026-09-02T23:37:50Z",
+  "ended_at": "2026-09-02T23:38:06Z",
+  "start_commit": "acfd3a4f4e0e92b32c5ca376d50397b2a73ccbba",
+  "result_commit": "acfd3a4f4e0e92b32c5ca376d50397b2a73ccbba",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": "requirements/SR-009.md",
+      "sha256": "a6d9b4631a4ed23280b112e17549492e40f5f228ddcc72f0875814dae73b3867"
+    },
+    "requirements": [
+      {
+        "id": "SR-009",
+        "path": "requirements/SR-009.md",
+        "sha256": "a6d9b4631a4ed23280b112e17549492e40f5f228ddcc72f0875814dae73b3867"
+      }
+    ],
+    "factory_config_sha256": "9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:2b55611c5a213a0e04fb10e78d35d5c71056fa22",
+      "source": "acfd3a4f4e0e92b32c5ca376d50397b2a73ccbba"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:9912dde1358bbe5983bbfe18f52bb2050ebd1db9cfbf8579ead6c7e906b7d6c6",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-009",
+      "kind": "file",
+      "digest": "sha256:a6d9b4631a4ed23280b112e17549492e40f5f228ddcc72f0875814dae73b3867",
+      "source": "requirements/SR-009.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/substrate/policy/test_obligation.py::test_obligation_is_the_documented_contract tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates tests/unit/coherence/test_health_dimensions.py::test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator tests/unit/coherence/test_navigate_obligations.py::test_effective_profile_view_project_scope tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted",
+      "started_at": "2026-09-02T23:37:50Z",
+      "ended_at": "2026-09-02T23:38:06Z",
+      "exit_code": 0,
+      "summary": "6 passed in 15.41s",
+      "requirements": [
+        {
+          "id": "SR-009",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -v -o addopts=\"\" tests/unit/substrate/policy/test_obligation.py tests/unit/coherence/policy/test_compiler.py tests/unit/coherence/test_health_dimensions.py tests/unit/coherence/test_navigate_obligations.py tests/unit/coherence/policy/test_ci.py",
+          "note": "Newly-bound during authoring consent (2026-09-03): SR-009 gained a binding and five kind:test_marker acceptance criteria (AC-1..AC-5). `rtk proxy uv run coherence measurement run --satisfies SR-009` was tried first per process and returned an empty requirements list (measurement's harness-based runner only evaluates top-level `binding:` requirements, not kind:test_marker acceptance criteria), so evidence was recorded by directly collecting and running every criterion's referenced @pytest.mark.sr(\"SR-009\") test across the five ref files (tests/unit/substrate/policy/test_obligation.py, tests/unit/coherence/policy/test_compiler.py, tests/unit/coherence/test_health_dimensions.py, tests/unit/coherence/test_navigate_obligations.py, tests/unit/coherence/policy/test_ci.py). All six marked tests passed and none failed.",
+          "acceptance": [
+            {
+              "id": "AC-1",
+              "tests": [
+                "tests/unit/substrate/policy/test_obligation.py::test_obligation_is_the_documented_contract"
+              ]
+            },
+            {
+              "id": "AC-2",
+              "tests": [
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+                "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates"
+              ]
+            },
+            {
+              "id": "AC-3",
+              "tests": [
+                "tests/unit/coherence/test_health_dimensions.py::test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator"
+              ]
+            },
+            {
+              "id": "AC-4",
+              "tests": [
+                "tests/unit/coherence/test_navigate_obligations.py::test_effective_profile_view_project_scope"
+              ]
+            },
+            {
+              "id": "AC-5",
+              "tests": [
+                "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted"
+              ]
+            }
+          ],
+          "tests": [
+            "tests/unit/substrate/policy/test_obligation.py::test_obligation_is_the_documented_contract",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+            "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates",
+            "tests/unit/coherence/test_health_dimensions.py::test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator",
+            "tests/unit/coherence/test_navigate_obligations.py::test_effective_profile_view_project_scope",
+            "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}

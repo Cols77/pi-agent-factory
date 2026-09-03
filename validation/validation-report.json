@@ -6,7 +6,7 @@
     "run_id": "SR-004-006-050-evidence-refresh-20260903T025651Z",
     "evidence_manifest": "evidence/runs/SR-004-006-050-evidence-refresh-20260903T025651Z.json",
     "commit": "e491310a92c49499745996514928c7f5ff0780fa",
-    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR. This entry supersedes the 2026-09-01 T-6 snapshot for SR-004, SR-006, and SR-050 only -- their acceptance-criteria composition changed since that run (SR-004/AC-3 and SR-006/AC-3 both narrowed from kind:manual to kind:test_marker on 2026-09-02; SR-050's original AC-2 split into AC-2/AC-4, and AC-1 and AC-3 became kind:test_marker). The SR-001/002/003/005/007 entries below are untouched by this refresh and still trace to the original T-6 run (evidence/runs/T-6-evidence-execution-20260901T114021Z.json, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); do not read their provenance as this run's. An agent ran the command above, read its output, and transcribed the per-SR results here; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what the run showed, not values any code computed and not values any human has reviewed. A human has already acted on this branch for SR-004/006/050's `authoring_consent` gate: gate-decisions/sr-SR-004.json, gate-decisions/sr-SR-006.json, and gate-decisions/sr-SR-050.json each record an `accept` decision by `Cols77` (decided_at 2026-09-02T22:56:22Z, 2026-09-02T23:25:44Z, and 2026-09-03T00:24:43Z respectively). Only the separate `human_review` gate for these requirements is still open -- no gate-decisions/review-SR-004.json, review-SR-006.json, or review-SR-050.json files exist -- and the evidence manifest this note cites records no `reviews` and no `decisions` of its own (that manifest is not where the authoring_consent decisions live; they are recorded in the gate-decisions files named above). The run itself is recorded in `evidence_manifest`, which carries the run id, the commit and the per-SR file hashes for the same event; these two files are the only record of it. Reproduce with the command above: it selects the @pytest.mark.sr tests named in each entry's `artifacts`."
+    "note": "Recorded by an agent, not emitted by a harness and not attested by a human. No code in this repository can produce these entries: every FEAT-001 SR is binding-less, and coherence.measurement.report.run_requirement_validation returns {'id': ..., 'error': 'proposed requirement: no binding to validate'} and exits before measuring for a binding-less SR -- and coherence-measurement's own `run` command finds no top-level `binding:` on SR-008, SR-009, SR-010, SR-011 or SR-048 either, since all five are verified through kind:test_marker acceptance criteria, not a Binding. Two runs merged into this file on 2026-09-03: this one (evidence_manifest above) supersedes the 2026-09-01 T-6 snapshot for SR-004, SR-006, and SR-050 only -- their acceptance-criteria composition changed since that run (SR-004/AC-3 and SR-006/AC-3 both narrowed from kind:manual to kind:test_marker on 2026-09-02; SR-050's original AC-2 split into AC-2/AC-4, and AC-1 and AC-3 became kind:test_marker); and a separate FEAT-002 authoring pass added SR-008/009/010/011/048 as each gained its own kind:test_marker acceptance criteria during authoring consent: SR-008 via evidence/runs/T-9008-evidence-execution-20260902T223423Z.json (commit 1ec7dfc6fd7de05a5d6b9735e6ae80bf17ac2871), SR-009 via evidence/runs/T-9009-evidence-execution-20260902T233750Z.json (commit dfeda5da998c4818b15f6240127815ae4ba32552), SR-010 via evidence/runs/T-9010-evidence-execution-20260903T000239Z.json (commit cdd64aed942a77551499a54b542cc6f41a001e38), SR-011 via evidence/runs/T-9011-evidence-execution-20260903T003052Z.json (commit a939bd40233b8bcbaeb7b078b2f814a44a04271e), and SR-048 via evidence/runs/T-9012-evidence-execution-20260903T014536Z.json (commit 558db0298abf3314c786eb20e66af7324e8a5754). The SR-001/002/003/005/007 entries are untouched by either run and still trace to the original T-6 run (evidence/runs/T-6-evidence-execution-20260901T114021Z.json, commit 44d585a5a0898ed52b8aa296b387cac3c948120b); do not read their provenance as either of these two runs'. An agent ran each command cited above, read its output, and transcribed the per-SR results into this file; the `metric`/`assert`/`trials`/`declared_trials`/`stale` fields are that agent's transcription of what each run showed, not values any code computed and not values any human has reviewed. No human has attested to any entry in this file: for SR-004/006/050, a human has already acted on the separate `authoring_consent` gate (gate-decisions/sr-SR-004.json, sr-SR-006.json, sr-SR-050.json each record an `accept` decision by `Cols77`), but the distinct `human_review` gate is still open for them (no gate-decisions/review-SR-*.json files exist), and this evidence manifest itself records no `reviews`/`decisions`; for SR-008/009/010/011/048, both `authoring_consent` and `human_review` remain open as of this run. Reproduce SR-004/006/050 with the command above. Reproduce SR-008 restricted to tests/unit/coherence/policy/test_compiler.py and tests/unit/substrate/policy/test_vocabulary.py. Reproduce SR-009 restricted to tests/unit/substrate/policy/test_obligation.py, tests/unit/coherence/policy/test_compiler.py, tests/unit/coherence/test_health_dimensions.py, tests/unit/coherence/test_navigate_obligations.py and tests/unit/coherence/policy/test_ci.py. Reproduce SR-010 restricted to tests/unit/coherence/policy/test_compiler.py and tests/unit/validation/test_pipeline.py. Reproduce SR-011 restricted to tests/unit/trace/test_model_edges.py, tests/unit/substrate/ledger/test_tasks_justification.py and tests/unit/trace/test_model_nodes.py. Reproduce SR-048 restricted to tests/unit/coherence/policy/test_ci.py, tests/unit/coherence/policy/test_compiler.py and tests/integration/test_ci_workflow_dry_run.py. Each restriction selects the @pytest.mark.sr(\"SR-<id>\") tests named in that entry's `artifacts`."
   },
   "requirements": [
     {
@@ -166,6 +166,113 @@
         "tests/unit/coherence/policy/test_compiler.py::test_human_review_reject_leaves_obligation_open",
         "tests/unit/coherence/policy/test_compiler.py::test_human_review_defer_leaves_obligation_open",
         "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_with_a_blank_decided_by_stays_open"
+      ]
+    },
+    {
+      "id": "SR-008",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_default",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_project_scope_uses_project_default_explicitly",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_artifact_own_override_wins_over_feature_inheritance",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_honors_preloaded_nodes_and_edges",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_most_specific_wins",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_path_override_equal_specificity_conflict_raises",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_unknown_preset_name_raises_invalid_profile_error",
+        "tests/unit/substrate/policy/test_vocabulary.py::test_invalid_profile_error_is_not_an_uncompiled_preset_error",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset",
+        "tests/unit/coherence/policy/test_compiler.py::test_resolve_profile_rejects_uncompiled_preset_product"
+      ]
+    },
+    {
+      "id": "SR-009",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/substrate/policy/test_obligation.py::test_obligation_is_the_documented_contract",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates",
+        "tests/unit/coherence/test_health_dimensions.py::test_verification_strategy_and_executed_evidence_share_the_active_obligation_denominator",
+        "tests/unit/coherence/test_navigate_obligations.py::test_effective_profile_view_project_scope",
+        "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted"
+      ]
+    },
+    {
+      "id": "SR-010",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_requiredness_is_always_one_of_the_four_literal_values",
+        "tests/unit/validation/test_pipeline.py::test_missing_harness_on_own_sr_blocks",
+        "tests/unit/validation/test_pipeline.py::test_unrelated_periodic_sr_error_stays_a_warning",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_no_validation_is_blocking_open",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_missing_harness_stays_open",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_verification_result_high_assurance_binding_present_no_harness_stays_open"
+      ]
+    },
+    {
+      "id": "SR-011",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/trace/test_model_edges.py::test_task_declares_source_plan_and_satisfies",
+        "tests/unit/trace/test_model_edges.py::test_scalar_satisfies_is_accepted_as_single_edge",
+        "tests/unit/trace/test_model_edges.py::test_task_justification_corrects_produces_a_typed_edge",
+        "tests/unit/trace/test_model_edges.py::test_task_justification_mixed_kinds_produce_their_own_edges",
+        "tests/unit/substrate/ledger/test_tasks_justification.py::test_legacy_satisfies_becomes_typed_justification",
+        "tests/unit/substrate/ledger/test_tasks_justification.py::test_explicit_justification_corrects",
+        "tests/unit/substrate/ledger/test_tasks_justification.py::test_justification_mixed_kinds",
+        "tests/unit/substrate/ledger/test_tasks_justification.py::test_unknown_justification_kind_raises",
+        "tests/unit/substrate/ledger/test_tasks_justification.py::test_multi_key_justification_entry_raises",
+        "tests/unit/trace/test_model_nodes.py::test_task_with_unsupported_justification_kind_degrades_to_a_scope_error",
+        "tests/unit/trace/test_model_nodes.py::test_task_with_well_formed_justification_has_no_scope_error",
+        "tests/unit/trace/test_model_nodes.py::test_task_with_multi_key_justification_entry_degrades_to_a_scope_error"
+      ]
+    },
+    {
+      "id": "SR-048",
+      "domain": "behavioral",
+      "metric": "pytest.mark.sr acceptance-criteria pass rate",
+      "value": 1.0,
+      "assert": "every kind:test_marker acceptance criterion's referenced test passes",
+      "passed": true,
+      "trials": 1,
+      "declared_trials": 1,
+      "stale": false,
+      "artifacts": [
+        "tests/unit/coherence/policy/test_ci.py::test_includes_every_declared_gate_command_in_order_with_python_substituted",
+        "tests/unit/coherence/policy/test_ci.py::test_structural_checks_are_always_appended",
+        "tests/unit/coherence/policy/test_ci.py::test_no_declared_gates_raises_no_blocking_obligation_error",
+        "tests/unit/coherence/policy/test_ci.py::test_commandless_blocking_obligation_rejects_partial_results",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_ci_verification_substitutes_python_like_backends_does",
+        "tests/unit/coherence/policy/test_compiler.py::test_compile_obligations_preserves_configured_order_and_duplicates",
+        "tests/integration/test_ci_workflow_dry_run.py::test_required_ci_commands_resolves_a_well_formed_list_against_this_repo",
+        "tests/integration/test_ci_workflow_dry_run.py::test_resolve_step_reads_gates_directly_from_required_ci_commands"
       ]
     }
   ]

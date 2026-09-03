@@ -25,6 +25,7 @@ def _workflow_step(repo_root: Path, name: str) -> dict:
     return next(step for step in _workflow_steps(repo_root) if step.get("name") == name)
 
 
+@pytest.mark.sr("SR-048")
 def test_required_ci_commands_resolves_a_well_formed_list_against_this_repo():
     repo_root = Path(__file__).resolve().parents[2]
     commands = required_ci_commands(repo_root)
@@ -34,6 +35,20 @@ def test_required_ci_commands_resolves_a_well_formed_list_against_this_repo():
     assert "coherence trace check" in commands
     assert "coherence register check" in commands
     assert any("pytest" in command and "-m unit" in command for command in commands)
+
+
+@pytest.mark.sr("SR-048")
+def test_resolve_step_reads_gates_directly_from_required_ci_commands():
+    """Provable without a bash subprocess (unlike the skip-if case below, so
+    this also runs on Windows): the workflow's own "Resolve required CI
+    gates" step, as authored in ci.yml, imports and calls
+    `required_ci_commands` itself -- the command list CI executes is not a
+    hand-maintained list embedded in the workflow."""
+    repo_root = Path(__file__).resolve().parents[2]
+    resolve_step = _workflow_step(repo_root, "Resolve required CI gates")["run"]
+
+    assert "from coherence.policy.ci import required_ci_commands" in resolve_step
+    assert "required_ci_commands(" in resolve_step
 
 
 def test_workflow_installs_the_runtime_and_locked_dependencies():
