@@ -11,6 +11,13 @@ document — no implementation code is written or scaffolded here, and `requirem
 is not touched: AC-4 stays `kind: manual` until a human reads and approves this plan and the
 reviewer it describes actually exists.
 
+**Revised 2026-09-03 (post-review).** An independent review approved this plan but found it had
+gone stale within its own drafting window: T4 landed 17 minutes after this plan was first
+committed, and three organizational assumptions below guessed wrong. Corrected in place: the
+module home is `coherence.register` (not a new `coherence.review` package), the CLI extends
+`coherence register review` (not a new top-level command family), and the persistence open
+question no longer defers to a T4 convention that turned out not to exist.
+
 ## Status at drafting time (2026-09-03)
 
 - **T1 (relation schema/resolver)** is done and merged: `coherence.register.relations.resolve_sr_relations`
@@ -18,12 +25,13 @@ reviewer it describes actually exists.
   entries against the real repo, reusing the existing code map
   (`substrate.codemap.store.ensure_fresh` + `substrate.codemap.build.file_signatures`), and
   rejects duplicates and line-number identity. AC-1 is `test_marker`-backed.
-- **T4 (structural reviewer) + evidence reconciliation reviewer**, closing AC-2, are being built
-  in parallel on `feat/sr050-t4-structural-reviewer`. At the time this plan was drafted that
-  branch carried **no commits beyond `main`** (`git rev-parse feat/sr050-t4-structural-reviewer`
-  == `git rev-parse HEAD`, both `ea4c0b6`) — nothing has landed to skim yet. Every place below
-  where this plan would otherwise defer to "whatever shape T4 established" is called out
-  explicitly as **pending T4** rather than guessed at; see "Open design questions."
+- **T4 (structural reviewer) + evidence reconciliation reviewer**, closing AC-2, has now **landed
+  and merged to `main`** (`6a2e4a2`, fixed up at `42e6fca`): `src/coherence/register/review.py`
+  (`structural_review`, `evidence_reconciliation_review`, `unaccounted_changed_files`), wired into
+  the existing `coherence register review <SR-ID>|--all` CLI (`src/coherence/register/cli.py`'s
+  `cmd_review`) — extending `coherence.register`, not a new package, and printing JSON, never
+  persisting to a file. Every place below that originally deferred to "whatever T4 picks" has been
+  corrected to name T4's actual, now-confirmed choices instead of guessing.
 - **`_human_review_obligation`** (`src/coherence/policy/compiler.py:273`), and its exhaustive
   tests in `tests/unit/coherence/policy/test_compiler.py` (six of them bound to SR-050 AC-3 via
   `@pytest.mark.sr("SR-050")`, lines 441–498+), are the **already-built, already-tested** gate
@@ -134,10 +142,10 @@ reviewer's output could cite back.
 
 ### Packet builder location
 
-`src/coherence/review/packet.py` — new module, new `coherence.review` package. This package is
-proposed as the **shared home for T4 and T5's reviewer code** (structural, evidence-reconciliation,
-fidelity), not a T5-only namespace: see "Open design questions" for why this is flagged rather than
-assumed, given T4 has not landed anything to confirm against yet.
+`src/coherence/register/fidelity_packet.py` — extends the existing `coherence.register` package,
+matching T4's landed precedent (`src/coherence/register/review.py`). T4 did not create a new
+`coherence.review` package; this plan's earlier proposal to do so is withdrawn accordingly — there
+is no separate reviewer package in this repo, and T5 should not invent one.
 
 ## Findings schema
 
@@ -253,14 +261,16 @@ actual blocking behavior comes from mechanisms that already exist and are alread
 
 ## Task breakdown
 
-### T5.1 — `coherence.review` package and `FidelityPacket` builder
+### T5.1 — `FidelityPacket` builder
 
-Create `src/coherence/review/__init__.py` and `src/coherence/review/packet.py`. Implement
+Create `src/coherence/register/fidelity_packet.py` (extending `coherence.register`, matching T4's
+landed precedent — see "Packet builder location"). Implement
 `build_fidelity_packet(root: Path, sr_id: str) -> FidelityPacket`, composing T1's resolver, the
 code map, `substrate.codemap.imports`, and evidence/validation-status readers as described above.
 No judgement logic lives here — this step is deterministic and independently testable.
 
-**Tests** (`tests/unit/coherence/review/test_packet.py`):
+**Tests** (`tests/unit/coherence/register/test_fidelity_packet.py`, matching `test_review.py`'s
+existing sibling-test convention for this package):
 - packet includes every resolved `implemented_by`/`verified_by` entry with signature + bounded
   source excerpt;
 - an unresolved relation (T1 issue) appears in `packet.unresolved`, not in `implemented`/`verified`;
@@ -274,13 +284,13 @@ No judgement logic lives here — this step is deterministic and independently t
 
 ### T5.2 — Findings schema and validation
 
-Add `FidelityFinding`/`FidelityReviewResult` dataclasses under `src/coherence/review/findings.py`,
+Add `FidelityFinding`/`FidelityReviewResult` dataclasses under `src/coherence/register/fidelity_findings.py`,
 with construction-time validation: `kind` in the fixed enum, `confidence` in `[0.0, 1.0]`,
 `citations` non-empty, `rationale` non-blank, `relation` naming a `(field, path, identity)` T1
 could itself resolve (cross-checked against the packet the finding was produced from, not merely
 shape-checked).
 
-**Tests** (`tests/unit/coherence/review/test_findings.py`):
+**Tests** (`tests/unit/coherence/register/test_fidelity_findings.py`):
 - a finding with empty `citations` is rejected at construction;
 - a finding whose `relation` does not match any entry in the packet it claims to come from is
   rejected (prevents a hallucinated relation reference from silently becoming a "real" finding);
@@ -289,7 +299,7 @@ shape-checked).
 
 ### T5.3 — Fidelity judgement (the agent-driven step)
 
-Implement `src/coherence/review/fidelity.py`: `review_fidelity(packet: FidelityPacket, judge) ->
+Implement `src/coherence/register/fidelity.py`: `review_fidelity(packet: FidelityPacket, judge) ->
 FidelityReviewResult`, where `judge` is an injected callable (subagent dispatch or an equivalent
 LLM-calling interface — the exact dispatch mechanism is an open question, see below) that receives
 the packet and returns raw candidate findings, validated and normalized through T5.2's schema
@@ -300,7 +310,7 @@ found nothing" — those two must stay distinguishable, matching this design's r
 elsewhere, e.g. `_human_review_obligation`'s own docstring, that absence is never silently read as
 a satisfied state).
 
-**Tests** (`tests/unit/coherence/review/test_fidelity.py`) — one fixture per the plan's own test
+**Tests** (`tests/unit/coherence/register/test_fidelity.py`) — one fixture per the plan's own test
 list, each a hand-built `FidelityPacket` + a stub `judge` returning a fixed verdict, so these tests
 never depend on a real model call:
 1. **Supported link** — packet with a production symbol whose body plausibly implements the SR
@@ -330,18 +340,22 @@ Also (not in the plan's original "Tests:" line, but required by the schema/enfor
 
 ### T5.4 — Persistence and re-run disposition tracking
 
-Decide and implement where a `FidelityReviewResult` is durably stored (see "Open design
-questions" #3 — this needs to agree with whatever T4 picks for structural/evidence-reconciliation
-findings, since SR-050's own statement requires the three categories to "separately report," which
-this plan reads as: independently *produced and stored*, then merged only at *read* time, e.g. by
-T6's dossier — never written into one shared, jointly-owned file two reviewers race to update).
-Provisional shape pending that confirmation: `review-findings/fidelity/<sr_id>.json`, mirroring
+Implement durable storage for a `FidelityReviewResult` (see revised "Open design questions" #3 —
+T4 has now landed and, unlike this plan originally anticipated, persists **nothing**: both
+`structural_review` and `evidence_reconciliation_review` are computed fresh on every
+`coherence register review` CLI call and only ever printed as JSON. There is therefore no T4
+storage convention for T5.4 to "agree with" — this justification stands on its own instead:
+fidelity review is agent-driven and comparatively expensive to re-run, and needs re-run
+disposition tracking (so a human's past `accept` is not silently re-litigated) in a way T4's free,
+deterministic checks do not. SR-050's "separately report... never merged" requirement is satisfied
+at the *reporting* layer by T5.5's distinct `fidelity` JSON key, not by mirroring T4's storage
+choice.) Provisional shape: `review-findings/fidelity/<sr_id>.json`, mirroring
 the existing `gate-decisions/sr-<SR-ID>.json` per-artifact file convention already used in this
 repo. A re-run reads the previous result (if any); a finding whose `(kind, relation)` pair matches
 a prior finding that a `review:<sr_id>` accept decision now post-dates is written back with
 `status="dispositioned"` rather than `"open"`/`"escalated"` again.
 
-**Tests** (`tests/unit/coherence/review/test_persistence.py`):
+**Tests** (`tests/unit/coherence/register/test_fidelity_persistence.py`):
 - first write creates the file; a second run with identical findings overwrites idempotently (no
   duplicate entries);
 - a finding a human has since accepted past (a matching, later `review:<sr_id>` accept
@@ -350,24 +364,29 @@ a prior finding that a `review:<sr_id>` accept decision now post-dates is writte
 
 ### T5.5 — CLI surface
 
-Add `src/coherence/review/cli.py` following the existing `cmd_<name>` + argparse `main(argv)`
-pattern used by `coherence.register.cli`/`coherence.audit.cli`: `coherence review fidelity
---sr <id>` (single SR, human-readable + `--json`) and `coherence review fidelity --check` (every
-in-scope SR, non-zero exit only per the high-assurance CI-gate rule in "Enforcement mechanics" —
-gated behind confirming Open design question #1). Register the console entry point alongside the
-existing `coherence.register`/`coherence.audit`/`coherence.navigate` subcommands.
+Extend the existing `coherence register review` command (`src/coherence/register/cli.py`'s
+`cmd_review`, landed by T4) rather than adding a new top-level `coherence review` command family —
+T4 already prints `structural` and `evidence_reconciliation` as top-level JSON keys from
+`coherence register review <SR-ID>|--all`; add a `--fidelity` flag that, when set, also runs
+`review_fidelity` and adds a third top-level `fidelity` key to the same JSON output (three
+categories, each its own key, never merged — extending AC-2's "never merged into one verdict"
+clause in spirit to AC-4's findings too). A `--check` flag on the same command (gated behind
+confirming Open design question #1) satisfies the high-assurance CI-gate rule in "Enforcement
+mechanics": non-zero exit only per that rule, across every in-scope SR.
 
-**Tests** (`tests/integration/test_review_fidelity_cli.py` or similar): `--sr` prints/returns a
-result for a fixture repo; `--check` exits 0 for an all-`escalated` (non-high-assurance) fixture
-and non-zero for a fixture with an `open` (high-assurance) finding.
+**Tests** (`tests/unit/coherence/register/test_cli_review_fidelity.py`, extending T4's existing CLI
+test coverage in the same module): `--fidelity` prints/returns a result for a fixture repo as a
+distinct `fidelity` key alongside `structural`/`evidence_reconciliation`; `--check` exits 0 for an
+all-`escalated` (non-high-assurance) fixture and non-zero for a fixture with an `open`
+(high-assurance) finding.
 
 ## Verification commands
 
 ```bash
-uv run python -m pytest tests/unit/coherence/review -q
+uv run python -m pytest tests/unit/coherence/register -q
 uv run python -m pytest tests/unit/coherence/policy/test_compiler.py -q
-uv run python -m pytest tests/integration -k review_fidelity -q
-uv run ruff check src/coherence/review tests/unit/coherence/review
+uv run python -m pytest tests/unit/trace -q
+uv run ruff check src/coherence/register tests/unit/coherence/register
 ```
 
 ## Open design questions
@@ -387,13 +406,14 @@ These are flagged rather than silently resolved, per this task's own instruction
    CLI/dossier (T6) instead? A one-line string change to an already-tested function needs its own
    explicit sign-off given how deliberately `_human_review_obligation`'s docstring documents every
    existing line's rationale.
-3. **Persistence location and shape** (`review-findings/fidelity/<sr_id>.json` proposed above) is
-   genuinely shared with T4 — structural findings need the identical answer for AC-2's "reports ...
-   as two categories, distinct from each other ... never merged into one verdict" requirement to
-   hold at the storage layer, not just in memory. Since T4 has not landed a commit to check against
-   as of this writing, **T5.4 should not be implemented until T4's actual choice is confirmed** (or
-   the two are coordinated up front) — implementing T5.4 first risks a second, incompatible
-   per-SR-findings file convention that then has to be reconciled.
+3. **Persistence location and shape** — revised 2026-09-03 post-review: T4 has now landed and
+   persists nothing (both deterministic reviewers compute fresh per CLI call, never writing a
+   per-SR findings file). There is therefore no T4 storage convention to coordinate with or wait
+   for; `review-findings/fidelity/<sr_id>.json` (T5.4) stands on its own justification (re-run
+   disposition tracking for an expensive, agent-driven review) and can be implemented independent
+   of T4's timeline. AC-2/AC-4's "never merged into one verdict" is satisfied at the *reporting*
+   layer (distinct `structural`/`evidence_reconciliation`/`fidelity` JSON keys, see revised T5.5)
+   — T5's storage choice does not need to mirror T4's (or vice versa) to stay consistent with that.
 4. **The `judge` dispatch mechanism for T5.3** (how the fidelity packet actually reaches a
    model and how its output is parsed back) is deliberately left as an injected interface in this
    plan rather than a concrete subagent-invocation design — this repo's existing subagent dispatch
