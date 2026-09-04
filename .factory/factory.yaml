@@ -23,5 +23,9 @@ gates:
     # finding, the command exits 0 and findings are still recorded/printed,
     # just not CI-blocking.
     - { cmd: "{python} -m coherence register review --fidelity --check" }
+    # SR-049: produced-code traceability. Deterministic set arithmetic over
+    # commit claims and declared relations -- no judge in the loop, so unlike
+    # the fidelity check above this blocks under every compiled profile.
+    - { cmd: "{python} -m coherence register review --check-claims" }
     - { cmd: "{python} scripts/gates/ext.py" }
     - { cmd: "{python} scripts/gates/watch_ext.py" }

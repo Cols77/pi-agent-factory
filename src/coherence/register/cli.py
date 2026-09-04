@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -20,6 +21,7 @@ from coherence.policy.compiler import resolve_profile
 from coherence.register.fidelity import FidelityJudgeUnavailable, review_fidelity
 from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet
 from coherence.register.fidelity_persistence import load_fidelity_result, save_fidelity_result
+from coherence.register.ingest import DivergedRangeError, ingest
 from coherence.register.overlap import DEFAULT_K, OverlapCandidate, run_overlap_check
 from coherence.register.register import (
     Requirement,
@@ -400,8 +402,10 @@ def cmd_review(
     req_id: str | None,
     *,
     fidelity: bool = False,
+    check_claims: bool = False,
+    no_ingest: bool = False,
     judge: Callable[[FidelityPacket], list[dict]] | None = None,
-) -> str:
+) -> str | int:
     """SR-050/AC-2 + AC-4: the per-requirement review, printed as JSON with
     ``structural`` and ``evidence_reconciliation`` (AC-2, always present) --
     that stay structurally separate (never merged into one verdict) -- plus
@@ -410,12 +414,56 @@ def cmd_review(
     -wide context to compute it from. When ``fidelity=True`` (``--fidelity``),
     a THIRD top-level key, ``fidelity`` (SR-050/AC-4), is added -- also never
     merged with the other two. ``judge`` overrides the real default judge
-    (dependency injection for tests; production callers never pass it)."""
+    (dependency injection for tests; production callers never pass it).
+
+    SR-049 adds two more flags, and the ONE case where this command returns an
+    exit code (an ``int``) instead of JSON:
+
+    * ``no_ingest=True`` (``--no-ingest``) skips the commit-claim ingestion
+      step. By default a review first runs ``coherence.register.ingest.ingest``
+      so the claim denominator covers every commit made since the last
+      manifest; a CI checkout that must not persist an evidence manifest, and
+      any caller that wants a pure read, passes this. Ingestion failure is
+      never fatal to a review: a diverged range, a checkout that is not a git
+      repository, or a git binary that is absent prints one ``ingest skipped``
+      line and the review proceeds on the manifests already on disk (the
+      alternative -- failing the review -- would make an unrelated git
+      condition read as a traceability problem).
+    * ``check_claims=True`` (``--check-claims``) turns this into SR-049's gate:
+      it prints every ``changed_but_undeclared`` reconciliation finding and
+      returns 1 if there were any, else 0. No JSON, because a gate's output is
+      read by a human looking at a failed CI job.
+
+      Unlike ``cmd_review_check`` above, this consults NO profile: claim
+      reconciliation is deterministic set arithmetic over commit trailers and
+      declared relations with no judge in the loop, so there is no
+      ``unavailable`` state to degrade and no reason to soften it under
+      ``prototype``. It blocks under every compiled profile.
+    """
+    if not no_ingest:
+        try:
+            ingest(project_root)
+        except (DivergedRangeError, OSError, subprocess.SubprocessError, ValueError) as exc:
+            print(f"ingest skipped: {exc}")
     reqs = load_register(project_root / "requirements")
     if req_id is not None and not any(r.id == req_id for r in reqs):
         return json.dumps({"error": f"not found: {req_id}"}, indent=2)
     targets = reqs if req_id is None else [r for r in reqs if r.id == req_id]
     manifests = list_run_manifests(project_root / "evidence")
+    reconciliations = [
+        evidence_reconciliation_review(project_root, req, manifests) for req in targets
+    ]
+
+    if check_claims:
+        offenders = [
+            finding
+            for review in reconciliations
+            for finding in review.findings
+            if finding.category == "changed_but_undeclared"
+        ]
+        for finding in offenders:
+            print(f"claim: {finding.detail}")
+        return 1 if offenders else 0
 
     structural: dict[str, list[dict]] = {
         req.id: [dataclasses.asdict(f) for f in structural_review(project_root, req).findings]
@@ -426,11 +474,8 @@ def cmd_review(
             dataclasses.asdict(f) for f in unaccounted_changed_files(project_root, reqs, manifests)
         ]
     reconciliation = {
-        req.id: [
-            dataclasses.asdict(f)
-            for f in evidence_reconciliation_review(project_root, req, manifests).findings
-        ]
-        for req in targets
+        review.req_id: [dataclasses.asdict(f) for f in review.findings]
+        for review in reconciliations
     }
     result: dict = {"structural": structural, "evidence_reconciliation": reconciliation}
     if fidelity:
@@ -618,6 +663,18 @@ def main(
         help="CI-gate mode (SR-050/AC-4): run the fidelity reviewer and exit non-zero only "
         "when a high_assurance-profile SR has an open finding",
     )
+    p_review.add_argument(
+        "--check-claims",
+        action="store_true",
+        help="CI-gate mode (SR-049): exit non-zero when any commit claimed a path the SR "
+        "it named does not declare; blocks under every profile",
+    )
+    p_review.add_argument(
+        "--no-ingest",
+        action="store_true",
+        help="skip commit-claim ingestion (SR-049) -- review only the evidence manifests "
+        "already on disk, writing nothing",
+    )
 
     p_overlap = sub.add_parser("overlap-check")
     p_overlap.add_argument("--project-root", default=Path("."), type=Path)
@@ -665,11 +722,12 @@ def main(
     elif args.cmd == "next":
         print(cmd_next(args.project_root))
     elif args.cmd == "review":
-        # --check (the CI-gate mode, SR-050/AC-4) scopes to "every SR in
-        # scope" by its own nature -- .factory/factory.yaml's gate entry
-        # invokes it with neither an id nor --all, so only the plain (non
-        # -check) review requires one explicitly.
-        if not args.check and not args.all and not args.id:
+        # --check (SR-050/AC-4) and --check-claims (SR-049) are both CI-gate
+        # modes, and both scope to "every SR in scope" by their own nature --
+        # .factory/factory.yaml's gate entries invoke them with neither an id
+        # nor --all, so only the plain (non-gate) review requires one
+        # explicitly.
+        if not args.check and not args.check_claims and not args.all and not args.id:
             parser.error("review: pass an SR id or --all")
         target = None if (args.all or not args.id) else args.id
         judge = judge_factory(args.project_root) if judge_factory is not None else None
@@ -677,7 +735,20 @@ def main(
             text, code = cmd_review_check(args.project_root, target, judge=judge)
             print(text)
             return code
-        print(cmd_review(args.project_root, target, fidelity=args.fidelity, judge=judge))
+        if args.check_claims:
+            outcome = cmd_review(
+                args.project_root, target, check_claims=True, no_ingest=args.no_ingest
+            )
+            return outcome if isinstance(outcome, int) else 0
+        print(
+            cmd_review(
+                args.project_root,
+                target,
+                fidelity=args.fidelity,
+                no_ingest=args.no_ingest,
+                judge=judge,
+            )
+        )
     elif args.cmd == "overlap-check":
         overlap_judge = (
             overlap_judge_factory(args.project_root) if overlap_judge_factory is not None else None

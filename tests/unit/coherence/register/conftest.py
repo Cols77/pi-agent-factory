@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import subprocess
 
+import frontmatter as fm
 import pytest
+
+from coherence.register.ingest import ingest
 
 
 def _git(repo, *args):
@@ -51,3 +54,46 @@ def commit_file(git_repo):
         ).stdout.strip()
 
     return _commit
+
+
+def _seed_claimed_repo(repo, commit_file, implemented_by):
+    """A repository whose evidence store carries one ingested claim.
+
+    Two commits, deliberately separate: the requirement file lands first with
+    NO `SR:` trailer, so the only path the claim denominator attributes to
+    SR-500 is `src/claimed.py`. Committing both together would put
+    `requirements/SR-500.md` in the same claim and make every assertion about
+    the offender list a two-item accident.
+    """
+    (repo / ".factory").mkdir(exist_ok=True)
+    meta = {
+        "id": "SR-500",
+        "title": "t",
+        "statement": "s",
+        "domain": "behavioral",
+        "implemented_by": implemented_by,
+        "verified_by": [],
+    }
+    commit_file(
+        "requirements/SR-500.md", fm.dumps(fm.Post("body", **meta)), "docs: seed SR-500"
+    )
+    commit_file("src/claimed.py", "def claimed():\n    return 1\n", "feat: claimed\n\nSR: SR-500")
+    ingest(repo)
+    return repo
+
+
+@pytest.fixture
+def claims_repo(git_repo, commit_file):
+    """An ingested claim on a path the claiming SR never declares -- exactly
+    one `changed_but_undeclared` finding for the gate to block on."""
+    return _seed_claimed_repo(git_repo, commit_file, [])
+
+
+@pytest.fixture
+def declared_repo(git_repo, commit_file):
+    """The same claim, this time declared -- nothing for the gate to block."""
+    return _seed_claimed_repo(
+        git_repo,
+        commit_file,
+        [{"path": "src/claimed.py", "symbol": "claimed:claimed"}],
+    )
