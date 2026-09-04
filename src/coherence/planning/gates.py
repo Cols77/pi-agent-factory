@@ -20,17 +20,6 @@ _SR_CONSENT_KEYS = frozenset({
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
-_FEAT17_OWNED_SRS = frozenset({
-    "SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055",
-})
-_FEAT17_DOSSIER_MEMBERS = frozenset({
-    "feat:FEAT-017",
-    "spec:docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
-    "plan:docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
-    "task:T-032-feat17-planning-workflow.md",
-})
-
-
 def _safe_relative(value: object) -> bool:
     if not isinstance(value, str) or not value or value != value.strip() or "\\" in value:
         return False
@@ -68,16 +57,42 @@ def _source_matches(root: Path, source: object, spec_path: Path) -> bool:
         return False
 
 
-def _validate_feat17_bundle_members(members: object) -> bool:
-    """Return whether FEAT-017's bundle has only owned, resolvable members."""
+def _validate_feat17_bundle_members(
+    members: object, requirement_ids: list[str]
+) -> tuple[bool, str]:
+    """Validate feature ownership while allowing its dossier projections."""
     if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
-        return False
+        return False, "bundle members must be a list of strings"
     if len(members) != len(set(members)):
-        return False
-    expected = _FEAT17_DOSSIER_MEMBERS | {
-        f"sr:{requirement_id}" for requirement_id in _FEAT17_OWNED_SRS
-    }
-    return set(members) == expected
+        return False, "bundle members contain duplicates"
+    if (
+        not isinstance(requirement_ids, list)
+        or any(not isinstance(item, str) for item in requirement_ids)
+        or len(requirement_ids) != len(set(requirement_ids))
+    ):
+        return False, "requirement identifiers are invalid"
+
+    feature_members = sorted(member for member in members if member.startswith("feat:"))
+    if feature_members != ["feat:FEAT-017"]:
+        return False, "bundle must contain exactly one feat:FEAT-017 member"
+
+    owned_ids = set(requirement_ids)
+    sr_ids = sorted(
+        member.removeprefix("sr:") for member in members if member.startswith("sr:")
+    )
+    unexpected_ids = sorted(set(sr_ids) - owned_ids)
+    if unexpected_ids:
+        return False, f"unexpected SR members: {', '.join(unexpected_ids)}"
+    missing_ids = sorted(owned_ids - set(sr_ids))
+    if missing_ids:
+        return False, f"missing required SR members: {', '.join(missing_ids)}"
+
+    if any(
+        not member.startswith(("feat:", "sr:", "spec:", "plan:", "task:"))
+        for member in members
+    ):
+        return False, "bundle contains an unsupported member reference"
+    return True, ""
 
 
 def validate_requirement_consent(
@@ -121,8 +136,9 @@ def validate_requirement_consent(
     if not isinstance(bundle, dict) or bundle.get("id") != _REQUIRED_FEATURE_ID:
         return False, "FEAT-017 bundle has an invalid id"
     members = bundle.get("members")
-    if not _validate_feat17_bundle_members(members):
-        return False, "FEAT-017 bundle has invalid or non-owned members"
+    bundle_valid, bundle_detail = _validate_feat17_bundle_members(members, requirement_ids)
+    if not bundle_valid:
+        return False, f"FEAT-017 bundle has invalid members: {bundle_detail}"
 
     for req_id in requirement_ids:
         req_path = requirements_dir / f"{req_id}.md"
