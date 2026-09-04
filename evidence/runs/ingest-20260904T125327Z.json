@@ -1,0 +1,77 @@
+{
+  "schema_version": 2,
+  "run_id": "ingest-20260904T125327Z",
+  "started_at": "2026-09-04T12:53:27.561296Z",
+  "ended_at": "2026-09-04T12:53:27.561296Z",
+  "start_commit": "95cbc4cf1fdcf49df0c4c05f2aa10f899a7a28be",
+  "result_commit": "9699ffac09eca8f14604e0e0704ec349e153b2dc",
+  "outcome": "completed",
+  "inputs": {
+    "requirements": [],
+    "factory_config_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:9699ffac09eca8f14604e0e0704ec349e153b2dc",
+      "source": "9699ffac09eca8f14604e0e0704ec349e153b2dc"
+    }
+  ],
+  "implementation": {
+    "changed_files": [
+      "evidence/runs/ingest-20260904T104906Z.json",
+      "requirements/SR-050.md",
+      "tests/unit/codeindex/test_codeindex.py",
+      "tests/unit/orchestrator/test_runner_e2e.py",
+      "tests/unit/preflight/test_completion_preflight.py"
+    ],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff"
+    }
+  },
+  "commits": [
+    {
+      "sha": "c1f40d089ebb12c5a0750ba5eb62f4308fdf5532",
+      "subject": "evidence: record the first commit-claim ingestion checkpoint",
+      "sr_ids": [],
+      "changed_files": [
+        "evidence/runs/ingest-20260904T104906Z.json"
+      ],
+      "exempted": [
+        {
+          "path": "evidence/runs/ingest-20260904T104906Z.json",
+          "glob": "evidence/**"
+        }
+      ]
+    },
+    {
+      "sha": "9699ffac09eca8f14604e0e0704ec349e153b2dc",
+      "subject": "fix(SR-050): declare AC-5's own production and validation code",
+      "sr_ids": [
+        "SR-050"
+      ],
+      "changed_files": [
+        "requirements/SR-050.md",
+        "tests/unit/codeindex/test_codeindex.py",
+        "tests/unit/orchestrator/test_runner_e2e.py",
+        "tests/unit/preflight/test_completion_preflight.py"
+      ],
+      "exempted": [
+        {
+          "path": "requirements/SR-050.md",
+          "glob": "**/*.md"
+        }
+      ]
+    }
+  ],
+  "validation": [],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
