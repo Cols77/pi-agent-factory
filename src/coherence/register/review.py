@@ -6,6 +6,7 @@ from typing import Iterable
 
 import frontmatter
 
+from coherence.register.claims import exempting_glob, load_claims_config
 from coherence.register.register import Requirement
 from coherence.register.relations import ReferenceIssue, resolve_sr_relations
 
@@ -304,6 +305,19 @@ def unaccounted_changed_files(
       path already reported as an unaccounted *changed* file is not
       reported again just because it was also executed.
 
+    A path matching a claim exemption glob is not a changed *production*
+    file and is skipped (SR-049's ``.factory/trace-claims.yaml``, the same
+    list ``claimed_paths`` filters on). This matters only since commit
+    ingestion: before it, this bucket saw only orchestrated task manifests,
+    whose changed files were the task's produced code, but an ingestion
+    manifest's ``changed_files`` is the union of every commit in its range
+    -- docs, plans and ``requirements/SR-0xx.md`` included. Those findings
+    can never be cleared, because no SR declares its own requirement file
+    as an implementation of itself, so without this filter every doc commit
+    would add a permanent finding and the bucket would decay into noise it
+    could never shed. Executed tests are NOT filtered: a test that ran is a
+    validation artifact whichever glob its path matches.
+
     This is necessarily computed once across the whole register, not per
     SR: an unaccounted file or test has, by definition, no single owning
     SR to attach the finding to, so it is never folded into any one
@@ -315,12 +329,13 @@ def unaccounted_changed_files(
         meta = _raw_meta(req)
         declared |= _declared_paths(meta, "implemented_by")
         declared |= _declared_paths(meta, "verified_by")
+    config = load_claims_config(root)
     changed: list[str] = []
     seen: set[str] = set()
     for manifest in manifests:
         for path in manifest.get("implementation", {}).get("changed_files") or []:
             path = str(path)
-            if path not in seen:
+            if path not in seen and exempting_glob(config, path) is None:
                 seen.add(path)
                 changed.append(path)
     findings = [
@@ -332,6 +347,8 @@ def unaccounted_changed_files(
         if path not in declared
     ]
     for path in _executed_test_paths(manifests):
+        # `seen` holds only the paths reported above, so an exempt path that
+        # nonetheless ran as a test is still reported as an executed test.
         if path in seen or path in declared:
             continue
         findings.append(

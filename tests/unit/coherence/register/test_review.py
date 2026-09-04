@@ -231,6 +231,57 @@ def test_a_changed_file_with_no_sr_link_anywhere_is_unaccounted(tmp_path: Path):
 
 
 @pytest.mark.sr("SR-050")
+def test_a_claim_exempt_changed_file_is_not_unaccounted(tmp_path: Path):
+    """AC-2's criterion says "changed *production* files ... with no owning SR
+    relation", and the exempt list is precisely the repository's declaration of
+    which paths are not that. Before commit-claim ingestion existed this bucket
+    only ever saw manifests written by orchestrated task runs, whose changed
+    files were the task's produced code; ingestion now feeds it the union of
+    every commit in the range, docs and requirement files included. Those can
+    never be cleared -- no SR declares its own `requirements/SR-0xx.md` as an
+    implementation of itself -- so without this filter every doc commit adds a
+    permanent finding and the bucket decays into noise it can never shed. Same
+    exempt list, same reason, as the claim denominator's own filter.
+    """
+    _write(
+        tmp_path / ".factory" / "trace-claims.yaml",
+        """
+epoch: null
+exempt:
+  - "docs/**"
+  - "**/*.md"
+""",
+    )
+    _write_prod(tmp_path)
+    linked_path = _write_meta(
+        tmp_path / "requirements" / "SR-105.md",
+        {
+            "id": "SR-105",
+            "implemented_by": [
+                {"path": "src/widgets/feature.py", "symbol": "widgets.feature:feature_context"}
+            ],
+        },
+    )
+    reqs = [_unbound("SR-105", linked_path)]
+    manifests = [
+        {
+            "implementation": {
+                "changed_files": [
+                    "src/widgets/feature.py",
+                    "requirements/SR-105.md",
+                    "docs/superpowers/plans/some-plan.md",
+                    "src/widgets/orphan.py",
+                ]
+            }
+        }
+    ]
+    findings = unaccounted_changed_files(tmp_path, reqs, manifests)
+    details = [f.detail for f in findings]
+    assert len(findings) == 1, details
+    assert "src/widgets/orphan.py" in findings[0].detail
+
+
+@pytest.mark.sr("SR-050")
 def test_an_executed_test_with_no_sr_link_anywhere_is_unaccounted(tmp_path: Path):
     # AC-2's criterion names two distinct unaccounted cases -- "changed
     # production files OR executed tests with no owning SR relation" -- not
