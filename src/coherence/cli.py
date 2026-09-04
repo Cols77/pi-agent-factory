@@ -14,6 +14,7 @@ from coherence.goals.cli import main as goals_main
 from coherence.measurement.cli import main as measurement_main
 from coherence.mirrors.cli import main as mirrors_main
 from coherence.navigate.cli import main as navigate_main
+from coherence.planning.cli import main as planning_main
 from coherence.presentation.cli import main as presentation_main
 from coherence.register.cli import main as register_cli_main
 from coherence.router import main as route_main
@@ -71,6 +72,7 @@ GROUPS = {
     "audit": audit_main,
     "measurement": measurement_main,
     "mirrors": mirrors_main,
+    "plan": planning_main,
     "status": status_main,
     "route": route_main,
     "focus": focus_main,

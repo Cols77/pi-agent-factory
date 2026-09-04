@@ -2,6 +2,9 @@
 id: FEAT-017
 title: "PLANNING-BOOTSTRAP"
 description: Planning bootstrap turns project intent into consented, validated artifacts ready for governed execution.
+status: draft
+authority_spec: docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md
+implementation_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 requirements:
   - SR-043
   - SR-044
@@ -14,38 +17,42 @@ requirements:
 
 # FEAT-017 — PLANNING-BOOTSTRAP
 
-Status: declared feature dossier (Inc-9 health-resolution, decision-level register).
+Status: draft feature dossier for the mature FEAT-017 planning workflow. Structural closure is
+validated through the current planning checker and Coherence trace surfaces; implementation,
+human review, SR consent, and executed evidence remain pending.
 
-This feature registers **PLANNING-BOOTSTRAP** in the Coherence / pi-agent-factory feature set. It covers the planning pipeline init->spec->reqs->plan->plan_to_tasks->register->execution-proposal-validation->first-run request, SR consent, and the handoff into governed execution.
+This feature registers **PLANNING-BOOTSTRAP** in the Coherence / pi-agent-factory feature set. It
+covers the host-neutral planning pipeline: adaptive intent capture -> provisional authority spec
+-> three semantic checkpoints -> plan/task decomposition -> thin SR/feature/bundle derivation
+-> explicit consent -> text summary and hash-bound downstream handoff.
 
+Owned requirements: SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055.
 
-## Design boundary
+The authority spec is canonical. The implementation plan is the executable roadmap. The bundle
+contains exactly this feature and its seven owned SR projections. No planning artifact may infer
+human approval or automatically start FEAT-13.
 
-Bootstrap produces the canonical project meaning before operational execution is
-materialized:
+## Mature workflow acceptance boundary
 
-```text
-init → Clarify & Align → spec → requirements/SR consent → plan
-     → plan_to_tasks → feature/bundle registration
-     → execution-profile/workflow/GatePlan proposal
-     → orchestration-graph validation → first governed-run request
-```
+The mature design contract is frozen by these source-level acceptance rows:
 
-The plan, requirements, and feature registration remain Coherence artifacts. Bootstrap does
-not infer or invent the workflow or its assurance floor from the plan. It invokes the
-[[FEAT-018]] execution-plan compiler to produce profile candidates, an explicit workflow/GatePlan,
-and an orchestration-graph validation result. An explicitly selected workflow or assurance
-profile may be carried into execution; otherwise the governed runner uses its declared
-default (currently the `standard` template). [[FEAT-016]]/[[FEAT-014]] provide the workflow and gate
-contracts consumed by that compiler. A Hermes Kanban graph is created only after the planning
-artifacts and execution proposal are valid and the run contract has been compiled. Pi and
-Claude Code can execute the same bootstrap and governed run directly without Kanban.
-
-Bootstrap does not become an LLM-only plan generator. Agents may author drafts and propose
-workflow/gate additions for later governed execution, but deterministic graph validation,
-registration, profile/workflow resolution, contract compilation, and human consent remain
-explicit. Every governed tracer-bullet task also produces the required explanation artifact;
-behavior/algorithm changes add the course/mental-model and before/after evidence path.
+1. `adaptive-brainstorming` preserves the request and answers verbatim and may produce a
+   `provisional-spec` before every question is resolved.
+2. `three-checkpoints` reviews the spec, plan/tasks, and candidate SR/FEAT/bundle derivation in
+   that order, with `complete-sr-context` supplied to every reviewer.
+3. `selected-review-model` uses the configured classifier and one user-selected reviewer model
+   for the run; unavailable catalog/model data fails closed rather than falling back.
+4. `fresh-review-loop` permits only scoped agent fixes, followed by deterministic rereads and a
+   fresh independent review; `append-only-journal` preserves every resolution event.
+5. `explicit-sr-consent` requires the explicit consent phrase after clean derivation; semantic
+   cleanliness, an escalation answer, or an agent response is not consent.
+6. `text-summary-handoff` is the first milestone. The interactive `/system` planning projection
+   is `deferred-browser`, and the clean result offers an explicit downstream menu plus a
+   hash-bound handoff for a separately started session.
+7. `no-auto-execution` and deterministic Coherence gates remain in force: this contract records
+   design scope only. Implementation is not present, agent review may be pending, human
+   escalation may be pending, SR consent remains pending, and formal defer/waiver is distinct
+   from unimplemented work.
 
 ## Related requirements
 

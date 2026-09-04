@@ -1,0 +1,7 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "stage": "PLANNING_ALIGNMENT",
+  "verdict": "findings",
+  "findings": [{"id": "alignment-001", "evidence": "spec.md#acceptance", "disposition": "resolve_in_loop", "agent_fix_allowed": true}, {"id": "warning-001", "evidence": "spec.md#authority", "disposition": "human_accept_warning", "agent_fix_allowed": false}],
+  "after_agent_fix": {"verdict": "clean", "fresh_review_required": true}
+}

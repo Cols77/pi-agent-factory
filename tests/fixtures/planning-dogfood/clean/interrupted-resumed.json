@@ -1,0 +1,11 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "schema": 1,
+  "events": [
+    {"sequence": 1, "kind": "session_started", "payload": {"run_id": "fixture-clean-001"}},
+    {"sequence": 2, "kind": "answer_captured", "payload": {"id": "goal", "text": "Build a deterministic planner."}},
+    {"sequence": 3, "kind": "review_interrupted", "payload": {"reason": "context_limit"}},
+    {"sequence": 4, "kind": "session_resumed", "payload": {"next_iteration": 2}}
+  ],
+  "expected": "append-only sequence is preserved"
+}

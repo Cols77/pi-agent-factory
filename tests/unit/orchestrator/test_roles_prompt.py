@@ -47,3 +47,29 @@ def test_every_bash_denied_role_says_so_in_its_prompt():
     for role, scope in ROLE_SCOPE.items():
         if scope.bash == "deny":
             assert "bash" in ROLE_PROMPTS[role], f"{role.value} denies bash without saying so"
+
+
+def test_planning_prompts_define_structured_review_and_write_boundaries():
+    for role in (
+        AgentRole.PLANNING_COMPLEXITY,
+        AgentRole.PLANNING_ALIGNMENT,
+        AgentRole.PLANNING_PLAN_REVIEW,
+        AgentRole.PLANNING_DERIVATION,
+    ):
+        prompt = ROLE_PROMPTS[role]
+        assert "JSON" in prompt
+        assert "read-only" in prompt
+        assert "bash" in prompt
+        assert "human consent" in prompt
+        assert "self-certify" in prompt
+        assert "```json" in prompt
+        assert "fresh" in prompt
+
+    assert "complexity" in ROLE_PROMPTS[AgentRole.PLANNING_COMPLEXITY]
+    assert "recommend" in ROLE_PROMPTS[AgentRole.PLANNING_COMPLEXITY]
+    assert "intent" in ROLE_PROMPTS[AgentRole.PLANNING_ALIGNMENT]
+    assert "spec" in ROLE_PROMPTS[AgentRole.PLANNING_ALIGNMENT]
+    assert "plan" in ROLE_PROMPTS[AgentRole.PLANNING_PLAN_REVIEW]
+    assert "task" in ROLE_PROMPTS[AgentRole.PLANNING_PLAN_REVIEW]
+    assert "SR" in ROLE_PROMPTS[AgentRole.PLANNING_DERIVATION]
+    assert "FEAT" in ROLE_PROMPTS[AgentRole.PLANNING_DERIVATION]

@@ -11,7 +11,7 @@ import { loadSystemBriefing, loadSystemGuide, loadSystemScopes } from "../src/sy
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 describe("system-cli against the real CLI", () => {
-  test("scope --json discovers the active FEAT and bundle scopes", () => {
+  test("scope --json returns the current feature and bundle state for this repo", () => {
     const result = loadSystemScopes(REPO_ROOT);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -20,6 +20,8 @@ describe("system-cli against the real CLI", () => {
         expect.arrayContaining([
           { kind: "feat", ref: "feat:FEAT-001" },
           { kind: "bundle", ref: "bundle:FEAT-001" },
+          { kind: "bundle", ref: "bundle:FEAT-017" },
+          { kind: "feat", ref: "feat:FEAT-017" },
         ]),
       );
     }

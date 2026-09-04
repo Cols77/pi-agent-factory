@@ -1,0 +1,8 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "candidate_srs": ["SR-001", "SR-002"],
+  "feature": "FEAT-017-FIXTURE",
+  "bundle": "FEAT-017-FIXTURE",
+  "closure": ["feat:FEAT-017-FIXTURE", "sr:SR-001", "sr:SR-002"],
+  "source_anchors": ["docs/superpowers/specs/intent-spec.md#goal", "docs/superpowers/specs/intent-spec.md#authority"]
+}

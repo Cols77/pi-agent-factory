@@ -27,6 +27,9 @@ import {
   buildTraceFixSeedPrompt,
   buildVisualExplainSeedPrompt,
 } from "./skill-prompt.js";
+import { runPlanGate, runPlanHandoff } from "./plan-gate-command.js";
+import { runPlanReview } from "./plan-review-command.js";
+import { runPlanBrainstorm } from "./plan-brainstorm-command.js";
 import { registerTraceTools } from "./trace-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerEngContextTools } from "./eng-context-tools.js";
@@ -89,6 +92,7 @@ import { freshSessionJsonl, grillResultPath, grillSessionPath, readFreshExplaine
 import { loadNodeRegistry } from "./node-registry.js";
 import { diffBlocked, snapshotStates } from "./pipeline-diff.js";
 import { readContextPacket, renderPacketSlice } from "./context-packet.js";
+import { nativeModelCatalog, modelKey } from "./model-catalog.js";
 
 const STATUS_FILE = "sessions/.factory-status.json";
 const LOCK_FILE = "sessions/.factory-run.lock";
@@ -567,6 +571,22 @@ async function runPolishSession(
 }
 
 export default function factoryWatch(pi: PiApi): void {
+  pi.registerCommand("planning-models", {
+    description: "Show the host-native configured model catalog for planning",
+    handler: async (_args: string, ctx: ExtCommandCtx) => {
+      const catalog = nativeModelCatalog(ctx);
+      if (catalog.length === 0) {
+        ctx.ui.notify("planning model catalog unavailable; no model fallback was selected", "error");
+        return;
+      }
+      ctx.ui.notify(
+        catalog
+          .map((entry) => `${modelKey(entry)} [${entry.qualityTier}, ${entry.local ? "local" : "remote"}, ${entry.costClass}]`)
+          .join("\n"),
+        "info",
+      );
+    },
+  });
   registerWriteChunkGuard(pi);
   // The deterministic half of /trace-fix: the model reasons, these tools do the
   // enumerating, validating and writing.
@@ -973,8 +993,8 @@ export default function factoryWatch(pi: PiApi): void {
   pi.registerCommand("plan", {
     description: "Start an interactive planning session (brainstorming -> writing-plans)",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const topic = args.trim();
-      if (topic === "") {
+      const topic = args;
+      if (topic.trim() === "") {
         ctx.ui.notify("usage: /plan <topic>", "error");
         return;
       }
@@ -998,12 +1018,46 @@ export default function factoryWatch(pi: PiApi): void {
         skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
       }
 
+      // Keep /plan's established session-seeding contract. The host-owned
+      // interactive capture is available explicitly as /plan-brainstorm.
       const seedText = buildPlanSeedPrompt(topic, skillBlocks);
       await ctx.newSession({
         withSession: async (session: ReplacedSessionCtx) => {
           await session.sendUserMessage(seedText, { deliverAs: "followUp" });
         },
       });
+    },
+  });
+
+  pi.registerCommand("plan-brainstorm", {
+    description: "Capture adaptive planning intent and author a provisional specification",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      if (args.trim() === "") {
+        ctx.ui.notify("usage: /plan-brainstorm <topic>", "error");
+        return;
+      }
+      await runPlanBrainstorm(ctx, args);
+    },
+  });
+
+  pi.registerCommand("plan-gate", {
+    description: "Run the deterministic planning bootstrap gate",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanGate(ctx, args);
+    },
+  });
+
+  pi.registerCommand("plan-review", {
+    description: "Show the explicit planning escalation and consent boundary",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanReview(ctx, args);
+    },
+  });
+
+  pi.registerCommand("plan-handoff", {
+    description: "Validate and write an explicit planning handoff",
+    handler: async (args: string, ctx: ExtCommandCtx) => {
+      runPlanHandoff(ctx, args);
     },
   });
 

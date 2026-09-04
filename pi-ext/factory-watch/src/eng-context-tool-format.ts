@@ -14,7 +14,21 @@ import type {
   GoalEvaluate,
   PresentObligation,
   PresentResult,
+  SystemRequirementsContext,
 } from "./system-cli.js";
+
+export function formatRequirementsContext(context: SystemRequirementsContext): string {
+  const lines = [`requirements context: ${context.context_digest}`];
+  for (const requirement of context.requirements) {
+    lines.push(`${requirement.id} [${requirement.status}] ${requirement.statement}`);
+    if (requirement.source_anchors.length) lines.push(`  source: ${requirement.source_anchors.join(", ")}`);
+    lines.push(`  relationships: ${JSON.stringify(requirement.relationships)}`);
+    lines.push(`  trace: ${JSON.stringify(requirement.trace_metadata)}`);
+    if (requirement.content) lines.push(`  content: ${requirement.content}`);
+  }
+  for (const diagnostic of context.diagnostics) lines.push(`diagnostic: ${diagnostic.path}: ${diagnostic.error}`);
+  return lines.join("\n");
+}
 
 export function formatDiagram(d: SystemDiagram): string {
   const lines = [`diagram: ${d.id}`, `  title: ${d.title}`];

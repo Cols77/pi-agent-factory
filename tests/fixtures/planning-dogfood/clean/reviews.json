@@ -1,0 +1,12 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "stages": {
+    "PLANNING_ALIGNMENT": {"verdict": "findings", "findings": [{"id": "alignment-001", "disposition": "resolve_in_loop", "evidence": "spec.md"}, {"id": "warning-001", "disposition": "human_accept_warning", "evidence": "spec.md"}]},
+    "PLANNING_PLAN_REVIEW": {"verdict": "clean", "findings": []},
+    "PLANNING_DERIVATION": {"verdict": "escalate", "findings": [{"id": "sr-contradiction-001", "disposition": "human_escalation", "evidence": "duplicate-and-contradictory-sr-context.json"}]}
+  },
+  "resolution": {"agent_fix": "alignment-001", "human_prompt": "Choose the authoritative SR statement.", "human_answer": "Use the source-anchored statement.", "resumed_iteration": 2},
+  "repeated_finding": {"id": "repeat-001", "expected_result": "escalated"},
+  "stale_artifact": {"expected_result": "rejected", "reason": "artifact hash changes after packet capture"},
+  "interrupted": {"reason": "context_limit", "expected_result": "fail_closed_then_resume"}
+}

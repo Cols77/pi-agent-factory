@@ -304,6 +304,33 @@ export function loadSystemTraversalAsync(cwd: string, scope: string): Promise<Cl
   return runJsonCliAsync<SystemTraversal>(cwd, cmd.bin, cmd.args);
 }
 
+export interface SystemRequirementContextItem {
+  id: string;
+  title: string;
+  statement: string;
+  content: string;
+  domain: string;
+  status: string;
+  lifecycle: string;
+  source_anchors: string[];
+  relationships: Record<string, unknown>;
+  trace_metadata: Record<string, unknown>;
+}
+
+export interface SystemRequirementsContext {
+  schema: string;
+  requirements: SystemRequirementContextItem[];
+  diagnostics: Array<{ path: string; error: string }>;
+  candidates: { duplicates: unknown[]; contradictions: unknown[] };
+  deferred: Record<string, boolean>;
+  context_digest: string;
+}
+
+export function loadSystemRequirementsContext(cwd: string): CliResult<SystemRequirementsContext> {
+  const cmd = buildSystemCommand(["requirements-context", "--json"]);
+  return runJsonCli<SystemRequirementsContext>(cwd, cmd.bin, cmd.args);
+}
+
 // The rest of this file mirrors `factory.system.story.query_story` /
 // `factory.system.reverse.query_reverse` (increment B, V-cycle) exactly --
 // same discipline as every type above: this file renders, it never

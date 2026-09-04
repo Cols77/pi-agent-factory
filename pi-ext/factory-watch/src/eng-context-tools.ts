@@ -13,6 +13,7 @@ import {
   loadSystemSimRun,
   loadSystemTraversal,
   loadSystemVcycle,
+  loadSystemRequirementsContext,
 } from "./system-cli.js";
 import {
   formatDiagram,
@@ -26,6 +27,7 @@ import {
   formatSimMetric,
   formatSimRun,
   formatVcycle,
+  formatRequirementsContext,
 } from "./eng-context-tool-format.js";
 
 // Structural subset of the ExtensionContext fields these read-only tools read.
@@ -46,6 +48,7 @@ interface Dependencies {
   goalEvaluate: typeof loadSystemGoalEvaluate;
   present: typeof loadSystemPresent;
   traversal: typeof loadSystemTraversal;
+  requirementsContext: typeof loadSystemRequirementsContext;
 }
 
 const defaultDependencies: Dependencies = {
@@ -61,6 +64,7 @@ const defaultDependencies: Dependencies = {
   goalEvaluate: loadSystemGoalEvaluate,
   present: loadSystemPresent,
   traversal: loadSystemTraversal,
+  requirementsContext: loadSystemRequirementsContext,
 };
 
 const MAX_OUTPUT_BYTES = 50 * 1024;
@@ -114,6 +118,17 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
     async execute(_id: string, params: { ref: string }, _sig: AbortSignal | undefined, _u: unknown, ctx: ToolCtx) {
       const res = deps.vcycle(ctx.cwd, params.ref);
       return result(res.ok ? formatVcycle(res.value) : `eng_get_vcycle failed: ${res.error}`, res.ok ? res.value : null);
+    },
+  };
+
+  const engGetRequirementsContext = {
+    name: "eng_get_requirements_context",
+    label: "Engineering context: all requirements",
+    description: "Return the complete read-only project SR context, including status, source anchors, graph relationships, trace metadata, candidate duplicates/contradictions, and a binding digest.",
+    parameters: Type.Object({}),
+    async execute(_id: string, _params: Record<string, never>, _sig: AbortSignal | undefined, _u: unknown, ctx: ToolCtx) {
+      const res = deps.requirementsContext(ctx.cwd);
+      return result(res.ok ? formatRequirementsContext(res.value) : `eng_get_requirements_context failed: ${res.error}`, res.ok ? res.value : null);
     },
   };
 
@@ -306,6 +321,7 @@ export function buildEngContextTools(deps: Dependencies = defaultDependencies) {
 
   return [
     engGetVcycle,
+    engGetRequirementsContext,
     engGetDiagram,
     engTraceRequirement,
     engGetLatestSimulation,

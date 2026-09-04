@@ -36,6 +36,12 @@ class AgentRole(str, Enum):
     # (confirmed/dismissed) -- never auto-declares a relation or auto-merges
     # requirements, see coherence/register/overlap.py's docstring.
     OVERLAP_REVIEW = "overlap-review"
+    # Dedicated FEAT-017 planning roles; invocation and validation remain
+    # host-neutral responsibilities of their callers.
+    PLANNING_COMPLEXITY = "planning-complexity"
+    PLANNING_ALIGNMENT = "planning-alignment"
+    PLANNING_PLAN_REVIEW = "planning-plan-review"
+    PLANNING_DERIVATION = "planning-derivation"
 
 
 class NodeOutcome(str, Enum):

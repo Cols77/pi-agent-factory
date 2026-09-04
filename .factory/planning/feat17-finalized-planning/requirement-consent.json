@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "run_id": "feat17-finalized-planning",
+  "decision": "approve",
+  "reviewer": "human",
+  "reason": "I explicitly consent to adopt exactly these candidate SRs.",
+  "requirements": [
+    "SR-043",
+    "SR-044",
+    "SR-050",
+    "SR-051",
+    "SR-052",
+    "SR-053",
+    "SR-054"
+  ]
+}

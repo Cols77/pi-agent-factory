@@ -1,5 +1,5 @@
 {
-  "description": "Declared bundle for feature FEAT-017 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements.",
+  "description": "Draft exact-closure bundle for FEAT-017's mature host-neutral planning workflow. It allocates the feature and its seven thin SR projections; implementation evidence, human consent, and validation remain governed by their existing Coherence paths.",
   "draft": true,
   "id": "FEAT-017",
   "label": "PLANNING-BOOTSTRAP dossier bundle",

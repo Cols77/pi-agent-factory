@@ -17,6 +17,13 @@ export interface ModelInfo {
   id: string;
 }
 
+export interface NativeModelCatalogEntry extends ModelInfo {
+  qualityTier: string;
+  local: boolean;
+  costClass: string;
+  free: boolean;
+}
+
 export interface ReplacedSessionCtx {
   sendUserMessage(
     content: string,
@@ -41,6 +48,8 @@ export interface ExtCommandCtx {
   cwd: string;
   ui: UiApi;
   model: ModelInfo | undefined;
+  /** Host-native configured models; absent means the catalog is unavailable. */
+  modelCatalog?: () => readonly NativeModelCatalogEntry[];
   hasUI: boolean;
   reload(): Promise<void>;
   newSession(options?: {

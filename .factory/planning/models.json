@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "no_secrets": true,
+  "classifier": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "quality_tier": "standard",
+    "local": false,
+    "cost_class": "low",
+    "free": false
+  },
+  "reviewer_candidates": [
+    {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "quality_tier": "high",
+      "local": false,
+      "cost_class": "moderate",
+      "free": false
+    },
+    {
+      "provider": "ollama",
+      "model": "llama3.1:8b",
+      "quality_tier": "standard",
+      "local": true,
+      "cost_class": "free",
+      "free": true
+    }
+  ]
+}

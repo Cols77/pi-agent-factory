@@ -62,6 +62,13 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.FIDELITY_REVIEW: ["fidelity-review"],
     # SR-058/AC-2's overlap judge. Vendored at .pi/skills/overlap-review.
     AgentRole.OVERLAP_REVIEW: ["overlap-review"],
+    AgentRole.PLANNING_COMPLEXITY: ["verification-before-completion"],
+    AgentRole.PLANNING_ALIGNMENT: ["verification-before-completion"],
+    AgentRole.PLANNING_PLAN_REVIEW: ["verification-before-completion", "writing-plans"],
+    AgentRole.PLANNING_DERIVATION: [
+        "verification-before-completion",
+        "requirement-traceability-audit",
+    ],
 }
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
@@ -91,6 +98,18 @@ ROLE_SCOPE: dict[AgentRole, Scope] = {
     # returns via stdout JSON and coherence.register.overlap validates it
     # before anything becomes a gate item, exactly like FIDELITY_REVIEW above.
     AgentRole.OVERLAP_REVIEW: Scope(allow=[], bash="deny"),
+    # Each planning role's allow-list is its sole direct-write artifact class;
+    # all planning roles are forbidden from shell execution.
+    AgentRole.PLANNING_COMPLEXITY: Scope(allow=[], bash="deny"),
+    AgentRole.PLANNING_ALIGNMENT: Scope(
+        allow=[".intent/**", "docs/superpowers/specs/**"], bash="deny"
+    ),
+    AgentRole.PLANNING_PLAN_REVIEW: Scope(
+        allow=["docs/superpowers/plans/**", "tasks/**"], bash="deny"
+    ),
+    AgentRole.PLANNING_DERIVATION: Scope(
+        allow=["requirements/**", "docs/features/**", "bundles/**"], bash="deny"
+    ),
 }
 
 ROLE_PROMPTS: dict[AgentRole, str] = {
@@ -123,6 +142,36 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         "You judge overlap only, never conflict. Your verdict is advisory: it only decides "
         "whether a human is asked to resolve this candidate, and never declares a relation "
         "or merges requirements by itself."
+    ),
+    AgentRole.PLANNING_COMPLEXITY: (
+        "Classify planning complexity and recommend configured reviewer model choices. "
+        "You are read-only: bash is disabled and you may not write any file. Emit ONLY "
+        "a fenced ```json block matching the strict JSON complexity/recommendation schema "
+        "(complexity, rationale, recommendations). Do not invoke another agent; every "
+        "review or fixer call must be fresh. Do not fabricate gate decisions or human "
+        "consent, or self-certify a later review."
+    ),
+    AgentRole.PLANNING_ALIGNMENT: (
+        "Review intent and authority spec alignment, and propose only scoped revisions "
+        "to those artifacts. Review invocations are read-only: bash is disabled; a later "
+        "fresh invocation may apply only approved .intent/spec edits. Emit ONLY a fenced "
+        "```json block with validated JSON findings and proposed edits. Never modify requirements "
+        "or bundles, fabricate human consent or gate decisions, or self-certify changes."
+    ),
+    AgentRole.PLANNING_PLAN_REVIEW: (
+        "Review implementation plan and generated task alignment, and propose only scoped "
+        "plan/task revisions. Review invocations are read-only: bash is disabled; a later "
+        "fresh invocation may apply only approved plan/task edits. Emit ONLY a fenced JSON "
+        "```json block with validated JSON findings and proposed edits. Never modify requirements or "
+        "consent files, fabricate human consent or gate decisions, or self-certify changes."
+    ),
+    AgentRole.PLANNING_DERIVATION: (
+        "Review SR, FEAT, and bundle derivation, and propose only scoped revisions to "
+        "those derived artifacts. Review invocations are read-only: bash is disabled; a "
+        "later fresh invocation may apply only approved derived-artifact edits through the "
+        "existing writers and gates. Emit ONLY a fenced ```json block with validated JSON findings "
+        "and proposed edits. Never modify source intent, spec, or plan; never fabricate "
+        "human consent or gate decisions, and never self-certify changes."
     ),
     AgentRole.CONTEXT_GATHERER: (
         "You verify that spec, plan, prior session, and this task are coherent and "

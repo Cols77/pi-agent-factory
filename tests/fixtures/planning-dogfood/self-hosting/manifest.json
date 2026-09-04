@@ -1,0 +1,11 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "case": "repository-self-hosting",
+  "project_root": "repository-root",
+  "intent": ".intent/intent.json",
+  "spec": "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+  "plan": "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+  "derived": ["docs/features/FEAT-017.md", "bundles/FEAT-017.json"],
+  "expected": {"planning_workflow": "exercised", "repository_health": "not-clean", "auto_start_downstream": false},
+  "known_debt_codes": ["PLAN_TASK_PARITY", "TRACE_COVERAGE"]
+}

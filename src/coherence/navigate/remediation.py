@@ -180,7 +180,7 @@ REMEDIATION: dict[str, dict] = {
             "declaration -- that still requires editing the binding by "
             "hand."
         ),
-        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command": "uv run python -m coherence.measurement run --satisfies {id}",
         "command_kind": "shell",
         "severity": "failure",
     },
@@ -196,7 +196,7 @@ REMEDIATION: dict[str, dict] = {
             "checked against its own metric, so passing or failing is "
             "still unknown."
         ),
-        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command": "uv run python -m coherence.measurement run --satisfies {id}",
         "command_kind": "shell",
         "severity": "absence",
     },
@@ -212,7 +212,7 @@ REMEDIATION: dict[str, dict] = {
             "what the requirement currently says or how it's measured, so "
             "it can't be trusted as current evidence."
         ),
-        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command": "uv run python -m coherence.measurement run --satisfies {id}",
         "command_kind": "shell",
         "severity": "failure",
     },
@@ -468,7 +468,7 @@ REMEDIATION: dict[str, dict] = {
             "A row that has never run carries no evidence either way -- "
             "it is not passing, not failing, simply unchecked."
         ),
-        "command": "uv run python -m factory.validation run --satisfies {id}",
+        "command": "uv run python -m coherence.measurement run --satisfies {id}",
         "command_kind": "shell",
         "severity": "absence",
     },

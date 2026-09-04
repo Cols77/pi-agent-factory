@@ -1,0 +1,7 @@
+{
+  "fixture_label": "test-data-not-approval",
+  "cases": [
+    {"id": "duplicate-sr", "sr_id": "SR-001", "context": [{"status": "proposed", "statement": "Capture events are append-only and resumable."}, {"status": "proposed", "statement": "Capture events are append-only and resumable."}], "expected": "deduplicated"},
+    {"id": "contradictory-sr", "sr_id": "SR-002", "context": [{"status": "proposed", "statement": "Handoff revalidates hashes."}, {"status": "deferred", "statement": "Handoff may skip hash validation."}], "expected": "preserved-and-escalated"}
+  ]
+}
