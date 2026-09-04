@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from coherence.gate.content import artifact_content_checksum
 from coherence.gate.model import Decision, DecisionFile
 from coherence.gate.store import write_decision
 from coherence.register.fidelity_findings import FidelityFinding, FidelityReviewResult, RelationRef
@@ -60,7 +61,12 @@ def _seed_requirement(root: Path, sr_id: str) -> None:
 
 
 def _write_accept_decision(
-    root: Path, sr_id: str, decided_at: str, *, artifact_ref: str | None = None
+    root: Path,
+    sr_id: str,
+    decided_at: str,
+    *,
+    artifact_ref: str | None = None,
+    content_checksum: str = "",
 ) -> None:
     write_decision(
         root,
@@ -70,6 +76,7 @@ def _write_accept_decision(
             decisions=(Decision(f"review:{sr_id}", "accept", decided_by="reviewer@example.invalid"),),
             decided_at=decided_at,
             decided_by="reviewer@example.invalid",
+            content_checksum=content_checksum,
         ),
     )
 
@@ -171,3 +178,38 @@ def test_an_accept_decision_that_predates_the_prior_finding_does_not_disposition
 @pytest.mark.sr("SR-050")
 def test_loading_a_missing_file_returns_none(tmp_path: Path):
     assert load_fidelity_result(tmp_path, "SR-999") is None
+
+
+@pytest.mark.sr("SR-050")
+def test_a_decision_whose_content_checksum_no_longer_covers_the_sr_does_not_disposition(
+    tmp_path: Path,
+):
+    """SR-059/AC-2 applies here exactly as it does to
+    `_human_review_obligation`: a recorded accept stops covering its target
+    the moment the target's content changes. A finding dispositioned by
+    consent a human gave for DIFFERENT content would silently drop out of
+    `cmd_review_check`'s CI-blocking list, which is the same fail-open the
+    `artifact_ref` scoping test above guards against."""
+    _seed_requirement(tmp_path, "SR-900")
+    prior = _result(findings=(_finding(status="open", produced_at="2026-09-01T00:00:00Z"),))
+    save_fidelity_result(tmp_path, prior)
+
+    sr_path = tmp_path / "requirements" / "SR-900.md"
+    _write_accept_decision(
+        tmp_path,
+        "SR-900",
+        decided_at="2026-09-02T00:00:00Z",
+        content_checksum=artifact_content_checksum(sr_path),
+    )
+    # The human consented to the content above; it has since changed.
+    sr_path.write_text(
+        "---\nid: SR-900\ntitle: t\nstatement: MATERIALLY DIFFERENT\ndomain: behavioral\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    rerun = _result(findings=(_finding(status="open", produced_at="2026-09-03T00:00:00Z"),))
+    save_fidelity_result(tmp_path, rerun)
+
+    loaded = load_fidelity_result(tmp_path, "SR-900")
+    assert loaded is not None
+    assert loaded.findings[0].status == "open"

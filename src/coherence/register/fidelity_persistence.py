@@ -4,6 +4,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+from coherence.gate.content import resolve_decision_currency
 from coherence.gate.model import CorruptDecisionFile, _is_iso
 from coherence.gate.store import decision_path, load_decision
 from coherence.register.fidelity_findings import FidelityReviewResult
@@ -80,13 +81,25 @@ def _expected_artifact_ref(root: Path, sr_id: str) -> str | None:
         return None
 
 
+def _sr_path(root: Path, sr_id: str) -> Path | None:
+    """The SR's own requirement file, or `None` when it is not in the
+    register. The target `resolve_decision_currency` checksums -- the same
+    file `_expected_artifact_ref` above names, resolved from the same
+    register read."""
+    reqs = load_register(root / "requirements")
+    req = next((r for r in reqs if r.id == sr_id), None)
+    return None if req is None else req.path
+
+
 def _accepted_review_decision_at(root: Path, sr_id: str) -> str | None:
     """The `decided_at` of an attributed `accept` decision for
     `review:<sr_id>` that is ALSO correctly scoped to this SR's own
     `artifact_ref`, or `None` when no such decision exists. Mirrors
     `_human_review_obligation`'s own rule set in full now -- gate_id, item_id
-    scoping, artifact_ref scoping (`_expected_artifact_ref` above), AND
-    attribution (non-blank `decided_by`, valid ISO-8601 `decided_at`) -- but
+    scoping, artifact_ref scoping (`_expected_artifact_ref` above),
+    attribution (non-blank `decided_by`, valid ISO-8601 `decided_at`), AND
+    SR-059/AC-2 content currency (`resolve_decision_currency`, so consent
+    given for content that has since changed stops dispositioning) -- but
     is intentionally a SEPARATE, local read -- this module never imports
     `src/coherence/policy/compiler.py` (untouched by this task; see
     `coherence.register.fidelity`'s module docstring) and does not gate
@@ -115,6 +128,9 @@ def _accepted_review_decision_at(root: Path, sr_id: str) -> str | None:
     if len(decisions) != 1 or decisions[0].item_id != item_id or decisions[0].action != "accept":
         return None
     if not decision_file.decided_by.strip() or not _is_iso(decision_file.decided_at):
+        return None
+    sr_path = _sr_path(root, sr_id)
+    if sr_path is None or not resolve_decision_currency(root, decision_file, sr_path)[1]:
         return None
     return decision_file.decided_at
 
