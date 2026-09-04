@@ -62,33 +62,29 @@ def _validate_feat17_bundle_members(
 ) -> tuple[bool, str]:
     """Validate feature ownership while allowing its dossier projections."""
     if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
-        return False, "bundle members must be a list of strings"
+        return False, "FEAT-017 bundle has invalid members"
     if len(members) != len(set(members)):
-        return False, "bundle members contain duplicates"
-    if (
-        not isinstance(requirement_ids, list)
-        or any(not isinstance(item, str) for item in requirement_ids)
-        or len(requirement_ids) != len(set(requirement_ids))
-    ):
-        return False, "requirement identifiers are invalid"
-
-    feature_members = sorted(member for member in members if member.startswith("feat:"))
-    if feature_members != ["feat:FEAT-017"]:
-        return False, "bundle must contain exactly one feat:FEAT-017 member"
+        return False, "FEAT-017 bundle has duplicate members"
 
     owned_ids = set(requirement_ids)
     sr_ids = sorted(
         member.removeprefix("sr:") for member in members if member.startswith("sr:")
     )
+    missing_ids = sorted(owned_ids - set(sr_ids))
+    if missing_ids:
+        return False, (
+            "FEAT-017 bundle is missing required member(s): "
+            f"{', '.join(missing_ids)}"
+        )
     unexpected_ids = sorted(set(sr_ids) - owned_ids)
     if unexpected_ids:
         return False, (
             "FEAT-017 bundle contains non-owned requirement(s): "
             f"{', '.join(unexpected_ids)}"
         )
-    missing_ids = sorted(owned_ids - set(sr_ids))
-    if missing_ids:
-        return False, f"missing required SR members: {', '.join(missing_ids)}"
+    feature_members = sorted(member for member in members if member.startswith("feat:"))
+    if feature_members != ["feat:FEAT-017"]:
+        return False, "FEAT-017 bundle contains an invalid feature membership"
     return True, "FEAT-017 bundle ownership is current"
 
 
@@ -135,7 +131,7 @@ def validate_requirement_consent(
     members = bundle.get("members")
     bundle_valid, bundle_detail = _validate_feat17_bundle_members(members, requirement_ids)
     if not bundle_valid:
-        return False, f"FEAT-017 bundle has invalid members: {bundle_detail}"
+        return False, bundle_detail
 
     for req_id in requirement_ids:
         req_path = requirements_dir / f"{req_id}.md"
