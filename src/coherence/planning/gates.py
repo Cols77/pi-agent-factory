@@ -62,9 +62,9 @@ def _validate_feat17_bundle_members(
 ) -> tuple[bool, str]:
     """Validate feature ownership while allowing its dossier projections."""
     if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
-        return False, "FEAT-017 bundle members are invalid"
+        return False, "bundle members must be a list of strings"
     if len(members) != len(set(members)):
-        return False, "FEAT-017 bundle contains duplicate members"
+        return False, "bundle members contain duplicates"
     if (
         not isinstance(requirement_ids, list)
         or any(not isinstance(item, str) for item in requirement_ids)

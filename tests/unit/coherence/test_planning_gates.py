@@ -40,5 +40,12 @@ def test_feat17_bundle_rejects_malformed_duplicate_members() -> None:
 
     assert _validate_feat17_bundle_members(members, _OWNED_IDS) == (
         False,
-        "FEAT-017 bundle contains duplicate members",
+        "bundle members contain duplicates",
+    )
+
+
+def test_feat17_bundle_rejects_non_string_members() -> None:
+    assert _validate_feat17_bundle_members(["feat:FEAT-017", 7], _OWNED_IDS) == (
+        False,
+        "bundle members must be a list of strings",
     )
