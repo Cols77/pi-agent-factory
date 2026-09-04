@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import frontmatter
@@ -66,6 +66,15 @@ class Requirement:
     checksum: str | None = None
     source: str | None = None
     acceptance: tuple[AcceptanceCriterion, ...] = ()
+    # SR-057: a flat list of ids from ANY artifact family this requirement
+    # declares itself to relate to/cover -- `spec:<id>`-prefixed for a spec
+    # (matching the trace graph's own `spec:<id>` node id), bare `SR-NNN`/
+    # `FEAT-NNN` otherwise (matching those node ids exactly, no prefix).
+    # Deliberately a separate field from `upstream`, which SR-001/AC-3 already
+    # scopes to requirement-to-requirement dependency relations only -- see
+    # this dataclass's `upstream` field and SR-057.md's body for why the two
+    # are not merged.
+    relates_to: list[str] = field(default_factory=list)
 
 
 def _parse_binding(raw: dict) -> Binding:
@@ -150,6 +159,9 @@ def parse_requirement(path: Path) -> Requirement:
     upstream = meta.get("upstream") or []
     if isinstance(upstream, str):
         upstream = [upstream]
+    relates_to = meta.get("relates_to") or []
+    if isinstance(relates_to, str):
+        relates_to = [relates_to]
     checksum = meta.get("checksum")
     source = meta.get("source")
     acceptance = _parse_acceptance(path, meta["acceptance"]) if "acceptance" in meta else ()
@@ -165,6 +177,7 @@ def parse_requirement(path: Path) -> Requirement:
         checksum=str(checksum) if checksum else None,
         source=str(source) if source else None,
         acceptance=acceptance,
+        relates_to=[str(r) for r in relates_to],  # type: ignore[union-attr]
     )
 
 
@@ -197,34 +210,85 @@ def is_checksum_current(req: Requirement) -> bool:
     return req.checksum is not None and req.checksum == content_checksum(req)
 
 
+def _missing_wikilinks(ids: list[str], body: str) -> tuple[str, ...]:
+    """Ids with no ``[[id]]``/``[[id|...]]`` mirror anywhere in ``body``, in
+    declared order, deduplicated.
+
+    The shared matching logic behind both ``missing_upstream_wikilinks``
+    (SR-001/AC-3, ``req.upstream`` only) and ``missing_relation_wikilinks``
+    (SR-057/AC-1, ``req.upstream`` and ``req.relates_to`` together) -- see
+    ``missing_upstream_wikilinks``'s docstring for the plain-vs-pipe-alias
+    rationale, which applies identically here.
+    """
+    seen: set[str] = set()
+    missing: list[str] = []
+    for uid in ids:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        if f"[[{uid}]]" not in body and f"[[{uid}|" not in body:
+            missing.append(uid)
+    return tuple(missing)
+
+
 def missing_upstream_wikilinks(req: Requirement) -> tuple[str, ...]:
     """Ids in ``req.upstream`` that carry no ``[[id]]`` wikilink anywhere in
     ``req.body``, in declared order, deduplicated.
 
     Checks one direction only: every declared relation is mirrored as a
     wikilink. It does not check the reverse (that every wikilink in the body
-    corresponds to a declared relation) -- the schema has only one typed
-    relation field (``upstream``) today, and a body routinely and
-    legitimately wikilinks other nodes for narrative context (see SR-001)
-    that are not upstream dependencies. Nor does it check that an upstream id
-    resolves to a real requirement; pair with a register-membership check for
-    that.
+    corresponds to a declared relation) -- a body routinely and legitimately
+    wikilinks other nodes for narrative context (see SR-001) that are not
+    upstream dependencies. Nor does it check that an upstream id resolves to
+    a real requirement; pair with a register-membership check for that.
 
     Recognises both the plain (``[[SR-050]]``) and Obsidian pipe-alias
     (``[[SR-050|display title]]``) wikilink forms as a mirror -- this repo
     uses the alias form routinely for ``source:`` links, so a bare
     ``[[id]]`` search would false-positive "missing" the moment an upstream
     mirror uses it too.
+
+    Unaffected by SR-057: this function's contract, signature, and behaviour
+    are exactly what they were before ``relates_to`` existed -- it still
+    reads only ``req.upstream``. ``missing_relation_wikilinks`` below is the
+    generalization that also covers ``req.relates_to``; this function is now
+    that check's ``upstream`` half, implemented via the shared
+    ``_missing_wikilinks`` helper rather than its own copy of the matching
+    logic.
     """
-    seen: set[str] = set()
-    missing: list[str] = []
-    for uid in req.upstream:
-        if uid in seen:
-            continue
-        seen.add(uid)
-        if f"[[{uid}]]" not in req.body and f"[[{uid}|" not in req.body:
-            missing.append(uid)
-    return tuple(missing)
+    return _missing_wikilinks(req.upstream, req.body)
+
+
+def missing_relates_to_wikilinks(req: Requirement) -> tuple[str, ...]:
+    """Ids in ``req.relates_to`` that carry no ``[[id]]``/``[[id|...]]``
+    wikilink anywhere in ``req.body`` -- SR-057/AC-1's new half of the
+    generalized mirror check, matched by the exact same rules as
+    ``missing_upstream_wikilinks`` (see its docstring) via the shared
+    ``_missing_wikilinks`` helper. ``req.relates_to`` may reference any
+    artifact family (a bare ``SR-NNN``/``FEAT-NNN`` id, or a ``spec:<id>``
+    id matching the trace graph's own spec node id) -- the mirror is checked
+    against the literal declared string either way, with no per-kind
+    transform.
+    """
+    return _missing_wikilinks(req.relates_to, req.body)
+
+
+def missing_relation_wikilinks(req: Requirement) -> tuple[str, ...]:
+    """SR-057/AC-1: every id a requirement declares via EITHER ``upstream``
+    or ``relates_to`` must be mirrored as a wikilink somewhere in its body,
+    checked the same way ``missing_upstream_wikilinks`` already checks
+    ``upstream`` alone (SR-001/AC-3). Returns the still-missing ids from
+    both fields combined -- ``upstream``'s own declared order first, then
+    ``relates_to``'s, deduplicated across both fields together (an id
+    declared in both, once mirrored, is not reported twice; declared in both
+    and never mirrored, is reported once).
+
+    ``upstream`` itself stays exactly as narrow as SR-001/AC-3 already
+    scoped it (requirement-to-requirement dependency only) -- this function
+    only broadens the wikilink CHECK to a second field, it does not
+    repurpose or widen what ``upstream`` may reference.
+    """
+    return _missing_wikilinks([*req.upstream, *req.relates_to], req.body)
 
 
 def load_register(requirements_dir: Path) -> list[Requirement]:
@@ -249,6 +313,8 @@ __all__ = [
     "get_requirement",
     "is_checksum_current",
     "load_register",
+    "missing_relates_to_wikilinks",
+    "missing_relation_wikilinks",
     "missing_upstream_wikilinks",
     "parse_requirement",
 ]

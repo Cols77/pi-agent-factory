@@ -8,6 +8,8 @@ from factory.requirements.register import (
     get_requirement,
     is_checksum_current,
     load_register,
+    missing_relates_to_wikilinks,
+    missing_relation_wikilinks,
     missing_upstream_wikilinks,
     parse_requirement,
 )
@@ -140,6 +142,97 @@ def test_missing_upstream_wikilinks_recognises_a_pipe_alias_mirror(tmp_path):
     req = parse_requirement(_write(tmp_path, "SR-022.md", aliased))
     assert req.upstream == ["BR-002"]
     assert missing_upstream_wikilinks(req) == ()
+
+
+@pytest.mark.sr("SR-057")
+def test_relates_to_parses_as_a_list(tmp_path):
+    with_relates = _SR.replace(
+        "SR-001", "SR-023"
+    ).replace("upstream: [BR-002]", "upstream: [BR-002]\nrelates_to: [spec:coherence-product-definition, FEAT-007]")
+    req = parse_requirement(_write(tmp_path, "SR-023.md", with_relates))
+    assert req.relates_to == ["spec:coherence-product-definition", "FEAT-007"]
+    # upstream is untouched by relates_to's presence.
+    assert req.upstream == ["BR-002"]
+
+
+@pytest.mark.sr("SR-057")
+def test_relates_to_defaults_to_empty_when_absent(tmp_path):
+    req = parse_requirement(_write(tmp_path, "SR-024.md", _SR.replace("SR-001", "SR-024")))
+    assert req.relates_to == []
+
+
+@pytest.mark.sr("SR-057")
+def test_relates_to_accepts_a_bare_scalar(tmp_path):
+    scalar = _SR.replace("SR-001", "SR-025").replace(
+        "upstream: [BR-002]", "upstream: [BR-002]\nrelates_to: FEAT-007"
+    )
+    req = parse_requirement(_write(tmp_path, "SR-025.md", scalar))
+    assert req.relates_to == ["FEAT-007"]
+
+
+@pytest.mark.sr("SR-057")
+def test_missing_relates_to_wikilinks_reports_ids_absent_from_the_body(tmp_path):
+    text = _SR.replace("SR-001", "SR-026").replace(
+        "upstream: [BR-002]", "upstream: [BR-002]\nrelates_to: [FEAT-007]"
+    )
+    req = parse_requirement(_write(tmp_path, "SR-026.md", text))
+    assert req.relates_to == ["FEAT-007"]
+    assert "[[FEAT-007]]" not in req.body
+    assert missing_relates_to_wikilinks(req) == ("FEAT-007",)
+
+
+@pytest.mark.sr("SR-057")
+def test_missing_relates_to_wikilinks_reports_nothing_when_mirrored(tmp_path):
+    text = (
+        _SR.replace("SR-001", "SR-027").replace(
+            "upstream: [BR-002]", "upstream: [BR-002]\nrelates_to: [FEAT-007]"
+        )
+        + "\nCovers [[FEAT-007]] directly.\n"
+    )
+    req = parse_requirement(_write(tmp_path, "SR-027.md", text))
+    assert missing_relates_to_wikilinks(req) == ()
+
+
+@pytest.mark.sr("SR-057")
+def test_missing_relates_to_wikilinks_recognises_a_pipe_alias_mirror(tmp_path):
+    text = (
+        _SR.replace("SR-001", "SR-028").replace(
+            "upstream: [BR-002]", "upstream: [BR-002]\nrelates_to: [spec:coherence-product-definition]"
+        )
+        + "\nSee [[spec:coherence-product-definition|the product definition]] for scope.\n"
+    )
+    req = parse_requirement(_write(tmp_path, "SR-028.md", text))
+    assert missing_relates_to_wikilinks(req) == ()
+
+
+@pytest.mark.sr("SR-057")
+def test_missing_relation_wikilinks_covers_both_fields_deduplicated(tmp_path):
+    # upstream's BR-002 stays unmirrored; relates_to's FEAT-007 is mirrored;
+    # relates_to's SR-777 stays unmirrored -- the combined check reports both
+    # unmirrored ids, in upstream-then-relates_to declared order, and reports
+    # the mirrored one from neither.
+    text = (
+        _SR.replace("SR-001", "SR-029").replace(
+            "upstream: [BR-002]",
+            "upstream: [BR-002]\nrelates_to: [FEAT-007, SR-777]",
+        )
+        + "\nCovers [[FEAT-007]] directly.\n"
+    )
+    req = parse_requirement(_write(tmp_path, "SR-029.md", text))
+    assert missing_relation_wikilinks(req) == ("BR-002", "SR-777")
+    # And each half individually still reports its own missing id.
+    assert missing_upstream_wikilinks(req) == ("BR-002",)
+    assert missing_relates_to_wikilinks(req) == ("SR-777",)
+
+
+@pytest.mark.sr("SR-057")
+def test_missing_relation_wikilinks_dedupes_an_id_declared_in_both_fields(tmp_path):
+    text = _SR.replace("SR-001", "SR-030").replace(
+        "upstream: [BR-002]",
+        "upstream: [BR-002]\nrelates_to: [BR-002]",
+    )
+    req = parse_requirement(_write(tmp_path, "SR-030.md", text))
+    assert missing_relation_wikilinks(req) == ("BR-002",)
 
 
 @pytest.mark.sr("SR-002")

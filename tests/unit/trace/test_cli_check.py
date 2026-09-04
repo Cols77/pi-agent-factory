@@ -41,7 +41,14 @@ def _plan(tmp_path: Path) -> None:
         tmp_path / "docs" / "superpowers" / "plans" / "p1.md",
         "# P\n\ndocs/superpowers/specs/s1.md\n",
     )
-    _write(tmp_path / "docs" / "superpowers" / "specs" / "s1.md", "# S\n")
+    # trace_exempt: SR-057's artifact_uncovered gap would otherwise flag this
+    # spec (nothing relates_to it) as its own separate pending gap, which
+    # these fixtures are not about -- they exercise the exempt/deferred ->
+    # gate interaction for the *task*, not spec coverage.
+    _write(
+        tmp_path / "docs" / "superpowers" / "specs" / "s1.md",
+        "---\nid: s1\ntitle: S\nstatus: draft\ntrace_exempt: true\n---\n# S\n",
+    )
 
 
 def test_pending_gap_fails_the_gate(tmp_path):

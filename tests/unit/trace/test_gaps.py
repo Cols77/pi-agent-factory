@@ -69,6 +69,74 @@ def test_plan_with_a_canonical_spec_ref_has_no_plan_no_spec_gap():
     assert "plan_no_spec" not in _kinds(find_gaps(nodes, edges, {}), "plan:p1.md")
 
 
+def _spec(spec_id: str) -> Node:
+    return Node(spec_id, "spec", spec_id, Path(f"docs/superpowers/specs/{spec_id}.md"))
+
+
+def _feat(feat_id: str) -> Node:
+    return Node(feat_id, "feat", feat_id, Path(f"docs/features/{feat_id}.md"))
+
+
+@pytest.mark.sr("SR-057")
+def test_spec_no_requirement_relates_to_is_a_gap():
+    nodes = [_spec("spec:coherence-product-definition")]
+    assert "artifact_uncovered" in _kinds(find_gaps(nodes, [], {}), "spec:coherence-product-definition")
+
+
+@pytest.mark.sr("SR-057")
+def test_spec_reached_by_a_requirements_relates_to_has_no_artifact_uncovered_gap():
+    nodes = [_sr("SR-023"), _spec("spec:coherence-product-definition")]
+    edges = [Edge("SR-023", "spec:coherence-product-definition", "relates_to")]
+    kinds = _kinds(find_gaps(nodes, edges, {}), "spec:coherence-product-definition")
+    assert "artifact_uncovered" not in kinds
+
+
+@pytest.mark.sr("SR-057")
+def test_feat_no_requirement_relates_to_is_a_gap():
+    nodes = [_feat("FEAT-007")]
+    assert "artifact_uncovered" in _kinds(find_gaps(nodes, [], {}), "FEAT-007")
+
+
+@pytest.mark.sr("SR-057")
+def test_feat_reached_by_a_requirements_relates_to_has_no_artifact_uncovered_gap():
+    nodes = [_sr("SR-050"), _feat("FEAT-007")]
+    edges = [Edge("SR-050", "FEAT-007", "relates_to")]
+    assert "artifact_uncovered" not in _kinds(find_gaps(nodes, edges, {}), "FEAT-007")
+
+
+@pytest.mark.sr("SR-057")
+def test_sr_no_requirement_relates_to_is_a_gap():
+    nodes = [_sr("SR-023")]
+    assert "artifact_uncovered" in _kinds(find_gaps(nodes, [], {}), "SR-023")
+
+
+@pytest.mark.sr("SR-057")
+def test_sr_reached_by_another_requirements_relates_to_has_no_artifact_uncovered_gap():
+    nodes = [_sr("SR-050"), _sr("SR-023")]
+    edges = [Edge("SR-050", "SR-023", "relates_to")]
+    assert "artifact_uncovered" not in _kinds(find_gaps(nodes, edges, {}), "SR-023")
+
+
+@pytest.mark.sr("SR-057")
+def test_an_upstream_edge_alone_does_not_satisfy_artifact_uncovered():
+    # Design decision (SR-057/AC-2): a requirement's own `upstream` lists ITS
+    # prerequisites, a different direction from "is this SR covered by
+    # something else's declared relation" -- only `relates_to` counts here,
+    # so SR-023 stays uncovered even though SR-050 declares it as upstream.
+    nodes = [_sr("SR-050"), _sr("SR-023")]
+    edges = [Edge("SR-050", "SR-023", "upstream")]
+    assert "artifact_uncovered" in _kinds(find_gaps(nodes, edges, {}), "SR-023")
+
+
+@pytest.mark.sr("SR-057")
+def test_task_and_plan_nodes_never_get_artifact_uncovered():
+    # Scoped to spec/sr/feat only, per SR-057/AC-2 -- a task or plan node
+    # must never gain this gap kind even when nothing relates_to it.
+    nodes = [_task("T-001"), _plan("p1.md")]
+    gaps = find_gaps(nodes, [], {})
+    assert not any(g.kind == "artifact_uncovered" for g in gaps)
+
+
 def test_dangling_upstream_is_a_gap():
     nodes = [_sr("SR-001")]
     edges = [Edge("SR-001", "BR-002", "upstream")]

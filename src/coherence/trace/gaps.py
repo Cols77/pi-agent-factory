@@ -11,6 +11,7 @@ GapKind = Literal[
     "task_no_plan",
     "task_plan_missing",
     "plan_no_spec",
+    "artifact_uncovered",
     "dangling_upstream",
     "sr_unsatisfied",
     "sr_proposed",
@@ -26,14 +27,15 @@ _KIND_ORDER: dict[str, int] = {
     "task_no_sr": 0,
     "task_no_plan": 1,
     "plan_no_spec": 2,
-    "sr_unsatisfied": 3,
-    "sr_proposed": 4,
-    "sr_unvalidatable": 5,
-    "sr_unvalidated": 6,
-    "sr_stale": 7,
-    "dangling_upstream": 8,
-    "dangling_reference": 9,
-    "task_plan_missing": 10,
+    "artifact_uncovered": 3,
+    "sr_unsatisfied": 4,
+    "sr_proposed": 5,
+    "sr_unvalidatable": 6,
+    "sr_unvalidated": 7,
+    "sr_stale": 8,
+    "dangling_upstream": 9,
+    "dangling_reference": 10,
+    "task_plan_missing": 11,
 }
 
 
@@ -71,6 +73,18 @@ def find_gaps(
 
     out = {n.id: [e for e in edges if e.src == n.id] for n in nodes}
     satisfied_srs = {e.dst for e in edges if e.kind == "satisfies"}
+    # SR-057/AC-2: the reverse of plan_no_spec -- a spec/SR/FEAT that no
+    # requirement's own relates_to reaches. `upstream` deliberately does NOT
+    # count here even for the SR-to-SR case: a requirement's upstream lists
+    # ITS OWN prerequisites (a different, "what I depend on" direction) and
+    # SR-001/AC-3 already scopes it to requirement-to-requirement only --
+    # widening it to also mean "is covered by" would blur that boundary and
+    # still say nothing about spec/FEAT coverage, which upstream can never
+    # reference at all. relates_to is the one field this SR gives a "this
+    # artifact is covered" meaning, so it is the only channel that satisfies
+    # this gap. See requirements/SR-057.md's AC-2 addendum for the same
+    # reasoning written out in full.
+    related_artifacts = {e.dst for e in edges if e.kind == "relates_to"}
 
     for node in nodes:
         node_edges = out[node.id]
@@ -111,6 +125,13 @@ def find_gaps(
                     add(node, "sr_unvalidatable", status.error or "validation could not run")
                 elif status.stale:
                     add(node, "sr_stale", "result predates a change to statement or binding")
+
+        if node.kind in ("spec", "sr", "feat") and node.id not in related_artifacts:
+            add(
+                node,
+                "artifact_uncovered",
+                f"no requirement's relates_to reaches this {node.kind}",
+            )
 
         for edge in node_edges:
             if edge.kind == "upstream" and edge.dst not in by_id:

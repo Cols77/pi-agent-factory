@@ -321,8 +321,13 @@ def test_status_snapshot_reports_failing_trace_gate(tmp_path: Path):
 
 def test_status_snapshot_reports_proposed_backlog_when_a_feature_is_never_audited(tmp_path: Path):
     (tmp_path / "docs" / "features").mkdir(parents=True)
+    # trace_exempt: SR-057's artifact_uncovered gap would otherwise flag this
+    # FEAT (nothing relates_to it) and make trace_check outrank audit_age's
+    # proposed_backlog -- this test is about the audit_age probe/precedence,
+    # not trace coverage, so the feature is exempted from that unrelated gap.
     (tmp_path / "docs" / "features" / "FEAT-001.md").write_text(
-        "---\nid: FEAT-001\ntitle: Test\nrequirements: []\n---\n", encoding="utf-8"
+        "---\nid: FEAT-001\ntitle: Test\nrequirements: []\ntrace_exempt: true\n---\n",
+        encoding="utf-8",
     )
 
     snapshot = status_snapshot(tmp_path)

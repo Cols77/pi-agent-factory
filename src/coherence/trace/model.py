@@ -293,6 +293,7 @@ EdgeKind = Literal[
     "source_plan",
     "satisfies",
     "upstream",
+    "relates_to",
     "spec_ref",
     "parent_of",
     "verified_by",
@@ -454,6 +455,14 @@ def extract_edges(root: Path, nodes: list[Node]) -> list[Edge]:
                     add(Edge(node.id, sr_id, "satisfies"))
             for upstream_id in as_str_list(meta.get("upstream")):
                 add(Edge(node.id, upstream_id, "upstream"))
+            if node.kind == "sr":
+                # SR-057: `relates_to` lives on a requirement's own
+                # frontmatter only (br/task never declare it) -- a flat list
+                # of ids from any artifact family (`spec:<id>`-prefixed,
+                # bare `SR-NNN`/`FEAT-NNN`), read literally with no per-kind
+                # transform, matching how `upstream` is already read above.
+                for target_id in as_str_list(meta.get("relates_to")):
+                    add(Edge(node.id, target_id, "relates_to"))
             for edge in edges_from_frontmatter(node.id, meta, node.kind):
                 add(edge)
         elif node.kind in ("feat", "metric", "goal", "run", "diag"):

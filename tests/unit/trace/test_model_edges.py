@@ -57,6 +57,36 @@ def test_sr_upstream_edge_is_kept_even_when_target_is_missing(tmp_path):
     assert Edge("SR-001", "BR-002", "upstream") in _edges(tmp_path)
 
 
+@pytest.mark.sr("SR-057")
+def test_sr_relates_to_edge_is_kept_even_when_target_is_missing(tmp_path):
+    _write(
+        tmp_path / "requirements" / "SR-001.md",
+        "---\nid: SR-001\ntitle: t\nstatement: s\ndomain: d\n"
+        "binding:\n  harness: h\n  experiment: e\n  metric: m\n  assert: '>= 0.9'\n"
+        "relates_to:\n- spec:some-spec\n- FEAT-007\n---\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert Edge("SR-001", "spec:some-spec", "relates_to") in edges
+    assert Edge("SR-001", "FEAT-007", "relates_to") in edges
+
+
+@pytest.mark.sr("SR-057")
+def test_relates_to_on_a_task_produces_no_edge(tmp_path):
+    # relates_to is a requirement (sr)-only field per SR-057's approved
+    # design -- a task frontmatter carrying the same key (however unlikely)
+    # must not silently grow a relates_to edge.
+    _write(
+        tmp_path / "tasks" / "T-001.md",
+        "---\nid: T-001\ntitle: t\nstatus: todo\ndod: []\nrelates_to:\n- FEAT-007\n---\n",
+    )
+
+    edges = _edges(tmp_path)
+
+    assert Edge("T-001", "FEAT-007", "relates_to") not in edges
+
+
 def test_plan_spec_edge_comes_from_a_literal_path_in_the_body(tmp_path):
     _write(
         tmp_path / "docs" / "superpowers" / "plans" / "p1.md",

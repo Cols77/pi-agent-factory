@@ -11,8 +11,9 @@ takes a bare identifier, so every template below uses `{id}`. Any other
 placeholder (a plan filename, a spec filename, a measurement name) is
 written `<like-this>` -- a human value the browser never fills in.
 
-Keys are exactly the eleven `GapKind` values (`trace/gaps.py:9`) plus the
-sixteen browser-decided absence states named in the design doc -- each an
+Keys are exactly the twelve `GapKind` values (`trace/gaps.py:9`, the
+SR-057-added `artifact_uncovered` included) plus the sixteen browser-decided
+absence states named in the design doc -- each an
 explicit `if (!x.length)` (or equivalent) branch in `system-renderers.ts` /
 `system-bootstrap.ts`, so the browser always knows which key applies without
 interpreting any free text.
@@ -91,6 +92,23 @@ REMEDIATION: dict[str, dict] = {
         ),
         "command": "uv run python -m coherence.trace link {id} --spec <spec-filename>",
         "command_kind": "shell",
+        "severity": "absence",
+    },
+    "artifact_uncovered": {
+        "state": "artifact_uncovered",
+        "headline": "No requirement declares coverage of this artifact",
+        "what_it_means": (
+            "No requirement anywhere declares a `relates_to` edge naming "
+            "{id} -- the reverse of plan_no_spec: nothing has claimed this "
+            "spec, requirement, or feature as something it covers."
+        ),
+        "why_it_matters": (
+            "A spec, requirement, or feature no requirement relates to is "
+            "unreachable in that direction -- there is no declared claim "
+            "that anything actually covers it."
+        ),
+        "command": "/trace-fix {id}",
+        "command_kind": "slash",
         "severity": "absence",
     },
     "dangling_upstream": {
