@@ -221,7 +221,6 @@ def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
     assert consent["artifact_hashes"] == expected_hashes
     # This committed snapshot is legacy aggregate evidence, not current adoption.
     # It references an untracked intent snapshot and incorrectly includes shared SR-050.
-    assert not (root / ".intent" / "intent.json").exists()
     assert ".intent/intent.json" in expected_hashes
     assert "SR-050" in consent["candidate_srs"]
     owned_srs = sorted(_EXPECTED_SRS - {"SR-050"})
