@@ -1,5 +1,5 @@
 #!/bin/sh
-# Commit-claim traceability (SR-054).
+# Commit-claim traceability (SR-049/AC-1).
 #
 # Delegates to the single trailer parser in coherence.register.claims -- it
 # never reimplements the parsing, the exemption globs, or the register lookup

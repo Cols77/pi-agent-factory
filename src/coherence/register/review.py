@@ -371,17 +371,37 @@ def claiming_commits(manifests: list[dict], sr_id: str) -> tuple[dict, ...]:
 
 
 def claimed_paths(manifests: list[dict], sr_id: str) -> set[str]:
-    """Every path from a commit whose ``SR:`` trailer named ``sr_id``.
+    """Every non-exempt path from a commit whose ``SR:`` trailer named
+    ``sr_id``.
 
     This is the precise denominator claims exist to provide: the
     manifest-scoping heuristic below ("manifests carrying a validation entry
     for this SR") answers "was this SR being worked on around then"; this
     answers "was this file changed FOR this SR".
+
+    A path the ingesting commit recorded as exemption-matched is excluded.
+    The exempt list's whole meaning is "a change here never requires a
+    declared relation"; counting an exempted path as claimed would make every
+    commit that touched a doc alongside code emit a ``changed_but_undeclared``
+    finding that no declaration could ever clear -- and because that finding
+    is what the blocking claim gate fails on, an exempt list wired into the
+    commit-time check alone would have made the gate unsatisfiable rather
+    than merely noisy.
     """
     return {
         str(path)
         for commit in claiming_commits(manifests, sr_id)
         for path in commit.get("changed_files") or []
+        if str(path) not in _exempted_paths(commit)
+    }
+
+
+def _exempted_paths(commit: dict) -> set[str]:
+    """The paths one recorded commit matched against an exemption glob."""
+    return {
+        str(entry["path"])
+        for entry in commit.get("exempted") or []
+        if isinstance(entry, dict) and entry.get("path")
     }
 
 

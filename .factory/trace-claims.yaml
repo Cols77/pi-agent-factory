@@ -1,4 +1,4 @@
-# Commit-claim traceability config (SR-054).
+# Commit-claim traceability config (SR-049).
 #
 # epoch: no claim is expected for commits at or before this sha. Load-bearing
 #   at adoption: without it, every declared relation in the register would

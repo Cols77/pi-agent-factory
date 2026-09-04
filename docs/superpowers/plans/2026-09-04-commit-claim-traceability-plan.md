@@ -26,13 +26,40 @@
 
 ---
 
-## DECISION 2026-09-04: proposal DECLINED, work rebound to [[SR-054]]
+## SUPERSEDED 2026-09-04 (same day): the work is bound to [[SR-049]], not [[SR-054]]
+
+The SR-054 parking recorded below was **wrong on its own stated terms** and has been corrected.
+Both limitations it "knowingly accepted" were disqualifying, not acceptable: a marker naming a
+requirement whose statement does not describe the case at hand, on a requirement that is
+`proposed` with no acceptance criteria, closes nothing and mis-reports coverage. The 25 markers now
+carry `@pytest.mark.sr("SR-049")`, and [[SR-049]] carries real `test_marker` acceptance criteria
+(AC-1 trailer + commit-time check, AC-2 ingestion, AC-3 the blocking gate) plus
+`implemented_by`/`verified_by` relations for every file this slice produced.
+
+**This routes around no consent.** [[SR-044]] governs *authoring* an SR. SR-049 was already in the
+register and already consented; adding acceptance criteria to an existing requirement whose
+statement is precisely "artifacts a slice produces carry canonical relations to their owning SR,
+gate-validated" is binding it, not authoring one — which is exactly what the design document said
+this slice would do ("This design gives SR-049 its first binding and acceptance criteria"). The
+declined candidate SR-062 stays declined and unwritten.
+
+The three T1–T3 commits also carried `SR: SR-050` trailers naming the wrong requirement — the
+claim mechanism is SR-049's, not SR-050's. Those trailers were corrected in place. Rewriting them
+is explicitly harmless under this design's own model: commits are an input consumed at ingestion,
+and nothing had ingested them yet.
+
+Two defects that made the AC-3 gate **unsatisfiable** surfaced while writing honest criteria, both
+now fixed with tests first: exempted paths were counted in the claim denominator (so any commit
+touching a doc alongside code produced a permanent finding no declaration could clear), and a
+non-Python produced artifact could not be declared at all under `implemented_by` while still being
+reported as claimed-but-undeclared. See `requirements/SR-049.md` for both.
+
+### The superseded record, retained
 
 The SR-044 consent below was put to a human with the facts, including the arguments against, and
-**declined**. No new requirement was authored; `requirements/` is untouched. The 25 tests that
-carried the candidate marker now carry `@pytest.mark.sr("SR-054")`, treating commit-claim
-attribution as an implementation detail of [[SR-054]]'s obligation to identify a change's affected
-requirements.
+**declined**. No new requirement was authored. The 25 tests that carried the candidate marker were
+given `@pytest.mark.sr("SR-054")`, treating commit-claim attribution as an implementation detail of
+[[SR-054]]'s obligation to identify a change's affected requirements.
 
 **Two limitations that decision knowingly accepted** — recorded so no later reader mistakes these
 markers for a stronger claim:

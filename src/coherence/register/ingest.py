@@ -1,4 +1,4 @@
-"""Git commit range -> evidence manifest (SR-054).
+"""Git commit range -> evidence manifest (SR-049/AC-2).
 
 The ONLY module in the review path that reads git, and it reads it through
 ``substrate.vcs.CommitReader`` rather than opening a second subprocess

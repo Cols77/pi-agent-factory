@@ -10,6 +10,7 @@ from coherence.register.cli import cmd_review
 from coherence.register.register import Binding, Requirement
 from coherence.register.review import (
     evidence_reconciliation_review,
+    claimed_paths,
     exemption_summary,
     structural_review,
     unaccounted_changed_files,
@@ -493,6 +494,37 @@ def test_a_path_claimed_for_another_sr_is_not_this_srs_finding(tmp_path: Path):
     review = evidence_reconciliation_review(tmp_path, _unbound("SR-131", req_path), manifests)
     details = [f.detail for f in review.findings if f.category == "changed_but_undeclared"]
     assert not any("src/b.py" in d for d in details)
+
+
+@pytest.mark.sr("SR-049")
+def test_a_path_the_commit_exempted_is_not_in_the_claim_denominator(tmp_path: Path):
+    """An exempted path is one the claim policy says never needs a declared
+    relation. Counting it as claimed anyway made every commit that touched a
+    doc alongside code produce a permanent `changed_but_undeclared` finding no
+    declaration could ever clear -- the exempt list was wired into the
+    commit-time check only, and had no effect on the denominator it exists to
+    shrink."""
+    req_path = _write_meta(tmp_path / "requirements" / "SR-133.md", {"id": "SR-133"})
+    manifests = [
+        {
+            "implementation": {"changed_files": ["src/a.py", "docs/note.md"]},
+            "commits": [
+                {
+                    "sha": "d" * 40,
+                    "subject": "feat",
+                    "sr_ids": ["SR-133"],
+                    "changed_files": ["src/a.py", "docs/note.md"],
+                    "exempted": [{"path": "docs/note.md", "glob": "docs/**"}],
+                }
+            ],
+            "validation": [],
+        }
+    ]
+    assert claimed_paths(manifests, "SR-133") == {"src/a.py"}
+    review = evidence_reconciliation_review(tmp_path, _unbound("SR-133", req_path), manifests)
+    details = [f.detail for f in review.findings if f.category == "changed_but_undeclared"]
+    assert any("src/a.py" in d for d in details)
+    assert not any("docs/note.md" in d for d in details)
 
 
 @pytest.mark.sr("SR-050")
