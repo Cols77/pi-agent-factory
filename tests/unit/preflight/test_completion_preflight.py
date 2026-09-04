@@ -12,10 +12,25 @@ pytestmark = pytest.mark.unit
 
 
 def task(tmp_path, satisfies=None):
-    return Task(
-        "T-001", "Complete", "todo", ["validated"], "body",
-        tmp_path / "tasks" / "T-001.md", satisfies or ["SR-001"],
+    # SR-050 T3's relation_maintenance obligation resolves the task through
+    # the trace graph (coherence.trace.model.load_nodes globs tasks/T-*.md
+    # from disk), so this fixture persists a real task file matching the
+    # returned Task -- not just an in-memory dataclass -- for
+    # compile_obligations's scope resolution to find it.
+    resolved_satisfies = ["SR-001"] if satisfies is None else satisfies
+    path = tmp_path / "tasks" / "T-001.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    satisfies_block = (
+        "satisfies:\n" + "\n".join(f"  - {sr}" for sr in resolved_satisfies) + "\n"
+        if resolved_satisfies else ""
     )
+    path.write_text(
+        "---\nid: T-001\ntitle: Complete\nstatus: todo\ndod:\n  - validated\n"
+        + satisfies_block
+        + "---\nbody\n",
+        encoding="utf-8",
+    )
+    return Task("T-001", "Complete", "todo", ["validated"], "body", path, resolved_satisfies)
 
 
 def requirement(tmp_path, *, proposed=False):
@@ -95,6 +110,40 @@ def test_interactive_run_requires_persisted_review_and_blocks_must_fix(tmp_path)
     }), encoding="utf-8")
     report = run_completion_preflight(tmp_path, task(tmp_path), transcript, require_review=True)
     assert "must_fix_unresolved" in codes(report)
+
+
+def test_uncovered_changed_file_blocks_with_relation_uncovered(tmp_path):
+    requirement(tmp_path)  # writes requirements/SR-001.md with a real binding, no relations
+    transcript = tmp_path / "runtime"
+    write_report(transcript, [{"id": "SR-001", "passed": True, "stale": False}])
+    (tmp_path / "src").mkdir()
+    report = run_completion_preflight(
+        tmp_path, task(tmp_path), transcript, require_review=False,
+        changed_files=["src/uncovered.py"],
+    )
+    assert "relation_uncovered" in codes(report)
+    assert report.ok is False
+
+
+def test_changed_files_none_never_introduces_relation_uncovered(tmp_path):
+    requirement(tmp_path)
+    transcript = tmp_path / "runtime"
+    write_report(transcript, [{"id": "SR-001", "passed": True, "stale": False}])
+    report = run_completion_preflight(
+        tmp_path, task(tmp_path), transcript, require_review=False,
+    )  # changed_files omitted entirely -- must default to None, not []
+    assert "relation_uncovered" not in codes(report)
+    assert report.ok is True
+
+
+def test_task_with_no_satisfies_sr_is_never_blocked_by_relation_uncovered(tmp_path):
+    transcript = tmp_path / "runtime"
+    write_report(transcript, [])
+    t = task(tmp_path, satisfies=[])
+    report = run_completion_preflight(
+        tmp_path, t, transcript, require_review=False, changed_files=["src/anything.py"],
+    )
+    assert "relation_uncovered" not in codes(report)
 
 
 def test_override_requires_identity_refuses_integrity_unknown_and_nonoverridable(tmp_path):

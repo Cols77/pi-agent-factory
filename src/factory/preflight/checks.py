@@ -75,6 +75,7 @@ def run_completion_preflight(
     transcript_dir: Path,
     *,
     require_review: bool,
+    changed_files: list[str] | None = None,
 ) -> FreshnessReport:
     issues: list[FreshnessIssue] = []
     requirements = {item.id: item for item in load_register(repo_root / "requirements")}
@@ -162,6 +163,34 @@ def run_completion_preflight(
                     "human-review",
                 )
             )
+    # SR-050 T3: relation-maintenance obligation (coherence.policy.compiler).
+    # A policy-resolution failure here (e.g. the task is not yet a resolvable
+    # trace node) must never crash a real run over this one new check -- fail
+    # open on the obligation lookup itself (no issue added), the same
+    # defensive posture run_preflight already uses around its own
+    # trace-graph/evidence-manifest reads elsewhere in this module.
+    try:
+        from coherence.policy.compiler import compile_obligations
+
+        relation_obligations = compile_obligations(
+            repo_root, f"task:{task.id}", changed_files=changed_files,
+        )
+    except (OSError, TypeError, ValueError):
+        relation_obligations = []
+    relation_obligation = next(
+        (o for o in relation_obligations if o.kind == "relation_maintenance"), None
+    )
+    if relation_obligation is not None and relation_obligation.state == "open":
+        issues.append(
+            _issue(
+                "relation_uncovered",
+                FreshnessSeverity.BLOCKING,
+                task.id,
+                relation_obligation.reason,
+                "relation-maintenance",
+            )
+        )
+
     return FreshnessReport(sorted(issues, key=lambda item: (item.code, item.dependency)))
 
 
