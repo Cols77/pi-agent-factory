@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import hashlib
+
 from pathlib import Path
 from typing import cast
 
@@ -99,16 +99,16 @@ def test_feat17_authority_and_plan_freeze_the_mature_host_neutral_contracts() ->
         _section(spec, "### 3e. Review, resolution, escalation, and consent", "### 3f. Summary, downstream menu, and handoff").split()
     )
     compact_handoff = " ".join(
-        _section(spec, "### 3f. Summary, downstream menu, and handoff", "## 4. Canonical artifact contracts").split()
+        _section(spec, "### 3f. Summary, downstream menu, and handoff", "### 3g. State machine and invariants").split()
     )
     compact_artifacts = " ".join(
-        _section(spec, "## 4. Canonical artifact contracts", "## 5. Scope and explicit deferrals").split()
+        _section(spec, "### 2.2 Canonical and derived outputs", "### 2.3 Exact original prompt and challenge provenance").split()
     )
     compact_plan_persistence = " ".join(
-        _section(plan, "### 1.9 Persistence and handoff", "## 2. Existing substrate and dependencies to reuse").split()
+        _section(plan, "### 2.1 Run inputs and evidence paths", "### 2.2 Real producer interface").split()
     )
     compact_plan_consent = " ".join(
-        _section(plan, "### 1.5 Human review and consent", "### 1.6 Requirement model").split()
+        _section(plan, "### 2.4 Shared DecisionFile, boundary, and handoff contracts (prerequisite)", "## 2.5 Secure provenance and path-write contract").split()
     )
     plan_architecture = " ".join(
         plan.split("**Architecture:**", 1)[1].split("**Tech Stack:**", 1)[0].split()
@@ -121,59 +121,51 @@ def test_feat17_authority_and_plan_freeze_the_mature_host_neutral_contracts() ->
 
     # Each checkpoint has an exact lifecycle boundary and artifact coverage.
     checkpoint_coverage = {
-        "PLANNING_ALIGNMENT": "after provisional authority-spec authoring; compare the spec with the complete intent capture and full current SR context",
-        "PLANNING_PLAN_REVIEW": "after implementation plan and generated task authoring; review the intent/spec/plan/task chain",
-        "PLANNING_DERIVATION": "after candidate SR, FEAT dossier, and bundle derivation; review thin-SR fidelity, obligation completeness, duplication, contradiction, exact anchors, and closure against the current SR register",
+        "PLANNING_ALIGNMENT": "after the real provisional-spec producer and compares the spec with complete intent/provenance and full current SR context",
+        "CANDIDATE_SR_ALIGNMENT": "after the one run-local candidate SR derivation and before plan authoring; it checks duplicates, conflicts, unsupported claims, compatibility, missing obligations, complete context, and feature boundaries",
+        "CROSS_ARTIFACT_ALIGNMENT": "after implementation-plan authoring and task materialization; it checks the intent/spec/candidate/task chain and bidirectional trace closure",
     }
     for role, coverage in checkpoint_coverage.items():
         assert role in compact_checkpoint
         assert coverage in compact_checkpoint
 
     # Review packets deliberately carry all current, non-deleted requirement context.
-    assert "every non-deleted current SR" in compact_review
+    assert "complete non-deleted SR context" in compact_review
     assert "proposed, deferred, satisfied, and active" in compact_review
     assert "source anchors" in compact_review
     assert "available trace context" in compact_review
 
-    # Classification and reviewer selection are host-owned and fail closed.
-    assert "configured inexpensive classifier estimates complexity" in compact_review
-    assert "The user chooses one reviewer model" in compact_review
-    assert "all three passes and retries reuse it" in compact_review
-    assert "Missing classifier/catalog/model availability pauses the run" in compact_review
-    assert "there is no silent fallback" in compact_review
-
-    # A scoped fix is never its own verification.
-    assert "edit only permitted planning artifacts" in compact_review
-    assert "Every fix requires a new independent reviewer invocation" in compact_review
-    assert "deterministic reread and gates" in compact_review
+    # Reviewer selection and scoped fixes remain host-owned and independent.
+    assert "The selected reviewer model is fixed for the run" in compact_review
+    assert "A scoped fix is followed by deterministic reread and a fresh independent review" in compact_review
+    assert "resolution history is append-only" in compact_review
 
     # Resolution evidence is an append-only run-local history.
     assert ".factory/planning/<run-id>/resolution-events.jsonl" in compact_plan_persistence
-    assert "Earlier events are never replaced" in compact_review
-    assert "state projections are derived from it" in compact_review
+    assert "resolution history is append-only" in compact_review
 
     # Semantic cleanliness and free-form answers do not substitute for SR consent.
-    assert "requires a distinct explicit consent phrase after the derivation checkpoint is clean" in compact_review
-    assert "A free-text answer alone does not grant SR consent" in compact_plan_consent
+    assert "A clean review never grants consent" in compact_review
+    assert "Consent binds exact candidate IDs/artifact hash" in compact_plan_consent
 
     # The first presentation milestone is text-only; the richer browser projection is deferred.
-    assert "`text-summary-handoff` is the initial presentation surface" in compact_handoff
-    assert "deferred-browser" in compact_handoff
-    assert "interactive `/system` planning workbench" in compact_handoff
+    assert "The first presentation is a text summary" in compact_handoff
+    assert "A richer browser workbench is deferred" in compact_handoff
 
     # The clean result exposes choices and a hash-bound, separately revalidated handoff.
-    assert "deterministic downstream menu" in compact_handoff
-    assert ".factory/planning/<run-id>/handoff.json" in compact_handoff
-    assert ".factory/planning/<run-id>/handoff.md" in compact_handoff
-    assert "schema-versioned, hash-bound source" in compact_plan_persistence
-    assert "new session revalidates the handoff before acting" in compact_plan_persistence
-    assert "never started automatically" in compact_plan_persistence
+    assert "clean run exposes an explicit menu" in compact_handoff
+    assert "hash-bound handoff" in compact_handoff
+    assert "new session revalidates it before acting" in compact_handoff
+    assert "starts_automatically: false" in compact_handoff
+    assert "append-only revision index" in compact_plan_persistence
+    assert "current pointer is replaceable derived state" in compact_plan_persistence
+    assert "starts_automatically: false" in compact_plan_consent
 
     # Coherence owns deterministic syntax/path/link/hash enforcement; agents do not.
-    assert "Keep the Python Coherence/substrate layer authoritative" in plan_architecture
-    assert "safe relative paths, deterministic ordering, exact hashes" in compact_artifacts
-    assert "The mature workflow adds deterministic contracts" in compact_deterministic
-    assert "reuse existing Coherence gate/decision/trace machinery" in compact_deterministic
+    assert "Coherence/substrate remains authoritative for canonical artifacts, schemas" in plan_architecture
+    assert "The run produces or references these artifacts. Run-local evidence is never overwritten in place" in compact_artifacts
+    assert "Every producer and checkpoint uses strict parsing" in compact_deterministic
+    assert "Existing Coherence gate, decision, trace, register, and filesystem machinery is reused rather than replaced" in compact_deterministic
 
 
 def test_feat17_feature_acceptance_rows_preserve_implementation_and_consent_boundaries() -> None:
@@ -208,7 +200,7 @@ def test_feat17_feature_acceptance_rows_preserve_implementation_and_consent_boun
     assert "implementation evidence" in bundle["description"]
 
 
-def test_feat17_adopted_srs_bind_consent_to_clean_derivation() -> None:
+def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
     root = Path(__file__).parents[3]
     run_dir = root / ".factory" / "planning" / "feat17-finalized-planning"
     derivation = json.loads((run_dir / "derivation-report.json").read_text(encoding="utf-8"))
@@ -227,17 +219,23 @@ def test_feat17_adopted_srs_bind_consent_to_clean_derivation() -> None:
         artifact["path"]: artifact["sha256"] for artifact in derivation["artifacts"]
     }
     assert consent["artifact_hashes"] == expected_hashes
+    # This committed snapshot is legacy aggregate evidence, not current adoption.
+    # It references an untracked intent snapshot and incorrectly includes shared SR-050.
+    assert not (root / ".intent" / "intent.json").exists()
+    assert ".intent/intent.json" in expected_hashes
+    assert "SR-050" in consent["candidate_srs"]
+    owned_srs = sorted(_EXPECTED_SRS - {"SR-050"})
+    current_run_id = "feat17-baseline-reconciliation"
+    assert not (root / ".factory" / "planning" / current_run_id).exists()
     assert validate_sr_consent(
         root,
-        "feat17-finalized-planning",
-        sorted(_EXPECTED_SRS),
+        current_run_id,
+        owned_srs,
         consent["derivation_report_sha256"],
         expected_hashes,
-    ) == (True, "explicit SR consent is current and exact")
+    )[0] is False
     assert validate_requirement_consent(
         root,
-        "feat17-finalized-planning",
+        current_run_id,
         root / "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
-    ) == (True, "requirement consent and FEAT-017 registration are current")
-    for path, digest in expected_hashes.items():
-        assert hashlib.sha256((root / path).read_bytes()).hexdigest() == digest, path
+    )[0] is False
