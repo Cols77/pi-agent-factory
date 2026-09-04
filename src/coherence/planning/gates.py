@@ -20,6 +20,15 @@ _SR_CONSENT_KEYS = frozenset({
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
+_FEAT17_OWNED_SRS = frozenset({
+    "SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055",
+})
+_FEAT17_DOSSIER_MEMBERS = frozenset({
+    "feat:FEAT-017",
+    "spec:docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+    "plan:docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+    "task:T-032-feat17-planning-workflow.md",
+})
 
 
 def _safe_relative(value: object) -> bool:
@@ -57,6 +66,18 @@ def _source_matches(root: Path, source: object, spec_path: Path) -> bool:
         return authority_anchor_matches(spec_body, anchor)
     except (OSError, RuntimeError, ValueError, yaml.YAMLError):
         return False
+
+
+def _validate_feat17_bundle_members(members: object) -> bool:
+    """Return whether FEAT-017's bundle has only owned, resolvable members."""
+    if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
+        return False
+    if len(members) != len(set(members)):
+        return False
+    expected = _FEAT17_DOSSIER_MEMBERS | {
+        f"sr:{requirement_id}" for requirement_id in _FEAT17_OWNED_SRS
+    }
+    return set(members) == expected
 
 
 def validate_requirement_consent(
@@ -100,11 +121,8 @@ def validate_requirement_consent(
     if not isinstance(bundle, dict) or bundle.get("id") != _REQUIRED_FEATURE_ID:
         return False, "FEAT-017 bundle has an invalid id"
     members = bundle.get("members")
-    expected_members = {"feat:FEAT-017", *(f"sr:{req_id}" for req_id in requirement_ids)}
-    if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
-        return False, "FEAT-017 bundle has invalid members"
-    if len(members) != len(set(members)) or set(members) != expected_members:
-        return False, "FEAT-017 bundle is not closed over the feature requirements"
+    if not _validate_feat17_bundle_members(members):
+        return False, "FEAT-017 bundle has invalid or non-owned members"
 
     for req_id in requirement_ids:
         req_path = requirements_dir / f"{req_id}.md"
