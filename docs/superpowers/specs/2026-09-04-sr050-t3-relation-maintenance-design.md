@@ -51,7 +51,7 @@ run's outcome stands or gets escalated back to `todo` — already operates on `c
 
 ## New Obligation: `relation_maintenance`
 
-`_relation_maintenance_obligation(root, scope_ref, profile, *, nodes, edges, changed_files=None)`
+`_relation_maintenance_obligation(root, scope_ref, profile, *, changed_files=None)`
 in `src/coherence/policy/compiler.py`, appended to the `task:*` branch of `compile_obligations`
 alongside `_task_justification_obligation`. `compile_obligations` itself grows the same
 `changed_files: list[str] | None = None` keyword-only parameter (forwarded only to this one
