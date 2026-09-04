@@ -104,6 +104,20 @@ def _fidelity_prompt(packet: FidelityPacket) -> str:
             }
             for f in packet.import_overlap
         ],
+        # Claims are intent, not proof -- the skill block loaded above tells
+        # the judge exactly how to read them. Rendered here because a packet
+        # field the prompt never carries is a fact the judge cannot use.
+        "claims": [
+            {
+                "sha": c.sha,
+                "subject": c.subject,
+                "changed_files": [
+                    {"path": path, "declared": declared}
+                    for path, declared in zip(c.changed_files, c.declared)
+                ],
+            }
+            for c in packet.claims
+        ],
     }
     lines.append(json.dumps(packet_view, indent=2))
     lines.append("")

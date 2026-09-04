@@ -4,6 +4,7 @@ import pytest
 
 from coherence.register.fidelity import FidelityJudgeUnavailable
 from coherence.register.fidelity_packet import (
+    ClaimFact,
     FidelityPacket,
     IndexSignatureView,
     ResolvedProductionRef,
@@ -32,7 +33,15 @@ _VER = ResolvedValidationRef(
 )
 
 
-def _packet() -> FidelityPacket:
+_CLAIM = ClaimFact(
+    sha="a" * 40,
+    subject="feat: claimed",
+    changed_files=("src/widgets/feature.py", "src/widgets/stray.py"),
+    declared=(True, False),
+)
+
+
+def _packet(*, claims: tuple[ClaimFact, ...] = ()) -> FidelityPacket:
     return FidelityPacket(
         sr_id="SR-900",
         statement="the system shall provide feature context",
@@ -43,6 +52,7 @@ def _packet() -> FidelityPacket:
         verified=(_VER,),
         import_overlap=(),
         unresolved=(),
+        claims=claims,
     )
 
 
@@ -121,3 +131,30 @@ def test_default_judge_raises_unavailable_on_unparseable_output(tmp_path, monkey
     monkeypatch.setattr(pi_backend_module, "PiAgentBackend", _FakeBackend)
     with pytest.raises(FidelityJudgeUnavailable):
         default_judge(_packet(), root=tmp_path, ext=tmp_path / "ext.ts")
+
+
+@pytest.mark.sr("SR-050")
+def test_the_injected_packet_view_carries_claim_facts(tmp_path, monkeypatch):
+    # A `claims` field the prompt never renders would be a packet field the
+    # judge cannot read: the facts must actually reach the injected view.
+    import factory.orchestrator.pi_backend as pi_backend_module
+    from coherence.audit.fidelity_dispatch import default_judge
+    from substrate.agents.model import AgentResult
+
+    seen: dict[str, str] = {}
+
+    class _FakeBackend:
+        def __init__(self, *a, **kw):
+            pass
+
+        def run(self, role, prompt, **kw):
+            seen["prompt"] = prompt
+            return AgentResult(ok=True, output={"findings": []}, raw="")
+
+    monkeypatch.setattr(pi_backend_module, "PiAgentBackend", _FakeBackend)
+    default_judge(_packet(claims=(_CLAIM,)), root=tmp_path, ext=tmp_path / "ext.ts")
+    prompt = seen["prompt"]
+    assert '"claims"' in prompt
+    assert "a" * 40 in prompt
+    assert "src/widgets/stray.py" in prompt
+    assert '"declared"' in prompt

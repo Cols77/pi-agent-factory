@@ -351,6 +351,25 @@ def unaccounted_changed_files(
 # ---------------------------------------------------------------------------
 
 
+def claiming_commits(manifests: list[dict], sr_id: str) -> tuple[dict, ...]:
+    """Every recorded commit whose ``SR:`` trailer named ``sr_id``, newest
+    -first (``list_run_manifests``'s own order).
+
+    The single place that decides which commits a claim denominator is built
+    from. ``claimed_paths`` collapses these to the set of paths, which is all
+    the deterministic reconciliation reviewer needs; a caller that needs the
+    per-commit facts too (which commit, with which subject, claimed which
+    path -- the fidelity packet) reads them from here rather than re-walking
+    the manifests with its own, possibly divergent, notion of a claim.
+    """
+    return tuple(
+        commit
+        for manifest in manifests
+        for commit in manifest.get("commits") or []
+        if isinstance(commit, dict) and sr_id in (commit.get("sr_ids") or [])
+    )
+
+
 def claimed_paths(manifests: list[dict], sr_id: str) -> set[str]:
     """Every path from a commit whose ``SR:`` trailer named ``sr_id``.
 
@@ -359,14 +378,11 @@ def claimed_paths(manifests: list[dict], sr_id: str) -> set[str]:
     for this SR") answers "was this SR being worked on around then"; this
     answers "was this file changed FOR this SR".
     """
-    paths: set[str] = set()
-    for manifest in manifests:
-        for commit in manifest.get("commits") or []:
-            if not isinstance(commit, dict):
-                continue
-            if sr_id in (commit.get("sr_ids") or []):
-                paths |= {str(p) for p in commit.get("changed_files") or []}
-    return paths
+    return {
+        str(path)
+        for commit in claiming_commits(manifests, sr_id)
+        for path in commit.get("changed_files") or []
+    }
 
 
 def any_claims(manifests: list[dict]) -> bool:
@@ -587,6 +603,7 @@ __all__ = [
     "StructuralReview",
     "any_claims",
     "claimed_paths",
+    "claiming_commits",
     "evidence_reconciliation_review",
     "exemption_summary",
     "structural_review",

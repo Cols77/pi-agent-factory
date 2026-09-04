@@ -25,6 +25,9 @@ you.
    -only), signature, a bounded source excerpt, and its last known outcome
 5. Import-graph overlap facts: does each verified test's import closure
    reach each implemented file
+6. `claims`: every commit whose `SR:` trailer named this requirement, with
+   each changed path marked `declared` or not -- see "Claims are intent, not
+   proof" below
 
 A relation already appears here only because it structurally RESOLVED (the
 path exists, the symbol/test-node exists). That is not what you are judging.
@@ -51,6 +54,12 @@ You are judging whether it genuinely substantiates the requirement's claim.
   coverage of; this kind is rejected at construction time for such a packet,
   so use `overstated_link`/`incidental_helper`/`weaker_subset_test`/
   `different_behavior` instead.
+
+**Claims are intent, not proof.** A `claims` entry means a commit *asserted*
+it was serving this requirement. Use it to locate the work and to notice a
+claimed file the requirement never declares (`"declared": false`) -- never
+as evidence that the work is correct. A claim that does not match what the
+code does is itself a `different_behavior` finding.
 
 A relation that genuinely substantiates its claim gets **no finding at all**
 -- silence is the positive case. Do not manufacture a low-confidence finding

@@ -10,6 +10,7 @@ import frontmatter
 from coherence.policy.compiler import resolve_profile
 from coherence.register.register import load_register
 from coherence.register.relations import ReferenceIssue, resolve_sr_relations
+from coherence.register.review import claiming_commits
 from coherence.trace.validation_status import load_validation
 from substrate.codemap.build import file_signatures
 from substrate.codemap.imports import compute_overlap
@@ -118,6 +119,20 @@ class OverlapFact:
 
 
 @dataclass(frozen=True)
+class ClaimFact:
+    """One commit that CLAIMED this SR. A claim is an assertion by whoever
+    wrote the commit -- evidence of intent, never proof of correctness. A
+    false claim is precisely the `different_behavior` finding the judge
+    exists to catch, so this is presented to the judge as a claim and never
+    as a verified fact."""
+
+    sha: str
+    subject: str
+    changed_files: tuple[str, ...]
+    declared: tuple[bool, ...]  # parallel to changed_files
+
+
+@dataclass(frozen=True)
 class FidelityPacket:
     """One packet per SR, built fresh for each review run -- never cached
     across source changes (the code map's own fingerprint freshness check,
@@ -134,6 +149,7 @@ class FidelityPacket:
     import_overlap: tuple[OverlapFact, ...]
     unresolved: tuple[ReferenceIssue, ...]
     diagnostics: tuple[str, ...] = ()
+    claims: tuple[ClaimFact, ...] = ()
 
 
 def _raw_meta(path: Path) -> dict:
@@ -151,6 +167,44 @@ def _entries_with_index(meta: dict, field: str) -> list[tuple[int, dict]]:
     if not isinstance(raw, list):
         return []
     return [(i, e) for i, e in enumerate(raw) if isinstance(e, dict)]
+
+
+def _declared_paths(meta: dict) -> set[str]:
+    """The ``path`` of every dict-shaped ``implemented_by``/``verified_by``
+    entry this SR declares -- the same "declared" definition
+    ``evidence_reconciliation_review`` operates on, and deliberately NOT the
+    packet's own ``implemented``/``verified`` (those are filtered down to the
+    entries that structurally resolved). A declared-but-broken relation is
+    still a declaration: marking its path "undeclared" would tell the judge
+    the commit touched a file no one claimed to own, which is a different --
+    and false -- fact. The structural reviewer owns the broken-relation
+    finding; this field must not double as it."""
+    return {
+        str(entry["path"]).strip()
+        for field in ("implemented_by", "verified_by")
+        for _, entry in _entries_with_index(meta, field)
+        if entry.get("path") and str(entry["path"]).strip()
+    }
+
+
+def _claim_facts(manifests: list[dict], sr_id: str, declared: set[str]) -> tuple[ClaimFact, ...]:
+    """Every commit that claimed ``sr_id``, with each changed path marked
+    against ``declared``. The commit set comes from ``review.claiming_commits``
+    -- the one authority on what "claimed this SR" means -- so a packet can
+    never disagree with the reconciliation reviewer about which commits are
+    in the claim denominator."""
+    facts: list[ClaimFact] = []
+    for commit in claiming_commits(manifests, sr_id):
+        paths = tuple(str(p) for p in commit.get("changed_files") or [])
+        facts.append(
+            ClaimFact(
+                sha=str(commit.get("sha") or ""),
+                subject=str(commit.get("subject") or ""),
+                changed_files=paths,
+                declared=tuple(path in declared for path in paths),
+            )
+        )
+    return tuple(facts)
 
 
 def _symbol_leaf(symbol: str) -> str:
@@ -424,11 +478,13 @@ def build_fidelity_packet(root: Path, sr_id: str) -> FidelityPacket:
         import_overlap=import_overlap,
         unresolved=resolution.issues,
         diagnostics=diagnostics,
+        claims=_claim_facts(manifests, sr_id, _declared_paths(meta)),
     )
 
 
 __all__ = [
     "AcceptanceCriterionRef",
+    "ClaimFact",
     "DesignSourceExcerpt",
     "FidelityPacket",
     "IndexSignatureView",

@@ -263,6 +263,32 @@ def test_outcome_falls_back_to_sr_level_status_when_no_manifest_names_the_node(t
 
 
 @pytest.mark.sr("SR-050")
+def test_packet_carries_claim_facts_marking_undeclared_paths(claims_repo: Path):
+    # `claims_repo` ingested two commits: `docs: seed SR-500` (no trailer) and
+    # `feat: claimed` (SR: SR-500) touching an UNDECLARED path.
+    packet = build_fidelity_packet(claims_repo, "SR-500")
+    assert [c.subject for c in packet.claims] == ["feat: claimed"]
+    claim = packet.claims[0]
+    assert len(claim.sha) == 40
+    assert claim.changed_files == ("src/claimed.py",)
+    assert claim.declared == (False,)
+
+
+@pytest.mark.sr("SR-050")
+def test_a_claimed_path_the_requirement_declares_is_marked_declared(declared_repo: Path):
+    packet = build_fidelity_packet(declared_repo, "SR-500")
+    assert packet.claims[0].changed_files == ("src/claimed.py",)
+    assert packet.claims[0].declared == (True,)
+
+
+@pytest.mark.sr("SR-050")
+def test_a_packet_with_no_claims_is_empty_not_absent(tmp_path: Path):
+    _write_meta(tmp_path / "requirements" / "SR-900.md", _sr())
+    packet = build_fidelity_packet(tmp_path, "SR-900")
+    assert packet.claims == ()
+
+
+@pytest.mark.sr("SR-050")
 def test_outcome_stays_never_validated_when_neither_source_has_it(tmp_path: Path):
     _write_test_file(tmp_path)
     _write_meta(
