@@ -1,0 +1,339 @@
+{
+  "schema_version": 2,
+  "run_id": "ingest-20260904T104906Z",
+  "started_at": "2026-09-04T10:49:06.075519Z",
+  "ended_at": "2026-09-04T10:49:06.075519Z",
+  "start_commit": "0f6576309598f232600fef2f5bceeb6279f23fa8",
+  "result_commit": "95cbc4cf1fdcf49df0c4c05f2aa10f899a7a28be",
+  "outcome": "completed",
+  "inputs": {
+    "requirements": [],
+    "factory_config_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:95cbc4cf1fdcf49df0c4c05f2aa10f899a7a28be",
+      "source": "95cbc4cf1fdcf49df0c4c05f2aa10f899a7a28be"
+    }
+  ],
+  "implementation": {
+    "changed_files": [
+      ".factory/trace-claims.yaml",
+      ".githooks/commit-msg",
+      "src/coherence/register/claims.py",
+      "tests/unit/coherence/register/test_claims.py",
+      "src/coherence/register/ingest.py",
+      "src/factory/orchestrator/git_ops.py",
+      "src/substrate/schemas/evidence_manifest.schema.json",
+      "src/substrate/vcs.py",
+      "tests/unit/coherence/register/conftest.py",
+      "tests/unit/coherence/register/test_ingest.py",
+      "tests/unit/evidence/test_manifests.py",
+      "tests/unit/substrate/test_evidence_read_model.py",
+      "src/coherence/register/review.py",
+      "tests/unit/coherence/register/test_review.py",
+      ".factory/factory.yaml",
+      "src/coherence/register/cli.py",
+      "tests/unit/coherence/register/test_cli_review_claims.py",
+      ".pi/skills/fidelity-review/SKILL.md",
+      "src/coherence/audit/fidelity_dispatch.py",
+      "src/coherence/register/fidelity_packet.py",
+      "tests/unit/coherence/register/test_fidelity_packet.py",
+      "tests/unit/coherence/test_fidelity_dispatch.py",
+      "docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+      "requirements/SR-050.md",
+      "src/coherence/register/relations.py",
+      "tests/unit/coherence/register/test_relations.py",
+      "requirements/SR-049.md",
+      "src/substrate/codemap/build.py",
+      "tests/unit/codeindex/test_codeindex.py",
+      "src/coherence/policy/compiler.py",
+      "tests/unit/coherence/policy/test_compiler.py",
+      "src/factory/preflight/checks.py",
+      "tests/unit/preflight/test_completion_preflight.py",
+      "src/factory/orchestrator/runner.py",
+      "tests/unit/orchestrator/test_runner_e2e.py",
+      "docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md"
+    ],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff"
+    }
+  },
+  "commits": [
+    {
+      "sha": "31bf5506c5e41b97cddf9a498d55e82015e4837e",
+      "subject": "feat(register): commit-claim trailer parsing, config, and commit-msg hook",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        ".factory/trace-claims.yaml",
+        ".githooks/commit-msg",
+        "src/coherence/register/claims.py",
+        "tests/unit/coherence/register/test_claims.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "ea5320cf7c11ab8dfb4c4f72b3c7b8aa1bf0efde",
+      "subject": "feat(register): ingest commit claims into an evidence manifest",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        "src/coherence/register/ingest.py",
+        "src/factory/orchestrator/git_ops.py",
+        "src/substrate/schemas/evidence_manifest.schema.json",
+        "src/substrate/vcs.py",
+        "tests/unit/coherence/register/conftest.py",
+        "tests/unit/coherence/register/test_ingest.py",
+        "tests/unit/evidence/test_manifests.py",
+        "tests/unit/substrate/test_evidence_read_model.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "95fc844839d4e44d16e178dcc058bbbcb6d7ec7f",
+      "subject": "feat(register): re-base reconciliation onto the claim denominator",
+      "sr_ids": [
+        "SR-050",
+        "SR-049"
+      ],
+      "changed_files": [
+        "src/coherence/register/review.py",
+        "tests/unit/coherence/register/test_review.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "a1828f0314f78ea34236cf6a199aa2ae7bb6f88a",
+      "subject": "feat(register): bind SR-049 with a blocking claim-reconciliation gate",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        ".factory/factory.yaml",
+        "src/coherence/register/cli.py",
+        "tests/unit/coherence/register/conftest.py",
+        "tests/unit/coherence/register/test_cli_review_claims.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "0556fe619370d4716e6d4db94b02707d11fd64e5",
+      "subject": "feat(register): give the fidelity packet commit-claim facts",
+      "sr_ids": [
+        "SR-050"
+      ],
+      "changed_files": [
+        ".pi/skills/fidelity-review/SKILL.md",
+        "src/coherence/audit/fidelity_dispatch.py",
+        "src/coherence/register/fidelity_packet.py",
+        "src/coherence/register/review.py",
+        "tests/unit/coherence/register/test_fidelity_packet.py",
+        "tests/unit/coherence/test_fidelity_dispatch.py"
+      ],
+      "exempted": [
+        {
+          "path": ".pi/skills/fidelity-review/SKILL.md",
+          "glob": "**/*.md"
+        }
+      ]
+    },
+    {
+      "sha": "2148692b6566889697d6b301df65938317578a73",
+      "subject": "refactor(register): rebind commit-claim tests to SR-054 after consent decline",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        ".factory/trace-claims.yaml",
+        ".githooks/commit-msg",
+        "docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+        "src/coherence/register/claims.py",
+        "src/coherence/register/ingest.py",
+        "src/factory/orchestrator/git_ops.py",
+        "tests/unit/coherence/register/test_claims.py",
+        "tests/unit/coherence/register/test_ingest.py",
+        "tests/unit/evidence/test_manifests.py",
+        "tests/unit/substrate/test_evidence_read_model.py"
+      ],
+      "exempted": [
+        {
+          "path": "docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+          "glob": "docs/**"
+        }
+      ]
+    },
+    {
+      "sha": "d9a3f7f64a91b85c4bdaaa415fa7b1e96963a189",
+      "subject": "feat(register): declare SR-050's own relations, allow non-Python artifacts",
+      "sr_ids": [
+        "SR-050"
+      ],
+      "changed_files": [
+        "requirements/SR-050.md",
+        "src/coherence/register/relations.py",
+        "tests/unit/coherence/register/test_relations.py"
+      ],
+      "exempted": [
+        {
+          "path": "requirements/SR-050.md",
+          "glob": "**/*.md"
+        }
+      ]
+    },
+    {
+      "sha": "00b2d1c0d8ac8e0f4ad4fbe5add6fa0b0daaf963",
+      "subject": "feat(SR-049): bind produced-code traceability, correcting the SR-054 parking",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        ".factory/trace-claims.yaml",
+        ".githooks/commit-msg",
+        "docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+        "requirements/SR-049.md",
+        "src/coherence/register/claims.py",
+        "src/coherence/register/ingest.py",
+        "src/coherence/register/review.py",
+        "tests/unit/coherence/register/test_claims.py",
+        "tests/unit/coherence/register/test_ingest.py",
+        "tests/unit/coherence/register/test_review.py"
+      ],
+      "exempted": [
+        {
+          "path": "docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+          "glob": "docs/**"
+        },
+        {
+          "path": "requirements/SR-049.md",
+          "glob": "**/*.md"
+        }
+      ]
+    },
+    {
+      "sha": "5b9e5767289dc2d9f396f8c75182e42b3d3bab85",
+      "subject": "feat(codemap): add is_source_path, the shared changed-file source classifier",
+      "sr_ids": [],
+      "changed_files": [
+        "src/substrate/codemap/build.py",
+        "tests/unit/codeindex/test_codeindex.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "0a6e40279493c5d0492f6aa5656a503c1790981e",
+      "subject": "feat(policy): add relation_maintenance obligation (SR-050 T3)",
+      "sr_ids": [],
+      "changed_files": [
+        "src/coherence/policy/compiler.py",
+        "tests/unit/coherence/policy/test_compiler.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "4a341322f7a0d1e7bf282f1a8fcf77776462246a",
+      "subject": "feat(preflight): block completion on an uncovered changed file (SR-050 T3)",
+      "sr_ids": [],
+      "changed_files": [
+        "src/factory/preflight/checks.py",
+        "tests/unit/preflight/test_completion_preflight.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "908d0553861d778f91606581b2b4dafb0333ff9b",
+      "subject": "feat(runner): pass this run's changed files into completion preflight (SR-050 T3)",
+      "sr_ids": [],
+      "changed_files": [
+        "src/factory/orchestrator/runner.py",
+        "tests/unit/orchestrator/test_runner_e2e.py"
+      ],
+      "exempted": []
+    },
+    {
+      "sha": "0cc6e717c94ff79b78d0609caeee0996355fb1aa",
+      "subject": "docs(SR-050): close AC-5 -- relation-maintenance obligation now blocks completion",
+      "sr_ids": [],
+      "changed_files": [
+        "requirements/SR-050.md"
+      ],
+      "exempted": [
+        {
+          "path": "requirements/SR-050.md",
+          "glob": "**/*.md"
+        }
+      ]
+    },
+    {
+      "sha": "fcab695763ee03a0b4fb4fd6ae9926cbb23cf9f3",
+      "subject": "fix(specs): correct SR-050 T3 spec's illustrative obligation signature",
+      "sr_ids": [],
+      "changed_files": [
+        "docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md"
+      ],
+      "exempted": [
+        {
+          "path": "docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md",
+          "glob": "docs/**"
+        }
+      ]
+    },
+    {
+      "sha": "00b10e14db2c0f83718f679c8b5166c51bfbb6e0",
+      "subject": "feat(SR-049): adopt commit-claim traceability live",
+      "sr_ids": [
+        "SR-049"
+      ],
+      "changed_files": [
+        ".factory/trace-claims.yaml",
+        ".githooks/commit-msg",
+        "requirements/SR-049.md",
+        "src/coherence/register/ingest.py",
+        "tests/unit/coherence/register/test_ingest.py"
+      ],
+      "exempted": [
+        {
+          "path": "requirements/SR-049.md",
+          "glob": "**/*.md"
+        }
+      ]
+    },
+    {
+      "sha": "95cbc4cf1fdcf49df0c4c05f2aa10f899a7a28be",
+      "subject": "fix(SR-050): subtract claim exemptions from the unaccounted denominator",
+      "sr_ids": [
+        "SR-050",
+        "SR-049"
+      ],
+      "changed_files": [
+        "requirements/SR-049.md",
+        "requirements/SR-050.md",
+        "src/coherence/register/review.py",
+        "tests/unit/coherence/register/test_review.py"
+      ],
+      "exempted": [
+        {
+          "path": "requirements/SR-049.md",
+          "glob": "**/*.md"
+        },
+        {
+          "path": "requirements/SR-050.md",
+          "glob": "**/*.md"
+        }
+      ]
+    }
+  ],
+  "validation": [],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
