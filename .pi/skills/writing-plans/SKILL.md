@@ -154,6 +154,30 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
+## Host-Native Workflow Tools
+
+**Use the workflow definition tool built into the coding agent currently in use.** Do not hand-roll
+an orchestration scheme, and do not assume another host's mechanism.
+
+| Host | Native mechanism |
+|------|------------------|
+| Claude Code | the `Workflow` tool (`agent()`/`parallel()`/`pipeline()`/`phase()`); load `workflow-authoring` first. `Agent` for single subagents. |
+| Hermes | its Kanban graph (see `coherence.planning.kanban`) |
+| Pi | its own task/run surface |
+| Others | whatever the host exposes natively; if none exists, say so and run sequentially rather than inventing one |
+
+Detect the host from the environment rather than guessing, and name the mechanism before using it.
+Multi-agent orchestration still needs the user's explicit opt-in where the host requires it — this
+selects *which* mechanism, not whether to spawn agents.
+
+**Validation gates belong inside the workflow definition**, each phase carrying the gate that must
+pass before the next begins, rather than run ad hoc afterwards.
+
+**This project's own contract wins.** `coherence.planning.workflow` is a deliberately host-neutral
+coordinator whose `Reviewer` callback is the sole semantic-judgment boundary, and
+`coherence.planning.gates` compiles the planning gate pack ([[SR-055]]). Where those exist, the
+host tool *executes* that contract; it never replaces it.
+
 ## Execution Handoff
 
 After saving the plan, offer execution choice:

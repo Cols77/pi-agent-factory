@@ -32,7 +32,11 @@
 
 [[SR-044]] requires explicit human approval of each authored SR, with no bulk auto-adopt and no agent bypass. So this plan *proposes* the requirement and stops. No file under `requirements/` is created or modified until a human consents.
 
-**Proposed SR-061 — Commit-level requirement attribution as evidence provenance** (under [[FEAT-001]]):
+**Id note (2026-09-04):** `SR-061` is already under design in a concurrent session, so this
+proposal takes **SR-062**. Confirm the id is still free at consent time — the register is being
+written by more than one session.
+
+**Proposed SR-062 — Commit-level requirement attribution as evidence provenance** (under [[FEAT-001]]):
 
 > The system shall require each commit that changes non-exempt production or validation artifacts to declare the system requirements it serves, and shall ingest those declarations, together with their changed-file sets, into the evidence store as a provenance source that per-requirement review and gates consume — so that requirement attribution for work performed outside a governed task is captured at the time of the work rather than inferred afterwards.
 
@@ -51,6 +55,46 @@
 
 ---
 
+## Adjacent in-flight work (surveyed 2026-09-04)
+
+Worktree survey before execution, so this plan does not reinvent or collide with work already
+under way:
+
+| Branch | State | Bearing on this plan |
+|---|---|---|
+| `feat/sr057-wikilink-mirroring` | **merged into main** (`d682c81`, `d61640e`) | `mirrors generate`/`check` behaviour this plan's [[SR-054]] steps call is already the generalized `relates_to` version. Nothing to do. |
+| `feat/sr058-overlap-detection` | **merged into main** (`714e0a5`) | [[SR-058]] AC-1/AC-2 landed. Unrelated surface. |
+| `feat/sr059-manual-consent-enforcement` | at main's tip, no unique commits | Nothing in flight. |
+| `feat/coherence-feat17-planning` | **UNMERGED — 120 files, +21,500 lines** | Materially relevant. See below. |
+
+### `feat/coherence-feat17-planning` — do not depend on it, do conform to it
+
+That branch contains an entire `src/coherence/planning/` package (9,532 lines of source):
+`workflow.py` (a host-neutral coordinator over three `WorkflowStage`s — `SPEC_ALIGNMENT`,
+`PLAN_TASK_ALIGNMENT`, `DERIVATION_ALIGNMENT` — whose `Reviewer` callback is documented as *"the
+sole semantic judgment boundary"*), `gates.py` (planning gate pack, [[SR-055]]), `check.py`
+(cross-artifact review, [[SR-053]]), `kanban.py` (Hermes host backend), `intent.py` ([[SR-052]]),
+`handoff.py`, and `runner.py`.
+
+**Two consequences for this plan:**
+
+1. **The [[SR-044]] consent this plan waits on is already a specified protocol there**, not a
+   casual approval: `coherence.planning.gates.validate_requirement_consent` requires a consent
+   decision carrying `schema`, `run_id`, `decision`, `reviewer`, `phrase`, `candidate_srs`,
+   `derivation_report_sha256`, and `artifact_hashes`, where `phrase` must be exactly
+   *"I explicitly consent to adopt exactly these candidate SRs."* When that branch merges, SR-062's
+   consent should be recorded in that form rather than as an ad-hoc note. Until it merges, record
+   consent as a plain decision and migrate.
+2. **This plan takes no dependency on that branch.** Every module it touches
+   (`coherence.register.*`, `substrate.evidence`, `factory.orchestrator.git_ops`) is on `main` and
+   disjoint from `src/coherence/planning/`, so the two can land in either order without conflict.
+   Building T1–T5 against 21,500 unmerged lines would couple this work to a merge that has not
+   happened.
+
+**Deliberate near-duplication to revisit after that merge:** the *Gate plan* table below is written
+by hand in [[SR-055]]'s shape. Once `planning/gates.py` is on `main`, that table should be replaced
+by a compiled gate pack rather than kept as a second, hand-maintained copy.
+
 ## Gate plan ([[FEAT-014]] contracts, [[SR-055]] pack shape, [[SR-051]] boundary)
 
 **Planning stage — executed now, by this document:**
@@ -59,7 +103,7 @@
 |---|---|---|---|---|
 | Spec exists and is a canonical `spec:` node | blocking | frontmatter `id`/`title`/`status` present | `docs/superpowers/specs/2026-09-04-commit-claim-traceability-design.md` (committed `4353f44`) | plan cannot proceed |
 | Plan references its spec | blocking | `**Spec:**` wikilink in this header | this document | `plan_no_spec` trace gap |
-| SR consent obtained before authoring | blocking | human `accept` on proposed SR-061 | *pending* | T1–T3 tests have no honest binding |
+| SR consent obtained before authoring | blocking | human `accept` on proposed SR-062 | *pending* | T1–T3 tests have no honest binding |
 | Cross-artifact coherence review ([[SR-053]]) | blocking before handoff | human review of this plan against the spec | *pending* | no handoff to execution |
 
 **[[SR-051]] compliance:** planning may inspect, compile, and validate gate contracts but **shall not execute implementation validation gates or claim implementation evidence.** This document therefore runs no `pytest`, no `ruff`, no `pyright`, and records no validation evidence. The implementation gates below execute only after this plan is approved and handed to execution.
@@ -84,7 +128,7 @@ Every task below changes production or validation artifacts, so every task ends 
 2. Regenerate mirrored documentation links: `rtk proxy uv run python -m coherence mirrors generate`.
 3. Verify reconciliation: `rtk proxy uv run python -m coherence register review <SR> ` reports no `malformed`, `dangling`, or `duplicate` finding for the task's own declarations.
 
-Steps 1–2 are deferred for T1–T3 until SR-061 consent lands (there is no requirement file to declare into); T4 and T5 declare into [[SR-049]] and [[SR-050]] respectively, which already exist.
+Steps 1–2 are deferred for T1–T3 until SR-062 consent lands (there is no requirement file to declare into); T4 and T5 declare into [[SR-049]] and [[SR-050]] respectively, which already exist.
 
 ---
 
@@ -132,32 +176,32 @@ from coherence.register.claims import (
 )
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_parses_a_single_sr_trailer():
     assert parse_sr_trailer("feat: thing\n\nSR: SR-050\n") == ("SR-050",)
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_parses_a_multi_sr_trailer_preserving_order():
     assert parse_sr_trailer("feat: thing\n\nSR: SR-050, SR-023\n") == ("SR-050", "SR-023")
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_message_with_no_trailer_yields_no_ids():
     assert parse_sr_trailer("feat: thing\n\nno trailer here\n") == ()
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_an_sr_mention_in_the_body_is_not_a_trailer():
     assert parse_sr_trailer("feat: relates to SR-050 somehow\n\nbody\n") == ()
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_double_star_glob_matches_nested_paths():
     assert glob_match("docs/**", "docs/a/b/c.md") is True
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_single_star_glob_does_not_cross_a_separator():
     assert glob_match("src/*.py", "src/a/b.py") is False
 ```
@@ -171,7 +215,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'coherence.register.cla
 
 ```python
 # src/coherence/register/claims.py
-"""Commit-claim parsing and exemption policy (proposed SR-061).
+"""Commit-claim parsing and exemption policy (proposed SR-062).
 
 Pure module: parses the `SR:` commit trailer, loads
 `.factory/trace-claims.yaml`, and classifies paths against exemption globs.
@@ -284,14 +328,14 @@ Expected: PASS (6 passed)
 
 ```python
 # append to tests/unit/coherence/register/test_claims.py
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_commit_touching_only_exempt_paths_needs_no_trailer(tmp_path):
     (tmp_path / "requirements").mkdir()
     config = ClaimsConfig(exempt=("docs/**",))
     assert check_commit(tmp_path, "docs: tweak\n", ["docs/a.md"], config=config) == ()
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_commit_touching_a_non_exempt_path_without_a_trailer_is_rejected(tmp_path):
     (tmp_path / "requirements").mkdir()
     config = ClaimsConfig(exempt=("docs/**",))
@@ -300,7 +344,7 @@ def test_a_commit_touching_a_non_exempt_path_without_a_trailer_is_rejected(tmp_p
     assert "src/a.py" in errors[0]
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_trailer_naming_an_unknown_requirement_is_rejected(tmp_path):
     (tmp_path / "requirements").mkdir()
     errors = check_commit(
@@ -310,7 +354,7 @@ def test_a_trailer_naming_an_unknown_requirement_is_rejected(tmp_path):
     assert "SR-999" in errors[0]
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_trailer_naming_a_registered_requirement_passes(tmp_path):
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements" / "SR-050.md").write_text("---\nid: SR-050\n---\n", encoding="utf-8")
@@ -407,14 +451,14 @@ if __name__ == "__main__":  # pragma: no cover - process entry point
 ```bash
 # .githooks/commit-msg
 #!/bin/sh
-# Commit-claim traceability (proposed SR-061). Delegates to the single
+# Commit-claim traceability (proposed SR-062). Delegates to the single
 # trailer parser in coherence.register.claims -- never reimplements it.
 exec python -m coherence.register.claims hook "$1"
 ```
 
 ```yaml
 # .factory/trace-claims.yaml
-# Commit-claim traceability config (proposed SR-061).
+# Commit-claim traceability config (proposed SR-062).
 # epoch: no claim is expected for commits at or before this sha.
 epoch: null
 exempt:
@@ -439,7 +483,7 @@ git commit -m "feat(register): commit-claim trailer parsing, config, and commit-
 SR: SR-050"
 ```
 
-> **[[SR-054]] note:** relation declaration and `mirrors generate` are deferred for this task until SR-061 consent lands — there is no requirement file to declare into yet. The commit above claims [[SR-050]], the requirement whose review consumes this.
+> **[[SR-054]] note:** relation declaration and `mirrors generate` are deferred for this task until SR-062 consent lands — there is no requirement file to declare into yet. The commit above claims [[SR-050]], the requirement whose review consumes this.
 
 ---
 
@@ -513,7 +557,7 @@ from coherence.register.ingest import DivergedRangeError, ingest_range
 from factory.orchestrator.git_ops import SubprocessGitOps
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_claimed_commit_is_ingested_with_its_changed_files(git_repo, commit_file):
     base = SubprocessGitOps().head_commit(git_repo)
     commit_file("src/a.py", "x = 1\n", "feat: a\n\nSR: SR-050")
@@ -524,7 +568,7 @@ def test_a_claimed_commit_is_ingested_with_its_changed_files(git_repo, commit_fi
     assert commits[0].changed_files == ("src/a.py",)
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_multi_sr_commit_attributes_its_files_to_every_named_sr(git_repo, commit_file):
     base = SubprocessGitOps().head_commit(git_repo)
     commit_file("src/b.py", "y = 1\n", "feat: b\n\nSR: SR-050, SR-023")
@@ -533,7 +577,7 @@ def test_a_multi_sr_commit_attributes_its_files_to_every_named_sr(git_repo, comm
     assert commits[0].sr_ids == ("SR-050", "SR-023")
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_an_exempt_path_is_recorded_with_the_glob_that_exempted_it(git_repo, commit_file):
     base = SubprocessGitOps().head_commit(git_repo)
     commit_file("docs/x.md", "hi\n", "docs: x")
@@ -544,7 +588,7 @@ def test_an_exempt_path_is_recorded_with_the_glob_that_exempted_it(git_repo, com
     assert commits[0].sr_ids == ()
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_start_commit_that_is_not_an_ancestor_of_head_raises(git_repo, commit_file):
     commit_file("src/c.py", "z = 1\n", "feat: c\n\nSR: SR-050")
     head = SubprocessGitOps().head_commit(git_repo)
@@ -606,7 +650,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'coherence.register.ing
 
 ```python
 # src/coherence/register/ingest.py
-"""Git commit range -> evidence manifest (proposed SR-061).
+"""Git commit range -> evidence manifest (proposed SR-062).
 
 The ONLY module in the review path that reads git. Everything downstream --
 `coherence.register.review`, the gate, the fidelity packet -- continues to
@@ -702,7 +746,7 @@ import json
 from coherence.register.ingest import ingest
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_ingest_writes_a_manifest_carrying_the_commits(git_repo, commit_file):
     commit_file("src/d.py", "d = 1\n", "feat: d\n\nSR: SR-050")
     path = ingest(git_repo)
@@ -712,14 +756,14 @@ def test_ingest_writes_a_manifest_carrying_the_commits(git_repo, commit_file):
     assert "src/d.py" in manifest["implementation"]["changed_files"]
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_a_second_ingest_of_the_same_range_writes_nothing(git_repo, commit_file):
     commit_file("src/e.py", "e = 1\n", "feat: e\n\nSR: SR-050")
     assert ingest(git_repo) is not None
     assert ingest(git_repo) is None
 
 
-@pytest.mark.sr("SR-061")
+@pytest.mark.sr("SR-062")
 def test_an_ingest_manifest_records_no_task_rather_than_inventing_one(git_repo, commit_file):
     commit_file("src/f.py", "f = 1\n", "feat: f\n\nSR: SR-050")
     manifest = json.loads(ingest(git_repo).read_text(encoding="utf-8"))
@@ -1205,7 +1249,7 @@ SR: SR-050"
 - [ ] `rtk proxy uv run python -m coherence register review --check-claims` exits 0
 - [ ] `rtk proxy uv run python -m coherence mirrors check` passes
 - [ ] `rtk proxy uv run python -m coherence audit audit FEAT-001` shows SR-049 measured
-- [ ] Record evidence for SR-049 (and SR-061 if consented) following the `T-9013` manifest precedent
+- [ ] Record evidence for SR-049 (and SR-062 if consented) following the `T-9013` manifest precedent
 
 ## Self-review notes
 
