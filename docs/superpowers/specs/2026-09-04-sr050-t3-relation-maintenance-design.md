@@ -87,7 +87,7 @@ zero," see below):
    even if that list is empty): filter `changed_files` to real source/test code — repository
    -relative, resolves under one of `profile_source_dirs(root)`, has a `_CODE_EXTS` suffix, no path
    segment in `_SKIP_DIRS`. This is the one new small addition to `substrate.codemap.build` — a
-   public `is_source_path(root, rel_path) -> bool` wrapping the same three checks `index_dir`
+   public `is_source_path(root, rel_path) -> bool` wrapping the same three checks `discover_source_files`
    already performs per-file, so this obligation (and any future caller) never re-derives the rule.
    For each of the task's `satisfies` SRs, collect the `path` of every dict-shaped
    `implemented_by`/`verified_by` entry (same read as `coherence.register.review._declared_paths`,
@@ -141,7 +141,7 @@ runner: task run completes (outcome == "completed")
   `requirements/SR-001.md` itself, `tasks/T-001.md`) never counts as uncovered.
 - `substrate/codemap/build.py`: unit tests for the new `is_source_path` helper directly (inside a
   source dir + code ext -> true; outside every source dir -> false; inside a `_SKIP_DIRS` segment
-  -> false), mirroring `index_dir`'s own existing per-file logic.
+  -> false), mirroring `discover_source_files`'s own existing per-file logic.
 - `tests/unit/preflight/test_completion_preflight.py`: new `relation_uncovered` case (task
   satisfies an SR with no relations, `changed_files` includes a `.py` file under `src/` -> blocks);
   a covered case does not regress the existing passing-validation test; `changed_files=None`
