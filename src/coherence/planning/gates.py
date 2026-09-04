@@ -66,16 +66,18 @@ def _validate_feat17_bundle_members(
     if len(members) != len(set(members)):
         return False, "FEAT-017 bundle has duplicate members"
 
-    owned_ids = set(requirement_ids)
+    required = {"feat:FEAT-017", *(f"sr:{req_id}" for req_id in requirement_ids)}
+    member_set = set(members)
     sr_ids = sorted(
         member.removeprefix("sr:") for member in members if member.startswith("sr:")
     )
-    missing_ids = sorted(owned_ids - set(sr_ids))
+    missing_ids = sorted(required - member_set)
     if missing_ids:
         return False, (
             "FEAT-017 bundle is missing required member(s): "
             f"{', '.join(missing_ids)}"
         )
+    owned_ids = set(requirement_ids)
     unexpected_ids = sorted(set(sr_ids) - owned_ids)
     if unexpected_ids:
         return False, (

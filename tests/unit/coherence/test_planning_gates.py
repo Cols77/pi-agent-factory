@@ -52,16 +52,28 @@ def test_feat17_bundle_rejects_non_list_members() -> None:
     )
 
 
+def test_feat17_bundle_rejects_non_string_member_items() -> None:
+    assert _validate_feat17_bundle_members(["feat:FEAT-017", None], _OWNED_IDS) == (
+        False,
+        "FEAT-017 bundle has invalid members",
+    )
+
+
 def test_feat17_bundle_reports_missing_requirements_before_other_membership_errors() -> None:
     assert _validate_feat17_bundle_members(["feat:not-FEAT-017"], _OWNED_IDS) == (
         False,
         "FEAT-017 bundle is missing required member(s): "
-        "SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055",
+        "feat:FEAT-017, sr:SR-043, sr:SR-044, sr:SR-051, sr:SR-052, "
+        "sr:SR-053, sr:SR-054, sr:SR-055",
     )
 
 
 def test_feat17_bundle_rejects_invalid_feature_membership_after_requirements() -> None:
-    members = [*(f"sr:{req_id}" for req_id in _OWNED_IDS), "feat:not-FEAT-017"]
+    members = [
+        *(f"sr:{req_id}" for req_id in _OWNED_IDS),
+        "feat:FEAT-017",
+        "feat:not-FEAT-017",
+    ]
 
     assert _validate_feat17_bundle_members(members, _OWNED_IDS) == (
         False,
@@ -87,5 +99,5 @@ def test_requirement_consent_returns_bundle_detail_without_wrapper(tmp_path, mon
     assert gates.validate_requirement_consent(tmp_path, "run-1", tmp_path / "spec.md") == (
         False,
         "FEAT-017 bundle is missing required member(s): "
-        "SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055",
+        "sr:SR-043, sr:SR-044, sr:SR-051, sr:SR-052, sr:SR-053, sr:SR-054, sr:SR-055",
     )
