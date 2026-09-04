@@ -1,0 +1,23 @@
+# Commit-claim traceability config (proposed SR-062).
+#
+# epoch: no claim is expected for commits at or before this sha. Load-bearing
+#   at adoption: without it, every declared relation in the register would
+#   report as never-claimed on the first run, because no historical commit
+#   carries a trailer. Left null until this feature is adopted, which the
+#   reconciliation reads as "no claims recorded anywhere yet" and falls back
+#   to the pre-existing manifest-scoped behaviour.
+epoch: null
+
+# exempt: path globs whose changes never require an `SR:` trailer.
+#   `**` crosses separators; `*` and `?` do not.
+#
+#   This list is frictionless, which is also its failure mode -- it grows
+#   until it covers everything inconvenient. `coherence register review`
+#   therefore reports how many changed files each glob exempted, so creep is
+#   a number in every review rather than an absence. Keep it short.
+exempt:
+  - "docs/**"            # specs, plans, records -- no production behaviour
+  - "evidence/**"        # evidence manifests, including ingestion's own output
+  - "coverage-reviews/**"
+  - "review-findings/**"
+  - "**/*.md"

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Commit-claim traceability (proposed SR-062).
+#
+# Delegates to the single trailer parser in coherence.register.claims -- it
+# never reimplements the parsing, the exemption globs, or the register lookup
+# in shell, so there is exactly one definition of what a valid claim is.
+#
+# Enable with: git config core.hooksPath .githooks
+#
+# This is fast feedback, not enforcement: it is per-clone, is not cloned with
+# the repository, and `--no-verify` bypasses it. Enforcement lives in
+# `coherence register review --check-claims`, which runs against commits that
+# already exist.
+exec python -m coherence.register.claims hook "$1"
