@@ -236,5 +236,35 @@ def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
     assert validate_requirement_consent(
         root,
         current_run_id,
-        root / "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+        root / "docs" / "superpowers" / "specs" / "2026-08-27-feat17-planning-bootstrap-design.md",
     )[0] is False
+
+
+def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055() -> None:
+    root = Path(__file__).parents[3]
+    plan = _source_text(root, _PLAN)
+    sr055 = frontmatter.load(str(root / "requirements" / "SR-055.md"))
+    compact_plan = " ".join(plan.split())
+
+    assert "Task identity reservation amendment" in plan
+    assert "`T-046` through `T-056`" in compact_plan
+    assert "2d752d16c9333b3f0a759e454a17f7e56fa7801b" in compact_plan
+    assert "`source_plan` path + `source_task` number" in compact_plan
+    assert "`T-046` | implements `SR-043`, `SR-051`, `SR-052`; maintains `SR-054` foundation" in compact_plan
+    assert "`T-053` | implements `SR-043`, `SR-051`, `SR-054`, `SR-055`" in compact_plan
+    assert "`T-055` | verifies/maintains all seven owned SRs" in compact_plan
+    assert "Omitted SR/task pairs have no finding" in compact_plan
+    assert "No `satisfies` relationship is asserted before independent implementation acceptance" in compact_plan
+    assert "`SR-050` remains foreign/shared and read-only" in compact_plan
+
+    assert sr055["id"] == "SR-055"
+    assert sr055["title"] == "Versioned planning gate pack enforcement"
+    assert sr055["domain"] == "behavioral"
+    assert sr055["upstream"] == ["SR-035", "SR-036"]
+    assert sr055["source"] == (
+        "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md#3d"
+    )
+    statement = cast(str, sr055["statement"])
+    assert "compile an explicit versioned planning gate pack" in statement
+    assert "block proposal handoff" in statement
+    assert "proposed; semantic adoption remains subject" in " ".join(sr055.content.split())

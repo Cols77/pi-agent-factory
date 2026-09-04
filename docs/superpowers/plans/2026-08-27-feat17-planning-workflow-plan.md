@@ -2219,3 +2219,42 @@ canonical adoption, or implementation has happened.
 
 **Execution policy:** No merge or push without explicit authorization. Do not modify Kanban state or
 claim plan acceptance merely because these documents are written.
+
+---
+
+## 7. Task identity reservation amendment (2026-09-04)
+
+This additive amendment reserves the next canonical task identities without creating task records.
+The current canonical plan contains 11 tasks; reserve `T-046` through `T-056`, in order, for plan
+Tasks 1 through 11. `T-032` and accepted `T-033` remain preserved and are not re-reviewed. `T-046`
+consumes accepted `T-033` and covers only residual Task-1 obligations; it must not duplicate or
+weaken accepted intent/capture behavior. Existing `T-034` through `T-038` retain their identities as
+historical projections generated at exact commit `2d752d16c9333b3f0a759e454a17f7e56fa7801b` and are
+not reused or modified.
+
+The current materializer identity is only `source_plan` path + `source_task` number. Canonical
+`T-046` through `T-056` task files therefore wait for Task 5's version-aware materialization.
+Kanban cards may operationally project this plan, but they are not canonical authority.
+
+The typed candidate contribution matrix below describes implementation contribution, not satisfaction:
+
+| Reserved task | Candidate contribution |
+|---|---|
+| `T-046` | implements `SR-043`, `SR-051`, `SR-052`; maintains `SR-054` foundation |
+| `T-047` | implements `SR-043`, `SR-051`, `SR-052` |
+| `T-048` | implements `SR-043`, `SR-051`, `SR-052`, `SR-054` |
+| `T-049` | implements `SR-043`, `SR-051`, `SR-052` |
+| `T-050` | implements `SR-043`, `SR-051` |
+| `T-051` | implements `SR-051`, `SR-052`, `SR-054` |
+| `T-052` | implements `SR-043`, `SR-044`, `SR-051`, `SR-054` |
+| `T-053` | implements `SR-043`, `SR-051`, `SR-054`, `SR-055` |
+| `T-054` | implements `SR-043`, `SR-051`, `SR-053`, `SR-055` |
+| `T-055` | verifies/maintains all seven owned SRs: `SR-043`, `SR-044`, `SR-051`, `SR-052`, `SR-053`, `SR-054`, `SR-055` |
+| `T-056` | verifies/maintains all seven owned SRs: `SR-043`, `SR-044`, `SR-051`, `SR-052`, `SR-053`, `SR-054`, `SR-055` |
+
+Omitted SR/task pairs have no finding. No `satisfies` relationship is asserted before independent
+implementation acceptance. `SR-050` remains foreign/shared and read-only.
+
+`SR-055` is a proposed, unconsented behavioral requirement sourced from authority spec §3d. Its
+exact statement and upstream links are recorded in `requirements/SR-055.md`; this amendment does
+not claim implementation, satisfaction, canonical adoption, or human consent.
