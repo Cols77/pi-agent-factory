@@ -14,6 +14,10 @@ prefix families:
   path that restores a suspect/invalid/waived governed edge to ``valid`` is a
   human ``accept`` DecisionFile entry on this item -- see the spec's §13
   amendment row 3 STRICT rule)
+- ``overlap:<run>:candidate:<pair_id>`` (SR-058/AC-2: a human's resolution of
+  a model-confirmed cross-SR overlap candidate -- see
+  ``coherence.register.overlap.run_overlap_check``, which mirrors
+  ``coverage:<run>:proposal:<id>``'s shape exactly)
 
 Validation rules (enforced by `validate_decisions`, and therefore by every
 store write and file read):
@@ -46,6 +50,7 @@ ITEM_ID_PREFIXES: tuple[str, ...] = (
     "review:",
     "sr:",
     "suspect:",
+    "overlap:",
 )
 
 

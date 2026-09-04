@@ -30,6 +30,12 @@ class AgentRole(str, Enum):
     # bash; receives an injected FidelityPacket and emits a JSON findings
     # verdict -- never authoritative on its own, see fidelity.py's docstring.
     FIDELITY_REVIEW = "fidelity-review"
+    # Read-only cross-SR overlap judge (SR-058/AC-2,
+    # coherence.register.overlap's default judge). Scope: read-only, no
+    # bash; receives an injected OverlapCandidate and emits a JSON verdict
+    # (confirmed/dismissed) -- never auto-declares a relation or auto-merges
+    # requirements, see coherence/register/overlap.py's docstring.
+    OVERLAP_REVIEW = "overlap-review"
 
 
 class NodeOutcome(str, Enum):

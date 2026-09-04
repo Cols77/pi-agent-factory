@@ -38,8 +38,25 @@ def _register_judge_factory(project_root: Path):
     return functools.partial(default_judge, root=project_root, ext=scope_guard_extension())
 
 
+def _register_overlap_judge_factory(project_root: Path):
+    """SR-058/AC-2: wires `coherence.audit.overlap_dispatch`'s real,
+    `PiAgentBackend`-dispatch judge into `coherence register overlap-check`
+    -- the overlap-detection analogue of `_register_judge_factory` above,
+    for the identical layering reason (`coherence.register` never imports
+    `factory.*`; see `coherence/register/overlap.py`'s "Layering" section).
+    """
+    from coherence.audit.overlap_dispatch import default_judge
+    from substrate.paths import scope_guard_extension
+
+    return functools.partial(default_judge, root=project_root, ext=scope_guard_extension())
+
+
 def _register_main(argv: Sequence[str]) -> int:
-    return register_cli_main(list(argv), judge_factory=_register_judge_factory)
+    return register_cli_main(
+        list(argv),
+        judge_factory=_register_judge_factory,
+        overlap_judge_factory=_register_overlap_judge_factory,
+    )
 
 
 GROUPS = {

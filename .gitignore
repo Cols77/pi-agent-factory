@@ -44,6 +44,11 @@ sessions/*
 # Durable code-context bundle (item 2) - recomputed on change at session open
 .factory/code-index/
 
+# SR-058/AC-1: derived, disposable, rebuildable-from-source per-SR similarity
+# vector cache -- never a second system of record, the Markdown requirement
+# files stay authoritative. Recomputed as needed by content fingerprint.
+.factory/overlap-index/
+
 # Per-session runtime state (regenerated on every session open). project-profile.json
 # above stays tracked: it is the durable /factory-init discovery+profile config.
 .pi/factory/session-context.json
@@ -59,3 +64,8 @@ sessions/*
 
 # Per-run requirement coverage review artifacts (regenerable)
 coverage-reviews/
+
+# Per-run SR-058 overlap-detection artifacts, mirroring coverage-reviews/
+# above (including its own per-run gate-decisions/) -- regenerable scratch,
+# same precedent.
+overlap-reviews/

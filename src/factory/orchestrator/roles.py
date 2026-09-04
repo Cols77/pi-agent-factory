@@ -60,6 +60,8 @@ ROLE_SKILLS: dict[AgentRole, list[str]] = {
     AgentRole.COVERAGE_AUDIT: ["requirement-traceability-audit"],
     # SR-050/AC-4's fidelity judge. Vendored at .pi/skills/fidelity-review.
     AgentRole.FIDELITY_REVIEW: ["fidelity-review"],
+    # SR-058/AC-2's overlap judge. Vendored at .pi/skills/overlap-review.
+    AgentRole.OVERLAP_REVIEW: ["overlap-review"],
 }
 
 ROLE_SCOPE: dict[AgentRole, Scope] = {
@@ -84,6 +86,11 @@ ROLE_SCOPE: dict[AgentRole, Scope] = {
     # and coherence.register.fidelity validates it before anything is
     # persisted, exactly like COVERAGE_AUDIT above.
     AgentRole.FIDELITY_REVIEW: Scope(allow=[], bash="deny"),
+    # Read-only overlap judge (SR-058/AC-2): reads the injected
+    # OverlapCandidate + project files, writes nothing -- its verdict
+    # returns via stdout JSON and coherence.register.overlap validates it
+    # before anything becomes a gate item, exactly like FIDELITY_REVIEW above.
+    AgentRole.OVERLAP_REVIEW: Scope(allow=[], bash="deny"),
 }
 
 ROLE_PROMPTS: dict[AgentRole, str] = {
@@ -106,6 +113,16 @@ ROLE_PROMPTS: dict[AgentRole, str] = {
         '"confidence": 0.0-1.0, "citations": [...], "rationale": ..., "acceptance_ref": null}]}. '
         "A supported link gets no finding at all -- silence is the positive case. Your "
         "verdict is advisory, never authoritative; it does not close the requirement."
+    ),
+    AgentRole.OVERLAP_REVIEW: (
+        "You judge whether one candidate pair of requirements -- flagged by a lexical "
+        "similarity narrowing step, injected as an OverlapCandidate -- makes a plausibly "
+        "overlapping behavioral claim. You are read-only: bash is disabled for your role, "
+        "and you may not write or modify any file. Emit ONLY a fenced ```json block: "
+        '{"confirmed": true|false, "rationale": ..., "suggested_relation": ... or null}. '
+        "You judge overlap only, never conflict. Your verdict is advisory: it only decides "
+        "whether a human is asked to resolve this candidate, and never declares a relation "
+        "or merges requirements by itself."
     ),
     AgentRole.CONTEXT_GATHERER: (
         "You verify that spec, plan, prior session, and this task are coherent and "

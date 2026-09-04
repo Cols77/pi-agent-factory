@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -19,6 +20,7 @@ from coherence.policy.compiler import resolve_profile
 from coherence.register.fidelity import FidelityJudgeUnavailable, review_fidelity
 from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet
 from coherence.register.fidelity_persistence import load_fidelity_result, save_fidelity_result
+from coherence.register.overlap import DEFAULT_K, OverlapCandidate, run_overlap_check
 from coherence.register.register import (
     Requirement,
     content_checksum,
@@ -497,10 +499,70 @@ def cmd_review_check(
     return payload, (1 if blocking else 0)
 
 
+def _no_overlap_judge_configured(candidate: OverlapCandidate) -> dict:
+    """SR-058/AC-2's `coherence.register`-side fallback, mirroring
+    `_no_judge_configured` above for exactly the same layering reason: the
+    real `PiAgentBackend`-dispatch judge lives at
+    `coherence.audit.overlap_dispatch.default_judge` and is wired in by
+    `coherence.cli`'s `register` group dispatch. Calling `cmd_overlap_check`
+    directly with no `judge` degrades every candidate to `unavailable`,
+    never a silent pass."""
+    from coherence.register.overlap import OverlapJudgeUnavailable
+
+    raise OverlapJudgeUnavailable(
+        "no judge configured: coherence.register.cli has no factory.orchestrator "
+        "dependency by design; pass judge= explicitly, or invoke through "
+        "`coherence register overlap-check` (coherence.cli), which wires the real "
+        "PiAgentBackend-dispatch judge in"
+    )
+
+
+def _now_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def cmd_overlap_check(
+    project_root: Path,
+    *,
+    run_id: str | None = None,
+    k: int = DEFAULT_K,
+    unattended: bool = False,
+    no_gates: bool = False,
+    judge: Callable[[OverlapCandidate], dict] | None = None,
+) -> str:
+    """SR-058/AC-1 + AC-2's standalone CLI entry point (``coherence register
+    overlap-check``): runs the full narrowing -> model-verification -> gate
+    pipeline (`coherence.register.overlap.run_overlap_check`) and returns its
+    result as JSON. Explicitly NOT wired into any planning pipeline (AC-3 is
+    deferred) -- this is a manually-invoked, standalone command.
+
+    ``run_id`` defaults to a fresh UTC timestamp; the run's gate decisions
+    live under ``<project_root>/overlap-reviews/<run_id>/gate-decisions/``,
+    mirroring ``coherence.audit.runner``'s ``coverage-reviews/<feat>-<run_id>``
+    convention. ``judge`` overrides the real default judge (dependency
+    injection for tests; production callers other than `coherence.cli`'s
+    wiring never pass it).
+    """
+    resolved_run_id = run_id or _now_run_id()
+    run_dir = project_root / "overlap-reviews" / resolved_run_id
+    active_judge = judge or _no_overlap_judge_configured
+    result = run_overlap_check(
+        project_root,
+        run_dir,
+        run_id=resolved_run_id,
+        judge=active_judge,
+        k=k,
+        unattended=unattended,
+        no_gates=no_gates,
+    )
+    return json.dumps(result, indent=2)
+
+
 def main(
     argv: list[str] | None = None,
     *,
     judge_factory: Callable[[Path], Callable[[FidelityPacket], list[dict]]] | None = None,
+    overlap_judge_factory: Callable[[Path], Callable[[OverlapCandidate], dict]] | None = None,
 ) -> int:
     """``judge_factory(project_root) -> judge`` overrides the fidelity
     reviewer's real default judge for the ``review`` command's
@@ -557,6 +619,17 @@ def main(
         "when a high_assurance-profile SR has an open finding",
     )
 
+    p_overlap = sub.add_parser("overlap-check")
+    p_overlap.add_argument("--project-root", default=Path("."), type=Path)
+    p_overlap.add_argument("--run-id", default=None)
+    p_overlap.add_argument("--k", type=int, default=DEFAULT_K)
+    p_overlap.add_argument("--unattended", action="store_true")
+    p_overlap.add_argument(
+        "--no-gates",
+        action="store_true",
+        help="skip the human-decision gate entirely (candidates/verifications still printed)",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "new":
@@ -605,6 +678,20 @@ def main(
             print(text)
             return code
         print(cmd_review(args.project_root, target, fidelity=args.fidelity, judge=judge))
+    elif args.cmd == "overlap-check":
+        overlap_judge = (
+            overlap_judge_factory(args.project_root) if overlap_judge_factory is not None else None
+        )
+        print(
+            cmd_overlap_check(
+                args.project_root,
+                run_id=args.run_id,
+                k=args.k,
+                unattended=args.unattended,
+                no_gates=args.no_gates,
+                judge=overlap_judge,
+            )
+        )
     return 0
 
 
@@ -615,6 +702,7 @@ __all__ = [
     "cmd_index",
     "cmd_new",
     "cmd_next",
+    "cmd_overlap_check",
     "cmd_review",
     "cmd_review_check",
     "cmd_show",
