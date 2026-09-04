@@ -111,6 +111,57 @@ def test_an_ingested_manifest_survives_a_squash_of_the_commits_it_recorded(
 
 
 @pytest.mark.sr("SR-049")
+def test_the_epoch_wins_over_an_earlier_recorded_checkpoint(git_repo, commit_file):
+    """At adoption the evidence store already holds manifests whose result
+    commits predate every trailer in the repository. Resuming from the newest
+    of those would re-walk the whole pre-adoption history -- recording dozens
+    of unclaimed commits and, worse, unioning their paths into the manifest's
+    own `changed_files`, which is what the register-wide `unaccounted` review
+    reads. The epoch is the floor that stops it: no claim is expected at or
+    before that commit, so ingestion never starts earlier than it.
+    """
+    commit_file("src/pre.py", "p = 1\n", "feat: pre-adoption")
+    first = ingest(git_repo)
+    assert first is not None, "the fixture needs a recorded checkpoint to override"
+
+    commit_file("src/skipped.py", "s = 1\n", "feat: also pre-adoption")
+    epoch = commit_file("src/epoch.py", "e = 1\n", "chore: adoption point")
+    commit_file("src/claimed.py", "c = 1\n", "feat: claimed\n\nSR: SR-050")
+
+    (git_repo / ".factory").mkdir(exist_ok=True)
+    (git_repo / ".factory" / "trace-claims.yaml").write_text(
+        f'epoch: "{epoch}"\nexempt: []\n', encoding="utf-8"
+    )
+
+    written = ingest(git_repo)
+    assert written is not None
+    manifest = json.loads(written.read_text(encoding="utf-8"))
+    assert manifest["start_commit"] == epoch
+    assert [c["subject"] for c in manifest["commits"]] == ["feat: claimed"]
+    assert "src/skipped.py" not in manifest["implementation"]["changed_files"]
+
+
+@pytest.mark.sr("SR-049")
+def test_a_checkpoint_past_the_epoch_is_not_dragged_back_to_it(git_repo, commit_file):
+    """The epoch is a floor, not an anchor. Once ingestion has checkpointed
+    past it, resuming from the epoch again would re-ingest everything between
+    -- so the recorded checkpoint wins as soon as it is at or beyond it."""
+    epoch = commit_file("src/base.py", "b = 1\n", "chore: adoption point")
+    (git_repo / ".factory").mkdir(exist_ok=True)
+    (git_repo / ".factory" / "trace-claims.yaml").write_text(
+        f'epoch: "{epoch}"\nexempt: []\n', encoding="utf-8"
+    )
+    commit_file("src/first.py", "f = 1\n", "feat: first\n\nSR: SR-050")
+    assert ingest(git_repo) is not None
+
+    commit_file("src/second.py", "s = 1\n", "feat: second\n\nSR: SR-050")
+    written = ingest(git_repo)
+    assert written is not None
+    manifest = json.loads(written.read_text(encoding="utf-8"))
+    assert [c["subject"] for c in manifest["commits"]] == ["feat: second"]
+
+
+@pytest.mark.sr("SR-049")
 def test_an_ingest_manifest_records_no_task_rather_than_inventing_one(git_repo, commit_file):
     commit_file("src/f.py", "f = 1\n", "feat: f\n\nSR: SR-050")
     written = ingest(git_repo)

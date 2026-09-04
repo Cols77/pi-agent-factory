@@ -3,10 +3,16 @@
 # epoch: no claim is expected for commits at or before this sha. Load-bearing
 #   at adoption: without it, every declared relation in the register would
 #   report as never-claimed on the first run, because no historical commit
-#   carries a trailer. Left null until this feature is adopted, which the
-#   reconciliation reads as "no claims recorded anywhere yet" and falls back
-#   to the pre-existing manifest-scoped behaviour.
-epoch: null
+#   carries a trailer. While null, the reconciliation reads the store as "no
+#   claims recorded anywhere yet" and falls back to the pre-existing
+#   manifest-scoped behaviour.
+#
+#   ADOPTED 2026-09-04. This names the last commit on `main` that predates any
+#   `SR:` trailer, so ingestion starts immediately after it and the 44
+#   pre-adoption commits before it are never walked. It is a FLOOR, not an
+#   anchor: once an ingestion checkpoint reaches or passes it, the checkpoint
+#   takes over and this value stops mattering. Do not move it backwards.
+epoch: "0f6576309598f232600fef2f5bceeb6279f23fa8"
 
 # exempt: path globs whose changes never require an `SR:` trailer.
 #   `**` crosses separators; `*` and `?` do not.

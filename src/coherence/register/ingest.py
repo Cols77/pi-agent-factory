@@ -107,12 +107,26 @@ def _newest_result_commit(root: Path) -> str | None:
 def _range_start(root: Path, ops: CommitReader, config: ClaimsConfig) -> str | None:
     """Where ingestion resumes from.
 
-    In order: the newest manifest's result commit (the normal case, so each run
-    ingests only what is new); the configured epoch (adoption, before any
-    manifest records a commit range); the repository's root commit (a
-    repository with neither). Never a synthesised sha.
+    The newest manifest's result commit (the normal case, so each run ingests
+    only what is new), floored by the configured epoch, falling back to the
+    repository's root commit when there is neither. Never a synthesised sha.
+
+    **The epoch is a floor, not an anchor.** At adoption the evidence store
+    already holds manifests whose result commits predate every trailer in the
+    repository, and resuming from the newest of those would re-walk the whole
+    pre-adoption history: dozens of unclaimed commits recorded, and their paths
+    unioned into this manifest's own ``implementation.changed_files``, which is
+    what the register-wide ``unaccounted`` review reads. So while the epoch is
+    still ahead of the recorded checkpoint, the epoch wins. Once a checkpoint
+    reaches or passes it, the checkpoint wins -- otherwise every later run
+    would drag the range back to the epoch and re-ingest everything since.
     """
     recorded = _newest_result_commit(root)
+    if recorded and config.epoch:
+        # `is_ancestor` is False for an unknown ref rather than an error, so a
+        # stale or mistyped epoch resolves to "the epoch is ahead" and then
+        # fails loudly in `ingest_range`'s divergence check -- never silently.
+        return recorded if ops.is_ancestor(root, config.epoch, recorded) else config.epoch
     if recorded:
         return recorded
     if config.epoch:

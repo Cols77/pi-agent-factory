@@ -11,4 +11,32 @@
 # the repository, and `--no-verify` bypasses it. Enforcement lives in
 # `coherence register review --check-claims`, which runs against commits that
 # already exist.
-exec python -m coherence.register.claims hook "$1"
+#
+# Interpreter resolution, in order. Bare `python` is NOT used: on the machine
+# this was adopted on it resolves to a global miniconda with no `coherence`
+# installed, so `exec python -m ...` exited 1 on every commit -- a hook that
+# blocks all work rather than checking anything.
+#
+#   1. the worktree's own .venv (fastest, ~0.05s)
+#   2. `uv run` (~1s; works from a fresh worktree that has no .venv yet)
+#
+# With neither available the hook WARNS AND PASSES rather than blocking. That
+# is deliberate and follows from what this hook is: a missing interpreter is
+# not evidence of a missing claim, and the real check runs at ingestion time
+# where it cannot be skipped. A hook that fails closed on its own environment
+# would be bypassed with --no-verify within the hour, taking the useful
+# feedback with it.
+for py in ".venv/Scripts/python.exe" ".venv/bin/python"; do
+    if [ -x "$py" ]; then
+        exec "$py" -m coherence.register.claims hook "$1"
+    fi
+done
+
+if command -v uv >/dev/null 2>&1; then
+    exec uv run --quiet python -m coherence.register.claims hook "$1"
+fi
+
+echo "commit-claim: no project interpreter found (.venv or uv); skipping the" >&2
+echo "  trailer check. Enforcement still runs in 'coherence register" >&2
+echo "  review --check-claims'." >&2
+exit 0
