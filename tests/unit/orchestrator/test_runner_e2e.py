@@ -1,10 +1,13 @@
 
 import pytest
+import factory.orchestrator.runner as runner_module
 from factory.orchestrator.types import AgentRole, AgentResult
 from factory.orchestrator.ledger import Task
 from factory.orchestrator.backends import FakeAgentBackend, FakeGateRunner
-from factory.orchestrator.runner import run_task
+from factory.orchestrator.git_ops import FakeGitOps
+from factory.orchestrator.runner import run_next, run_task
 from factory.orchestrator.status import FakeStatusReporter
+from substrate.freshness.model import FreshnessReport
 from ._repo_fixtures import copy_repo_seed
 
 
@@ -33,6 +36,48 @@ def _scripts():
             AgentResult(True, {"dod_met": True, "findings": []}),
         ],
     }
+
+
+@pytest.mark.e2e
+def test_completion_preflight_receives_this_runs_changed_files(tmp_path, monkeypatch):
+    # NOTE (SR-050 T3, deviation from the plan's literal test -- see report):
+    # the plan's given test called `run_task` directly and expected it to
+    # reach the (patched) `run_completion_preflight`. Inspection of
+    # runner.py shows `run_task` never calls `run_completion_preflight` --
+    # that call lives only in `run_task`'s caller, `run_next` (the
+    # completion-preflight block the plan's own Step 3 snippet identifies by
+    # code, at the real call site). Calling `run_task` here would leave
+    # `fake_preflight` uninvoked and this test permanently failing
+    # regardless of the production change, so this test drives `run_next`
+    # instead -- the only path that actually exercises the wiring this task
+    # adds. Flagged for human review; not silently reinterpreted otherwise.
+    #
+    # Uses the "run_next" repo seed (real frontmatter for tasks/T-001.md),
+    # not this file's own `_repo`/"runner" seed -- the "runner" seed's
+    # tasks/T-001.md body is a bare "dod" placeholder with no frontmatter,
+    # fine when a test builds its own in-memory `Task` for `run_task`
+    # (never re-read from disk), but `run_next` calls `load_tasks`, which
+    # parses the file for real and rejects that placeholder.
+    repo = copy_repo_seed(tmp_path, "run_next")
+    captured = {}
+
+    def fake_preflight(repo_root, task, transcript_dir, *, require_review, changed_files=None):
+        captured["changed_files"] = changed_files
+        return FreshnessReport([])
+
+    monkeypatch.setattr(runner_module, "run_completion_preflight", fake_preflight)
+    git_ops = FakeGitOps(changed_files_result=["src/x.py", "requirements/SR-001.md"])
+    scripts = dict(_scripts())
+    scripts[AgentRole.SESSION_REVIEW] = [AgentResult(True, {})]
+
+    path = run_next(
+        repo, FakeAgentBackend(scripts), FakeGateRunner(),
+        session_id="s1", git_info={"branch": "main"},
+        git_ops=git_ops, transcript_dir=tmp_path / "runtime",
+    )
+
+    assert path and path.exists()
+    assert captured["changed_files"] == ["src/x.py", "requirements/SR-001.md"]
 
 
 @pytest.mark.e2e

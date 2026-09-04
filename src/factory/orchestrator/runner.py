@@ -708,6 +708,7 @@ def run_next(
             task,
             transcript_dir,
             require_review=human_review is not None and artifact_store is not None,
+            changed_files=git_ops.changed_files(repo_root, start_commit),
         )
         if not completion.ok:
             issue_data = [
