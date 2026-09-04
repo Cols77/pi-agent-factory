@@ -190,14 +190,32 @@ def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
                 )
                 continue
             rel_str = rel_path.as_posix()
-            if field == "implemented_by" and not entry.get("symbol"):
+            if (
+                field == "implemented_by"
+                and not entry.get("symbol")
+                and rel_path.suffix == ".py"
+            ):
                 issues.append(ReferenceIssue(field, i, f"{field}[{i}] missing required 'symbol'"))
                 continue
-            # File-only verified_by (the design's allowance for non-pytest
-            # harnesses -- just `path`, no `test`) needs no symbol/test
-            # resolution, but still participates in duplicate detection
-            # below, keyed on an empty identity segment.
-            file_only = field == "verified_by" and not str(entry.get("test") or "").strip()
+            # File-only entries need no symbol/test resolution, but still
+            # participate in duplicate detection below, keyed on an empty
+            # identity segment. Two shapes qualify:
+            #
+            # * verified_by with no `test` -- the design's own allowance for a
+            #   non-pytest harness.
+            # * implemented_by on a NON-Python artifact. A gate config, a JSON
+            #   schema, or a hook script is a produced implementation artifact
+            #   with no symbol to name, and SR-049's claim reconciliation
+            #   reports every claimed path a requirement does not declare as a
+            #   blocking finding -- so requiring a symbol here did not merely
+            #   under-describe such a file, it made it permanently
+            #   undeclarable and the claim gate unsatisfiable for any commit
+            #   touching configuration alongside code. The carve-out is scoped
+            #   by suffix so Python source, the one place a symbol always
+            #   exists, still must name it.
+            file_only = (
+                field == "verified_by" and not str(entry.get("test") or "").strip()
+            ) or (field == "implemented_by" and not entry.get("symbol"))
             identity = "" if file_only else str(entry.get("symbol") or entry.get("test") or "")
             key = (field, rel_str, identity)
             if key in seen:

@@ -215,6 +215,32 @@ def test_a_verified_by_entry_with_only_a_path_is_file_only_validation(tmp_path: 
 
 
 @pytest.mark.sr("SR-050")
+def test_a_non_python_implemented_by_entry_needs_no_symbol(tmp_path: Path):
+    # A produced artifact that is not Python source -- a gate config, a JSON
+    # schema, a hook script -- has no symbol to name, so requiring one made it
+    # permanently undeclarable. Since SR-049's claim reconciliation reports
+    # every claimed-but-undeclared path as a blocking finding, that was not a
+    # cosmetic gap: it made the claim gate unsatisfiable for any commit that
+    # touched configuration alongside code.
+    _write(tmp_path / ".factory" / "factory.yaml", "gates: {}\n")
+    meta = {"implemented_by": [{"path": ".factory/factory.yaml"}]}
+    resolution = resolve_sr_relations(tmp_path, meta)
+    assert resolution.ok
+
+
+@pytest.mark.sr("SR-050")
+def test_a_python_implemented_by_entry_still_requires_its_symbol(tmp_path: Path):
+    # The carve-out above is scoped to non-Python artifacts precisely so this
+    # keeps its teeth: Python source is exactly where a symbol exists to name,
+    # and naming it is what makes the relation canonical rather than file-level.
+    _write_prod(tmp_path)
+    meta = {"implemented_by": [{"path": "src/widgets/feature.py"}]}
+    resolution = resolve_sr_relations(tmp_path, meta)
+    assert not resolution.ok
+    assert "symbol" in resolution.issues[0].detail
+
+
+@pytest.mark.sr("SR-050")
 def test_legacy_plain_string_verified_by_entries_are_not_this_resolvers_concern(tmp_path: Path):
     # verified_by: [T-001] is the pre-existing string-list graph edge
     # (coherence.trace.model._verified_by_edges), not the SR-050 structured
