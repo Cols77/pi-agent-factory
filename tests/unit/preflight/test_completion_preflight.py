@@ -112,6 +112,7 @@ def test_interactive_run_requires_persisted_review_and_blocks_must_fix(tmp_path)
     assert "must_fix_unresolved" in codes(report)
 
 
+@pytest.mark.sr("SR-050")
 def test_uncovered_changed_file_blocks_with_relation_uncovered(tmp_path):
     requirement(tmp_path)  # writes requirements/SR-001.md with a real binding, no relations
     transcript = tmp_path / "runtime"
@@ -125,6 +126,7 @@ def test_uncovered_changed_file_blocks_with_relation_uncovered(tmp_path):
     assert report.ok is False
 
 
+@pytest.mark.sr("SR-050")
 def test_changed_files_none_never_introduces_relation_uncovered(tmp_path):
     requirement(tmp_path)
     transcript = tmp_path / "runtime"
@@ -136,6 +138,7 @@ def test_changed_files_none_never_introduces_relation_uncovered(tmp_path):
     assert report.ok is True
 
 
+@pytest.mark.sr("SR-050")
 def test_task_with_no_satisfies_sr_is_never_blocked_by_relation_uncovered(tmp_path):
     transcript = tmp_path / "runtime"
     write_report(transcript, [])

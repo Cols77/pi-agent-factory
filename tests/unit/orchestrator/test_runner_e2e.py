@@ -39,6 +39,7 @@ def _scripts():
 
 
 @pytest.mark.e2e
+@pytest.mark.sr("SR-050")
 def test_completion_preflight_receives_this_runs_changed_files(tmp_path, monkeypatch):
     # NOTE (SR-050 T3, deviation from the plan's literal test -- see report):
     # the plan's given test called `run_task` directly and expected it to
