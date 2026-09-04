@@ -89,6 +89,7 @@ def compile_obligations(
     *,
     nodes: list[trace_model.Node] | None = None,
     edges: list[trace_model.Edge] | None = None,
+    changed_files: list[str] | None = None,
 ) -> list[Obligation]:
     """Every default preset compiles a blocking ci_verification obligation (D18)
     -- CI (Increment 2C) reads this, never a hand-maintained step list. A
@@ -100,6 +101,9 @@ def compile_obligations(
     `nodes`/`edges` are loaded at most once here (when the caller did not
     already supply them) and the same objects are forwarded to
     `resolve_profile` and to every obligation helper that accepts them.
+    `changed_files` (SR-050 T3) is forwarded to the `task:*` scope's
+    relation_maintenance obligation only -- `None` means no run data is
+    available yet, a real (possibly empty) list means the caller has one.
     """
     if scope_ref != "project":
         if nodes is None:
@@ -114,6 +118,11 @@ def compile_obligations(
     obligations = [_ci_verification_obligation(root, scope_ref, profile)]
     if scope_ref.startswith("task:"):
         obligations.append(_task_justification_obligation(root, scope_ref, profile))
+        obligations.append(
+            _relation_maintenance_obligation(
+                root, scope_ref, profile, changed_files=changed_files,
+            )
+        )
     elif scope_ref.startswith("sr:"):
         obligations.append(
             _verification_result_obligation(root, scope_ref, profile, nodes=nodes, edges=edges)
@@ -176,6 +185,92 @@ def _task_justification_obligation(root: Path, scope_ref: str, profile: str) -> 
         source_policy=profile,
         state="satisfied" if has_justification else "open",
         resolve_cmd=("add a `justification:` entry to the task's frontmatter",),
+    )
+
+
+def _relation_maintenance_obligation(
+    root: Path, scope_ref: str, profile: str, *, changed_files: list[str] | None,
+) -> Obligation:
+    """relation_maintenance (SR-050 T3): a task that changes production or
+    validation code must declare, via its own `satisfies` SRs'
+    implemented_by/verified_by relations (SR-050 T1), which files it
+    changed. Scoped to ONLY the task's own satisfies SRs -- reconciling
+    against any SR anywhere in the register is SR-057/058's
+    coherence.register.review.unaccounted_changed_files, already built, not
+    duplicated here.
+
+    `changed_files=None` means no run data is available (the
+    navigate/dashboard call path, e.g. `coherence navigate present`) --
+    reports `not_applicable`, not `open`: this says "not checked yet", never
+    "checked and failed". The live gate
+    (factory.preflight.checks.run_completion_preflight) is the one caller
+    that supplies a real, possibly-empty list, computed from
+    GitOps.changed_files the same way the eventual evidence manifest's
+    `implementation.changed_files` will be -- see that module for the
+    wiring. `requiredness` is always `"blocking"`, unconditionally: this
+    obligation, unlike `_task_justification_obligation`, does not graduate
+    by profile.
+    """
+    from substrate.codemap.build import is_source_path
+    from substrate.ledger.tasks import get_task, load_tasks
+
+    task_id = scope_ref.partition(":")[2]
+    task = get_task(load_tasks(root / "tasks"), task_id)
+    satisfies = list(task.satisfies) if task is not None else []
+
+    base = dict(
+        id=f"ob:relation_maintenance:{scope_ref}",
+        scope_ref=scope_ref,
+        kind="relation_maintenance",
+        requiredness="blocking",
+        source_policy=profile,
+    )
+
+    if not satisfies:
+        return Obligation(
+            **base,
+            reason="task declares no satisfies SR to reconcile changed files against",
+            state="not_applicable",
+            resolve_cmd=None,
+        )
+    if changed_files is None:
+        return Obligation(
+            **base,
+            reason="no run data available yet to reconcile changed files against declared relations",
+            state="not_applicable",
+            resolve_cmd=None,
+        )
+
+    from coherence.register.register import load_register
+    from coherence.register.review import _declared_paths, _raw_meta
+
+    source_files = [f for f in changed_files if is_source_path(root, f)]
+    register = {r.id: r for r in load_register(root / "requirements")}
+    declared: set[str] = set()
+    for sr_id in satisfies:
+        req = register.get(sr_id)
+        if req is None:
+            continue
+        meta = _raw_meta(req)
+        declared |= _declared_paths(meta, "implemented_by")
+        declared |= _declared_paths(meta, "verified_by")
+    uncovered = [f for f in source_files if f not in declared]
+
+    return Obligation(
+        **base,
+        reason=(
+            f"{profile} requires every changed production/validation file to be declared by an "
+            f"implemented_by/verified_by relation on one of this task's own satisfies SRs "
+            f"({', '.join(satisfies)})"
+        ),
+        state="satisfied" if not uncovered else "open",
+        resolve_cmd=(
+            tuple(
+                f"declare {f} as implemented_by/verified_by on one of {', '.join(satisfies)}"
+                for f in uncovered
+            )
+            if uncovered else None
+        ),
     )
 
 

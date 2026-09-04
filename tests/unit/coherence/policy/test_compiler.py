@@ -1344,3 +1344,94 @@ def test_human_review_checksum_backfill_is_persisted_not_a_permanent_loophole(tm
     obligations = compile_obligations(tmp_path, "sr:SR-203")
     hr = next(o for o in obligations if o.kind == "human_review")
     assert hr.state == "open"
+
+
+def _write_task(root, task_id="T-001", satisfies=("SR-900",)):
+    tasks_dir = root / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    justification = "\n".join(f"  - satisfies: {sr}" for sr in satisfies)
+    (tasks_dir / f"{task_id}.md").write_text(
+        f"---\nid: {task_id}\ntitle: t\nstatus: todo\ndod:\n  - d\n"
+        + (f"justification:\n{justification}\n" if satisfies else "")
+        + "---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def _write_sr_with_relations(root, sr_id="SR-900", implemented_by=(), verified_by=()):
+    reqs_dir = root / "requirements"
+    reqs_dir.mkdir(parents=True, exist_ok=True)
+
+    def block(field, paths):
+        if not paths:
+            return ""
+        entries = "\n".join(f"  - path: {p}" for p in paths)
+        return f"{field}:\n{entries}\n"
+
+    (reqs_dir / f"{sr_id}.md").write_text(
+        f"---\nid: {sr_id}\ntitle: t\nstatement: s\ndomain: behavioral\n"
+        + block("implemented_by", implemented_by)
+        + block("verified_by", verified_by)
+        + "---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_relation_maintenance_not_applicable_when_task_has_no_satisfies_sr(tmp_path):
+    _write_task(tmp_path, satisfies=())
+    obligations = compile_obligations(
+        tmp_path, "task:T-001", changed_files=["src/x.py"],
+    )
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.state == "not_applicable"
+
+
+def test_relation_maintenance_not_applicable_when_no_run_data_available(tmp_path):
+    _write_task(tmp_path, satisfies=("SR-900",))
+    _write_sr_with_relations(tmp_path, "SR-900")
+    obligations = compile_obligations(tmp_path, "task:T-001")  # changed_files defaults to None
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.state == "not_applicable"
+
+
+def test_relation_maintenance_satisfied_when_changed_files_empty_after_filtering(tmp_path):
+    _write_task(tmp_path, satisfies=("SR-900",))
+    _write_sr_with_relations(tmp_path, "SR-900")
+    obligations = compile_obligations(
+        tmp_path, "task:T-001", changed_files=["requirements/SR-900.md", "tasks/T-001.md"],
+    )
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.state == "satisfied"
+
+
+def test_relation_maintenance_open_when_source_file_uncovered(tmp_path):
+    _write_task(tmp_path, satisfies=("SR-900",))
+    _write_sr_with_relations(tmp_path, "SR-900", implemented_by=("src/coherence/other.py",))
+    obligations = compile_obligations(
+        tmp_path, "task:T-001", changed_files=["src/coherence/uncovered.py"],
+    )
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.state == "open"
+    assert any("uncovered.py" in cmd for cmd in ob.resolve_cmd)
+
+
+def test_relation_maintenance_satisfied_when_every_source_file_covered(tmp_path):
+    _write_task(tmp_path, satisfies=("SR-900",))
+    _write_sr_with_relations(
+        tmp_path, "SR-900",
+        implemented_by=("src/coherence/foo.py",),
+        verified_by=("tests/unit/coherence/test_foo.py",),
+    )
+    obligations = compile_obligations(
+        tmp_path, "task:T-001",
+        changed_files=["src/coherence/foo.py", "tests/unit/coherence/test_foo.py"],
+    )
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.state == "satisfied"
+
+
+def test_relation_maintenance_requiredness_always_blocking(tmp_path):
+    _write_task(tmp_path, satisfies=())
+    obligations = compile_obligations(tmp_path, "task:T-001", changed_files=[])
+    ob = next(o for o in obligations if o.kind == "relation_maintenance")
+    assert ob.requiredness == "blocking"
