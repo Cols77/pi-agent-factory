@@ -10,6 +10,7 @@ from coherence.register.cli import cmd_review
 from coherence.register.register import Binding, Requirement
 from coherence.register.review import (
     evidence_reconciliation_review,
+    exemption_summary,
     structural_review,
     unaccounted_changed_files,
 )
@@ -440,6 +441,84 @@ def test_a_linked_sr_with_no_covering_manifest_at_all_is_linked_but_stale_or_fai
     hits = [f for f in review.findings if f.category == "linked_but_stale_or_failed"]
     assert len(hits) == 1
     assert "no manifest" in hits[0].detail
+
+
+# ---------------------------------------------------------------------------
+# The claim denominator: when manifests carry commit claims, "changed" is
+# what commits claimed for THIS SR, not the manifest-scoped union.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sr("SR-050")
+def test_a_claimed_path_the_sr_does_not_declare_is_changed_but_undeclared(tmp_path: Path):
+    req_path = _write_meta(tmp_path / "requirements" / "SR-130.md", {"id": "SR-130"})
+    manifests = [
+        {
+            "implementation": {"changed_files": ["src/a.py"]},
+            "commits": [
+                {
+                    "sha": "a" * 40,
+                    "subject": "feat",
+                    "sr_ids": ["SR-130"],
+                    "changed_files": ["src/a.py"],
+                    "exempted": [],
+                }
+            ],
+            "validation": [{"requirements": [{"id": "SR-130", "passed": True}]}],
+        }
+    ]
+    review = evidence_reconciliation_review(tmp_path, _unbound("SR-130", req_path), manifests)
+    details = [f.detail for f in review.findings if f.category == "changed_but_undeclared"]
+    assert any("src/a.py" in d for d in details)
+
+
+@pytest.mark.sr("SR-050")
+def test_a_path_claimed_for_another_sr_is_not_this_srs_finding(tmp_path: Path):
+    req_path = _write_meta(tmp_path / "requirements" / "SR-131.md", {"id": "SR-131"})
+    manifests = [
+        {
+            "implementation": {"changed_files": ["src/b.py"]},
+            "commits": [
+                {
+                    "sha": "b" * 40,
+                    "subject": "feat",
+                    "sr_ids": ["SR-023"],
+                    "changed_files": ["src/b.py"],
+                    "exempted": [],
+                }
+            ],
+            "validation": [{"requirements": [{"id": "SR-131", "passed": True}]}],
+        }
+    ]
+    review = evidence_reconciliation_review(tmp_path, _unbound("SR-131", req_path), manifests)
+    details = [f.detail for f in review.findings if f.category == "changed_but_undeclared"]
+    assert not any("src/b.py" in d for d in details)
+
+
+@pytest.mark.sr("SR-050")
+def test_exemption_counts_are_reported_per_glob(tmp_path: Path):
+    manifests = [
+        {
+            "implementation": {"changed_files": ["docs/a.md", "docs/b.md"]},
+            "commits": [
+                {
+                    "sha": "c" * 40,
+                    "subject": "docs",
+                    "sr_ids": [],
+                    "changed_files": ["docs/a.md", "docs/b.md"],
+                    "exempted": [
+                        {"path": "docs/a.md", "glob": "docs/**"},
+                        {"path": "docs/b.md", "glob": "docs/**"},
+                    ],
+                }
+            ],
+            "validation": [],
+        }
+    ]
+    assert exemption_summary(manifests) == (("docs/**", 2),)
+    req_path = _write_meta(tmp_path / "requirements" / "SR-132.md", {"id": "SR-132"})
+    review = evidence_reconciliation_review(tmp_path, _unbound("SR-132", req_path), manifests)
+    assert review.exempted == (("docs/**", 2),)
 
 
 # ---------------------------------------------------------------------------

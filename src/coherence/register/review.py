@@ -96,6 +96,12 @@ class ReconciliationReview:
 
     req_id: str
     findings: tuple[ReconciliationFinding, ...]
+    # (glob, count) for every claim exemption the reviewed manifests
+    # recorded -- see ``exemption_summary``. Not a finding: an exemption is
+    # not an integrity problem, it is the size of the hole the exempt list
+    # cuts in the claim denominator, reported so list creep is always a
+    # number rather than an absence.
+    exempted: tuple[tuple[str, int], ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -345,6 +351,46 @@ def unaccounted_changed_files(
 # ---------------------------------------------------------------------------
 
 
+def claimed_paths(manifests: list[dict], sr_id: str) -> set[str]:
+    """Every path from a commit whose ``SR:`` trailer named ``sr_id``.
+
+    This is the precise denominator claims exist to provide: the
+    manifest-scoping heuristic below ("manifests carrying a validation entry
+    for this SR") answers "was this SR being worked on around then"; this
+    answers "was this file changed FOR this SR".
+    """
+    paths: set[str] = set()
+    for manifest in manifests:
+        for commit in manifest.get("commits") or []:
+            if not isinstance(commit, dict):
+                continue
+            if sr_id in (commit.get("sr_ids") or []):
+                paths |= {str(p) for p in commit.get("changed_files") or []}
+    return paths
+
+
+def any_claims(manifests: list[dict]) -> bool:
+    """True when at least one manifest carries commit claims -- the signal
+    that the claim denominator is available at all. Before the epoch, or in a
+    repository that has not adopted trailers, this is False and every caller
+    falls back to the manifest-scoped behaviour unchanged."""
+    return any(manifest.get("commits") for manifest in manifests)
+
+
+def exemption_summary(manifests: list[dict]) -> tuple[tuple[str, int], ...]:
+    """(glob, count) for every exemption recorded, so list creep is a number
+    in every review rather than an absence."""
+    counts: dict[str, int] = {}
+    for manifest in manifests:
+        for commit in manifest.get("commits") or []:
+            if not isinstance(commit, dict):
+                continue
+            for entry in commit.get("exempted") or []:
+                if isinstance(entry, dict) and entry.get("glob"):
+                    counts[str(entry["glob"])] = counts.get(str(entry["glob"]), 0) + 1
+    return tuple(sorted(counts.items()))
+
+
 def _validation_entries(manifests: list[dict], req_id: str) -> list[dict]:
     """Every ``validation[*].requirements[*]`` block across ``manifests``
     whose ``id`` matches ``req_id`` -- the exact read pattern
@@ -406,15 +452,29 @@ def evidence_reconciliation_review(
     * "declared" = the ``path`` of every dict-shaped ``implemented_by`` or
       ``verified_by`` entry this SR's frontmatter declares (legacy plain
       -string entries carry no path and are not "declared" here).
-    * "changed" = the union of ``implementation.changed_files`` across every
-      manifest that carries a validation entry for THIS SR id (i.e. every
-      manifest scoped to this SR by its own recorded validation output --
-      not the whole evidence store, which would make ``changed_but_undeclared``
-      list every other SR's files too; and not ``git diff``, per the source
-      plan). This is a judgement call: a manifest that changed this SR's
-      files but has not yet recorded validation for it will not scope its
-      files in here -- that gap surfaces as ``executed_but_unlinked``/
-      ``declared_but_not_changed`` instead, never silently.
+    * "changed" has two definitions, and which one applies depends on
+      whether the manifests carry commit claims (``any_claims``):
+
+      - With claims: the union of ``changed_files`` across every commit
+        whose ``SR:`` trailer named THIS SR (``claimed_paths``). This is
+        the precise denominator -- "was this file changed FOR this SR" --
+        and it is why claims exist.
+      - Without claims (pre-epoch history, or a repository that has not
+        adopted trailers): the union of ``implementation.changed_files``
+        across every manifest that carries a validation entry for THIS SR
+        id (i.e. every manifest scoped to this SR by its own recorded
+        validation output -- not the whole evidence store, which would
+        make ``changed_but_undeclared`` list every other SR's files too;
+        and not ``git diff``, per the source plan). This is a heuristic,
+        and a judgement call: a manifest that changed this SR's files but
+        has not yet recorded validation for it will not scope its files in
+        here -- that gap surfaces as ``executed_but_unlinked``/
+        ``declared_but_not_changed`` instead, never silently.
+
+      The fallback is deliberately all-or-nothing per review rather than
+      per manifest: mixing a claim denominator with a scoping heuristic in
+      one verdict would make ``changed_but_undeclared`` mean two different
+      things in the same list.
     * "executed" = a validation entry for this SR id exists in some manifest
       (``_validation_entries`` is non-empty), regardless of whether that
       entry carries a ``passed`` verdict yet.
@@ -447,10 +507,23 @@ def evidence_reconciliation_review(
     verified_paths = _declared_paths(meta, "verified_by")
     entries = _validation_entries(manifests, req.id)
     executed = bool(entries)
-    scoped_manifests = [m for m in manifests if _validation_entries([m], req.id)]
-    changed: set[str] = set()
-    for manifest in scoped_manifests:
-        changed |= {str(p) for p in (manifest.get("implementation", {}).get("changed_files") or [])}
+    # Which denominator produced `changed` is stated in every finding it
+    # generates: "no commit claimed it" and "no scoped manifest changed it"
+    # are different facts, and a reader must never have to guess which one
+    # a review meant.
+    if any_claims(manifests):
+        changed = claimed_paths(manifests, req.id)
+        no_change = "no commit claimed it"
+        was_changed = "was claimed by a commit"
+    else:
+        scoped_manifests = [m for m in manifests if _validation_entries([m], req.id)]
+        changed = set()
+        for manifest in scoped_manifests:
+            changed |= {
+                str(p) for p in (manifest.get("implementation", {}).get("changed_files") or [])
+            }
+        no_change = "no scoped manifest changed it"
+        was_changed = "was changed by a scoped manifest"
 
     findings: list[ReconciliationFinding] = []
     for path in sorted(declared & changed):
@@ -460,13 +533,13 @@ def evidence_reconciliation_review(
     for path in sorted(declared - changed):
         findings.append(
             ReconciliationFinding(
-                "declared_but_not_changed", f"{req.id}: {path} is declared but no scoped manifest changed it"
+                "declared_but_not_changed", f"{req.id}: {path} is declared but {no_change}"
             )
         )
     for path in sorted(changed - declared):
         findings.append(
             ReconciliationFinding(
-                "changed_but_undeclared", f"{req.id}: {path} was changed by a scoped manifest but is not declared"
+                "changed_but_undeclared", f"{req.id}: {path} {was_changed} but is not declared"
             )
         )
 
@@ -502,7 +575,9 @@ def evidence_reconciliation_review(
             )
         )
 
-    return ReconciliationReview(req_id=req.id, findings=tuple(findings))
+    return ReconciliationReview(
+        req_id=req.id, findings=tuple(findings), exempted=exemption_summary(manifests)
+    )
 
 
 __all__ = [
@@ -510,7 +585,10 @@ __all__ = [
     "ReconciliationReview",
     "StructuralFinding",
     "StructuralReview",
+    "any_claims",
+    "claimed_paths",
     "evidence_reconciliation_review",
+    "exemption_summary",
     "structural_review",
     "unaccounted_changed_files",
 ]
