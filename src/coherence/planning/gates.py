@@ -62,9 +62,9 @@ def _validate_feat17_bundle_members(
 ) -> tuple[bool, str]:
     """Validate feature ownership while allowing its dossier projections."""
     if not isinstance(members, list) or any(not isinstance(item, str) for item in members):
-        return False, "bundle members must be a list of strings"
+        return False, "FEAT-017 bundle members are invalid"
     if len(members) != len(set(members)):
-        return False, "bundle members contain duplicates"
+        return False, "FEAT-017 bundle contains duplicate members"
     if (
         not isinstance(requirement_ids, list)
         or any(not isinstance(item, str) for item in requirement_ids)
@@ -82,17 +82,14 @@ def _validate_feat17_bundle_members(
     )
     unexpected_ids = sorted(set(sr_ids) - owned_ids)
     if unexpected_ids:
-        return False, f"unexpected SR members: {', '.join(unexpected_ids)}"
+        return False, (
+            "FEAT-017 bundle contains non-owned requirement(s): "
+            f"{', '.join(unexpected_ids)}"
+        )
     missing_ids = sorted(owned_ids - set(sr_ids))
     if missing_ids:
         return False, f"missing required SR members: {', '.join(missing_ids)}"
-
-    if any(
-        not member.startswith(("feat:", "sr:", "spec:", "plan:", "task:"))
-        for member in members
-    ):
-        return False, "bundle contains an unsupported member reference"
-    return True, ""
+    return True, "FEAT-017 bundle ownership is current"
 
 
 def validate_requirement_consent(
