@@ -1,4 +1,4 @@
-"""Commit-claim parsing and exemption policy (proposed SR-062).
+"""Commit-claim parsing and exemption policy (SR-054).
 
 Pure module: parses the ``SR:`` commit trailer, loads
 ``.factory/trace-claims.yaml``, and classifies paths against exemption globs.

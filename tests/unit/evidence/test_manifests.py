@@ -50,7 +50,7 @@ def test_manifest_round_trip_is_atomic_and_validated(tmp_path):
 
 def test_invalid_manifest_is_refused(tmp_path):
     bad = manifest()
-    # `task_id` is optional since ingestion manifests have no task (SR-062),
+    # `task_id` is optional since ingestion manifests have no task (SR-054),
     # so deleting it no longer makes a manifest invalid -- but it is still
     # constrained when present, which is what this test pins down.
     bad["task_id"] = "not-a-task-id"

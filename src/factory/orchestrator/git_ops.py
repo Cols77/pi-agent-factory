@@ -391,7 +391,7 @@ class SubprocessGitOps:
         )
         return [line for line in result.stdout.splitlines() if line.strip()]
 
-    # Commit-range reads (SR-062 ingestion). Implemented once in
+    # Commit-range reads (SR-054 commit-claim ingestion). Implemented once in
     # substrate.vcs and exposed here through the GitOps protocol, because
     # coherence.register.ingest also needs them and may not import factory.*
     # (tests/unit/requirements/test_coherence_parity.py). Delegation, not a
@@ -633,7 +633,7 @@ class FakeGitOps:
         self.untracked: dict[str, str] = {}
         self.sidecar: dict[str, str] = {}
         self.worktree_diff_result: bytes = b""
-        # Commit-range reads (SR-062 ingestion). Empty by default so every
+        # Commit-range reads (SR-054 commit-claim ingestion). Empty by default so every
         # existing caller is unaffected; a test that needs a range sets them.
         self.commits: list[tuple[str, str, str]] = []
         self.commit_changed_files: dict[str, list[str]] = {}

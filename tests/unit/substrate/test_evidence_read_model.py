@@ -148,7 +148,7 @@ def test_factory_manifests_writer_calls_the_substrate_normaliser_and_still_valid
         from factory.evidence.manifests import write_run_manifest
 
     bad = manifest()
-    # `task_id` is optional since ingestion manifests have no task (SR-062);
+    # `task_id` is optional since ingestion manifests have no task (SR-054);
     # it is still pattern-constrained when present, which is what makes this
     # manifest invalid.
     bad["task_id"] = "not-a-task-id"

@@ -26,7 +26,34 @@
 
 ---
 
-## Requirement proposal (blocked on [[SR-044]] consent)
+## DECISION 2026-09-04: proposal DECLINED, work rebound to [[SR-054]]
+
+The SR-044 consent below was put to a human with the facts, including the arguments against, and
+**declined**. No new requirement was authored; `requirements/` is untouched. The 25 tests that
+carried the candidate marker now carry `@pytest.mark.sr("SR-054")`, treating commit-claim
+attribution as an implementation detail of [[SR-054]]'s obligation to identify a change's affected
+requirements.
+
+**Two limitations that decision knowingly accepted** — recorded so no later reader mistakes these
+markers for a stronger claim:
+
+1. [[SR-054]]'s statement is scoped to *"every FEAT-017 implementation task"*, so it does not
+   itself describe a commit made **outside** a governed task — which is exactly the case this
+   mechanism handles, and was the original argument for a separate requirement.
+2. [[SR-054]] is still `proposed`, with no binding and no acceptance criteria, so these markers
+   name a real requirement but **close** nothing.
+
+A further fact surfaced at consent time: the corpus-scale duplicate detector that should have
+adjudicated this ([[SR-058]]'s `coherence register overlap-check`, landed on main) **cannot
+evaluate a candidate that is not yet in the register** — it compares requirements already present,
+so checking a proposal requires first authoring it, which is the consent-gated act. Its default
+judge is `_no_overlap_judge_configured` and its own docstring records that it is "explicitly NOT
+wired into any planning pipeline (AC-3 is deferred)." The overlap analysis below is therefore
+manual and tool-unverified. That gap is [[SR-058]]/AC-3's, not this plan's.
+
+The section below is retained unchanged as the record of what was proposed and rejected.
+
+## Requirement proposal (DECLINED — retained as the record of what was put to consent)
 
 **Answer to "is a new requirement needed": yes, one — and this plan does not author it.**
 

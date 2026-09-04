@@ -14,48 +14,59 @@ from coherence.register.claims import (
 
 pytestmark = pytest.mark.unit
 
-# Proposed SR-062: commit-level requirement attribution as evidence provenance.
-# The `sr` markers below claim SR-062, which is NOT yet in `requirements/` --
-# authoring it is gated on explicit human consent (SR-044). Until that consent
-# lands the markers are a forward declaration, not a binding.
+# These tests claim SR-054 (plan-task trace-maintenance obligation).
+#
+# A new requirement for commit-level attribution (candidate "SR-062") was
+# proposed and DECLINED at SR-044 consent on 2026-09-04: commit-claim
+# attribution is treated as an implementation detail of SR-054's obligation to
+# identify a change's affected requirements, rather than as a requirement of
+# its own.
+#
+# Two limitations that decision knowingly accepted, recorded here so nobody
+# later reads these markers as a stronger claim than they are:
+#   1. SR-054's statement is scoped to "every FEAT-017 implementation task",
+#      so it does not itself describe a commit made OUTSIDE a governed task --
+#      which is exactly the case this module handles.
+#   2. SR-054 is still `proposed`, with no binding and no acceptance criteria,
+#      so these markers name a real requirement but do not close one.
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_parses_a_single_sr_trailer():
     assert parse_sr_trailer("feat: thing\n\nSR: SR-050\n") == ("SR-050",)
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_parses_a_multi_sr_trailer_preserving_order():
     assert parse_sr_trailer("feat: thing\n\nSR: SR-050, SR-023\n") == ("SR-050", "SR-023")
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_message_with_no_trailer_yields_no_ids():
     assert parse_sr_trailer("feat: thing\n\nno trailer here\n") == ()
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_an_sr_mention_in_the_body_is_not_a_trailer():
     assert parse_sr_trailer("feat: relates to SR-050 somehow\n\nbody\n") == ()
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_double_star_glob_matches_nested_paths():
     assert glob_match("docs/**", "docs/a/b/c.md") is True
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_single_star_glob_does_not_cross_a_separator():
     assert glob_match("src/*.py", "src/a/b.py") is False
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_an_absent_config_file_yields_the_empty_default(tmp_path):
     assert load_claims_config(tmp_path) == ClaimsConfig(epoch=None, exempt=())
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_config_file_supplies_epoch_and_exempt_globs(tmp_path):
     (tmp_path / ".factory").mkdir()
     (tmp_path / ".factory" / "trace-claims.yaml").write_text(
@@ -66,7 +77,7 @@ def test_a_config_file_supplies_epoch_and_exempt_globs(tmp_path):
     assert config.exempt == ("docs/**", "**/*.md")
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_exempting_glob_reports_the_pattern_that_matched(tmp_path):
     config = ClaimsConfig(exempt=("docs/**", "**/*.md"))
     assert exempting_glob(config, "docs/a/b.md") == "docs/**"
@@ -86,20 +97,20 @@ def _register(root, *sr_ids):
         )
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_registered_ids_reads_requirement_filenames(tmp_path):
     _register(tmp_path, "SR-050", "SR-023")
     assert registered_ids(tmp_path) == frozenset({"SR-050", "SR-023"})
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_commit_touching_only_exempt_paths_needs_no_trailer(tmp_path):
     _register(tmp_path)
     config = ClaimsConfig(exempt=("docs/**",))
     assert check_commit(tmp_path, "docs: tweak\n", ["docs/a.md"], config=config) == ()
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_commit_touching_a_non_exempt_path_without_a_trailer_is_rejected(tmp_path):
     _register(tmp_path)
     config = ClaimsConfig(exempt=("docs/**",))
@@ -108,7 +119,7 @@ def test_a_commit_touching_a_non_exempt_path_without_a_trailer_is_rejected(tmp_p
     assert "src/a.py" in errors[0]
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_mixed_commit_needs_a_trailer_for_its_non_exempt_half(tmp_path):
     _register(tmp_path)
     config = ClaimsConfig(exempt=("docs/**",))
@@ -120,7 +131,7 @@ def test_a_mixed_commit_needs_a_trailer_for_its_non_exempt_half(tmp_path):
     assert "docs/a.md" not in errors[0]
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_trailer_naming_an_unregistered_requirement_is_rejected(tmp_path):
     _register(tmp_path, "SR-050")
     errors = check_commit(
@@ -130,7 +141,7 @@ def test_a_trailer_naming_an_unregistered_requirement_is_rejected(tmp_path):
     assert "SR-999" in errors[0]
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_malformed_id_is_rejected_before_the_register_is_consulted(tmp_path):
     _register(tmp_path, "SR-050")
     errors = check_commit(
@@ -140,7 +151,7 @@ def test_a_malformed_id_is_rejected_before_the_register_is_consulted(tmp_path):
     assert "banana" in errors[0]
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_trailer_naming_a_registered_requirement_passes(tmp_path):
     _register(tmp_path, "SR-050")
     assert check_commit(
@@ -148,7 +159,7 @@ def test_a_trailer_naming_a_registered_requirement_passes(tmp_path):
     ) == ()
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_a_multi_sr_trailer_passes_only_when_every_id_is_registered(tmp_path):
     _register(tmp_path, "SR-050")
     errors = check_commit(
@@ -159,7 +170,7 @@ def test_a_multi_sr_trailer_passes_only_when_every_id_is_registered(tmp_path):
     assert "SR-050" not in errors[0]
 
 
-@pytest.mark.sr("SR-062")
+@pytest.mark.sr("SR-054")
 def test_check_commit_falls_back_to_the_projects_own_config(tmp_path):
     """With no `config=` argument the check reads `.factory/trace-claims.yaml`
     itself, which is how the hook invokes it."""
