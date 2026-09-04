@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
+from substrate import vcs
+
 # The factory's own per-run output. These live inside the target repo and are
 # untracked there (a target repo does not inherit the factory's .gitignore), so
 # enumerating untracked files picked them up and `write_patch` inlined their
@@ -202,6 +204,12 @@ class GitOps(Protocol):
     def changed_files_between(
         self, repo_root: Path, start_commit: str, end_commit: str
     ) -> list[str]: ...
+    def commits_between(
+        self, repo_root: Path, start_commit: str, end_commit: str
+    ) -> list[tuple[str, str, str]]: ...
+    def changed_files_in_commit(self, repo_root: Path, commit: str) -> list[str]: ...
+    def is_ancestor(self, repo_root: Path, commit: str, descendant: str) -> bool: ...
+    def root_commit(self, repo_root: Path) -> str | None: ...
     def binary_diff(
         self, repo_root: Path, start_commit: str, end_commit: str | None = None
     ) -> bytes: ...
@@ -382,6 +390,28 @@ class SubprocessGitOps:
             check=True,
         )
         return [line for line in result.stdout.splitlines() if line.strip()]
+
+    # Commit-range reads (SR-062 ingestion). Implemented once in
+    # substrate.vcs and exposed here through the GitOps protocol, because
+    # coherence.register.ingest also needs them and may not import factory.*
+    # (tests/unit/requirements/test_coherence_parity.py). Delegation, not a
+    # second convention.
+    def commits_between(
+        self, repo_root: Path, start_commit: str, end_commit: str
+    ) -> list[tuple[str, str, str]]:
+        """(sha, subject, body) oldest-first for start..end, exclusive of start."""
+        return vcs.commits_between(repo_root, start_commit, end_commit)
+
+    def changed_files_in_commit(self, repo_root: Path, commit: str) -> list[str]:
+        return vcs.changed_files_in_commit(repo_root, commit)
+
+    def is_ancestor(self, repo_root: Path, commit: str, descendant: str) -> bool:
+        """True when `commit` is reachable from `descendant`."""
+        return vcs.is_ancestor(repo_root, commit, descendant)
+
+    def root_commit(self, repo_root: Path) -> str | None:
+        """The oldest commit reachable from HEAD, or None in an empty repo."""
+        return vcs.root_commit(repo_root)
 
     def binary_diff(
         self, repo_root: Path, start_commit: str, end_commit: str | None = None
@@ -603,6 +633,11 @@ class FakeGitOps:
         self.untracked: dict[str, str] = {}
         self.sidecar: dict[str, str] = {}
         self.worktree_diff_result: bytes = b""
+        # Commit-range reads (SR-062 ingestion). Empty by default so every
+        # existing caller is unaffected; a test that needs a range sets them.
+        self.commits: list[tuple[str, str, str]] = []
+        self.commit_changed_files: dict[str, list[str]] = {}
+        self.ancestor = True
 
     def head_commit(self, repo_root: Path) -> str:
         return self.head
@@ -633,6 +668,20 @@ class FakeGitOps:
         self, repo_root: Path, start_commit: str, end_commit: str
     ) -> list[str]:
         return self._changed_files_result
+
+    def commits_between(
+        self, repo_root: Path, start_commit: str, end_commit: str
+    ) -> list[tuple[str, str, str]]:
+        return list(self.commits)
+
+    def changed_files_in_commit(self, repo_root: Path, commit: str) -> list[str]:
+        return list(self.commit_changed_files.get(commit, self._changed_files_result))
+
+    def is_ancestor(self, repo_root: Path, commit: str, descendant: str) -> bool:
+        return self.ancestor
+
+    def root_commit(self, repo_root: Path) -> str | None:
+        return self.head
 
     def binary_diff(
         self, repo_root: Path, start_commit: str, end_commit: str | None = None

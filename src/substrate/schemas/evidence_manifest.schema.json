@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "run_id", "task_id", "started_at", "ended_at",
+    "schema_version", "run_id", "started_at", "ended_at",
     "start_commit", "result_commit", "outcome", "inputs", "implementation",
     "dependencies", "validation", "reviews", "decisions", "publication"
   ],
@@ -21,7 +21,7 @@
     "inputs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["task", "requirements", "factory_config_sha256"],
+      "required": ["requirements", "factory_config_sha256"],
       "properties": {
         "task": {"$ref": "#/$defs/fileInput"},
         "requirements": {"type": "array", "items": {"$ref": "#/$defs/requirementInput"}},
@@ -39,6 +39,29 @@
       "properties": {
         "changed_files": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "patch": {"$ref": "#/$defs/blob"}
+      }
+    },
+    "commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sha", "subject", "sr_ids", "changed_files"],
+        "properties": {
+          "sha": {"type": "string", "pattern": "^[a-fA-F0-9]{40,64}$"},
+          "subject": {"type": "string"},
+          "sr_ids": {"type": "array", "items": {"type": "string", "pattern": "^SR-[0-9]+$"}},
+          "changed_files": {"type": "array", "items": {"type": "string"}},
+          "exempted": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "glob"],
+              "properties": {"path": {"type": "string"}, "glob": {"type": "string"}}
+            }
+          }
+        }
       }
     },
     "validation": {"type": "array", "items": {"type": "object"}},
