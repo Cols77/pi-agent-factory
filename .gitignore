@@ -69,3 +69,8 @@ coverage-reviews/
 # above (including its own per-run gate-decisions/) -- regenerable scratch,
 # same precedent.
 overlap-reviews/
+
+# Project-local git worktrees (superpowers:using-git-worktrees convention).
+# Each entry is its own git checkout with its own .git file; never vendor one
+# into this repo's tree.
+.worktrees/
