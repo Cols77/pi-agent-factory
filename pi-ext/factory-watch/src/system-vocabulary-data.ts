@@ -1209,6 +1209,15 @@ export const REMEDIATION_DATA = {
       "command_kind": "shell",
       "severity": "absence"
     },
+    "artifact_uncovered": {
+      "state": "artifact_uncovered",
+      "headline": "No requirement declares coverage of this artifact",
+      "what_it_means": "No requirement anywhere declares a `relates_to` edge naming {id} -- the reverse of plan_no_spec: nothing has claimed this spec, requirement, or feature as something it covers.",
+      "why_it_matters": "A spec, requirement, or feature no requirement relates to is unreachable in that direction -- there is no declared claim that anything actually covers it.",
+      "command": "/trace-fix {id}",
+      "command_kind": "slash",
+      "severity": "absence"
+    },
     "dangling_upstream": {
       "state": "dangling_upstream",
       "headline": "Upstream reference points nowhere",
