@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from substrate.codemap.model import CodeIndex, IndexFile, IndexSignature
 from substrate.codemap.sigs import detect_language, extract_signatures
@@ -66,6 +66,37 @@ def discover_source_files(repo_root: Path, source_dirs: list[str] | None = None)
                 rel = p.relative_to(repo_root).as_posix()
                 out.append(rel)
     return out
+
+
+def is_source_path(
+    repo_root: Path, rel_path: str, *, source_dirs: list[str] | None = None,
+) -> bool:
+    """True when `rel_path` (a repository-relative path, native or POSIX
+    separators) is real production/validation source code by this repo's own
+    code-map convention: inside a configured source directory
+    (`profile_source_dirs`, falling back to `["src"]` exactly like
+    `discover_source_files`), not inside a `_SKIP_DIRS` segment
+    (vendored/build output), with a `_CODE_EXTS` extension.
+
+    A pure path classifier -- unlike `discover_source_files`, it never
+    touches the filesystem and does not require the file to currently exist,
+    so it also correctly classifies a path a git diff reports as deleted.
+    SR-050 T3's relation-maintenance obligation is the first caller; treat
+    this as the one shared classifier for "is this changed path real
+    project code" rather than adding a second one.
+    """
+    candidate = PurePosixPath(rel_path.replace("\\", "/"))
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return False
+    if any(part in _SKIP_DIRS for part in candidate.parts):
+        return False
+    if candidate.suffix.lower() not in _CODE_EXTS:
+        return False
+    dirs = source_dirs or _profile_source_dirs(repo_root) or ["src"]
+    return any(
+        candidate == PurePosixPath(d) or PurePosixPath(d) in candidate.parents
+        for d in dirs
+    )
 
 
 def profile_source_dirs(repo_root: Path) -> list[str] | None:

@@ -19,6 +19,7 @@ from factory.codeindex.cli import main
 from factory.codeindex.build import profile_source_dirs
 from factory.codeindex.model import CodeIndex
 from factory.codeindex.sigs import extract_signatures, preferred_engine
+from substrate.codemap.build import is_source_path
 
 pytestmark = pytest.mark.unit
 
@@ -267,6 +268,45 @@ def test_discover_source_files_skips_vendor_dirs(tmp_path):
     assert "src/a.py" in files
     assert "scripts/mine.ts" in files
     assert not any("node_modules" in f for f in files)
+
+
+def test_is_source_path_true_under_default_src_fallback(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "src/coherence/foo.py") is True
+
+
+def test_is_source_path_false_outside_every_source_dir(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "requirements/SR-001.md") is False
+    assert is_source_path(tmp_path, "tasks/T-001.md") is False
+
+
+def test_is_source_path_false_for_non_code_extension(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "src/coherence/notes.txt") is False
+
+
+def test_is_source_path_false_inside_skip_dir(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "src/vendor/node_modules/pkg/index.js") is False
+
+
+def test_is_source_path_false_for_absolute_or_parent_escaping(tmp_path):
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "/etc/passwd") is False
+    assert is_source_path(tmp_path, "../outside.py") is False
+
+
+def test_is_source_path_does_not_require_the_file_to_exist(tmp_path):
+    # A git-diff-reported deletion still classifies correctly -- this is a
+    # pure path classifier, unlike discover_source_files's filesystem walk.
+    (tmp_path / "src").mkdir()
+    assert is_source_path(tmp_path, "src/coherence/deleted_module.py") is True
+
+
+def test_is_source_path_respects_explicit_source_dirs_override(tmp_path):
+    assert is_source_path(tmp_path, "scripts/tool.py", source_dirs=["scripts"]) is True
+    assert is_source_path(tmp_path, "src/coherence/foo.py", source_dirs=["scripts"]) is False
 
 
 def test_cli_slice_prints_bounded_markdown_without_banner(tmp_path):
