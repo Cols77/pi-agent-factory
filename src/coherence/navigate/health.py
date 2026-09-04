@@ -812,11 +812,14 @@ def compile_health_dimensions(
     # nodes/edges via compile_obligations'/resolve_profile's nodes=/edges=
     # passthrough (Increment 2B) so this loop never reloads the trace graph
     # per SR -- required to keep query_health's existing "load_nodes called
-    # once" contract (tests/unit/system/test_health.py). `not_applicable`
-    # obligations (every sr: scope under prototype, per Increment 6's
-    # addendum) are excluded from both satisfied and expected -- shown
-    # elsewhere, never counted here (spec section 6). A repo whose profile
-    # cannot yet be compiled (UncompiledPresetError, e.g. an
+    # once" contract (tests/unit/system/test_health.py). SR-059/AC-1: the
+    # compiler no longer emits `not_applicable` for this obligation kind
+    # under any profile (a bare-floor `required` under everything but
+    # high_assurance, which stays `blocking`), so every sr: scope now
+    # participates in this dimension's denominator, not only high_assurance
+    # ones -- the `("required", "blocking")` filter below is unchanged code,
+    # but its effective set widened the moment the compiler did. A repo whose
+    # profile cannot yet be compiled (UncompiledPresetError, e.g. an
     # exploration/product-profiled scope) degrades this dimension to 0/0
     # instead of crashing the whole health page.
     human_review_obligations: list = []

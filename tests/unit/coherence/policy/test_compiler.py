@@ -355,9 +355,14 @@ def test_compile_obligations_human_review_high_assurance_no_review_identity_is_b
     assert hr.state == "open"
 
 
-def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_path):
-    # D16: human_review does not apply under prototype -- the obligation is
-    # still compiled so CI/dimension-11 sees a real node, but non-blocking.
+@pytest.mark.sr("SR-059")
+def test_compile_obligations_human_review_under_prototype_is_required_never_not_applicable(
+    tmp_path,
+):
+    # SR-059/AC-1: under prototype, human_review is never not_applicable --
+    # it drops only to "required" (still visible, still counted, just
+    # non-blocking), a profile-independent floor. This obligation is still
+    # compiled so CI/dimension-11 sees a real node.
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements" / "SR-002.md").write_text(
         "---\nid: SR-002\ntitle: t\nstatement: s\ndomain: d\n---\n",
@@ -365,7 +370,7 @@ def test_compile_obligations_human_review_under_prototype_is_not_applicable(tmp_
     )
     obligations = compile_obligations(tmp_path, "sr:SR-002")  # project default: prototype
     hr = next(o for o in obligations if o.kind == "human_review")
-    assert hr.requiredness == "not_applicable"
+    assert hr.requiredness == "required"
 
 
 # --------------------------------------------------------------------------
@@ -565,7 +570,12 @@ def test_human_review_authoring_consent_decision_does_not_satisfy(tmp_path):
     assert hr.state == "open"
 
 
-def test_human_review_prototype_accept_is_satisfied_but_not_applicable(tmp_path):
+@pytest.mark.sr("SR-059")
+def test_human_review_prototype_accept_is_satisfied_and_required(tmp_path):
+    # SR-059/AC-1: renamed from "...but_not_applicable" -- prototype now
+    # compiles "required", never "not_applicable", for this gate kind. A
+    # valid accept still satisfies it (a checksum-less decision is
+    # grandfathered as current on first read -- SR-059/AC-2).
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements" / "SR-110.md").write_text(
         "---\nid: SR-110\ntitle: t\nstatement: s\ndomain: d\n---\n",
@@ -575,7 +585,8 @@ def test_human_review_prototype_accept_is_satisfied_but_not_applicable(tmp_path)
 
     obligations = compile_obligations(tmp_path, "sr:SR-110")  # project default: prototype
     hr = next(o for o in obligations if o.kind == "human_review")
-    assert hr.requiredness == "not_applicable"
+    assert hr.requiredness == "required"
+    assert hr.state == "satisfied"
     assert hr.state == "satisfied"
 
 
@@ -1200,3 +1211,136 @@ def test_human_review_date_only_decided_at_is_accepted(tmp_path):
     obligations = compile_obligations(tmp_path, "sr:SR-126")
     hr = next(o for o in obligations if o.kind == "human_review")
     assert hr.state == "satisfied"
+
+
+# --------------------------------------------------------------------------
+# SR-059/AC-2: a recorded accept decision stops covering its target the
+# moment the target's content changes -- the empirical SR-057 repro
+# (requirements/SR-059.md's own AC-2 reason) reproduced directly here.
+# --------------------------------------------------------------------------
+
+
+def test_human_review_freshly_authored_checksum_matches_and_satisfies(tmp_path):
+    # A decision explicitly stamped with the SR's CURRENT content checksum
+    # (not grandfathered -- the checksum is present and correct from the
+    # start) satisfies the obligation, proving the matching path (not just
+    # the grandfather path) works.
+    from coherence.gate.content import artifact_content_checksum
+    from coherence.gate.model import Decision, DecisionFile
+    from coherence.gate.store import write_decision
+
+    _seed_high_assurance_sr(tmp_path, "SR-200")
+    sr_path = tmp_path / "requirements" / "SR-200.md"
+    write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id="review:SR-200",
+            artifact_ref="artifact:requirements/SR-200.md",
+            decisions=(Decision("review:SR-200", "accept", decided_by="reviewer@example.invalid"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="reviewer@example.invalid",
+            content_checksum=artifact_content_checksum(sr_path),
+        ),
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-200")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"
+
+
+def test_human_review_content_edit_after_explicit_checksum_reopens_obligation(tmp_path):
+    # The matching-checksum decision above, but the SR's content is edited
+    # AFTER the decision was recorded: the stored checksum no longer covers
+    # current content, so the obligation must reopen -- fail closed, never
+    # silently read as still current.
+    from coherence.gate.content import artifact_content_checksum
+    from coherence.gate.model import Decision, DecisionFile
+    from coherence.gate.store import write_decision
+
+    _seed_high_assurance_sr(tmp_path, "SR-201")
+    sr_path = tmp_path / "requirements" / "SR-201.md"
+    write_decision(
+        tmp_path,
+        DecisionFile(
+            gate_id="review:SR-201",
+            artifact_ref="artifact:requirements/SR-201.md",
+            decisions=(Decision("review:SR-201", "accept", decided_by="reviewer@example.invalid"),),
+            decided_at="2026-09-01T00:00:00Z",
+            decided_by="reviewer@example.invalid",
+            content_checksum=artifact_content_checksum(sr_path),
+        ),
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-201")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"  # sanity: matches before the edit
+
+    sr_path.write_text(sr_path.read_text(encoding="utf-8") + "\nAn edit after accept.\n", encoding="utf-8")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-201")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+@pytest.mark.sr("SR-059")
+def test_human_review_editing_sr_content_after_accept_reopens_obligation_sr057_repro(tmp_path):
+    # The EXACT empirical repro on record in requirements/SR-059.md's own
+    # AC-2 reason text: editing requirements/SR-057.md's statement/
+    # acceptance criteria after its `sr:` accept decision was recorded left
+    # that decision valid. Reproduced here against `review:<sr_id>` (this
+    # obligation's own gate): a pre-existing, checksum-less accept
+    # (`_write_review_decision` stamps none) is grandfathered as current on
+    # its first read, then the SR's content is edited a SECOND time -- this
+    # must reopen the obligation, proving the fix, not just the grandfather.
+    _seed_high_assurance_sr(tmp_path, "SR-202")
+    _write_review_decision(tmp_path, "SR-202")
+
+    # First read: grandfathered (no checksum was ever recorded) -- satisfied.
+    obligations = compile_obligations(tmp_path, "sr:SR-202")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "satisfied"
+
+    # Edit content -- mirrors the real SR-057 repro (statement changed after
+    # the accept decision was recorded).
+    sr_path = tmp_path / "requirements" / "SR-202.md"
+    sr_path.write_text(
+        sr_path.read_text(encoding="utf-8").replace("statement: s", "statement: s, revised"),
+        encoding="utf-8",
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-202")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"
+
+
+def test_human_review_checksum_backfill_is_persisted_not_a_permanent_loophole(tmp_path):
+    # Proves the migration path itself, not just its externally-observable
+    # effect: a pre-existing, checksum-less decision has its checksum
+    # BACKFILLED into the stored file on first read (never left blank
+    # forever, which would silently grandfather every future edit too).
+    from coherence.gate.content import artifact_content_checksum
+    from coherence.gate.store import decision_path, load_decision
+
+    _seed_high_assurance_sr(tmp_path, "SR-203")
+    _write_review_decision(tmp_path, "SR-203")
+    sr_path = tmp_path / "requirements" / "SR-203.md"
+    path = decision_path(tmp_path, "review:SR-203")
+    assert load_decision(path).content_checksum == ""  # nothing stamped yet
+
+    # First read triggers the backfill.
+    compile_obligations(tmp_path, "sr:SR-203")
+    backfilled = load_decision(path)
+    assert backfilled.content_checksum == artifact_content_checksum(sr_path)
+    # The backfill only touched content_checksum -- everything else
+    # round-trips unchanged (same decisions, same attribution).
+    assert backfilled.decisions == load_decision(path).decisions
+    assert backfilled.decided_by == "reviewer@example.invalid"
+
+    # A SECOND edit, now that a real checksum is on record, must correctly
+    # reopen the obligation -- the migration must not create a permanent
+    # loophole where every future edit keeps silently grandfathering.
+    sr_path.write_text(
+        sr_path.read_text(encoding="utf-8") + "\nSecond edit, post-backfill.\n", encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-203")
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.state == "open"

@@ -90,6 +90,19 @@ class DecisionFile:
     ``schema`` is ``1``. ``decided_at``/``review_after`` are kept verbatim as
     ISO-8601 strings for round-trip fidelity. Construction requires the
     decisions to validate.
+
+    ``content_checksum`` (SR-059/AC-2): an optional, additive field -- same
+    ``raw.get(..., default)`` precedent as ``artifact_ref``/``decided_by``
+    above, no ``schema`` bump -- recording a checksum of the target
+    artifact's full content (see ``coherence.gate.content.
+    artifact_content_checksum``) AT THE TIME this decision was recorded (or
+    backfilled). A blank string means "no checksum recorded": either this
+    file predates SR-059, or its writer chose not to stamp one. Consumers
+    (`coherence.policy.compiler._human_review_obligation`,
+    `coherence.inbox._authoring_consent_items`) are responsible for
+    comparing this against the target's CURRENT checksum; this dataclass
+    itself does not know what its own ``artifact_ref`` points at, so it
+    cannot check staleness on its own.
     """
 
     schema: int = 1
@@ -98,6 +111,7 @@ class DecisionFile:
     decisions: tuple[Decision, ...] = field(default_factory=tuple)
     decided_at: str = ""
     decided_by: str = ""
+    content_checksum: str = ""
 
     def __post_init__(self) -> None:
         if type(self.schema) is not int or self.schema != 1:
@@ -114,6 +128,7 @@ class DecisionFile:
             "decisions": [_decision_to_dict(d) for d in self.decisions],
             "decided_at": self.decided_at,
             "decided_by": self.decided_by,
+            "content_checksum": self.content_checksum,
         }
 
     @classmethod
@@ -125,6 +140,7 @@ class DecisionFile:
             decisions_raw = raw.get("decisions", [])
             decided_at = _as_str(raw["decided_at"])
             decided_by = _as_str(raw.get("decided_by", ""))
+            content_checksum = _as_str(raw.get("content_checksum", ""))
         except (KeyError, TypeError) as exc:
             raise CorruptDecisionFile(
                 f"decision file is missing a required field: {exc}"
@@ -141,6 +157,7 @@ class DecisionFile:
                 decisions=tuple(_decision_from_raw(d) for d in decisions_raw),
                 decided_at=decided_at,
                 decided_by=decided_by,
+                content_checksum=content_checksum,
             )
         except (DecisionValidationError, CorruptDecisionFile) as exc:
             raise CorruptDecisionFile(

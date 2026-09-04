@@ -295,19 +295,30 @@ def _human_review_obligation(
     addressed to exactly this gate, this item and this SR's own artifact,
     **and** carries a non-blank `decided_by` and a valid ISO-8601
     `decided_at` (validated by `coherence.gate.model._is_iso`, the one ISO
-    validator in this repo -- not a second copy). Absence, a corrupt or
-    malformed file, any `reject`/`defer`, a decision whose
+    validator in this repo -- not a second copy), **and** whose
+    `content_checksum` currently covers the SR's own file content
+    (SR-059/AC-2, `coherence.gate.content.resolve_decision_currency` --
+    fail-closed: a decision whose stored checksum no longer matches the
+    SR's CURRENT full content is treated exactly like no decision at all,
+    never silently read as still current; see that module's docstring for
+    the pre-existing-file grandfather/backfill migration). Absence, a
+    corrupt or malformed file, any `reject`/`defer`, a decision whose
     `gate_id`/`artifact_ref`/`item_id` names a different gate, artifact or
-    SR, and an accept with a blank/whitespace `decided_by` or a
-    blank/non-ISO `decided_at` all leave `reviewed` `False` -- there is no
-    default-to-reviewed path and no path that infers a decision.
+    SR, an accept with a blank/whitespace `decided_by` or a blank/non-ISO
+    `decided_at`, and an accept whose recorded content checksum is stale,
+    all leave `reviewed` `False` -- there is no default-to-reviewed path and
+    no path that infers a decision.
 
     Why here and not in `gate.model.validate_decisions`: that validator is
     shared by every gate kind, including the `sr:` authoring-consent
     decisions already recorded on this branch. Tightening it would
     retroactively invalidate those. Attribution is this obligation's
     admissibility rule, so it is enforced at this obligation.
+
+    SR-059/AC-1: `requiredness` is never `"not_applicable"` for this gate
+    kind under any profile -- see below.
     """
+    from coherence.gate.content import resolve_decision_currency
     from coherence.gate.model import CorruptDecisionFile, _is_iso
     from coherence.gate.store import decision_path, load_decision
 
@@ -339,7 +350,7 @@ def _human_review_obligation(
                 attributed = bool(decision_file.decided_by.strip()) and _is_iso(
                     decision_file.decided_at
                 )
-                reviewed = (
+                scoped = (
                     decision_file.gate_id == item_id
                     and decision_file.artifact_ref == expected_artifact_ref
                     and len(decisions) == 1
@@ -347,8 +358,18 @@ def _human_review_obligation(
                     and decisions[0].action == "accept"
                     and attributed
                 )
+                # SR-059/AC-2: an otherwise-admissible accept still does not
+                # satisfy this obligation if its content_checksum no longer
+                # covers the SR's current content (fail closed on staleness,
+                # exactly like every other admissibility check above). Only
+                # checked once the decision already passes every other rule
+                # -- no point stamping a checksum backfill onto a decision
+                # that would not satisfy the obligation anyway.
+                reviewed = scoped and resolve_decision_currency(
+                    root, decision_file, sr_path
+                )[1]
 
-    requiredness = "blocking" if profile == "high_assurance" else "not_applicable"
+    requiredness = "blocking" if profile == "high_assurance" else "required"
     if sr_path is None:
         resolve_cmd = (f"{sr_id}: no matching sr: trace node found -- register the SR first",)
     elif expected_artifact_ref is None:

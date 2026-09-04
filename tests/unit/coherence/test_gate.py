@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from coherence.gate.content import artifact_content_checksum, resolve_decision_currency
 from coherence.gate.model import (
     CorruptDecisionFile,
     Decision,
@@ -460,3 +461,128 @@ def test_decision_path_keeps_gate_id_in_safe_filename(tmp_path: Path):
     # preserved verbatim inside the JSON payload for round-trip.
     assert _store_path(tmp_path, "coverage:FEAT-001").name == "coverage-FEAT-001.json"
     assert _store_path(tmp_path, "review:7").name == "review-7.json"
+
+
+# --- content_checksum field / gate.content (SR-059/AC-2) --------------------
+
+
+def test_decision_file_content_checksum_defaults_blank_and_round_trips():
+    # additive field, no schema bump -- same raw.get(..., default) precedent
+    # as artifact_ref/decided_by.
+    f = _file()
+    assert f.content_checksum == ""
+    assert f.to_dict()["content_checksum"] == ""
+    again = DecisionFile.from_dict(f.to_dict())
+    assert again == f
+
+
+def test_pre_existing_decision_file_json_with_no_content_checksum_key_still_loads(
+    tmp_path: Path,
+):
+    # A real, already-on-disk decision file written before this field
+    # existed at all (the key is simply absent from the JSON, not present
+    # and blank) must still load correctly, defaulting to "".
+    p = _store_path(tmp_path, "sr:SR-001")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "gate_id": "sr:SR-001",
+                "artifact_ref": "artifact:requirements/SR-001.md",
+                "decisions": [{"item_id": "sr:SR-001", "action": "accept"}],
+                "decided_at": "2026-09-01T00:00:00Z",
+                "decided_by": "human@example.invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_decision(p)
+    assert loaded.content_checksum == ""
+
+
+def test_content_checksum_round_trips_a_real_value(tmp_path: Path):
+    f = _file(content_checksum="sha256:deadbeef")
+    p = write_decision(tmp_path, f)
+    assert load_decision(p).content_checksum == "sha256:deadbeef"
+
+
+# --- gate.content: artifact_content_checksum / resolve_decision_currency ----
+
+
+def test_artifact_content_checksum_is_stable_for_unchanged_content(tmp_path: Path):
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    assert artifact_content_checksum(target) == artifact_content_checksum(target)
+
+
+def test_artifact_content_checksum_changes_when_any_content_changes(tmp_path: Path):
+    # Deliberately broader than register.content_checksum: body prose alone
+    # (not just statement/binding) must change this checksum.
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    before = artifact_content_checksum(target)
+    target.write_text("---\nid: SR-001\n---\nbody, revised\n", encoding="utf-8")
+    assert artifact_content_checksum(target) != before
+
+
+def test_resolve_decision_currency_matches_when_checksum_agrees(tmp_path: Path):
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    f = _file(content_checksum=artifact_content_checksum(target))
+    effective, current = resolve_decision_currency(tmp_path, f, target)
+    assert current is True
+    assert effective == f  # unchanged -- nothing to backfill
+
+
+def test_resolve_decision_currency_stale_when_checksum_disagrees(tmp_path: Path):
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    f = _file(content_checksum="sha256:not-the-real-checksum")
+    effective, current = resolve_decision_currency(tmp_path, f, target)
+    assert current is False
+    assert effective == f  # a stale decision is reported, never mutated
+
+
+def test_resolve_decision_currency_grandfathers_and_backfills_blank_checksum(
+    tmp_path: Path,
+):
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    f = _file(content_checksum="")
+    p = write_decision(tmp_path, f)
+
+    effective, current = resolve_decision_currency(tmp_path, f, target)
+    assert current is True  # grandfathered this one time
+    assert effective.content_checksum == artifact_content_checksum(target)
+    # The backfill actually persisted -- a fresh load sees the same value.
+    assert load_decision(p).content_checksum == artifact_content_checksum(target)
+
+
+def test_resolve_decision_currency_backfill_does_not_create_a_permanent_loophole(
+    tmp_path: Path,
+):
+    target = tmp_path / "requirements" / "SR-001.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nid: SR-001\n---\nbody\n", encoding="utf-8")
+    f = _file(content_checksum="")
+    write_decision(tmp_path, f)
+    resolve_decision_currency(tmp_path, f, target)  # first read: grandfather + backfill
+
+    target.write_text("---\nid: SR-001\n---\nbody, edited again\n", encoding="utf-8")
+    p = _store_path(tmp_path, f.gate_id)
+    reloaded = load_decision(p)
+    _, current = resolve_decision_currency(tmp_path, reloaded, target)
+    assert current is False  # the SECOND edit is correctly caught
+
+
+def test_resolve_decision_currency_missing_target_fails_closed(tmp_path: Path):
+    target = tmp_path / "requirements" / "SR-404.md"  # never created
+    f = _file(content_checksum="")
+    _, current = resolve_decision_currency(tmp_path, f, target)
+    assert current is False

@@ -377,14 +377,17 @@ def test_nonconformance_closure_counts_the_one_open_nc_record(tmp_path):
 # -- Dimension 11: human_review ----------------------------------------------
 
 
-def test_human_review_counts_the_one_blocking_high_assurance_sr(tmp_path):
-    # Increment 6 lands human_review: only the blocking high_assurance SR
-    # (SR-103) is counted -- the two prototype SRs compile not_applicable
-    # obligations that are excluded from both sides here (spec section 6).
+def test_human_review_counts_every_sr_required_or_blocking_alike(tmp_path):
+    # SR-059/AC-1: the compiler no longer emits not_applicable for this
+    # obligation kind under any profile (a profile-independent floor -- at
+    # least "required" outside high_assurance, "blocking" under it), so all
+    # three fixture SRs now participate: SR-101/SR-102 (prototype, required)
+    # and SR-103 (high_assurance, blocking). None has a recorded review
+    # decision, so all three stay open -- satisfied is 0, expected is 3.
     _seed_main_repo(tmp_path)
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     hr = dims["human_review"]
-    assert (hr.satisfied, hr.expected, hr.exempt) == (0, 1, 0)
+    assert (hr.satisfied, hr.expected, hr.exempt) == (0, 3, 0)
 
 
 # -- query_health wiring -------------------------------------------------
@@ -414,7 +417,9 @@ def test_query_health_exposes_dimensions_json_shaped_and_keeps_percent(tmp_path)
         "name": "nonconformance_closure", "satisfied": 0, "expected": 1, "exempt": 0,
     }
     assert by_name["human_review"] == {
-        "name": "human_review", "satisfied": 0, "expected": 1, "exempt": 0,
+        # SR-059/AC-1: now 3, not 1 -- see
+        # test_human_review_counts_every_sr_required_or_blocking_alike.
+        "name": "human_review", "satisfied": 0, "expected": 3, "exempt": 0,
     }
     # Only demoted (Task 7 stops leading with it), never removed.
     assert "percent" in payload["health"]

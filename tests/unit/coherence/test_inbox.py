@@ -206,6 +206,7 @@ def _write_authoring_consent(
     action: str = "accept",
     reason: str = "",
     review_after: str | None = None,
+    content_checksum: str = "",
 ) -> None:
     write_decision(
         root,
@@ -215,6 +216,7 @@ def _write_authoring_consent(
             decisions=(Decision(f"sr:{sr_id}", action, reason=reason, review_after=review_after),),
             decided_at="2026-09-01T00:00:00Z",
             decided_by="human@example.invalid",
+            content_checksum=content_checksum,
         ),
     )
 
@@ -333,6 +335,73 @@ def test_review_decision_does_not_satisfy_sr_authoring_consent(tmp_path: Path):
     )
 
     assert any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+# -- SR-059/AC-2: authoring consent stops covering edited content ----------
+
+
+def test_authoring_consent_with_matching_checksum_clears_the_queue(tmp_path: Path):
+    from coherence.gate.content import artifact_content_checksum
+
+    _sr(tmp_path, "SR-001")
+    checksum = artifact_content_checksum(tmp_path / "requirements" / "SR-001.md")
+    _write_authoring_consent(tmp_path, "SR-001", content_checksum=checksum)
+
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+
+
+def test_editing_sr_content_after_authoring_consent_reopens_item(tmp_path: Path):
+    # SR-059/AC-2's own empirical repro, reproduced against the sr:
+    # authoring-consent gate directly: a decision explicitly stamped with
+    # the SR's ORIGINAL content checksum stops covering it once the SR's
+    # content is edited.
+    from coherence.gate.content import artifact_content_checksum
+
+    _sr(tmp_path, "SR-001")
+    sr_path = tmp_path / "requirements" / "SR-001.md"
+    checksum = artifact_content_checksum(sr_path)
+    _write_authoring_consent(tmp_path, "SR-001", content_checksum=checksum)
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))  # sanity: clears first
+
+    sr_path.write_text(sr_path.read_text(encoding="utf-8") + "\nedited after consent\n", encoding="utf-8")
+
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "stale" in item.summary
+
+
+def test_preexisting_checksumless_authoring_consent_is_grandfathered_then_backfilled(
+    tmp_path: Path,
+):
+    # Migration contract: a decision written before SR-059 (no
+    # content_checksum recorded at all -- _write_authoring_consent's own
+    # default) is grandfathered as still-current on its first read (never
+    # mass-invalidated), but that read backfills the checksum into the
+    # stored file so a LATER edit is correctly caught -- proving the
+    # migration path does not create a permanent loophole.
+    from coherence.gate.content import artifact_content_checksum
+    from coherence.gate.store import decision_path, load_decision
+
+    _sr(tmp_path, "SR-001")
+    sr_path = tmp_path / "requirements" / "SR-001.md"
+    _write_authoring_consent(tmp_path, "SR-001")  # content_checksum="" (pre-existing shape)
+    path = decision_path(tmp_path, "sr:SR-001")
+    assert load_decision(path).content_checksum == ""
+
+    # First read: grandfathered -- still clears the queue.
+    assert not any(i.id == "sr:SR-001" for i in list_items(tmp_path, NOW))
+    # And the checksum was backfilled into the stored file.
+    backfilled = load_decision(path)
+    assert backfilled.content_checksum == artifact_content_checksum(sr_path)
+
+    # A SECOND edit, now that a real checksum is on record, must reopen the
+    # item -- the grandfather is one-time only, not a standing exemption.
+    sr_path.write_text(
+        sr_path.read_text(encoding="utf-8") + "\nsecond edit, post-backfill\n", encoding="utf-8",
+    )
+    item = next(i for i in list_items(tmp_path, NOW) if i.id == "sr:SR-001")
+    assert item.kind == "authoring_consent"
+    assert "stale" in item.summary
 
 
 def test_malformed_or_stale_sr_consent_remains_pending(tmp_path: Path):

@@ -7,6 +7,7 @@ decision file already exists for a gate.
 """
 from __future__ import annotations
 
+from coherence.gate.content import artifact_content_checksum, resolve_decision_currency
 from coherence.gate.model import (
     CorruptDecisionFile,
     Decision,
@@ -27,4 +28,6 @@ __all__ = [
     "decision_path",
     "load_decision",
     "write_decision",
+    "artifact_content_checksum",
+    "resolve_decision_currency",
 ]

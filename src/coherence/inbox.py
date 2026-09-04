@@ -1,9 +1,16 @@
 """Triage inbox (Increment 6 Task 4).
 
 `list_items(root, now)` composes PURE source collectors into one
-stable-sorted, de-duplicated `InboxItem` list. It is strictly read-only: it
-never calls doctor/trace/register/KB writers and never executes a resolver;
-``resolve_cmd`` is informational (a hint for the human who owns the item).
+stable-sorted, de-duplicated `InboxItem` list. It is read-only with respect
+to every SOURCE of triage state -- it never calls doctor/trace/register/KB
+writers and never executes a resolver; ``resolve_cmd`` is informational (a
+hint for the human who owns the item). One narrow, deliberate exception
+(SR-059/AC-2): reading SR authoring consent may BACKFILL a checksum field
+into an already-recorded, already-valid decision file that predates that
+feature -- see ``_authoring_consent_items``'s own docstring. That backfill
+never creates a new decision, never changes any decision's substance
+(action/reason/attribution), and never affects what this function reports
+for the read that triggered it.
 
 Sources wired concretely here:
 * coverage gates -- a ``coverage-reviews/<run>/status.json`` whose ``phase``
@@ -14,7 +21,9 @@ Sources wired concretely here:
 * stale register bindings -- a requirement whose recorded checksum no longer
   matches its content (``coherence.register.cli.cmd_index``);
 * SR authoring consent -- every registered SR whose per-SR ``sr:SR-###``
-  DecisionFile is absent, malformed, stale, or addresses the wrong gate/item;
+  DecisionFile is absent, malformed, stale, addresses the wrong gate/item, or
+  (SR-059/AC-2) whose recorded ``content_checksum`` no longer covers the SR's
+  current content;
 * an unreadable register -- a single ``register:unreadable`` item when
   ``load_register`` cannot parse the requirements directory at all, so the
   loss of every register-derived item is reported rather than looking like
@@ -24,8 +33,9 @@ Sources wired concretely here:
 
 Item ids follow the Review Amendments vocabulary: ``coverage:<run>:proposal:<id>``,
 ``coverage:<run>:warning:<id>``, ``trace:<id>``, and ``sr:SR-###`` for authoring
-consent. The list is stable-sorted by id and de-duplicated; reading never creates
-a file.
+consent. The list is stable-sorted by id and de-duplicated; reading never
+authors a new decision or changes any existing decision's substance (see the
+checksum-backfill exception above).
 """
 from __future__ import annotations
 
@@ -264,10 +274,28 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
 
     Authoring consent is deliberately a separate gate from verification review:
     only the exact ``sr:<requirement-id>`` gate and item can clear an SR from
-    this queue. Reads are fail-closed and side-effect free. A malformed,
-    duplicate, or mismatched DecisionFile remains visible as a pending item
-    rather than being treated as consent.
+    this queue. Reads are fail-closed. A malformed, duplicate, or mismatched
+    DecisionFile remains visible as a pending item rather than being treated
+    as consent.
+
+    SR-059/AC-2: an otherwise-valid accept also stops counting as consent the
+    moment the SR's own file content changes after it was recorded --
+    ``coherence.gate.content.resolve_decision_currency`` compares the
+    decision's stored ``content_checksum`` against the requirement's CURRENT
+    content and, on mismatch, this item stays pending exactly as if no
+    DecisionFile existed (fail closed, never silently read as still
+    current). This is the ONE deliberate, documented exception to this
+    module's "reads are side-effect free" contract stated above: a
+    pre-existing decision with no checksum recorded is grandfathered as
+    still-current for this one read, then has that checksum BACKFILLED into
+    its stored file so a future content edit is correctly caught -- see
+    ``resolve_decision_currency``'s own docstring for the full migration
+    contract. The backfill only ever rewrites the machine-computed
+    ``content_checksum`` field of an already-valid, already-recorded
+    decision; it never authors a new decision and never changes any
+    decision's ``action``/``reason``.
     """
+    from coherence.gate.content import resolve_decision_currency
     from coherence.gate.model import CorruptDecisionFile
     from coherence.gate.store import decision_path, load_decision
 
@@ -333,6 +361,16 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
                     else:
                         if due:
                             reason = "authoring consent defer expired"
+                elif decisions[0].action == "accept":
+                    # SR-059/AC-2: a correctly-scoped, attributed accept still
+                    # does not clear this item if its content_checksum no
+                    # longer covers req.path's CURRENT content -- see this
+                    # function's own docstring for the grandfather/backfill
+                    # migration `resolve_decision_currency` performs for a
+                    # pre-existing, checksum-less decision.
+                    current = resolve_decision_currency(root, decision_file, req.path)[1]
+                    if not current:
+                        reason = "authoring consent decision is stale (content changed since accept)"
         else:
             reason = "no DecisionFile"
 
@@ -357,7 +395,10 @@ def _authoring_consent_items(root: Path, now: str) -> list[InboxItem]:
 
 def list_items(root: Path | str, now: str) -> list[InboxItem]:
     """Compose all inbox sources into one stable-sorted, de-duplicated list
-    (pure read -- never writes, never executes a resolver)."""
+    (never authors a decision or executes a resolver; the one narrow,
+    documented exception is `_authoring_consent_items`'s SR-059/AC-2 checksum
+    backfill onto an already-recorded, pre-existing decision -- see that
+    function's docstring)."""
     root = Path(root)
     collected: list[InboxItem] = []
     collected.extend(_coverage_gate_items(root))
