@@ -56,9 +56,11 @@ def test_feat17_trace_contract_names_all_requirements_and_implementation_task() 
     assert len(bundle_requirements) == len(set(bundle_requirements))
     assert set(bundle_requirements) == _EXPECTED_SRS
     assert task["source_plan"] == _PLAN
-    assert len(satisfies) == len(_EXPECTED_SRS)
+    # T-032 is an accepted historical predecessor. Its original SR-050 link is
+    # retained as shared-contract provenance; it must not claim proposed SR-055.
+    assert len(satisfies) == len(_LEGACY_SRS)
     assert len(satisfies) == len(set(satisfies))
-    assert set(satisfies) == _EXPECTED_SRS
+    assert set(satisfies) == _LEGACY_SRS
     assert "src/coherence/planning/" in task.content
     assert "pi-ext/factory-watch/src/skill-prompt.ts" in task.content
 

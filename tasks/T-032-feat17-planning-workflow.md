@@ -9,11 +9,11 @@ id: T-032
 justification:
 - satisfies: SR-043
 - satisfies: SR-044
+- satisfies: SR-050
 - satisfies: SR-051
 - satisfies: SR-052
 - satisfies: SR-053
 - satisfies: SR-054
-- satisfies: SR-055
 source_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 source_task: 1
 status: done
@@ -26,7 +26,7 @@ title: "Deliver FEAT-017 deterministic planning bootstrap workflow"
 - Modify: `src/coherence/cli.py`.
 - Modify: `pi-ext/factory-watch/src/skill-prompt.ts`.
 - Add focused planning checker, run, CLI, bootstrap, and trace-contract tests.
-- Register FEAT-017 SR-043/SR-044/SR-051–SR-055 in the feature dossier and bundle.
+- Register the historical FEAT-017 SR-043/SR-044/SR-050–SR-054 projection; current FEAT-017 ownership is maintained separately.
 
 ## Contract
 
