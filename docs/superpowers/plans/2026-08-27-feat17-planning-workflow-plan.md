@@ -2265,7 +2265,7 @@ This additive amendment reserves `T-057` for a new Task 12, the guided host entr
 not create a canonical task file: materialization remains blocked until Task 5 supplies a
 revision-aware identity beyond `source_plan` path + `source_task` number. Task 12 shall expose a
 host-neutral Coherence `start`/`resume`/`status`/legal-next-action contract and thin Pi plus project-local
-Hermes `/plan` adapters. Pi plus a project-local Hermes `/plan` adapter provide host presentation only;
+Hermes `/coherence-plan` adapters. Pi plus a project-local Hermes `/coherence-plan` adapter provide host presentation only;
 action/state authority remains solely in Coherence. The adapters must reuse current run, gate,
 DecisionFile, and handoff authority; they must not make a host, a model, or a Kanban projection
 authoritative, mutate user configuration, or retain any path to consent, adoption, or downstream

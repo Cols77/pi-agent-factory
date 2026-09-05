@@ -262,7 +262,8 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_s
     assert "No `satisfies` relationship is asserted before independent implementation acceptance" in compact_plan
     assert "`SR-050` remains foreign/shared and read-only" in compact_plan
     assert "`T-057`" in compact_plan
-    assert "Pi plus a project-local Hermes `/plan` adapter" in compact_plan
+    assert "Pi plus a project-local Hermes `/coherence-plan` adapter" in compact_plan
+    assert "Hermes `/plan` adapter" not in compact_plan
     assert "provide host presentation only" in compact_plan
     assert "action/state authority remains solely in Coherence" in compact_plan
     assert "reuse current run, gate, DecisionFile, and handoff authority" in compact_plan
