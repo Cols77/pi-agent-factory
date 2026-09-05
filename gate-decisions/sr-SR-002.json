@@ -12,5 +12,6 @@
     }
   ],
   "decided_at": "2026-09-02T03:15:04Z",
-  "decided_by": "Cols77"
+  "decided_by": "Cols77",
+  "content_checksum": "sha256:900d7338345c02db71a57f07876f1d83298d5d9aca9304b22f6b6d81ac9c28cb"
 }
