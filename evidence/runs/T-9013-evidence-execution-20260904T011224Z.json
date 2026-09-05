@@ -1,0 +1,166 @@
+{
+  "schema_version": 2,
+  "run_id": "T-9013-evidence-execution-20260904T011224Z",
+  "task_id": "T-9013",
+  "started_at": "2026-09-04T01:10:00Z",
+  "ended_at": "2026-09-04T01:12:24Z",
+  "start_commit": "d61640e85fcf5f41f0b4a852cb63acac3b9b379c",
+  "result_commit": "d61640e85fcf5f41f0b4a852cb63acac3b9b379c",
+  "outcome": "completed",
+  "inputs": {
+    "task": {
+      "path": "requirements/SR-050.md",
+      "sha256": "e69b8938df8cfd6e104de74535f0216053f789516a49501fd4c846f72023ffae"
+    },
+    "requirements": [
+      {
+        "id": "SR-050",
+        "path": "requirements/SR-050.md",
+        "sha256": "e69b8938df8cfd6e104de74535f0216053f789516a49501fd4c846f72023ffae"
+      }
+    ],
+    "factory_config_sha256": "c4dbd22d1a96964fda8b6652ae5250a8058a3be2cc9f643be37568148a705ab8"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:d61640e85fcf5f41f0b4a852cb63acac3b9b379c",
+      "source": "d61640e85fcf5f41f0b4a852cb63acac3b9b379c"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:c4dbd22d1a96964fda8b6652ae5250a8058a3be2cc9f643be37568148a705ab8",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "pytest",
+      "kind": "tool",
+      "digest": "sha256:bb38606a229a7db4c4d63014617a1d96a8280d40158c6aa519701f44556252f0",
+      "source": "pytest 9.1.1"
+    },
+    {
+      "name": "requirement:SR-050",
+      "kind": "file",
+      "digest": "sha256:e69b8938df8cfd6e104de74535f0216053f789516a49501fd4c846f72023ffae",
+      "source": "requirements/SR-050.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [],
+    "patch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [
+    {
+      "command": "rtk proxy uv run pytest -v -o addopts=\"\" -m sr tests/unit/coherence/register/ tests/unit/coherence/test_fidelity_dispatch.py tests/unit/coherence/policy/test_compiler.py",
+      "started_at": "2026-09-04T01:10:00Z",
+      "ended_at": "2026-09-04T01:12:24Z",
+      "exit_code": 0,
+      "summary": "95 passed, 46 deselected, 1 warning in 4.56s",
+      "requirements": [
+        {
+          "id": "SR-050",
+          "passed": true,
+          "command": "rtk proxy uv run pytest -v -o addopts=\"\" -m sr tests/unit/coherence/register/ tests/unit/coherence/test_fidelity_dispatch.py tests/unit/coherence/policy/test_compiler.py",
+          "note": "Re-measured 2026-09-04 after the SR-050/AC-4 fidelity reviewer landed (commits 8191758 'feat(register): add SR-050/AC-4 semantic-fidelity reviewer (T5)' and 2acce64 'fix(register): close three fidelity-reviewer review gaps (SR-050/AC-4)', both 2026-09-03). This supersedes the 02:56 UTC 2026-09-03 evidence-refresh entry for SR-050 (run SR-004-006-050-evidence-refresh-20260903T025651Z), which explicitly withheld a passed verdict because AC-2 and AC-4 were unbuilt at that time -- both now exist. AC-1 (tests/unit/coherence/register/test_relations.py), AC-2 (structural + evidence-reconciliation review, tests/unit/coherence/register/test_review.py), and AC-3 (human_review gate obligation, six tests in tests/unit/coherence/policy/test_compiler.py) are all kind:test_marker and every one of their bound tests passed. AC-4 stays kind:manual by permanent design -- see the AC-4 acceptance-criterion 'reason' in requirements/SR-050.md: the criterion's first clause (a live fidelity judgement genuinely substantiating a claim) is inherently a per-run model/human call that can never become a bare pass/fail test_marker, while its second clause (no verdict closes the requirement without AC-3's own attributed human_review decision) is already fully mechanical and already covered by AC-3's six tests -- no new test needed for it. All 95 tests carrying @pytest.mark.sr(\"SR-050\") were collected across every ref file for AC-1/AC-2/AC-3 plus the fidelity-reviewer plumbing AC-4's own reason describes (register/test_fidelity.py, test_fidelity_packet.py, test_fidelity_persistence.py, test_cli_review_fidelity.py, test_fidelity_dispatch.py) and all 95 passed, none failed. The requirement is reported measured-passing on that basis: every automatable acceptance criterion (AC-1/AC-2/AC-3) passes, and AC-4's own plumbing is exercised and passing even though its judgement clause stays permanently kind:manual by design, not because it is outstanding.",
+          "automated_tests_passed": [
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_resolving_to_a_real_definition_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_with_no_matching_definition_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_symbol_module_mismatched_with_its_declared_path_is_an_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_resolving_to_a_real_test_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_class_scoped_pytest_node_resolving_to_a_real_method_produces_no_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_pytest_node_with_no_matching_test_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_an_absolute_path_is_rejected_without_touching_the_filesystem",
+            "tests/unit/coherence/register/test_relations.py::test_a_dot_dot_escaping_path_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_path_that_does_not_exist_on_disk_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_symbol_identity_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_line_number_shaped_test_node_identity_is_rejected",
+            "tests/unit/coherence/register/test_relations.py::test_a_verified_by_entry_with_only_a_path_is_file_only_validation",
+            "tests/unit/coherence/register/test_relations.py::test_legacy_plain_string_verified_by_entries_are_not_this_resolvers_concern",
+            "tests/unit/coherence/register/test_relations.py::test_no_declared_relations_at_all_resolves_ok",
+            "tests/unit/coherence/register/test_relations.py::test_multiple_entries_report_one_issue_per_failing_entry",
+            "tests/unit/coherence/register/test_relations.py::test_a_duplicate_implemented_by_entry_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_a_duplicate_verified_by_entry_is_a_reference_issue",
+            "tests/unit/coherence/register/test_relations.py::test_the_same_path_across_different_symbols_is_not_a_duplicate",
+            "tests/unit/coherence/register/test_review.py::test_a_bound_sr_declaring_no_implemented_by_entries_is_missing",
+            "tests/unit/coherence/register/test_review.py::test_a_bound_sr_with_only_a_legacy_verified_by_string_is_still_missing",
+            "tests/unit/coherence/register/test_review.py::test_a_verified_by_field_mixing_legacy_and_structured_entries_is_not_missing",
+            "tests/unit/coherence/register/test_review.py::test_a_verified_by_link_to_a_deleted_test_node_is_dangling",
+            "tests/unit/coherence/register/test_review.py::test_an_implemented_by_entry_missing_its_symbol_is_malformed",
+            "tests/unit/coherence/register/test_review.py::test_a_repeated_identical_declaration_is_a_duplicate",
+            "tests/unit/coherence/register/test_review.py::test_a_path_outside_the_project_is_out_of_scope",
+            "tests/unit/coherence/register/test_review.py::test_a_changed_file_with_no_sr_link_anywhere_is_unaccounted",
+            "tests/unit/coherence/register/test_review.py::test_an_executed_test_with_no_sr_link_anywhere_is_unaccounted",
+            "tests/unit/coherence/register/test_review.py::test_an_executed_test_also_declared_is_not_unaccounted",
+            "tests/unit/coherence/register/test_review.py::test_structural_review_never_emits_unaccounted_for_a_single_sr",
+            "tests/unit/coherence/register/test_review.py::test_a_declared_path_changed_by_a_scoped_manifest_is_declared_and_changed",
+            "tests/unit/coherence/register/test_review.py::test_a_declared_path_not_in_any_scoped_manifests_changed_files_is_declared_but_not_changed",
+            "tests/unit/coherence/register/test_review.py::test_a_changed_file_in_a_scoped_manifest_that_is_not_declared_is_changed_but_undeclared",
+            "tests/unit/coherence/register/test_review.py::test_declared_relations_with_an_executed_validation_entry_is_declared_and_executed",
+            "tests/unit/coherence/register/test_review.py::test_an_executed_sr_with_no_verified_by_declared_is_executed_but_unlinked",
+            "tests/unit/coherence/register/test_review.py::test_a_linked_sr_whose_validation_entry_failed_is_linked_but_stale_or_failed",
+            "tests/unit/coherence/register/test_review.py::test_a_linked_sr_changed_again_after_its_last_recorded_validation_is_stale",
+            "tests/unit/coherence/register/test_review.py::test_a_linked_sr_with_no_covering_manifest_at_all_is_linked_but_stale_or_failed",
+            "tests/unit/coherence/register/test_review.py::test_cmd_review_reports_structural_and_evidence_reconciliation_as_distinct_top_level_keys",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_missing_decision_stays_open_under_high_assurance",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_valid_accept_satisfies_only_that_sr",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_for_one_sr_does_not_satisfy_another",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_reject_leaves_obligation_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_defer_leaves_obligation_open",
+            "tests/unit/coherence/policy/test_compiler.py::test_human_review_accept_with_a_blank_decided_by_stays_open",
+            "tests/unit/coherence/register/test_fidelity.py::test_supported_link_produces_no_finding",
+            "tests/unit/coherence/register/test_fidelity.py::test_overstated_link_round_trips_and_lands_open_under_high_assurance",
+            "tests/unit/coherence/register/test_fidelity.py::test_weaker_subset_test_citation_includes_the_specific_test_node",
+            "tests/unit/coherence/register/test_fidelity.py::test_incidental_helper_link",
+            "tests/unit/coherence/register/test_fidelity.py::test_high_assurance_vs_normal_disposition",
+            "tests/unit/coherence/register/test_fidelity.py::test_missing_link_compound_fixture",
+            "tests/unit/coherence/register/test_fidelity.py::test_different_behavior_fixture",
+            "tests/unit/coherence/register/test_fidelity.py::test_judge_raising_yields_unavailable_status_not_empty_findings",
+            "tests/unit/coherence/register/test_fidelity.py::test_judge_returning_malformed_output_yields_unavailable_status",
+            "tests/unit/coherence/register/test_fidelity.py::test_judge_returning_a_hallucinated_relation_yields_unavailable_status",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_packet_includes_resolved_relations_with_signature_and_bounded_excerpt",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_an_unresolved_relation_appears_in_unresolved_not_in_implemented",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_design_source_resolves_doc_and_anchor_excerpt",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_design_source_missing_doc_yields_none_with_diagnostic",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_design_source_unresolvable_anchor_yields_none_with_diagnostic",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_import_overlap_reports_none_when_not_resolved",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_outcome_uses_newest_manifest_naming_the_exact_test_node",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_outcome_falls_back_to_sr_level_status_when_no_manifest_names_the_node",
+            "tests/unit/coherence/register/test_fidelity_packet.py::test_outcome_stays_never_validated_when_neither_source_has_it",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_first_write_creates_the_file",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_a_second_run_with_identical_findings_overwrites_idempotently",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_a_finding_accepted_past_by_a_later_review_decision_is_written_back_dispositioned",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_a_decision_whose_artifact_ref_does_not_match_the_srs_own_path_does_not_disposition",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_a_finding_with_no_matching_prior_disposition_stays_open_every_rerun",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_an_accept_decision_that_predates_the_prior_finding_does_not_disposition_it",
+            "tests/unit/coherence/register/test_fidelity_persistence.py::test_loading_a_missing_file_returns_none",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_check_exits_non_zero_for_an_open_high_assurance_finding",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_check_exits_zero_when_the_high_assurance_finding_is_already_dispositioned",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_a_judge_that_fails_degrades_to_unavailable_and_blocks_a_high_assurance_check",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_a_judge_that_fails_does_not_block_a_non_high_assurance_check",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_check_blocks_when_the_packet_itself_fails_to_build_for_a_high_assurance_sr",
+            "tests/unit/coherence/register/test_cli_review_fidelity.py::test_check_scopes_to_the_whole_register_with_neither_an_id_nor_all",
+            "tests/unit/coherence/test_fidelity_dispatch.py::test_default_judge_raises_unavailable_when_dispatch_fails",
+            "tests/unit/coherence/test_fidelity_dispatch.py::test_default_judge_parses_a_valid_findings_verdict",
+            "tests/unit/coherence/test_fidelity_dispatch.py::test_default_judge_falls_back_to_parsing_a_fenced_json_block_in_raw_output",
+            "tests/unit/coherence/test_fidelity_dispatch.py::test_default_judge_raises_unavailable_on_unparseable_output"
+          ]
+        }
+      ]
+    }
+  ],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
