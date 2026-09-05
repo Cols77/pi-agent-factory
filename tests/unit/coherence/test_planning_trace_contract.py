@@ -13,7 +13,7 @@ from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
 
-_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055"}
+_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055", "SR-065"}
 _LEGACY_SRS = {"SR-043", "SR-044", "SR-050", "SR-051", "SR-052", "SR-053", "SR-054"}
 _PLAN = "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
 
@@ -243,10 +243,12 @@ def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
     )[0] is False
 
 
-def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055() -> None:
+def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_sr065() -> None:
     root = Path(__file__).parents[3]
     plan = _source_text(root, _PLAN)
+    dossier = _source_text(root, "docs/features/FEAT-017.md")
     sr055 = frontmatter.load(str(root / "requirements" / "SR-055.md"))
+    sr065 = frontmatter.load(str(root / "requirements" / "SR-065.md"))
     compact_plan = " ".join(plan.split())
 
     assert "Task identity reservation amendment" in plan
@@ -259,6 +261,18 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055() -> 
     assert "Omitted SR/task pairs have no finding" in compact_plan
     assert "No `satisfies` relationship is asserted before independent implementation acceptance" in compact_plan
     assert "`SR-050` remains foreign/shared and read-only" in compact_plan
+    assert "`T-057`" in compact_plan
+    assert "Pi plus a project-local Hermes `/coherence-plan` adapter" in compact_plan
+    assert "Hermes `/plan` adapter" not in compact_plan
+    assert "provide host presentation only" in compact_plan
+    assert "action/state authority remains solely in Coherence" in compact_plan
+    assert "reuse current run, gate, DecisionFile, and handoff authority" in compact_plan
+    assert "authoritative, mutate user configuration" in compact_plan
+    assert "`starts_automatically: false`" in compact_plan
+    assert "implements proposed `SR-065`" in compact_plan
+    assert "No `satisfies` relationship, formal consent, canonical adoption, or downstream execution" in compact_plan
+    assert "eight owned SR projections" in dossier
+    assert not list((root / "tasks").glob("T-057-*.md"))
 
     assert sr055["id"] == "SR-055"
     assert sr055["title"] == "Versioned planning gate pack enforcement"
@@ -271,3 +285,9 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055() -> 
     assert "compile an explicit versioned planning gate pack" in statement
     assert "block proposal handoff" in statement
     assert "proposed; semantic adoption remains subject" in " ".join(sr055.content.split())
+    assert sr065["id"] == "SR-065"
+    assert sr065["source"] == (
+        "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md#3h"
+    )
+    assert "host-guided planning entrypoint" in cast(str, sr065["statement"])
+    assert "proposed; semantic adoption remains subject" in " ".join(sr065.content.split())

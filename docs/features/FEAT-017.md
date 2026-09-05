@@ -13,6 +13,7 @@ requirements:
   - SR-053
   - SR-054
   - SR-055
+  - SR-065
 ---
 
 # FEAT-017 — PLANNING-BOOTSTRAP
@@ -26,10 +27,10 @@ covers the host-neutral planning pipeline: adaptive intent capture -> provisiona
 -> three semantic checkpoints -> plan/task decomposition -> thin SR/feature/bundle derivation
 -> explicit consent -> text summary and hash-bound downstream handoff.
 
-Owned requirements: SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055.
+Owned requirements: SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055, SR-065.
 
 The authority spec is canonical. The implementation plan is the executable roadmap. The bundle
-contains exactly this feature and its seven owned SR projections. No planning artifact may infer
+contains exactly this feature and its eight owned SR projections. No planning artifact may infer
 human approval or automatically start FEAT-13.
 
 ## Mature workflow acceptance boundary
@@ -65,6 +66,7 @@ The mature design contract is frozen by these source-level acceptance rows:
 - [[SR-053]]
 - [[SR-054]]
 - [[SR-055]]
+- [[SR-065]]
 <!-- end derived -->
 
 Shared contracts consumed by this feature: [[SR-035]], [[SR-036]], [[SR-049]], and [[SR-050]].

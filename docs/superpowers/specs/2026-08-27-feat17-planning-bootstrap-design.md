@@ -276,6 +276,19 @@ legal next actions. A richer browser workbench is deferred. A clean run exposes 
 menu and writes a hash-bound handoff with `starts_automatically: false`; a new session revalidates
 it before acting and no planning stage starts downstream work.
 
+### 3h. Guided host entrypoint
+
+A host may expose one guided planning entrypoint that starts or resumes a named run and renders
+only the next actions declared legal by current Coherence run state, revision, attempt, artifact
+hashes, gate attestations, and DecisionFiles. The host obtains that projection from a stable
+machine-readable Coherence contract; it does not infer progression from conversation history,
+host-local flags, model output, or Kanban card state. A replaced or interrupted host session resumes
+the same run identity and remains blocked when evidence, a predecessor, or a human decision is
+missing or stale. A host may open a bounded authoring/review session only for a backend-declared
+action. It may never author consent, adoption, gate evidence, or downstream execution. The existing
+focused commands remain compatibility adapters; the guided entrypoint does not create a second
+planner or scheduler.
+
 ### 3g. State machine and invariants
 
 ### 3.1 States

@@ -1,5 +1,5 @@
 {
-  "description": "Draft exact-closure bundle for FEAT-017's mature host-neutral planning workflow. It allocates the feature and its seven thin SR projections; implementation evidence, human consent, and validation remain governed by their existing Coherence paths.",
+  "description": "Draft exact-closure bundle for FEAT-017's mature host-neutral planning workflow. It allocates the feature and its eight thin SR projections; implementation evidence, human consent, and validation remain governed by their existing Coherence paths.",
   "draft": true,
   "id": "FEAT-017",
   "label": "PLANNING-BOOTSTRAP dossier bundle",
@@ -11,6 +11,7 @@
     "sr:SR-052",
     "sr:SR-053",
     "sr:SR-054",
-    "sr:SR-055"
+    "sr:SR-055",
+    "sr:SR-065"
   ]
 }
