@@ -225,9 +225,28 @@ def _validation_state(manifests: list[dict], req_id: str) -> str | None:
             for entry in validation.get("requirements", [])
             if isinstance(entry, dict) and entry.get("id") == req_id and "passed" in entry
         ]
-        if not results:
+        # "passed": null means genuinely unmeasured -- distinct from
+        # "passed": false (failing). `not None` is True in Python, so
+        # counting a null entry in the `any(not entry["passed"] ...)` check
+        # below would silently misread "not yet measured" as "failing".
+        # DECISION: an unmeasured entry is excluded from consideration
+        # entirely rather than being folded into "passing" or given its own
+        # tri-state return value. Rationale: this function's contract is
+        # already a plain str | None ("passing"/"failing"/None-for-nothing-
+        # found), and `classify()` (coherence/register/closure.py) only
+        # branches on those two strings today -- introducing a third
+        # "unmeasured" value would require a matching RequirementState with
+        # no caller ready to consume it. Excluding null entries also means a
+        # manifest containing *only* unmeasured entries for this req_id is
+        # treated the same as a manifest with no entries for it at all: we
+        # fall through to older manifests (list_run_manifests sorts
+        # newest-first) instead of reporting a state nobody actually
+        # measured. A manifest with a genuine mix of null and measured
+        # entries is judged solely on the measured ones.
+        measured = [entry for entry in results if entry["passed"] is not None]
+        if not measured:
             continue
-        return "failing" if any(not entry["passed"] for entry in results) else "passing"
+        return "failing" if any(not entry["passed"] for entry in measured) else "passing"
     return None
 
 
