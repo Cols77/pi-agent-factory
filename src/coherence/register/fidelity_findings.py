@@ -23,6 +23,16 @@ from coherence.register.relations import ReferenceIssue
 # and `error` (the failure detail, `None` when `status == "ok"`) close that
 # gap the same way `ReachabilityResult.status`/`.diagnostics` already do for
 # an analogous "the fact could not be established" case.
+#
+# `packet_fingerprint` (stale-fidelity-review remediation, HANDOFF.md Next
+# Step 3 / audit finding 3.8) is a second, later addition: the packet-level
+# fingerprint (`coherence.register.fidelity_packet.packet_fingerprint`) the
+# judge's inputs hashed to when THIS result was produced. `None` on any
+# result stored before this field existed -- a legacy result never claims a
+# fingerprint it was never actually stamped with. `coherence.register.
+# fidelity_persistence.is_fidelity_current` is the one place that reads this
+# field to decide whether a fresh judge dispatch can be skipped; nowhere
+# else attaches meaning to it.
 
 FINDING_KINDS: tuple[str, ...] = (
     "overstated_link",
@@ -228,6 +238,7 @@ class FidelityReviewResult:
     produced_at: str
     status: str = "ok"
     error: str | None = None
+    packet_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _RESULT_STATUSES:
@@ -245,6 +256,7 @@ class FidelityReviewResult:
             "produced_at": self.produced_at,
             "status": self.status,
             "error": self.error,
+            "packet_fingerprint": self.packet_fingerprint,
         }
 
     @classmethod
@@ -261,6 +273,9 @@ class FidelityReviewResult:
             produced_at=str(data["produced_at"]),
             status=str(data.get("status", "ok")),
             error=(str(data["error"]) if data.get("error") is not None else None),
+            packet_fingerprint=(
+                str(data["packet_fingerprint"]) if data.get("packet_fingerprint") is not None else None
+            ),
         )
 
 

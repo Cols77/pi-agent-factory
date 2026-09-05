@@ -210,3 +210,118 @@ def test_check_scopes_to_the_whole_register_with_neither_an_id_nor_all(tmp_path:
     assert code == 0
     assert captured["req_id"] is None
     assert captured["project_root"] == tmp_path
+
+
+# Dispatch-path staleness short-circuit -- stale-fidelity-review remediation
+# (HANDOFF.md Next Step 3 / audit finding 3.8): `register review --fidelity
+# --check` must judge only the stale group, fingerprinted at the packet
+# level. These exercise the real end-to-end wiring through cmd_review_check
+# with a call-counting judge, covering the five required scenarios: fresh,
+# unchanged, changed, a null-fingerprint legacy result, and a stored
+# "unavailable" result -- see fidelity_persistence's own unit tests for the
+# pure decision-matrix coverage of `is_fidelity_current`.
+
+
+@pytest.mark.sr("SR-050")
+def test_a_fresh_never_judged_requirement_dispatches_the_judge(tmp_path: Path):
+    _seed_sr(tmp_path, "SR-920")
+    calls: list[int] = []
+
+    def _judge(p):
+        calls.append(1)
+        return []
+
+    cmd_review_check(tmp_path, "SR-920", judge=_judge)
+    assert len(calls) == 1
+
+
+@pytest.mark.sr("SR-050")
+def test_an_unchanged_requirement_does_not_redispatch_the_judge(tmp_path: Path):
+    _seed_sr(tmp_path, "SR-921")
+    calls: list[int] = []
+
+    def _judge(p):
+        calls.append(1)
+        return []
+
+    cmd_review_check(tmp_path, "SR-921", judge=_judge)
+    cmd_review_check(tmp_path, "SR-921", judge=_judge)
+    assert len(calls) == 1
+
+
+@pytest.mark.sr("SR-050")
+def test_a_changed_requirement_redispatches_the_judge(tmp_path: Path):
+    _seed_sr(tmp_path, "SR-922")
+    calls: list[int] = []
+
+    def _judge(p):
+        calls.append(1)
+        return []
+
+    cmd_review_check(tmp_path, "SR-922", judge=_judge)
+    # Change the implementation source the packet reads -- the fingerprint
+    # must move, forcing a real re-dispatch.
+    _write(tmp_path / "src" / "widgets" / "feature.py", "def feature_context():\n    return 2\n")
+    cmd_review_check(tmp_path, "SR-922", judge=_judge)
+    assert len(calls) == 2
+
+
+@pytest.mark.sr("SR-050")
+def test_a_null_fingerprint_legacy_result_is_judged_once_then_backfilled(tmp_path: Path):
+    from coherence.register.fidelity_findings import FidelityReviewResult
+    from coherence.register.fidelity_persistence import save_fidelity_result
+
+    _seed_sr(tmp_path, "SR-923")
+    legacy = FidelityReviewResult(
+        sr_id="SR-923",
+        profile="prototype",
+        findings=(),
+        unresolved=(),
+        run_id="legacy-run",
+        produced_at="2020-01-01T00:00:00Z",
+        status="ok",
+        # packet_fingerprint defaults to None -- a result stored before this
+        # field existed.
+    )
+    save_fidelity_result(tmp_path, legacy)
+    calls: list[int] = []
+
+    def _judge(p):
+        calls.append(1)
+        return []
+
+    cmd_review_check(tmp_path, "SR-923", judge=_judge)
+    assert len(calls) == 1  # stale-once: judged despite unchanged content
+    cmd_review_check(tmp_path, "SR-923", judge=_judge)
+    assert len(calls) == 1  # backfilled fingerprint now matches -- no further dispatch
+
+
+@pytest.mark.sr("SR-050")
+def test_a_stored_unavailable_result_is_never_trusted_even_with_a_matching_fingerprint(tmp_path: Path):
+    from coherence.register.fidelity_findings import FidelityReviewResult
+    from coherence.register.fidelity_packet import build_fidelity_packet, packet_fingerprint
+    from coherence.register.fidelity_persistence import save_fidelity_result
+
+    _seed_sr(tmp_path, "SR-924")
+    packet = build_fidelity_packet(tmp_path, "SR-924")
+    fingerprint = packet_fingerprint(packet)
+    stale = FidelityReviewResult(
+        sr_id="SR-924",
+        profile="prototype",
+        findings=(),
+        unresolved=(),
+        run_id="broken-run",
+        produced_at="2020-01-01T00:00:00Z",
+        status="unavailable",
+        error="judge failed: boom",
+        packet_fingerprint=fingerprint,
+    )
+    save_fidelity_result(tmp_path, stale)
+    calls: list[int] = []
+
+    def _judge(p):
+        calls.append(1)
+        return []
+
+    cmd_review_check(tmp_path, "SR-924", judge=_judge)
+    assert len(calls) == 1

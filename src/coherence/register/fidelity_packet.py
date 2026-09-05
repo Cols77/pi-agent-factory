@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -482,6 +484,108 @@ def build_fidelity_packet(root: Path, sr_id: str) -> FidelityPacket:
     )
 
 
+def packet_fingerprint(packet: FidelityPacket) -> str:
+    """A stable checksum over the WHOLE packet the fidelity judge actually
+    reads -- statement, acceptance, design_source, implemented (source +
+    signature), verified (source + signature + outcome), import_overlap,
+    claims, and profile -- deliberately mirroring
+    `coherence.audit.fidelity_dispatch._fidelity_prompt`'s own `packet_view`
+    dict field-for-field (that module cannot be imported from here --
+    `coherence.register` imports nothing from `coherence.audit`/`factory.*`,
+    see this module's own docstring on `FidelityPacket.diagnostics` and
+    `coherence/register/fidelity.py`'s "Layering" section -- so the two are
+    independently maintained but MUST be kept in lockstep: a field added to
+    one belongs in the other too).
+
+    This is a FOURTH, deliberately distinct staleness hash, never unified
+    with the other three already in this codebase (see `coherence.gate.
+    content`'s module docstring, "two different staleness concerns, two
+    different functions, never conflated" -- extended here to four):
+
+    * `coherence.register.register.content_checksum` -- statement + binding
+      only (measurement-currency: has the thing a harness measures changed).
+    * `coherence.gate.content.artifact_content_checksum` -- an artifact's
+      raw file bytes (human-consent currency).
+    * `coherence.register.overlap.content_fingerprint` -- statement +
+      acceptance text only (the overlap vectorizer's own cache key).
+    * this function -- everything the FIDELITY JUDGE's own prompt is built
+      from, which is a strict superset of all three: source excerpts,
+      signatures, test outcomes, import-overlap facts, and commit claims
+      that none of the other three ever look at.
+
+    `unresolved` and `diagnostics` are deliberately EXCLUDED: neither is
+    rendered into the judge's prompt (see `_fidelity_prompt`'s own
+    `packet_view`), so a change to either can never actually change what the
+    judge sees, and must never falsely mark a stored review stale.
+    """
+    canonical = {
+        "statement": packet.statement,
+        "profile": packet.profile,
+        "acceptance": [
+            {"id": a.id, "criterion": a.criterion, "verification_kind": a.verification_kind}
+            for a in packet.acceptance
+        ],
+        "design_source": (
+            {
+                "doc_path": packet.design_source.doc_path,
+                "anchor": packet.design_source.anchor,
+                "excerpt": packet.design_source.excerpt,
+            }
+            if packet.design_source is not None
+            else None
+        ),
+        "implemented": [
+            {
+                "path": p.path,
+                "symbol": p.symbol,
+                "signature": p.signature.signature,
+                "summary": p.signature.summary,
+                "source_excerpt": p.source_excerpt,
+            }
+            for p in packet.implemented
+        ],
+        "verified": [
+            {
+                "path": v.path,
+                "test": v.test,
+                "signature": (v.signature.signature if v.signature is not None else None),
+                "source_excerpt": v.source_excerpt,
+                "outcome": (
+                    {
+                        "state": v.outcome.state,
+                        "stale": v.outcome.stale,
+                        "last_run_id": v.outcome.last_run_id,
+                        "summary": v.outcome.summary,
+                    }
+                    if v.outcome is not None
+                    else None
+                ),
+            }
+            for v in packet.verified
+        ],
+        "import_overlap": [
+            {
+                "implemented_ref": f.implemented_ref,
+                "verified_ref": f.verified_ref,
+                "reaches": f.reaches,
+                "status": f.status,
+            }
+            for f in packet.import_overlap
+        ],
+        "claims": [
+            {
+                "sha": c.sha,
+                "subject": c.subject,
+                "changed_files": list(c.changed_files),
+                "declared": list(c.declared),
+            }
+            for c in packet.claims
+        ],
+    }
+    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
 __all__ = [
     "AcceptanceCriterionRef",
     "ClaimFact",
@@ -493,4 +597,5 @@ __all__ = [
     "ResolvedValidationRef",
     "TestOutcome",
     "build_fidelity_packet",
+    "packet_fingerprint",
 ]

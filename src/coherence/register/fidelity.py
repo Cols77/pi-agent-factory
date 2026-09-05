@@ -67,6 +67,7 @@ def review_fidelity(
     *,
     run_id: str | None = None,
     produced_at: str | None = None,
+    packet_fingerprint: str | None = None,
 ) -> FidelityReviewResult:
     """Run the fidelity judgement step for one packet (SR-050/AC-4, T5.3).
 
@@ -88,6 +89,20 @@ def review_fidelity(
     and `status="escalated"` under every other compiled profile -- T5's own
     status-assignment rule, distinct from (and never a substitute for)
     `_human_review_obligation`'s own, separately tested closure logic.
+
+    `packet_fingerprint` (stale-fidelity-review remediation, HANDOFF.md Next
+    Step 3 / audit finding 3.8) is an opaque pass-through: this function
+    never computes it (that is `coherence.register.fidelity_packet.
+    packet_fingerprint`'s job) and never inspects it -- the caller (`coherence.
+    register.cli._fidelity_result_json`) is the one place that decides
+    whether `judge` needs to run at all before ever calling this function,
+    using `coherence.register.fidelity_persistence.is_fidelity_current`. It
+    is stamped onto EVERY returned result, `status == "unavailable"`
+    included, so a stored `unavailable` result still carries the fingerprint
+    of the packet that produced it -- `is_fidelity_current` needs that value
+    to correctly report "still not current" for an unavailable result whose
+    fingerprint happens to match (see its own docstring: an unavailable
+    result is never trusted regardless of fingerprint match).
     """
     run_id = run_id or _new_run_id()
     produced_at = produced_at or _now_iso()
@@ -104,6 +119,7 @@ def review_fidelity(
             produced_at=produced_at,
             status="unavailable",
             error=f"judge failed: {exc}",
+            packet_fingerprint=packet_fingerprint,
         )
 
     if not isinstance(raw_candidates, list):
@@ -116,6 +132,7 @@ def review_fidelity(
             produced_at=produced_at,
             status="unavailable",
             error=f"judge returned {type(raw_candidates).__name__}, expected a list of findings",
+            packet_fingerprint=packet_fingerprint,
         )
 
     status_for_new = "open" if packet.profile == "high_assurance" else "escalated"
@@ -153,6 +170,7 @@ def review_fidelity(
                 produced_at=produced_at,
                 status="unavailable",
                 error=f"candidate finding {i} invalid: {exc}",
+                packet_fingerprint=packet_fingerprint,
             )
         findings.append(finding)
 
@@ -165,6 +183,7 @@ def review_fidelity(
         produced_at=produced_at,
         status="ok",
         error=None,
+        packet_fingerprint=packet_fingerprint,
     )
 
 

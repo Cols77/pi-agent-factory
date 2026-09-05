@@ -20,8 +20,12 @@ from coherence.register.closure import (
 )
 from coherence.policy.compiler import resolve_profile
 from coherence.register.fidelity import FidelityJudgeUnavailable, review_fidelity
-from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet
-from coherence.register.fidelity_persistence import load_fidelity_result, save_fidelity_result
+from coherence.register.fidelity_packet import FidelityPacket, build_fidelity_packet, packet_fingerprint
+from coherence.register.fidelity_persistence import (
+    is_fidelity_current,
+    load_fidelity_result,
+    save_fidelity_result,
+)
 from coherence.register.ingest import DivergedRangeError, ingest
 from coherence.register.overlap import DEFAULT_K, OverlapCandidate, run_overlap_check
 from coherence.register.register import (
@@ -388,7 +392,21 @@ def _fidelity_result_json(
     not also erase which profile the SR is actually configured under --
     `cmd_review_check`'s CI gate depends on this field staying correct to
     decide whether an ``unavailable`` high_assurance SR blocks (see that
-    command's own docstring)."""
+    command's own docstring).
+
+    Stale-fidelity-review remediation (HANDOFF.md Next Step 3 / audit
+    finding 3.8): the packet is ALWAYS built fresh here -- that step is
+    deterministic and cheap, no model call -- but the judge is only actually
+    dispatched when `coherence.register.fidelity_persistence.
+    is_fidelity_current` says the packet's own fingerprint has moved on from
+    the last PERSISTED result's. When it has not, the stored result is
+    reused verbatim as this run's `review_fidelity` output (no new subagent
+    call), and is still routed through `save_fidelity_result` below so
+    re-run disposition tracking keeps applying even on a dispatch-skipped
+    run (a `review:<sr_id>` accept decision recorded since the last real
+    judge run must still flip a matching stored finding to `dispositioned`,
+    exactly as it would after a fresh dispatch -- see
+    `fidelity_persistence`'s own tests for this exact scenario)."""
     try:
         packet = build_fidelity_packet(project_root, req.id)
     except ValueError as exc:
@@ -407,8 +425,14 @@ def _fidelity_result_json(
             "produced_at": "",
             "status": "unavailable",
             "error": str(exc),
+            "packet_fingerprint": None,
         }
-    result = review_fidelity(packet, judge)
+    fingerprint = packet_fingerprint(packet)
+    prior = load_fidelity_result(project_root, req.id)
+    if is_fidelity_current(prior, fingerprint):
+        result = prior
+    else:
+        result = review_fidelity(packet, judge, packet_fingerprint=fingerprint)
     save_fidelity_result(project_root, result)
     stored = load_fidelity_result(project_root, req.id)
     return (stored or result).to_dict()

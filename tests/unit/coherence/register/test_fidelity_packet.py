@@ -303,3 +303,104 @@ def test_outcome_stays_never_validated_when_neither_source_has_it(tmp_path: Path
     outcome = packet.verified[0].outcome
     assert outcome is not None
     assert outcome.state == "never_validated"
+
+
+# packet_fingerprint -- stale-fidelity-review remediation (HANDOFF.md Next
+# Step 3 / audit finding 3.8): a fourth, deliberately distinct staleness
+# hash over the WHOLE packet the fidelity judge reads. Built directly from
+# hand-constructed FidelityPacket instances (matching test_fidelity.py's own
+# fixture style) rather than through build_fidelity_packet -- these tests
+# are about the hash's own sensitivity, not the packet builder.
+
+
+def _fp_packet(**overrides):
+    from coherence.register.fidelity_packet import (
+        AcceptanceCriterionRef,
+        FidelityPacket,
+        IndexSignatureView,
+        ResolvedProductionRef,
+        ResolvedValidationRef,
+    )
+
+    impl = ResolvedProductionRef(
+        path="src/widgets/feature.py",
+        symbol="widgets.feature:feature_context",
+        signature=IndexSignatureView(kind="function", name="feature_context", signature="def feature_context()", summary=""),
+        source_excerpt="def feature_context(): return 1",
+    )
+    ver = ResolvedValidationRef(
+        path="tests/unit/test_feature.py",
+        test="tests/unit/test_feature.py::test_feature_context",
+        signature=IndexSignatureView(kind="function", name="test_feature_context", signature="def test_feature_context()", summary=""),
+        source_excerpt="def test_feature_context(): assert True",
+        outcome=None,
+    )
+    base = dict(
+        sr_id="SR-900",
+        statement="the system shall provide feature context",
+        acceptance=(),
+        design_source=None,
+        profile="prototype",
+        implemented=(impl,),
+        verified=(ver,),
+        import_overlap=(),
+        unresolved=(),
+    )
+    base.update(overrides)
+    return FidelityPacket(**base)
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_is_stable_for_an_identical_packet():
+    from coherence.register.fidelity_packet import packet_fingerprint
+
+    a = _fp_packet()
+    b = _fp_packet()
+    assert packet_fingerprint(a) == packet_fingerprint(b)
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_changes_when_implementation_source_changes():
+    from coherence.register.fidelity_packet import ResolvedProductionRef, packet_fingerprint
+
+    a = _fp_packet()
+    changed_impl = ResolvedProductionRef(
+        path="src/widgets/feature.py",
+        symbol="widgets.feature:feature_context",
+        signature=a.implemented[0].signature,
+        source_excerpt="def feature_context(): return 2  # changed",
+    )
+    b = _fp_packet(implemented=(changed_impl,))
+    assert packet_fingerprint(a) != packet_fingerprint(b)
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_changes_when_profile_changes():
+    from coherence.register.fidelity_packet import packet_fingerprint
+
+    a = _fp_packet(profile="prototype")
+    b = _fp_packet(profile="high_assurance")
+    assert packet_fingerprint(a) != packet_fingerprint(b)
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_changes_when_claims_change():
+    from coherence.register.fidelity_packet import ClaimFact, packet_fingerprint
+
+    a = _fp_packet()
+    claim = ClaimFact(sha="a" * 40, subject="feat: x", changed_files=("src/widgets/feature.py",), declared=(True,))
+    b = _fp_packet(claims=(claim,))
+    assert packet_fingerprint(a) != packet_fingerprint(b)
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_ignores_unresolved_and_diagnostics():
+    from coherence.register.relations import ReferenceIssue
+    from coherence.register.fidelity_packet import packet_fingerprint
+
+    a = _fp_packet()
+    b = _fp_packet(
+        unresolved=(ReferenceIssue(field="implemented_by", index=0, detail="broken"),),
+        diagnostics=("design_source: doc not found",),
+    )
+    assert packet_fingerprint(a) == packet_fingerprint(b)

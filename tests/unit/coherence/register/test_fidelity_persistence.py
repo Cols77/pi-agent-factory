@@ -11,6 +11,7 @@ from coherence.gate.store import write_decision
 from coherence.register.fidelity_findings import FidelityFinding, FidelityReviewResult, RelationRef
 from coherence.register.fidelity_persistence import (
     fidelity_findings_path,
+    is_fidelity_current,
     load_fidelity_result,
     save_fidelity_result,
 )
@@ -35,7 +36,7 @@ def _finding(*, status: str = "open", produced_at: str = "2026-09-01T00:00:00Z")
     )
 
 
-def _result(*, findings=(), status: str = "ok") -> FidelityReviewResult:
+def _result(*, findings=(), status: str = "ok", packet_fingerprint: str | None = None) -> FidelityReviewResult:
     return FidelityReviewResult(
         sr_id="SR-900",
         profile="high_assurance",
@@ -44,6 +45,7 @@ def _result(*, findings=(), status: str = "ok") -> FidelityReviewResult:
         run_id="run-1",
         produced_at="2026-09-01T00:00:00Z",
         status=status,
+        packet_fingerprint=packet_fingerprint,
     )
 
 
@@ -213,3 +215,37 @@ def test_a_decision_whose_content_checksum_no_longer_covers_the_sr_does_not_disp
     loaded = load_fidelity_result(tmp_path, "SR-900")
     assert loaded is not None
     assert loaded.findings[0].status == "open"
+
+
+# is_fidelity_current -- stale-fidelity-review remediation (HANDOFF.md Next
+# Step 3 / audit finding 3.8): the dispatch-path short-circuit's decision
+# matrix, tested directly (pure function, no filesystem/CLI needed).
+
+
+@pytest.mark.sr("SR-050")
+def test_no_prior_result_is_never_current():
+    assert is_fidelity_current(None, "sha256:abc") is False
+
+
+@pytest.mark.sr("SR-050")
+def test_matching_fingerprint_on_an_ok_result_is_current():
+    prior = _result(status="ok", packet_fingerprint="sha256:abc")
+    assert is_fidelity_current(prior, "sha256:abc") is True
+
+
+@pytest.mark.sr("SR-050")
+def test_a_different_fingerprint_on_an_ok_result_is_not_current():
+    prior = _result(status="ok", packet_fingerprint="sha256:abc")
+    assert is_fidelity_current(prior, "sha256:changed") is False
+
+
+@pytest.mark.sr("SR-050")
+def test_a_null_legacy_fingerprint_is_stale_once():
+    prior = _result(status="ok", packet_fingerprint=None)
+    assert is_fidelity_current(prior, "sha256:abc") is False
+
+
+@pytest.mark.sr("SR-050")
+def test_a_stored_unavailable_result_is_never_current_even_with_a_matching_fingerprint():
+    prior = _result(status="unavailable", packet_fingerprint="sha256:abc")
+    assert is_fidelity_current(prior, "sha256:abc") is False

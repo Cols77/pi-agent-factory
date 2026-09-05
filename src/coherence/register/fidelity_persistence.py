@@ -30,6 +30,25 @@ from coherence.register.register import load_register
 # `dispositioned` rather than `open`/`escalated` again. The finding is never
 # deleted -- SR-050's statement requires a review that "reports ...
 # findings", not one that erases its own history.
+#
+# `is_fidelity_current` (stale-fidelity-review remediation, HANDOFF.md Next
+# Step 3 / audit finding 3.8): the dispatch-path short-circuit. Before this,
+# `coherence.register.cli._fidelity_result_json` re-judged EVERY targeted
+# requirement from scratch on every `register review --fidelity --check`
+# run -- with no `--id` that meant a fresh subagent dispatch for all 62+
+# requirements, unconditionally, even when nothing the judge reads had
+# changed since the last run. Building a `FidelityPacket` and hashing it
+# (`coherence.register.fidelity_packet.packet_fingerprint`) is cheap and
+# deterministic -- no model call -- so that always happens; only the actual
+# judge dispatch is what this function decides to skip. Mirrors `coherence.
+# gate.content.resolve_decision_currency`'s grandfather-then-backfill shape:
+# a `None` stored fingerprint (a result stored before this field existed) is
+# never treated as "still current" -- it is judged ONE more time, and that
+# run's own `review_fidelity` call (via `packet_fingerprint=` there) stamps
+# the fingerprint into the result this module then persists, so every
+# subsequent run with unchanged content can skip the dispatch. Unlike
+# `resolve_decision_currency`, the backfill here is a side effect of doing
+# the (cheap, already-necessary) work once, not an out-of-band write.
 
 FIDELITY_FINDINGS_DIR = ("review-findings", "fidelity")
 
@@ -93,6 +112,37 @@ def _accepted_review_decision_at(root: Path, sr_id: str) -> str | None:
     return None if decision is None else decision.decided_at
 
 
+def is_fidelity_current(prior: FidelityReviewResult | None, fingerprint: str) -> bool:
+    """True when `prior` -- the previously persisted `FidelityReviewResult`
+    for this SR, or `None` when there is none -- still covers `fingerprint`,
+    the CURRENT packet's own `packet_fingerprint`. `True` means the caller
+    (`coherence.register.cli._fidelity_result_json`) may reuse `prior`
+    as-is instead of dispatching the judge again; `False` means it must
+    re-dispatch.
+
+    * `prior is None` (never judged before): `False` -- always dispatch.
+    * `prior.status != "ok"` (the last run's judge failed, timed out, or
+      returned something unparseable -- `FidelityJudgeUnavailable` and
+      `review_fidelity`'s own catch-all): `False` UNCONDITIONALLY, even when
+      `prior.packet_fingerprint == fingerprint`. A judge outage must never
+      be read as "reviewed, found nothing" (the same rule `review_fidelity`
+      and `cmd_review_check`'s own `unavailable`-blocks-`high_assurance`
+      logic already hold this design to) -- trusting a fingerprint match on
+      a failed run would let one judge outage silently freeze a stale
+      "unavailable" verdict in place forever.
+    * `prior.packet_fingerprint is None` (a legacy result stored before this
+      field existed): `False` -- "stale once". There is no fingerprint on
+      record to compare against, so this run must judge it at least one
+      more time; that run's own result carries the fingerprint that lets
+      every LATER run with unchanged content skip the dispatch (see the
+      module docstring's grandfather-then-backfill note).
+    * otherwise: `True` exactly when `prior.packet_fingerprint == fingerprint`.
+    """
+    if prior is None or prior.status != "ok" or prior.packet_fingerprint is None:
+        return False
+    return prior.packet_fingerprint == fingerprint
+
+
 def apply_dispositions(root: Path, result: FidelityReviewResult) -> FidelityReviewResult:
     """Re-run disposition tracking (T5.4): a finding whose `(kind, relation)`
     matches a PRIOR STORED finding that a `review:<sr_id>` accept decision
@@ -136,6 +186,7 @@ __all__ = [
     "FIDELITY_FINDINGS_DIR",
     "apply_dispositions",
     "fidelity_findings_path",
+    "is_fidelity_current",
     "load_fidelity_result",
     "save_fidelity_result",
 ]

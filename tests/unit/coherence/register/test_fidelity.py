@@ -198,3 +198,34 @@ def test_judge_returning_a_hallucinated_relation_yields_unavailable_status():
 # module -- see coherence/register/fidelity.py's own "Layering" docstring
 # section for why. Its tests live at
 # tests/unit/coherence/test_fidelity_dispatch.py, matching that home.
+
+
+# packet_fingerprint pass-through -- stale-fidelity-review remediation
+# (HANDOFF.md Next Step 3 / audit finding 3.8): `review_fidelity` never
+# computes this itself, but must stamp whatever it is given onto EVERY
+# return path -- ok and unavailable alike -- so a caller's staleness check
+# (`coherence.register.fidelity_persistence.is_fidelity_current`) has
+# something to compare against even after a failed dispatch.
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_is_stamped_onto_an_ok_result():
+    result = review_fidelity(_packet(), judge=lambda p: [], packet_fingerprint="sha256:abc")
+    assert result.status == "ok"
+    assert result.packet_fingerprint == "sha256:abc"
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_is_stamped_onto_an_unavailable_result():
+    def _judge(p):
+        raise FidelityJudgeUnavailable("boom")
+
+    result = review_fidelity(_packet(), judge=_judge, packet_fingerprint="sha256:abc")
+    assert result.status == "unavailable"
+    assert result.packet_fingerprint == "sha256:abc"
+
+
+@pytest.mark.sr("SR-050")
+def test_packet_fingerprint_defaults_to_none_when_not_passed():
+    result = review_fidelity(_packet(), judge=lambda p: [])
+    assert result.packet_fingerprint is None
