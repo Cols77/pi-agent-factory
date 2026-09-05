@@ -2258,3 +2258,19 @@ implementation acceptance. `SR-050` remains foreign/shared and read-only.
 `SR-055` is a proposed, unconsented behavioral requirement sourced from authority spec §3d. Its
 exact statement and upstream links are recorded in `requirements/SR-055.md`; this amendment does
 not claim implementation, satisfaction, canonical adoption, or human consent.
+
+## 8. Guided planning entrypoint amendment (2026-09-05)
+
+This additive amendment reserves `T-057` for a new Task 12, the guided host entrypoint. It does
+not create a canonical task file: materialization remains blocked until Task 5 supplies a
+revision-aware identity beyond `source_plan` path + `source_task` number. Task 12 shall expose a
+host-neutral Coherence `start`/`resume`/`status`/legal-next-action contract and a thin host `/plan`
+adapter. It must reuse current run, gate, DecisionFile, and handoff authority; it must not make a
+host, a model, or a Kanban projection authoritative, and it must retain `starts_automatically: false`.
+
+| Reserved task | Candidate contribution |
+|---|---|
+| `T-057` | implements proposed `SR-065`; supports `SR-043`, `SR-044`, `SR-052`, `SR-053`, `SR-055`; no direct finding for `SR-051` or `SR-054` |
+
+This is an implementation contribution mapping only. No `satisfies` relationship, formal consent,
+canonical adoption, or downstream execution is asserted by this amendment.
