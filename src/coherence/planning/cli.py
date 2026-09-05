@@ -12,6 +12,7 @@ from coherence.planning.session import (
     SessionError,
     append_session_answer,
     finalize_session,
+    legal_actions_session,
     resume_session,
     resolve_session_challenge,
     start_session,
@@ -422,6 +423,10 @@ def _review(args: argparse.Namespace) -> int:
 
 def _session_command(args: argparse.Namespace) -> int:
     try:
+        if args.command == "legal-actions":
+            payload = legal_actions_session(args.project_root, args.run_id)
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+            return 1 if payload["blocked"] else 0
         if args.command == "start":
             session = start_session(args.project_root, args.run_id, args.prompt)
         elif args.command == "resume":
@@ -500,7 +505,7 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
 
-    for name in ("start", "resume", "status", "append", "resolve", "finalize"):
+    for name in ("start", "resume", "status", "append", "resolve", "finalize", "legal-actions"):
         command = sub.add_parser(name)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=Path("."), type=Path)
@@ -532,7 +537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review(args)
     if args.command == "handoff":
         return _handoff(args)
-    if args.command in {"start", "resume", "status", "append", "resolve", "finalize"}:
+    if args.command in {"start", "resume", "status", "append", "resolve", "finalize", "legal-actions"}:
         return _session_command(args)
     return _suggest(args)
 

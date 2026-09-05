@@ -21,6 +21,14 @@ from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_json_dumps, strict_json_loads
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_LEGAL_ACTION_IDS = (
+    "inspect-handoff",
+    "revalidate-handoff",
+    "select-downstream-workflow",
+    "create-downstream-session",
+    "resolve-blocking-input",
+)
+_ACTION_REGISTRY_HASH = hashlib.sha256("\n".join(_LEGAL_ACTION_IDS).encode()).hexdigest()
 
 
 class SessionError(ValueError):
@@ -195,6 +203,60 @@ def status_session(project_root: Path, run_id: str) -> PlanningSession:
     return expected
 
 
+def legal_actions_session(project_root: Path, run_id: str) -> dict[str, object]:
+    """Return the closed, fail-closed host action projection for a run.
+
+    The persisted session snapshot is the only source of run identity.  This
+    function never accepts caller-provided actions and never invokes a menu
+    action or starts downstream work.
+    """
+    root = _root(project_root)
+    _validate_run_id(run_id)
+    base: dict[str, object] = {
+        "schema": 1,
+        "run_id": run_id,
+        "legal_next_actions": [],
+        "selected_downstream_workflow": None,
+        "starts_automatically": False,
+        "action_registry": {
+            "schema": 1,
+            "legal_ids": list(_LEGAL_ACTION_IDS),
+            "registry_hash": _ACTION_REGISTRY_HASH,
+        },
+    }
+    try:
+        session = status_session(root, run_id)
+    except SessionError:
+        base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
+        return base
+
+    handoff = _inside(root, ".factory", "planning", run_id, "handoff.json")
+    if not handoff.is_file():
+        base.update({"blocked": True, "reason": "SESSION_NOT_READY", "state": session.state})
+        return base
+    try:
+        # Import lazily to keep session persistence independent of handoff code.
+        from coherence.planning.handoff import validate_handoff
+
+        handoff_payload = validate_handoff(root, handoff)
+    except (OSError, ValueError, TypeError, RuntimeError):
+        base.update({"blocked": True, "reason": "HANDOFF_INVALID", "state": session.state})
+        return base
+    base.update({
+        "blocked": False,
+        "reason": None,
+        "state": session.state,
+        "run_identity": {
+            "run_id": session.run_id,
+            "next_sequence": session.next_sequence,
+            "journal_sha256": session.journal_sha256,
+        },
+        "selected_downstream_workflow": handoff_payload.get("selected_workflow"),
+        "legal_next_actions": ["inspect-handoff", "revalidate-handoff"],
+    })
+    return base
+
+
 def append_session_answer(
     project_root: Path,
     run_id: str,
@@ -286,6 +348,7 @@ __all__ = [
     "SessionError",
     "append_session_answer",
     "finalize_session",
+    "legal_actions_session",
     "resume_session",
     "resolve_session_challenge",
     "start_session",

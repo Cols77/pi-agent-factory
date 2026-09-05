@@ -10,6 +10,7 @@ from coherence.planning.session import (
     SessionError,
     append_session_answer,
     finalize_session,
+    legal_actions_session,
     resume_session,
     start_session,
     status_session,
@@ -117,3 +118,33 @@ def test_session_rejects_unsafe_or_mismatched_run_ids(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "Build a planner")
     with pytest.raises(SessionError, match="does not match"):
         append_session_answer(tmp_path, "run-001", "x", "q", "a", event_run_id="run-002")
+
+
+def test_legal_actions_are_closed_and_block_until_handoff_is_persisted(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["run_id"] == "run-001"
+    assert projection["blocked"] is True
+    assert projection["reason"] == "SESSION_NOT_READY"
+    assert projection["legal_next_actions"] == []
+    assert projection["starts_automatically"] is False
+    assert projection["action_registry"]["legal_ids"] == [
+        "inspect-handoff", "revalidate-handoff", "select-downstream-workflow",
+        "create-downstream-session", "resolve-blocking-input",
+    ]
+
+
+def test_legal_actions_reject_stale_persisted_identity(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+    state_path = tmp_path / ".factory/planning/run-001/state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["journal_sha256"] = "0" * 64
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is True
+    assert projection["reason"] == "STALE_SESSION_STATE"
+    assert projection["legal_next_actions"] == []
