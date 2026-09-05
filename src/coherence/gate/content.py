@@ -34,14 +34,26 @@ so any FUTURE content change is correctly caught. This is a real,
 deliberate judgement call, not glossed over: see `resolve_decision_currency`
 for the exact contract, and requirements/SR-059.md's AC-2 closure for the
 corpus-wide reasoning.
+
+`resolve_admissible_review_decision` (below) is the ONE shared admissibility
+check for a `review:<sr_id>` gate decision -- gate_id/item_id scoping,
+artifact_ref scoping, attribution, and this module's own content currency --
+extracted so `coherence.policy.compiler`'s `_human_review_obligation` (is the
+SR closed for policy purposes) and `coherence.register.fidelity_persistence`'s
+disposition tracker (should a stored fidelity finding stop being
+re-escalated) read off the same completion fact instead of two
+independently-maintained copies of the same six rules. It lives here, next
+to `resolve_decision_currency`, because currency is the one rule of the six
+that was already centralized -- the other five (scoping/attribution) belong
+beside it now rather than staying split across two callers.
 """
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
-from coherence.gate.model import DecisionFile
-from coherence.gate.store import write_decision
+from coherence.gate.model import CorruptDecisionFile, DecisionFile, _is_iso
+from coherence.gate.store import decision_path, load_decision, write_decision
 
 
 def artifact_content_checksum(path: Path) -> str:
@@ -115,4 +127,87 @@ def resolve_decision_currency(
     return backfilled, True
 
 
-__all__ = ["artifact_content_checksum", "resolve_decision_currency"]
+def artifact_ref_for(root: Path, path: Path) -> str | None:
+    """The canonical `artifact:`-scheme ref for `path`, relative-posix to
+    `root` -- the same computation `_human_review_obligation`
+    (`coherence.policy.compiler`) and `_expected_artifact_ref`
+    (`coherence.register.fidelity_persistence`) used to each perform inline.
+    `None` when `path` cannot be expressed relative to `root` (outside the
+    project root) -- there is no canonical ref a decision could correctly
+    name in that case.
+    """
+    try:
+        return "artifact:" + path.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def resolve_admissible_review_decision(
+    root: Path, item_id: str, artifact_path: Path,
+) -> DecisionFile | None:
+    """The admissible, currently-covering `accept` DecisionFile for
+    `item_id`, scoped to `artifact_path`'s own canonical `artifact:` ref, or
+    `None` when no such decision exists.
+
+    This is the ONE shared admissibility rule set for a gate decision that
+    both `coherence.policy.compiler._human_review_obligation` and
+    `coherence.register.fidelity_persistence._accepted_review_decision_at`
+    read off -- see this module's docstring for why it lives here. I-01 --
+    no self-certification -- means the producer of work is never the sole
+    authority that it is done, and **the substrate cannot distinguish an
+    agent-written decision from a human one**, so every rule below proves
+    only what is actually on disk, never humanity itself:
+
+    * a `DecisionFile` exists at `item_id`'s canonical path and parses/
+      validates (a corrupt or missing file is `None`, never a crash and
+      never a default-to-admissible);
+    * its own `gate_id` equals `item_id` (never a file addressed to a
+      different gate);
+    * its `artifact_ref` equals `artifact_path`'s own canonical ref (never a
+      decision scoped to a different artifact);
+    * it carries EXACTLY one `Decision`, whose `item_id` also equals
+      `item_id` and whose `action` is `accept` (never a `reject`/`defer`,
+      and never a file that also decides other items);
+    * it is attributed: a non-blank `decided_by` and a valid ISO-8601
+      `decided_at` (`coherence.gate.model._is_iso`, the one ISO validator in
+      this repo) -- a decision naming nobody, or naming no time, is
+      nobody's decision;
+    * and (SR-059/AC-2) its `content_checksum` currently covers
+      `artifact_path`'s CURRENT full content (`resolve_decision_currency`,
+      above) -- fail closed: a decision whose stored checksum no longer
+      matches is treated exactly like no decision at all.
+
+    Any one of these failing returns `None`; there is no path that infers
+    admissibility from partial evidence.
+    """
+    expected_artifact_ref = artifact_ref_for(root, artifact_path)
+    if expected_artifact_ref is None:
+        return None
+    path = decision_path(root, item_id)
+    if not path.is_file():
+        return None
+    try:
+        decision_file = load_decision(path)
+    except CorruptDecisionFile:
+        return None
+    if decision_file.gate_id != item_id or decision_file.artifact_ref != expected_artifact_ref:
+        return None
+    decisions = decision_file.decisions
+    if (
+        len(decisions) != 1
+        or decisions[0].item_id != item_id
+        or decisions[0].action != "accept"
+    ):
+        return None
+    if not decision_file.decided_by.strip() or not _is_iso(decision_file.decided_at):
+        return None
+    effective, current = resolve_decision_currency(root, decision_file, artifact_path)
+    return effective if current else None
+
+
+__all__ = [
+    "artifact_content_checksum",
+    "artifact_ref_for",
+    "resolve_admissible_review_decision",
+    "resolve_decision_currency",
+]

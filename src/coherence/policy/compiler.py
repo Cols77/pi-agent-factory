@@ -388,27 +388,23 @@ def _human_review_obligation(
 
     `reviewed` is therefore `True` only for an `accept` DecisionFile that is
     addressed to exactly this gate, this item and this SR's own artifact,
-    **and** carries a non-blank `decided_by` and a valid ISO-8601
-    `decided_at` (validated by `coherence.gate.model._is_iso`, the one ISO
-    validator in this repo -- not a second copy), **and** whose
-    `content_checksum` currently covers the SR's own file content
-    (SR-059/AC-2, `coherence.gate.content.resolve_decision_currency` --
-    fail-closed: a decision whose stored checksum no longer matches the
-    SR's CURRENT full content is treated exactly like no decision at all,
-    never silently read as still current; see that module's docstring for
-    the pre-existing-file grandfather/backfill migration). Absence, a
-    corrupt or malformed file, any `reject`/`defer`, a decision whose
-    `gate_id`/`artifact_ref`/`item_id` names a different gate, artifact or
-    SR, an accept with a blank/whitespace `decided_by` or a blank/non-ISO
-    `decided_at`, and an accept whose recorded content checksum is stale,
-    all leave `reviewed` `False` -- there is no default-to-reviewed path and
-    no path that infers a decision.
+    carries a non-blank `decided_by` and a valid ISO-8601 `decided_at`, and
+    (SR-059/AC-2) whose `content_checksum` currently covers the SR's own
+    file content -- the full admissibility rule set is enforced by
+    `coherence.gate.content.resolve_admissible_review_decision`, the ONE
+    shared check this function and `coherence.register.fidelity_persistence`
+    both call rather than each re-implementing gate_id/item_id/artifact_ref
+    scoping, attribution and currency independently; see that function's own
+    docstring for the exact six rules and fail-closed semantics (corrupt
+    file, wrong gate/item/artifact, non-`accept`, unattributed, or stale
+    checksum all resolve to `None`, never a default-to-reviewed path).
 
     Why here and not in `gate.model.validate_decisions`: that validator is
     shared by every gate kind, including the `sr:` authoring-consent
     decisions already recorded on this branch. Tightening it would
     retroactively invalidate those. Attribution is this obligation's
-    admissibility rule, so it is enforced at this obligation.
+    admissibility rule, so it is enforced at this obligation (via the shared
+    helper), not in the generic validator.
 
     SR-059/AC-1: `requiredness` is never `"not_applicable"` for this gate
     kind under any profile -- see below. That AC governs requiredness only,
@@ -419,57 +415,20 @@ def _human_review_obligation(
     is not an admissible accept still leaves it `"open"` under every
     profile; only silence gets the pass.
     """
-    from coherence.gate.content import resolve_decision_currency
-    from coherence.gate.model import CorruptDecisionFile, _is_iso
-    from coherence.gate.store import decision_path, load_decision
+    from coherence.gate.content import artifact_ref_for, resolve_admissible_review_decision
+    from coherence.gate.store import decision_path
 
     sr_id = scope_ref.partition(":")[2]
     sr_path = _sr_node_path(sr_id, nodes=nodes)
     item_id = f"review:{sr_id}"
     path = decision_path(root, item_id)
 
+    expected_artifact_ref = artifact_ref_for(root, sr_path) if sr_path is not None else None
     reviewed = False
-    expected_artifact_ref: str | None = None
-    if sr_path is not None:
-        try:
-            expected_artifact_ref = "artifact:" + sr_path.resolve().relative_to(
-                root.resolve()
-            ).as_posix()
-        except (OSError, ValueError):
-            expected_artifact_ref = None
-        if expected_artifact_ref is not None and path.is_file():
-            try:
-                decision_file = load_decision(path)
-            except CorruptDecisionFile:
-                reviewed = False
-            else:
-                decisions = decision_file.decisions
-                # Attribution: a decision that names nobody, or that happened
-                # at no recorded time, is not an admissible review. Both
-                # fields are read off the DecisionFile itself, never inferred
-                # from the file's mtime or the current clock.
-                attributed = bool(decision_file.decided_by.strip()) and _is_iso(
-                    decision_file.decided_at
-                )
-                scoped = (
-                    decision_file.gate_id == item_id
-                    and decision_file.artifact_ref == expected_artifact_ref
-                    and len(decisions) == 1
-                    and decisions[0].item_id == item_id
-                    and decisions[0].action == "accept"
-                    and attributed
-                )
-                # SR-059/AC-2: an otherwise-admissible accept still does not
-                # satisfy this obligation if its content_checksum no longer
-                # covers the SR's current content (fail closed on staleness,
-                # exactly like every other admissibility check above). Only
-                # checked once the decision already passes every other rule
-                # -- no point stamping a checksum backfill onto a decision
-                # that would not satisfy the obligation anyway.
-                reviewed = scoped and resolve_decision_currency(
-                    root, decision_file, sr_path
-                )[1]
-        elif expected_artifact_ref is not None:
+    if expected_artifact_ref is not None:
+        if path.is_file():
+            reviewed = resolve_admissible_review_decision(root, item_id, sr_path) is not None
+        else:
             # Product decision (2026-09-05): SR-059/AC-1 governs
             # *requiredness* ("required", never "not_applicable", outside
             # high_assurance) -- it says nothing about what satisfies this
@@ -477,9 +436,10 @@ def _human_review_obligation(
             # no reviewer needs to have recorded anything at all for this to
             # read as satisfied. A decision that DOES exist and is not an
             # admissible accept (reject, defer, malformed, mis-scoped,
-            # unattributed, stale -- the `if path.is_file()` branch above)
-            # still leaves this open under every profile, prototype
-            # included; only the absence of any decision gets the pass.
+            # unattributed, stale -- the `resolve_admissible_review_decision`
+            # branch above) still leaves this open under every profile,
+            # prototype included; only the absence of any decision gets the
+            # pass.
             reviewed = profile != "high_assurance"
 
     requiredness = "blocking" if profile == "high_assurance" else "required"
