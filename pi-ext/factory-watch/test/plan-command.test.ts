@@ -6,7 +6,7 @@ import {
   renderPlanLegalActions,
   runPlan,
 } from "../src/plan-command.js";
-import type { ExtCommandCtx } from "../src/pi-types.js";
+import type { ExtCommandCtx, UiApi } from "../src/pi-types.js";
 
 vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
@@ -15,6 +15,29 @@ vi.mock("node:child_process", async () => {
 
 describe("guided /plan adapter", () => {
   beforeEach(() => vi.mocked(spawnSync).mockReset());
+
+  function makeUi(select: UiApi["select"] = vi.fn()): UiApi {
+    return {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      setWidget: vi.fn(),
+      select,
+      confirm: vi.fn(),
+      editor: vi.fn(),
+      custom: vi.fn(),
+    };
+  }
+
+  function makeContext(ui: UiApi): ExtCommandCtx {
+    return {
+      cwd: "C:/repo",
+      ui,
+      hasUI: true,
+      model: undefined,
+      reload: vi.fn(async () => undefined),
+      newSession: vi.fn(async () => ({ cancelled: false })),
+    };
+  }
 
   test("builds an argv-safe legal-actions command", () => {
     expect(buildPlanLegalActionsCommand("C:/repo", "run-001")).toEqual({
@@ -67,12 +90,26 @@ describe("guided /plan adapter", () => {
       }),
       stderr: "",
     } as never);
-    const ctx = {
-      cwd: "C:/repo", ui: { notify: vi.fn(), select: vi.fn() },
-      hasUI: true, newSession: vi.fn(),
-    } as unknown as ExtCommandCtx;
+    const ctx = makeContext(makeUi());
     await runPlan(ctx, "run-1");
     expect(ctx.newSession).not.toHaveBeenCalled();
     expect(ctx.ui.select).not.toHaveBeenCalled();
   });
+
+  test("does not launch a session for a UI selection outside backend actions", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        schema: 1, run_id: "run-1", blocked: false, reason: null,
+        legal_next_actions: ["author-spec"], starts_automatically: false,
+      }),
+      stderr: "",
+    } as never);
+    const select = vi.fn<UiApi["select"]>(async () => "create-downstream-session");
+    const ctx = makeContext(makeUi(select));
+    await runPlan(ctx, "run-1");
+    expect(select).toHaveBeenCalledWith("Planning action", ["author-spec"]);
+    expect(ctx.newSession).not.toHaveBeenCalled();
+  });
+
 });

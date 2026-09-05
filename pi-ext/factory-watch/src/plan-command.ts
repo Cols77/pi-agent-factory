@@ -102,7 +102,7 @@ export async function runPlan(ctx: ExtCommandCtx, rawArgs: string): Promise<void
   const actions = projection.legal_next_actions.filter((action) => AUTHORING_OR_REVIEW_ACTIONS.has(action));
   if (actions.length === 0 || !ctx.hasUI) return;
   const selected = await ctx.ui.select("Planning action", actions);
-  if (selected === undefined) return;
+  if (selected === undefined || !actions.includes(selected)) return;
   await ctx.newSession({
     withSession: async (session) => {
       await session.sendUserMessage(
