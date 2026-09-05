@@ -77,9 +77,14 @@ def _run(raw_args: str) -> str:
             check=False,
             shell=False,
         )
-        if result.returncode != 0:
+        if result.returncode not in (0, 1):
+            # Any other exit code is an unexpected/non-blocked failure: never
+            # trust stdout for it, even if it happens to contain valid JSON.
             detail = (result.stderr or "backend exited unsuccessfully").strip()
             return f"planning blocked: {detail}"
+        # Exit code 1 is the CLI's normal "planning is blocked" signal (see
+        # coherence.planning.cli._session_command), not a backend failure —
+        # the structured payload on stdout still carries the real reason.
         payload = _parse_projection(result.stdout or "", run_id)
     except (OSError, ValueError) as exc:
         detail = (getattr(locals().get("result", None), "stderr", "") or str(exc)).strip()

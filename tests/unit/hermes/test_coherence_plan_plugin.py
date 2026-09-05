@@ -191,6 +191,34 @@ def test_never_launches_downstream_work_from_backend_action_projection(
     assert len(calls) == 1
 
 
+def test_exit_code_one_surfaces_structured_block_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exit code 1 is the CLI's normal signal for "planning is blocked", not a
+    backend failure. The adapter must still parse and render the structured
+    payload's reason instead of falling back to a generic failure message."""
+    _, _, (_, handler) = register_command()
+    payload = {
+        "schema": 1,
+        "run_id": "run-007",
+        "blocked": True,
+        "reason": "STALE_SESSION_STATE",
+        "legal_next_actions": ["resolve-blocking-input"],
+        "starts_automatically": False,
+    }
+    blocked_exit = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout=json.dumps(payload), stderr=""
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: blocked_exit)
+
+    output = invoke(handler, "run-007")
+
+    assert "STALE_SESSION_STATE" in output
+    assert "resolve-blocking-input" in output
+    assert output != "planning blocked: backend exited unsuccessfully"
+    assert "backend exited unsuccessfully" not in output
+
+
 def test_nonzero_backend_exit_blocks_even_with_projection_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
