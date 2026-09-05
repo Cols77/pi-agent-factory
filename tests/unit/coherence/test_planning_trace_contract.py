@@ -246,6 +246,7 @@ def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
 def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_sr065() -> None:
     root = Path(__file__).parents[3]
     plan = _source_text(root, _PLAN)
+    dossier = _source_text(root, "docs/features/FEAT-017.md")
     sr055 = frontmatter.load(str(root / "requirements" / "SR-055.md"))
     sr065 = frontmatter.load(str(root / "requirements" / "SR-065.md"))
     compact_plan = " ".join(plan.split())
@@ -263,6 +264,8 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_s
     assert "`T-057`" in compact_plan
     assert "implements proposed `SR-065`" in compact_plan
     assert "No `satisfies` relationship, formal consent, canonical adoption, or downstream execution" in compact_plan
+    assert "eight owned SR projections" in dossier
+    assert not list((root / "tasks").glob("T-057-*.md"))
 
     assert sr055["id"] == "SR-055"
     assert sr055["title"] == "Versioned planning gate pack enforcement"

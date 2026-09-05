@@ -30,7 +30,7 @@ covers the host-neutral planning pipeline: adaptive intent capture -> provisiona
 Owned requirements: SR-043, SR-044, SR-051, SR-052, SR-053, SR-054, SR-055, SR-065.
 
 The authority spec is canonical. The implementation plan is the executable roadmap. The bundle
-contains exactly this feature and its seven owned SR projections. No planning artifact may infer
+contains exactly this feature and its eight owned SR projections. No planning artifact may infer
 human approval or automatically start FEAT-13.
 
 ## Mature workflow acceptance boundary
