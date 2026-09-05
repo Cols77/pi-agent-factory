@@ -590,6 +590,46 @@ def test_human_review_prototype_accept_is_satisfied_and_required(tmp_path):
     assert hr.state == "satisfied"
 
 
+@pytest.mark.sr("SR-059")
+def test_human_review_missing_decision_is_satisfied_under_prototype(tmp_path):
+    # Product decision (2026-09-05): under prototype, human_review stays
+    # visible and counted (SR-059/AC-1's floor: requiredness is "required",
+    # never "not_applicable") but no reviewer needs to have recorded
+    # anything for it to read as satisfied -- absence of a decision is not,
+    # by itself, an open item outside high_assurance. This is the mirror of
+    # test_human_review_missing_decision_stays_open_under_high_assurance:
+    # same missing-decision shape, opposite profile, opposite state.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-111.md").write_text(
+        "---\nid: SR-111\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+
+    obligations = compile_obligations(tmp_path, "sr:SR-111")  # project default: prototype
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.requiredness == "required"
+    assert hr.state == "satisfied"
+
+
+@pytest.mark.sr("SR-059")
+def test_human_review_reject_still_open_under_prototype(tmp_path):
+    # The floor above is specifically for *absence* of a decision, not for
+    # a decision that exists and says no. A human who explicitly rejected
+    # or deferred stays visible under every profile, prototype included --
+    # only silence is read as fine outside high_assurance.
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-112.md").write_text(
+        "---\nid: SR-112\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    _write_review_decision(tmp_path, "SR-112", action="reject", reason="insufficient evidence")
+
+    obligations = compile_obligations(tmp_path, "sr:SR-112")  # project default: prototype
+    hr = next(o for o in obligations if o.kind == "human_review")
+    assert hr.requiredness == "required"
+    assert hr.state == "open"
+
+
 # --------------------------------------------------------------------------
 # Task 6 addendum: compiled test_marker obligation (profile-aware closure)
 # --------------------------------------------------------------------------

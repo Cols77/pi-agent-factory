@@ -411,7 +411,13 @@ def _human_review_obligation(
     admissibility rule, so it is enforced at this obligation.
 
     SR-059/AC-1: `requiredness` is never `"not_applicable"` for this gate
-    kind under any profile -- see below.
+    kind under any profile -- see below. That AC governs requiredness only,
+    not `state`: a separate, later product decision (2026-09-05) is that
+    outside `high_assurance`, no reviewer needs to have recorded anything at
+    all for `state` to read `"satisfied"` -- absence of a decision is not
+    itself an open item under `prototype`. A decision that DOES exist and
+    is not an admissible accept still leaves it `"open"` under every
+    profile; only silence gets the pass.
     """
     from coherence.gate.content import resolve_decision_currency
     from coherence.gate.model import CorruptDecisionFile, _is_iso
@@ -463,6 +469,18 @@ def _human_review_obligation(
                 reviewed = scoped and resolve_decision_currency(
                     root, decision_file, sr_path
                 )[1]
+        elif expected_artifact_ref is not None:
+            # Product decision (2026-09-05): SR-059/AC-1 governs
+            # *requiredness* ("required", never "not_applicable", outside
+            # high_assurance) -- it says nothing about what satisfies this
+            # obligation's *state*. Outside high_assurance, silence is fine:
+            # no reviewer needs to have recorded anything at all for this to
+            # read as satisfied. A decision that DOES exist and is not an
+            # admissible accept (reject, defer, malformed, mis-scoped,
+            # unattributed, stale -- the `if path.is_file()` branch above)
+            # still leaves this open under every profile, prototype
+            # included; only the absence of any decision gets the pass.
+            reviewed = profile != "high_assurance"
 
     requiredness = "blocking" if profile == "high_assurance" else "required"
     if sr_path is None:
