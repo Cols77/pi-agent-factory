@@ -18,11 +18,9 @@ import type { ExtCommandCtx, PiApi } from "./pi-types.js";
 import { formatStatusLines, parseStatus, devEscalated, formatRunStatusLines, resumeCommand } from "./status-format.js";
 import type { RunStatus, RunStatusesPayload } from "./status-format.js";
 import type { StatusRecord } from "./status-format.js";
-import { homedir } from "node:os";
-import { getMarkdownTheme, loadSkills, stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import {
   buildGrillSeedPrompt,
-  buildPlanSeedPrompt,
   buildSkillBlock,
   buildTraceFixSeedPrompt,
   buildVisualExplainSeedPrompt,
@@ -41,6 +39,7 @@ import { registerCoverageRun } from "./coverage-run-command.js";
 import { registerCoherenceCommand } from "./coherence-command.js";
 import { factorySkillsDir, findSkillFile } from "./factory-skills.js";
 import { runTraceCheck } from "./trace-cli.js";
+import { runPlan } from "./plan-command.js";
 import type { ReplacedSessionCtx } from "./pi-types.js";
 import { formatTaskOption, parseTaskIdFromOption } from "./task-picker.js";
 import type { TaskSummary } from "./task-picker.js";
@@ -99,7 +98,6 @@ const LOCK_FILE = "sessions/.factory-run.lock";
 const LOG_FILE = "sessions/.factory-run.log";
 const POLL_INTERVAL_MS = 1000;
 const POSIX_GRACEFUL_TIMEOUT_MS = 3000;
-const PLAN_SKILL_NAMES = ["brainstorming", "writing-plans"];
 const TRACE_FIX_SKILL_NAMES = ["trace-fix"];
 
 function parseAutoFlag(args: string): { auto: boolean; rest: string } {
@@ -991,41 +989,9 @@ export default function factoryWatch(pi: PiApi): void {
   });
 
   pi.registerCommand("plan", {
-    description: "Start an interactive planning session (brainstorming -> writing-plans)",
+    description: "Render and launch only backend-authorized planning actions",
     handler: async (args: string, ctx: ExtCommandCtx) => {
-      const topic = args;
-      if (topic.trim() === "") {
-        ctx.ui.notify("usage: /plan <topic>", "error");
-        return;
-      }
-
-      const { skills } = loadSkills({
-        cwd: ctx.cwd,
-        agentDir: join(homedir(), ".pi", "agent"),
-        skillPaths: [],
-        includeDefaults: true,
-      });
-
-      const skillBlocks: string[] = [];
-      for (const name of PLAN_SKILL_NAMES) {
-        const skill = skills.find((s) => s.name === name);
-        if (skill === undefined) {
-          ctx.ui.notify(`/plan: skill not found: ${name}`, "error");
-          return;
-        }
-        const content = readFileSync(skill.filePath, "utf-8");
-        const body = stripFrontmatter(content).trim();
-        skillBlocks.push(buildSkillBlock({ name: skill.name, location: skill.filePath, body }));
-      }
-
-      // Keep /plan's established session-seeding contract. The host-owned
-      // interactive capture is available explicitly as /plan-brainstorm.
-      const seedText = buildPlanSeedPrompt(topic, skillBlocks);
-      await ctx.newSession({
-        withSession: async (session: ReplacedSessionCtx) => {
-          await session.sendUserMessage(seedText, { deliverAs: "followUp" });
-        },
-      });
+      await runPlan(ctx, args);
     },
   });
 

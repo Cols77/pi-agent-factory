@@ -708,29 +708,36 @@ describe("factory-watch commands", () => {
     expect(ctx.newSession).not.toHaveBeenCalled();
   });
 
-  test("/plan notifies when a required skill isn't vendored in this repo", async () => {
+  test("/plan displays the backend block reason without starting a session", async () => {
     const { commands } = capture();
     const emptyDir = mkdtempSync(join(tmpdir(), "factory-watch-plan-test-"));
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 1,
+      stdout: JSON.stringify({ schema: 1, run_id: "run-001", blocked: true, reason: "SESSION_NOT_READY", legal_next_actions: [], starts_automatically: false }),
+      stderr: "",
+    } as never);
     const ctx = fakeCtx({ cwd: emptyDir });
-    await commands.get("plan")!.handler("some topic", ctx);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("skill not found"), "error");
+    await commands.get("plan")!.handler("run-001", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("SESSION_NOT_READY"), "warning");
     expect(ctx.newSession).not.toHaveBeenCalled();
   });
 
-  test("/plan seeds a fresh session with the topic once skills are found", async () => {
+  test("/plan starts a session only for a backend-authorized authoring action", async () => {
     const { commands } = capture();
-    // This repo's real .pi/skills/ has brainstorming + writing-plans vendored
-    // (Task 3), so pointing ctx.cwd at the real repo root (REPO_ROOT, not
-    // process.cwd() -- see note above) exercises the real
-    // loadSkills()+readFileSync() path end to end.
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({ schema: 1, run_id: "run-001", blocked: false, reason: null, legal_next_actions: ["author-spec"], starts_automatically: false }),
+      stderr: "",
+    } as never);
     const ctx = fakeCtx({ cwd: REPO_ROOT });
-    await commands.get("plan")!.handler("add battery-aware RTB", ctx);
+    vi.mocked(ctx.ui.select).mockResolvedValue("author-spec");
+    await commands.get("plan")!.handler("run-001", ctx);
     expect(ctx.newSession).toHaveBeenCalledTimes(1);
     const call = vi.mocked(ctx.newSession).mock.calls[0]![0];
     const session: ReplacedSessionCtx = { sendUserMessage: vi.fn() };
     await call!.withSession!(session);
     expect(session.sendUserMessage).toHaveBeenCalledWith(
-      expect.stringContaining("add battery-aware RTB"),
+      expect.stringContaining("author-spec"),
       { deliverAs: "followUp" },
     );
   });
