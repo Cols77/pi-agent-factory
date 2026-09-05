@@ -28,8 +28,8 @@ def _report(root: Path) -> PlanningReport:
                           (), True, None)
 
 
-def test_clean_result_summary_and_menu_are_explicit_without_launching() -> None:
-    report = _report(Path("."))
+def test_clean_result_summary_and_menu_are_explicit_without_launching(tmp_path: Path) -> None:
+    report = _report(tmp_path)
     summary = render_summary(report, semantic_notes=("semantic note",), unresolved=("open question",),
                              gate_summary={"status": "pass"})
     assert "semantic note" in summary and "open question" in summary
