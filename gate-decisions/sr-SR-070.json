@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-070",
+  "artifact_ref": "artifact:requirements/SR-070.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-070",
+      "action": "accept",
+      "reason": "Authored as drafted: 4 ACs, all kind:manual honest placeholders converting to test_marker as each is implemented; relates_to SR-002/SR-024/SR-059. Consent given by the project owner in an interactive session on 2026-09-05.",
+      "review_after": null,
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-05T02:07:01Z",
+  "decided_by": "Cols77",
+  "content_checksum": ""
+}
