@@ -20,8 +20,7 @@ Before reading or changing planning state, require both of these inputs:
 2. A concrete planning request that says what the user wants planned or
    revised. Do not turn an absent or vague request into an inferred goal.
 
-Require explicit intent to start. Require explicit intent to resume. Require
-explicit start intent and explicit resume intent. Use the user's selected
+Require the user to explicitly choose either start or resume. Use the selected
 operation exactly; there is no silent fallback from start to
 resume or from resume to start. Start and resume are explicit Coherence operations, for
 example:
@@ -65,9 +64,18 @@ Only these backend-declared actions may enter the bounded loop:
 - `review-spec`
 - `review-plan`
 
-Unknown actions, and known actions outside this list, are display-only. Never
-invent, rename, reorder, or auto-select an action. Before each permitted
-operation, use the latest projection and the user's explicit planning request.
+Present every backend action exactly as returned in the latest projection.
+The current registry may return `inspect-handoff`, `revalidate-handoff`,
+`select-downstream-workflow`, `create-downstream-session`, or
+`resolve-blocking-input`. These and any other non-allowlisted action are
+display-only and must never be translated, renamed, or auto-selected into the
+loop. Before each permitted operation, use the latest projection and the
+user's explicit planning request.
+
+Enter the loop only when the latest backend projection itself declares one of
+the exact four allowlisted IDs above. If no allowlisted action is declared,
+report the projection or handoff and stop for human decision; do not claim the
+loop was performed.
 
 The loop is sequential and evidence-first:
 
