@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coherence Plan"
+  short_description: "Inspect and continue named Coherence planning runs"
+  default_prompt: "Use $coherence-plan with a named run ID to inspect or continue the Coherence planning workflow."
