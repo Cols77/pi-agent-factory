@@ -6,6 +6,7 @@ import {
   renderPlanLegalActions,
   runPlan,
 } from "../src/plan-command.js";
+import type { ExtCommandCtx } from "../src/pi-types.js";
 
 vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
@@ -69,7 +70,7 @@ describe("guided /plan adapter", () => {
     const ctx = {
       cwd: "C:/repo", ui: { notify: vi.fn(), select: vi.fn() },
       hasUI: true, newSession: vi.fn(),
-    } as never;
+    } as unknown as ExtCommandCtx;
     await runPlan(ctx, "run-1");
     expect(ctx.newSession).not.toHaveBeenCalled();
     expect(ctx.ui.select).not.toHaveBeenCalled();
