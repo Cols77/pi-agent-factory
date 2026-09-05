@@ -382,12 +382,16 @@ def test_human_review_counts_every_sr_required_or_blocking_alike(tmp_path):
     # obligation kind under any profile (a profile-independent floor -- at
     # least "required" outside high_assurance, "blocking" under it), so all
     # three fixture SRs now participate: SR-101/SR-102 (prototype, required)
-    # and SR-103 (high_assurance, blocking). None has a recorded review
-    # decision, so all three stay open -- satisfied is 0, expected is 3.
+    # and SR-103 (high_assurance, blocking). Product decision (2026-09-05,
+    # policy/compiler.py's _human_review_obligation): outside high_assurance,
+    # silence satisfies -- no reviewer needs to have recorded anything for the
+    # obligation to read as satisfied. So SR-101/SR-102 (prototype, no
+    # decision) are now satisfied; SR-103 (high_assurance, no decision) stays
+    # open exactly as before -- satisfied is 2, expected is 3.
     _seed_main_repo(tmp_path)
     dims = {d.name: d for d in health.compile_health_dimensions(tmp_path)}
     hr = dims["human_review"]
-    assert (hr.satisfied, hr.expected, hr.exempt) == (0, 3, 0)
+    assert (hr.satisfied, hr.expected, hr.exempt) == (2, 3, 0)
 
 
 # -- query_health wiring -------------------------------------------------
@@ -417,9 +421,11 @@ def test_query_health_exposes_dimensions_json_shaped_and_keeps_percent(tmp_path)
         "name": "nonconformance_closure", "satisfied": 0, "expected": 1, "exempt": 0,
     }
     assert by_name["human_review"] == {
-        # SR-059/AC-1: now 3, not 1 -- see
-        # test_human_review_counts_every_sr_required_or_blocking_alike.
-        "name": "human_review", "satisfied": 0, "expected": 3, "exempt": 0,
+        # SR-059/AC-1: expected is 3, not 1 -- see
+        # test_human_review_counts_every_sr_required_or_blocking_alike. satisfied
+        # is 2: silence satisfies outside high_assurance (2026-09-05 product
+        # decision), so only the fixture's one high_assurance SR stays open.
+        "name": "human_review", "satisfied": 2, "expected": 3, "exempt": 0,
     }
     # Only demoted (Task 7 stops leading with it), never removed.
     assert "percent" in payload["health"]
