@@ -16,27 +16,9 @@ from coherence.planning.legal_actions_adapter import (
     parse_legal_actions_projection,
     render_legal_actions_projection,
 )
+from tests.unit._legal_actions_json import completed_json, valid_payload
 
 pytestmark = pytest.mark.unit
-
-
-def completed_json(payload: dict[str, Any], returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=[], returncode=returncode, stdout=json.dumps(payload), stderr=stderr
-    )
-
-
-def valid_payload(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema": 1,
-        "run_id": "run-001",
-        "blocked": False,
-        "reason": None,
-        "legal_next_actions": ["inspect-handoff"],
-        "starts_automatically": False,
-    }
-    payload.update(overrides)
-    return payload
 
 
 # --- run-id grammar -----------------------------------------------------

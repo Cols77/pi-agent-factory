@@ -126,6 +126,7 @@ def legal_actions_report(project_root: Path, run_id: str) -> str:
         raise ValueError("run_id must match the safe run-id grammar")
 
     command = build_legal_actions_command(project_root, run_id)
+    result: subprocess.CompletedProcess[str] | None = None
     try:
         result = subprocess.run(
             command,
@@ -145,7 +146,7 @@ def legal_actions_report(project_root: Path, run_id: str) -> str:
         # the structured payload on stdout still carries the real reason.
         payload = parse_legal_actions_projection(result.stdout or "", run_id)
     except (OSError, ValueError) as exc:
-        detail = (getattr(locals().get("result", None), "stderr", "") or str(exc)).strip()
+        detail = (getattr(result, "stderr", "") or str(exc)).strip()
         return f"planning blocked: {detail}"
     return render_legal_actions_projection(payload)
 

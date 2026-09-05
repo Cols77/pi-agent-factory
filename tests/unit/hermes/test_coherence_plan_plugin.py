@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-import json
 import subprocess
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.unit._legal_actions_json import completed_json
 
 pytestmark = pytest.mark.unit
 
@@ -51,12 +52,6 @@ def invoke(handler: Any, raw_args: str) -> str:
         result = asyncio.run(result)
     assert isinstance(result, str)
     return result
-
-
-def completed_json(payload: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=[], returncode=0, stdout=json.dumps(payload), stderr=""
-    )
 
 
 def test_registers_namespaced_command_without_optional_host_authority() -> None:
@@ -206,9 +201,7 @@ def test_exit_code_one_surfaces_structured_block_reason(
         "legal_next_actions": ["resolve-blocking-input"],
         "starts_automatically": False,
     }
-    blocked_exit = subprocess.CompletedProcess(
-        args=[], returncode=1, stdout=json.dumps(payload), stderr=""
-    )
+    blocked_exit = completed_json(payload, returncode=1)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: blocked_exit)
 
     output = invoke(handler, "run-007")
@@ -231,9 +224,7 @@ def test_nonzero_backend_exit_blocks_even_with_projection_output(
         "legal_next_actions": ["inspect-handoff"],
         "starts_automatically": False,
     }
-    failed = subprocess.CompletedProcess(
-        args=[], returncode=2, stdout=json.dumps(payload), stderr="backend failure"
-    )
+    failed = completed_json(payload, returncode=2, stderr="backend failure")
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: failed)
 
     output = invoke(handler, "run-005")
