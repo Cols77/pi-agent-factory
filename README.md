@@ -216,8 +216,15 @@ have migrated; removing them is a separate, announced change.
   `/factory-tasks`, `/plan`, `/review-plans`, and read-only navigator tools
 - `pi-ext/scope-guard/` — Pi extension enforcing task write scope
 - `.pi/skills/` — vendored skill content used by factory sub-agents
+- `.agents/skills/coherence-plan/` — project-local Codex adapter for named
+  Coherence planning runs
 - `scripts/install-pif.sh` — installs the global `pif` shim with
   `factory-watch` loaded and rooted at this repository
+
+Invoke the Codex adapter as `$coherence-plan <run-id>`. It consumes the same
+`coherence plan legal-actions --project-root <root> --run-id <id> --json`
+projection used by Pi and Hermes. Its handoff is non-executing: it does not
+launch downstream work and does not replace Codex's built-in `/plan`.
 
 Consuming projects keep their own `kb/`, `tasks/`, `sessions/`,
 `context-manifests/`, `requirements/`, `bundles/`, and `evidence/` stores. This
