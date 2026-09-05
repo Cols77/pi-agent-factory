@@ -17,7 +17,9 @@ __all__ = [
     "HarnessFor",
     "ValidationReportWriteError",
     "default_harness_for",
+    "existing_report_origin",
     "harness_provenance",
+    "report_has_measurement",
     "run_requirement_validation",
     "write_validation_report",
 ]
@@ -90,6 +92,46 @@ def run_requirement_validation(
             }
         )
     return {"requirements": entries}
+
+
+def report_has_measurement(report: dict) -> bool:
+    """True when at least one entry in *report* carries a real verdict.
+
+    :func:`run_requirement_validation` emits exactly two entry shapes: an
+    ``{"id", "error"}`` placeholder (unknown requirement, proposed
+    requirement, harness not named yet, or a harness that raised) and a full
+    result entry carrying ``passed``. The schema makes ``passed`` and
+    ``error`` mutually exclusive (``$defs.entry.not.required``) and
+    ``coherence.trace.validation_status._entry_state`` reads ``error`` first
+    and ``passed`` second, so "carries ``passed``" -- not "lacks ``error``"
+    -- is the test for a verdict this run actually produced. An entry shape
+    that is neither counts as NOT measured, which is the fail-closed
+    direction.
+    """
+    return any("passed" in e for e in report.get("requirements", []))
+
+
+def existing_report_origin(path: Path) -> str:
+    """Who recorded the report already at *path*.
+
+    One of ``"absent"``, ``"harness"``, ``"hand"``, ``"agent"``,
+    ``"unreadable"``. ``unreadable`` covers a file that exists but cannot be
+    shown to declare an origin (unparseable, not a JSON object, or a
+    ``provenance.recorded_by`` outside the schema's enum): something is
+    there, this code cannot demonstrate it produced it, so it is not this
+    code's to replace silently.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "absent"
+    except (OSError, ValueError):
+        return "unreadable"
+    if not isinstance(raw, dict):
+        return "unreadable"
+    block = raw.get("provenance")
+    origin = block.get("recorded_by") if isinstance(block, dict) else None
+    return origin if origin in ("hand", "harness", "agent") else "unreadable"
 
 
 def harness_provenance(command: str, *, now: str | None = None) -> dict:

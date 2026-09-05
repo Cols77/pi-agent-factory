@@ -123,13 +123,28 @@ uv run coherence measurement run --project-root . --satisfies SR-###
 ```
 
 The query/check forms (`status`, `navigate` without `--export`, `trace check`,
-`register check`, and `doctor context`) do not write project state. The
-state-changing `coherence audit run` creates
+`register check`, and `doctor context`) do not write project state, with one
+documented exception: anything that compiles obligations — which includes
+`status` — backfills a missing `content_checksum` into an existing
+`gate-decisions/` file the first time it reads one, then leaves it alone
+(SR-059/AC-2's migration; see `src/coherence/gate/content.py`). It sets that
+one derived field and never touches the decision itself.
+
+The state-changing `coherence audit run` creates
 `coverage-reviews/<feature>-<run_id>/status.json` and `audit.json`; a completed
-run also writes `report.json` and per-SR files under `verdicts/`. The
-state-changing `coherence measurement run` writes
-`validation/validation-report.json`. `navigate guide --export <path>` is an
-explicit point-in-time export and writes the requested snapshot path.
+run also writes `report.json` and per-SR files under `verdicts/`.
+
+The state-changing `coherence measurement run` writes
+`validation/validation-report.json`, but only when the run measured at least
+one requirement and the report already there was harness-produced (or absent).
+Otherwise it refuses, leaves the file exactly as found, and exits non-zero —
+pass `--replace-recorded` to supersede a hand- or agent-recorded report
+deliberately. A report that exists but cannot be attributed (unparseable, or
+declaring no origin) is treated the same as a foreign one: never overwritten
+by accident.
+
+`navigate guide --export <path>` is an explicit point-in-time export and writes
+the requested snapshot path.
 
 ### Authoring a bundle
 
