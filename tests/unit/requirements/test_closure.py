@@ -1,6 +1,6 @@
 import pytest
 from factory.freshness.model import FreshnessSeverity
-from factory.requirements.closure import RequirementState, classify
+from factory.requirements.closure import RequirementState, classify, verify_relation_wikilinks
 from factory.requirements.register import Binding, Requirement
 
 pytestmark = pytest.mark.unit
@@ -131,3 +131,41 @@ def test_healthy_states_carry_no_severity(tmp_path):
     )
     assert planned.severity is None
     assert declined.severity is None
+
+
+# --- verify_relation_wikilinks (SR-001/AC-3, SR-057/AC-1 wired into the live
+# closure check, not exercised against fixtures only -- see register.py's
+# missing_relation_wikilinks) -----------------------------------------------
+
+def _req_with_relations(tmp_path, *, upstream=(), relates_to=(), body=""):
+    return Requirement(
+        id="SR-001", title="t", statement="s", domain="behavioral",
+        upstream=list(upstream), binding=None, body=body, path=tmp_path / "SR-001.md",
+        relates_to=list(relates_to),
+    )
+
+
+@pytest.mark.sr("SR-001")
+@pytest.mark.sr("SR-057")
+def test_verify_relation_wikilinks_flags_an_unmirrored_upstream_id(tmp_path):
+    finding = verify_relation_wikilinks(_req_with_relations(tmp_path, upstream=["BR-002"]))
+    assert finding is not None
+    assert finding.state is RequirementState.CONFIGURATION
+    assert finding.severity is FreshnessSeverity.WARNING, "a documentation mirror gap never blocks"
+    assert "BR-002" in finding.detail
+
+
+@pytest.mark.sr("SR-057")
+def test_verify_relation_wikilinks_flags_an_unmirrored_relates_to_id(tmp_path):
+    finding = verify_relation_wikilinks(_req_with_relations(tmp_path, relates_to=["FEAT-001"]))
+    assert finding is not None
+    assert "FEAT-001" in finding.detail
+
+
+def test_verify_relation_wikilinks_is_none_when_every_relation_is_mirrored(tmp_path):
+    req = _req_with_relations(tmp_path, upstream=["BR-002"], body="See [[BR-002]] for why.")
+    assert verify_relation_wikilinks(req) is None
+
+
+def test_verify_relation_wikilinks_is_none_with_no_declared_relations(tmp_path):
+    assert verify_relation_wikilinks(_req_with_relations(tmp_path)) is None

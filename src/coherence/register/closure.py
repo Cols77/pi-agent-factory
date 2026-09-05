@@ -5,7 +5,11 @@ from enum import Enum
 from pathlib import Path
 
 from coherence.register.markers import MarkerCollectionError, collect_markers
-from coherence.register.register import Requirement, is_checksum_current
+from coherence.register.register import (
+    Requirement,
+    is_checksum_current,
+    missing_relation_wikilinks,
+)
 from substrate.freshness.model import FreshnessSeverity
 from substrate.policy.vocabulary import UncompiledPresetError
 
@@ -231,10 +235,57 @@ def verify_sr_marker(
     )
 
 
+def verify_relation_wikilinks(req: Requirement) -> ClosureFinding | None:
+    """SR-001/AC-3 + SR-057/AC-1, wired into the production closure the same
+    way ``verify_sr_marker`` above wires the marker check in: this is what
+    actually RUNS ``register.missing_relation_wikilinks`` against the live
+    requirements corpus, rather than leaving it exercised by its own unit
+    tests only.
+
+    Before this, ``missing_upstream_wikilinks``/``missing_relates_to_wikilinks``/
+    ``missing_relation_wikilinks`` had no caller anywhere outside their own
+    definitions and ``__all__`` -- both ACs were "closed" by a ``test_marker``
+    verification (the referenced test file passing) that says nothing about
+    whether the system ever actually applies the rule to real requirements.
+
+    Returns ``None`` when ``req`` declares no ``upstream``/``relates_to`` ids
+    at all (nothing to mirror -- not a finding), or when every declared id is
+    already mirrored as an ``[[id]]``/``[[id|...]]`` wikilink somewhere in the
+    body. Otherwise returns a ``CONFIGURATION`` finding -- the same state
+    ``verify_sr_marker`` uses for "a real gap in the requirement's own
+    authoring, not a measurement failure" -- at ``WARNING`` severity.
+
+    ``WARNING``, not ``BLOCKING``, by design: this is a documentation/
+    traceability hygiene gap (a declared relation not yet mirrored for
+    Obsidian navigation), not a claim that the requirement itself is
+    unsatisfied or unmeasured -- exactly the same distinction
+    ``verify_sr_marker`` already draws for a command/non-``.py`` experiment.
+    A ``WARNING`` still surfaces in ``cmd_check``'s report (never silently
+    dropped) without turning a pre-existing, unrelated documentation gap into
+    a new gate failure for every requirement that has one today.
+    """
+    ids = [*req.upstream, *req.relates_to]
+    if not ids:
+        return None
+    missing = missing_relation_wikilinks(req)
+    if not missing:
+        return None
+    return ClosureFinding(
+        req_id=req.id,
+        state=RequirementState.CONFIGURATION,
+        severity=FreshnessSeverity.WARNING,
+        detail=(
+            f"{req.id}: relation id(s) {', '.join(missing)} declared but not mirrored "
+            "as an [[id]] wikilink anywhere in the body"
+        ),
+    )
+
+
 __all__ = [
     "ClosureFinding",
     "RequirementState",
     "classify",
     "resolve_experiment_path",
+    "verify_relation_wikilinks",
     "verify_sr_marker",
 ]

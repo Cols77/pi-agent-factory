@@ -692,3 +692,70 @@ def test_findings_without_an_errors_channel_do_not_silently_drop_a_marker_skip(t
     assert skipped, "a caller without the errors channel must still see the skip as a finding"
     assert skipped[0].state is RequirementState.CONFIGURATION
     assert skipped[0].severity is None, "the surfaced skip must stay non-gating"
+
+
+def _bound_sr_relation_fixture(tmp_path, *, req_id="SR-001", relation_line, body="Rationale.\n"):
+    """A bound, measurable SR carrying a declared `upstream`/`relates_to` id,
+    so cmd_check's live wikilink-mirror wiring (SR-001/AC-3, SR-057/AC-1) is
+    exercised end-to-end against a real requirement file, not a fixture built
+    to call `verify_relation_wikilinks`/`missing_relation_wikilinks` directly."""
+    (tmp_path / "requirements").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "requirements" / f"{req_id}.md").write_text(
+        "---\n"
+        f"id: {req_id}\n"
+        "title: Bound requirement\n"
+        "statement: When X, the system shall do Y.\n"
+        "domain: behavioral\n"
+        f"{relation_line}"
+        "binding:\n"
+        "  experiment: patrol\n"
+        "  metric: unit_pass_rate\n"
+        "  assert: '>= 0.90'\n"
+        "checksum: null\n"
+        "---\n"
+        f"{body}",
+        encoding="utf-8",
+    )
+    cmd_index(tmp_path / "requirements")
+
+
+@pytest.mark.sr("SR-001")
+@pytest.mark.sr("SR-057")
+def test_check_surfaces_an_unmirrored_relation_id_as_a_non_gating_warning(tmp_path):
+    _bound_sr_relation_fixture(tmp_path, relation_line="upstream: [BR-002]\n")
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0, "an unmirrored relation id is a documentation warning, not a gate failure"
+    assert "1 measured-passing" in report
+    assert "BR-002" in report
+    assert "wikilink" in report.lower()
+
+
+@pytest.mark.sr("SR-057")
+def test_check_surfaces_an_unmirrored_relates_to_id_too(tmp_path):
+    _bound_sr_relation_fixture(tmp_path, relation_line="relates_to: [FEAT-001]\n")
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "FEAT-001" in report
+    assert "wikilink" in report.lower()
+
+
+@pytest.mark.sr("SR-001")
+def test_check_does_not_flag_a_requirement_whose_relations_are_all_mirrored(tmp_path):
+    _bound_sr_relation_fixture(
+        tmp_path, relation_line="upstream: [BR-002]\n", body="See [[BR-002]] for context.\n"
+    )
+    write_run_manifest(
+        tmp_path / "evidence",
+        _manifest_with_validation_entries([{"id": "SR-001", "passed": True}]),
+    )
+    report, code = cmd_check(tmp_path)
+    assert code == 0
+    assert "wikilink" not in report.lower(), "every declared id is mirrored -- no finding"

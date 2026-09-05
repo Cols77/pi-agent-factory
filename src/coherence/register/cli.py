@@ -15,6 +15,7 @@ from coherence.register.closure import (
     ClosureFinding,
     RequirementState,
     classify,
+    verify_relation_wikilinks,
     verify_sr_marker,
 )
 from coherence.policy.compiler import resolve_profile
@@ -271,6 +272,13 @@ def _findings(
             marker_errors.extend(skipped or [])
         if marker_finding is not None:
             results.append((req, marker_finding))
+        # SR-001/AC-3 + SR-057/AC-1: run the wikilink-mirror check against the
+        # live corpus (see verify_relation_wikilinks's own docstring for why
+        # this was previously exercised only by its unit tests, never by a
+        # real caller).
+        relation_finding = verify_relation_wikilinks(req)
+        if relation_finding is not None:
+            results.append((req, relation_finding))
     return results
 
 
