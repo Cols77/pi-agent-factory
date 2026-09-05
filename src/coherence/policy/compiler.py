@@ -537,10 +537,40 @@ def _test_marker_obligation(root: Path, scope_ref: str, profile: str) -> Obligat
         if c.verification.kind == "test_marker"
     ]
     if not test_marker_criteria:
+        # Finding 3.5. Two genuinely different reasons land here, and only one
+        # of them is "nothing existed to check":
+        #  - `req.acceptance` is non-empty (e.g. all-`manual` criteria) --
+        #    test_marker is legitimately not this requirement's business; a
+        #    DIFFERENT obligation (human_review) already covers those criteria.
+        #    `state="satisfied"` is correct and unchanged: something WAS
+        #    authored and IS being checked, just not by this obligation kind.
+        #  - `req.acceptance` is empty too (no binding, no acceptance
+        #    criteria at all -- SR-060/SR-063/SR-064 today) -- there is
+        #    nothing anywhere for ANY obligation kind to check yet.
+        #    `state="satisfied"` here would read as "checked and found fine",
+        #    indistinguishable from a marker that was actually verified
+        #    present. Use a distinct label, `"no_criteria"`, so a consumer of
+        #    the raw Obligation (e.g. `coherence navigate obligations --json`)
+        #    can tell "vacuously fine" apart from "verified fine" without
+        #    cross-referencing `reason` text.
+        #
+        # Deliberately NOT flipped to `state="open"` for the zero-AC case:
+        # `requiredness` stays `not_applicable` (unchanged) and every caller
+        # that gates (`_blocking_for`, `verify_sr_marker`/`_findings`) keys
+        # off `requiredness`, never off this `state`, for a not_applicable
+        # obligation -- SR-060/SR-063/SR-064 already fail `register check` on
+        # their other three obligations regardless, per the audit's own
+        # finding. `open` would additionally read as "there is a fix to make"
+        # for an obligation whose `resolve_cmd` is (correctly) `None` -- there
+        # is nothing to add a marker to -- a NEW, false signal, not just a
+        # more honest one.
+        has_any_acceptance = bool(req.acceptance) if req is not None else False
         return Obligation(id=f"ob:test_marker:{scope_ref}", scope_ref=scope_ref,
             kind="test_marker", requiredness="not_applicable",
             reason=f"{sr_id} has no binding and no test_marker acceptance criteria to check",
-            source_policy=profile, state="satisfied", resolve_cmd=None)
+            source_policy=profile,
+            state="satisfied" if has_any_acceptance else "no_criteria",
+            resolve_cmd=None)
 
     canonical_root = root.resolve()
     missing_refs: list[str] = []

@@ -699,11 +699,36 @@ def test_compile_obligations_test_marker_satisfied_when_marker_present(tmp_path)
 def test_compile_obligations_test_marker_not_applicable_for_command_experiment(tmp_path):
     # A command / non-file experiment is a separate configuration finding (Task
     # 3), NOT this obligation's concern: test_marker is not_applicable for it.
+    # This path DID inspect the binding (it resolved an experiment path and
+    # decided it isn't a test file), so "satisfied" is left unchanged here --
+    # finding 3.5 is only about the OTHER not_applicable path below, where
+    # there was no binding and no criteria to look at in the first place.
     _seed_test_marker_trace(tmp_path, "SR-014", experiment="patrol")
     obligations = compile_obligations(tmp_path, "sr:SR-014")
     tm = next(o for o in obligations if o.kind == "test_marker")
     assert tm.requiredness == "not_applicable"
     assert tm.state == "satisfied"
+
+
+def test_compile_obligations_test_marker_with_zero_acceptance_criteria_is_not_satisfied(tmp_path):
+    # Finding 3.5: an SR with no binding AND no test_marker acceptance
+    # criteria has nothing for this obligation to check -- `state="satisfied"`
+    # would read as "checked and fine", indistinguishable from a marker that
+    # was actually verified present. It must report a distinct, honest label
+    # instead, while `requiredness` stays `not_applicable` (never gates) and
+    # `resolve_cmd` stays `None` (there is nothing to add a marker to).
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements" / "SR-060.md").write_text(
+        "---\nid: SR-060\ntitle: t\nstatement: s\ndomain: d\n---\n",
+        encoding="utf-8",
+    )
+    obligations = compile_obligations(tmp_path, "sr:SR-060")
+    tm = next(o for o in obligations if o.kind == "test_marker")
+    assert tm.requiredness == "not_applicable"
+    assert tm.state != "satisfied", "nothing was checked -- this must not read as a clean pass"
+    assert tm.state == "no_criteria"
+    assert tm.resolve_cmd is None
+    assert "no binding and no test_marker acceptance criteria" in tm.reason
 
 
 # --------------------------------------------------------------------------
