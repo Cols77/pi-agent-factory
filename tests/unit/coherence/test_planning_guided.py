@@ -15,6 +15,11 @@ from coherence.planning.guided_entrypoint import (
     parse_session_response,
     run_session_command,
 )
+from coherence.planning.guided_pipeline import (
+    PIPELINE_VERBS,
+    build_pipeline_command,
+    run_pipeline_command,
+)
 from tests.unit._legal_actions_json import completed_json
 
 pytestmark = pytest.mark.unit
@@ -294,3 +299,93 @@ def test_main_exits_one_when_nothing_is_trustworthy(
 )
 def test_main_usage_errors_exit_two(argv: list[str]) -> None:
     assert main(argv) == 2
+
+
+# --- pipeline verbs ------------------------------------------------------
+
+
+def test_pipeline_verbs_are_the_implemented_compile_and_handoff_verbs() -> None:
+    assert PIPELINE_VERBS == ("bootstrap", "check", "review", "handoff")
+
+
+def test_bootstrap_passes_all_three_artifacts_and_decompose() -> None:
+    command = build_pipeline_command(
+        Path("/p"),
+        "FEAT-018",
+        "bootstrap",
+        intent=".intent/intent.json",
+        spec="docs/superpowers/specs/s.md",
+        plan="docs/superpowers/plans/p.md",
+        decompose="true",
+    )
+
+    assert command[:5] == ["uv", "run", "coherence", "plan", "bootstrap"]
+    assert command[command.index("--intent") + 1] == ".intent/intent.json"
+    assert command[command.index("--spec") + 1] == "docs/superpowers/specs/s.md"
+    assert command[command.index("--plan") + 1] == "docs/superpowers/plans/p.md"
+    assert "--decompose" in command
+
+
+def test_bootstrap_omits_decompose_flag_when_not_requested() -> None:
+    command = build_pipeline_command(
+        Path("/p"), "FEAT-018", "bootstrap", intent="i", spec="s", plan="p", decompose="false"
+    )
+
+    assert "--decompose" not in command
+
+
+def test_handoff_carries_the_workflow_selection() -> None:
+    command = build_pipeline_command(
+        Path("/p"), "FEAT-018", "handoff", workflow="standard-development"
+    )
+
+    assert command[command.index("--workflow") + 1] == "standard-development"
+
+
+def test_unsupported_pipeline_verb_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported planning pipeline verb"):
+        build_pipeline_command(Path("/p"), "FEAT-018", "adopt")
+
+
+def test_pipeline_exit_one_is_findings_data_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    report = {"ok": False, "findings": [{"code": "PLAN_TASK_PARITY"}]}
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(report, returncode=1))
+
+    code, payload = run_pipeline_command(
+        Path("/p"), "FEAT-018", "check", intent="i", spec="s", plan="p"
+    )
+
+    assert code == 1
+    assert payload["findings"][0]["code"] == "PLAN_TASK_PARITY"
+
+
+def test_pipeline_untrusted_exit_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: completed_json({"ok": True}, returncode=7, stderr="bad")
+    )
+
+    with pytest.raises(BackendError, match="bad"):
+        run_pipeline_command(Path("/p"), "FEAT-018", "review")
+
+
+def test_pipeline_rejects_unsafe_run_id_without_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+
+    with pytest.raises(BackendError, match="safe run-id grammar"):
+        run_pipeline_command(Path("/p"), "run 001", "review")
+
+    assert calls == []
+
+
+def test_pipeline_rejects_non_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess([], returncode=0, stdout="not json", stderr=""),
+    )
+
+    with pytest.raises(BackendError, match="invalid planning pipeline response"):
+        run_pipeline_command(Path("/p"), "FEAT-018", "review")
