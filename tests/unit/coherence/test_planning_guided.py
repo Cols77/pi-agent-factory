@@ -146,8 +146,7 @@ def test_start_builds_argv_only_command_with_prompt() -> None:
         str(Path("/p")),
         "--run-id",
         "FEAT-018",
-        "--prompt",
-        "Plan the thing",
+        "--prompt=Plan the thing",
         "--json",
     ]
 
@@ -188,7 +187,7 @@ def test_main_resume_prints_payload_and_exits_zero(
     assert json.loads(capsys.readouterr().out) == payload
 
 
-def test_append_passes_each_field_as_its_own_argv_token() -> None:
+def test_append_joins_each_flag_and_value_as_one_argv_token() -> None:
     command = build_session_command(
         Path("/p"),
         "run-001",
@@ -199,10 +198,24 @@ def test_append_passes_each_field_as_its_own_argv_token() -> None:
         source="intent-review-agent",
     )
 
-    assert command[command.index("--answer-id") + 1] == "a3"
-    assert command[command.index("--question") + 1] == "What breaks?"
-    assert command[command.index("--text") + 1] == "Nothing"
-    assert command[command.index("--source") + 1] == "intent-review-agent"
+    assert "--answer-id=a3" in command
+    assert "--question=What breaks?" in command
+    assert "--text=Nothing" in command
+    assert "--source=intent-review-agent" in command
+
+
+@pytest.mark.parametrize("hyphen_value", ["-N/A", "-none", "-1", "--looks-like-a-flag"])
+def test_append_survives_free_text_answers_starting_with_a_hyphen(hyphen_value: str) -> None:
+    """A single hyphen-prefixed token with no space is what argparse's
+    `_parse_optional` heuristic misreads as an unknown option when a flag and
+    its value are two separate argv tokens; joining them with `=` removes the
+    ambiguity regardless of what the value looks like."""
+    command = build_session_command(
+        Path("/p"), "run-001", "append",
+        answer_id="a1", question="q?", text=hyphen_value, source="user",
+    )
+
+    assert f"--text={hyphen_value}" in command
 
 
 def test_unsupported_verb_is_rejected() -> None:
@@ -375,9 +388,9 @@ def test_bootstrap_passes_all_three_artifacts_and_decompose() -> None:
     )
 
     assert command[:5] == ["uv", "run", "coherence", "plan", "bootstrap"]
-    assert command[command.index("--intent") + 1] == ".intent/intent.json"
-    assert command[command.index("--spec") + 1] == "docs/superpowers/specs/s.md"
-    assert command[command.index("--plan") + 1] == "docs/superpowers/plans/p.md"
+    assert "--intent=.intent/intent.json" in command
+    assert "--spec=docs/superpowers/specs/s.md" in command
+    assert "--plan=docs/superpowers/plans/p.md" in command
     assert "--decompose" in command
 
 
@@ -394,7 +407,7 @@ def test_handoff_carries_the_workflow_selection() -> None:
         Path("/p"), "FEAT-018", "handoff", workflow="standard-development"
     )
 
-    assert command[command.index("--workflow") + 1] == "standard-development"
+    assert "--workflow=standard-development" in command
 
 
 def test_unsupported_pipeline_verb_is_rejected() -> None:
@@ -459,3 +472,84 @@ def test_pipeline_surfaces_stderr_when_a_trusted_exit_has_unparseable_stdout(
 
     with pytest.raises(BackendError, match="KeyError"):
         run_pipeline_command(Path("/p"), "FEAT-018", "review")
+
+
+# --- SR-065 AC-1/AC-3: command-dispatch and non-executing-boundary pinning
+#
+# SR-065 names this file as the verification for AC-1 (start-or-resume
+# dispatch) and AC-3 (the guided handoff stays non-executing). Those two
+# specific claims are prose in `.claude/commands/coherence-plan.md`, not
+# behaviour a Python function exposes to assert against directly -- so the
+# assertions live here as well as in `test_coherence_plan_command_contract.py`
+# (which pins the command file's other invariants), rather than only in a
+# file this SR's acceptance criteria do not name.
+
+
+_COMMAND_FILE = Path(__file__).parents[3] / ".claude" / "commands" / "coherence-plan.md"
+
+
+def test_ac1_start_or_resume_dispatch_is_not_swapped() -> None:
+    """A swap here (calling `start` on `ok: true` or `resume` on `ok: false`)
+    would double-start every existing run and never resume one."""
+    text = _COMMAND_FILE.read_text(encoding="utf-8")
+    section = text[text.index("## 2. Start or resume") : text.index("## 3.")]
+
+    true_branch = section[section.index("`ok: true`") : section.index("`ok: false`")]
+    false_branch = section[section.index("`ok: false`") :]
+
+    assert "resume" in true_branch
+    assert "start" not in true_branch
+    assert "start" in false_branch
+
+
+def test_ac3_non_executing_boundary_is_stated() -> None:
+    text = _COMMAND_FILE.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    assert "starts_automatically" in lowered
+    assert "downstream" in lowered
+
+
+# --- SR-065 AC-2: a real backend-detected staleness reaches the host as data
+#
+# `parse_session_response` validates shape, not whether one response is fresh
+# relative to a prior one -- that comparison is backend-owned structural work
+# (`session.py::status_session` recomputes the projection from the journal and
+# rejects a `state.json` that disagrees with it). This test drives that real
+# rejection through the adapter, rather than only asserting against a
+# hand-authored fixture dict, so the SR's staleness claim is checked against
+# what the backend actually does.
+
+
+def test_ac2_a_genuinely_stale_session_state_is_relayed_as_data_not_raised(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Drives the real `session.py::status_session` staleness check
+    in-process (never a hand-authored fixture payload) and feeds its actual
+    stdout through the adapter's own parsing path, proving a genuine backend
+    rejection reaches the host as `ok: false` data rather than being lost."""
+    from coherence.planning.cli import main as backend_main
+
+    root = tmp_path
+    run_id = "run-001"
+    assert (
+        backend_main(
+            ["start", "--project-root", str(root), "--run-id", run_id, "--prompt", "p", "--json"]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    state_path = root / ".factory" / "planning" / run_id / "state.json"
+    state_path.write_text(json.dumps({"schema": 1, "run_id": run_id}), encoding="utf-8")
+
+    exit_code = backend_main(
+        ["status", "--project-root", str(root), "--run-id", run_id, "--json"]
+    )
+    real_stdout = capsys.readouterr().out
+    assert exit_code == 1
+
+    payload = parse_session_response(real_stdout, run_id)
+
+    assert payload["ok"] is False
+    assert "stale" in payload["error"]

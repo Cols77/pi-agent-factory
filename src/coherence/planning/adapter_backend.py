@@ -1,7 +1,8 @@
-"""The single fail-closed call path from a host adapter to the Coherence CLI.
+"""The fail-closed call path this feature's guided-planning adapters share.
 
-Every guided-planning adapter routes its subprocess work through this module so
-the safety-critical rules exist once:
+`guided_entrypoint.py`, `guided_pipeline.py`, and `artifact_navigator.py` (for
+its subprocess-invoking CLI wrapper) route their subprocess work through this
+module so the safety-critical rules exist once here:
 
 - a run id outside the shared safe grammar never reaches a subprocess;
 - invocations are argv lists, never shell strings;
@@ -9,6 +10,14 @@ the safety-critical rules exist once:
   both carry trustworthy JSON -- 1 means "blocked", "not ok", or "findings
   present", which is *data* the host must relay, not a crash. Any other exit
   code means stdout is untrustworthy and is refused even when it parses.
+
+`legal_actions_adapter.py` predates this module and intentionally keeps its
+own, independently-maintained copy of the same fail-closed shape (its
+docstring documents that contract for itself) rather than importing this one
+-- it is Hermes/Codex-shared, host-neutral code that this feature's plan
+treats as out of scope for modification, so a change here is never assumed to
+reach it. Any future change to `TRUSTED_EXIT_CODES` or this module's contract
+must be checked against `legal_actions_adapter.py` by hand.
 
 This module holds no planning authority: it starts nothing, decides nothing, and
 knows nothing about what the payloads mean.

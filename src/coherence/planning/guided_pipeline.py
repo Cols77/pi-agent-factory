@@ -56,7 +56,7 @@ def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields:
         run_id,
     ]
     for name in _VERB_FIELDS[verb]:
-        command.extend([f"--{name}", fields[name]])
+        command.append(f"--{name}={fields[name]}")
     if verb == "bootstrap" and fields.get("decompose") == "true":
         command.append("--decompose")
     command.append("--json")

@@ -37,9 +37,11 @@ here where it could silently drift.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
+from _shell_segments import program_start, program_token
 from _shell_segments import segments as shell_segments
 from coherence.planning.legal_actions_adapter import SAFE_RUN_ID
 
@@ -56,10 +58,12 @@ _UNPARSEABLE_REASON = (
 )
 
 _INLINE_EXEC_REASON = (
-    "This runs coherence.planning.guided_entrypoint's finalize through inline Python (-c) "
+    "This reaches the coherence planning backend's finalize through inline Python (-c) "
     "rather than the sanctioned CLI form, which this gate cannot verify. Use `uv run python -m "
     "coherence.planning.guided_entrypoint finalize ...` instead."
 )
+
+_COHERENCE_MENTION = re.compile(r"\bcoherence\b")
 
 _CD_AMBIGUOUS_REASON = (
     "A preceding `cd`/`pushd` in this command makes the project root this finalize call will "
@@ -68,38 +72,31 @@ _CD_AMBIGUOUS_REASON = (
 )
 
 
-def _program_token(tokens: list[str]) -> str | None:
-    """The actually-invoked program: skip leading `VAR=value` assignments and
-    a leading `uv run`."""
-    index = 0
-    while index < len(tokens) and _looks_like_assignment(tokens[index]):
-        index += 1
-    if (
-        index < len(tokens)
-        and tokens[index] == "uv"
-        and index + 1 < len(tokens)
-        and tokens[index + 1] == "run"
-    ):
-        index += 2
-    return tokens[index] if index < len(tokens) else None
-
-
-def _looks_like_assignment(token: str) -> bool:
-    name, sep, _ = token.partition("=")
-    return bool(sep) and (name[:1].isalpha() or name[:1] == "_") and name.replace("_", "").isalnum()
-
-
-def _invokes_adapter_module(tokens: list[str]) -> bool:
-    """True when `tokens` actually invoke the guided-entrypoint adapter, as
-    the target of `-m` or as the script path being run -- never merely
-    because its name appears somewhere in an argument."""
-    for index, token in enumerate(tokens):
-        if token == "-m" and index + 1 < len(tokens) and tokens[index + 1] == _ADAPTER_MODULE:
-            return True
-        basename = token.replace("\\", "/").rsplit("/", 1)[-1]
-        if basename == _ADAPTER_SCRIPT_BASENAME:
-            return True
-    return False
+def _adapter_invocation_end(tokens: list[str]) -> int | None:
+    """Index of the token immediately *after* the guided-entrypoint adapter
+    invocation, when the adapter is the actual program being run -- as the
+    target of `-m`, or as the script path itself -- never merely because its
+    name appears somewhere else in the segment (a grep pattern, a file
+    argument to an unrelated command). `None` if this segment does not invoke
+    it. Callers check whether the token at that index is the subcommand they
+    care about, the same way argparse would see it."""
+    start = program_start(tokens)
+    if start is None:
+        return None
+    program = tokens[start]
+    basename = program.replace("\\", "/").rsplit("/", 1)[-1]
+    if basename == _ADAPTER_SCRIPT_BASENAME:
+        # The adapter script is itself the invoked program (e.g. run directly
+        # as an executable), with no `python` prefix of its own.
+        return start + 1
+    if program in ("python", "python3", "py") and start + 1 < len(tokens):
+        next_token = tokens[start + 1]
+        if next_token == "-m" and start + 2 < len(tokens) and tokens[start + 2] == _ADAPTER_MODULE:
+            return start + 3
+        next_basename = next_token.replace("\\", "/").rsplit("/", 1)[-1]
+        if next_basename == _ADAPTER_SCRIPT_BASENAME:
+            return start + 2
+    return None
 
 
 def _last_flag_value(tokens: list[str], flag: str) -> str | None:
@@ -134,6 +131,15 @@ def _events(journal: Path) -> list[dict] | None:
     return events
 
 
+def _is_review(event: dict) -> bool:
+    return (event.get("payload") or {}).get("source") == REVIEW_SOURCE
+
+
+def _sequence(event: dict) -> int | None:
+    value = event.get("sequence")
+    return value if isinstance(value, int) else None
+
+
 def _decide_finalize(project_root: Path, tokens: list[str]) -> str | None:
     """`tokens` is already known to be a finalize call. Return a deny reason,
     or None to allow it."""
@@ -152,16 +158,30 @@ def _decide_finalize(project_root: Path, tokens: list[str]) -> str | None:
             "run has been started and its capture recorded."
         )
 
-    reviewed = any(
-        event.get("kind") == "answer_captured"
-        and (event.get("payload") or {}).get("source") == REVIEW_SOURCE
-        for event in events
-    )
-    if not reviewed:
+    answer_events = [event for event in events if event.get("kind") == "answer_captured"]
+    review_sequences = [
+        seq
+        for seq in (_sequence(event) for event in answer_events if _is_review(event))
+        if seq is not None
+    ]
+    if not review_sequences:
         return (
             f"Run {run_id} has no recorded intent review. Dispatch the review agent and record "
             f"its verdict with `append --source {REVIEW_SOURCE}` (record it even when the "
             "verdict is 'no findings'), then finalize."
+        )
+
+    latest_review = max(review_sequences)
+    other_sequences = [
+        seq
+        for seq in (_sequence(event) for event in answer_events if not _is_review(event))
+        if seq is not None
+    ]
+    if other_sequences and max(other_sequences) > latest_review:
+        return (
+            f"Run {run_id} has answers captured after the most recent recorded intent review "
+            "(the review is not the most recent capture content). Dispatch the review agent "
+            f"again and record its verdict with `append --source {REVIEW_SOURCE}` before finalize."
         )
 
     raised = {
@@ -193,7 +213,7 @@ def decide(project_root: Path, command: str) -> str | None:
     silently stop noticing it."""
     parsed = shell_segments(command)
     if parsed is None:
-        if "guided_entrypoint" in command and "finalize" in command:
+        if "finalize" in command and ("guided_entrypoint" in command or "coherence" in command):
             return _UNPARSEABLE_REASON
         return None
 
@@ -202,17 +222,15 @@ def decide(project_root: Path, command: str) -> str | None:
         if not tokens:
             continue
 
-        program = _program_token(tokens)
-        adapter_invoked = _invokes_adapter_module(tokens)
-        is_finalize_call = adapter_invoked and "finalize" in tokens
+        program = program_token(tokens)
+        end = _adapter_invocation_end(tokens)
+        is_finalize_call = end is not None and end < len(tokens) and tokens[end] == "finalize"
 
         if not is_finalize_call:
             if program in ("python", "python3", "py") and "-c" in tokens:
                 code_index = tokens.index("-c") + 1
-                if any(
-                    "guided_entrypoint" in token and "finalize" in token
-                    for token in tokens[code_index:]
-                ):
+                code = " ".join(tokens[code_index:])
+                if "finalize" in code and _COHERENCE_MENTION.search(code):
                     return _INLINE_EXEC_REASON
             if program in _CD_LIKE:
                 cd_seen = True

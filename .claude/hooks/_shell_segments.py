@@ -10,6 +10,13 @@ code passed via `python -c "...; ..."`) without being a real segment
 separator. `shlex.shlex` with `punctuation_chars` set understands quoting, so
 it is used here instead -- a separator token is only treated as a boundary
 when shlex itself, not a blind regex, decided it was outside any quotes.
+
+This module also carries `program_start`/`program_token`: resolving which
+token is the *actually-invoked program* in a segment (skipping leading
+`VAR=value` assignments and a leading `uv run`) is a second thing both hooks
+must never disagree about -- a segment cannot simultaneously "be" `coherence`
+and "be" `python -m <adapter>`, so whichever check decides what a segment
+*is* must be the one both hooks share, not two independently-written guesses.
 """
 
 from __future__ import annotations
@@ -58,4 +65,32 @@ def segments(command: str) -> list[list[str]] | None:
     return result
 
 
-__all__ = ["segments", "tokenize"]
+def _looks_like_assignment(token: str) -> bool:
+    name, sep, _ = token.partition("=")
+    return bool(sep) and (name[:1].isalpha() or name[:1] == "_") and name.replace("_", "").isalnum()
+
+
+def program_start(tokens: list[str]) -> int | None:
+    """Index of the actually-invoked program in `tokens`: skips leading
+    `VAR=value` assignments and a leading `uv run`. `None` if nothing is left
+    to invoke after skipping (an empty or assignment-only segment)."""
+    index = 0
+    while index < len(tokens) and _looks_like_assignment(tokens[index]):
+        index += 1
+    if (
+        index < len(tokens)
+        and tokens[index] == "uv"
+        and index + 1 < len(tokens)
+        and tokens[index + 1] == "run"
+    ):
+        index += 2
+    return index if index < len(tokens) else None
+
+
+def program_token(tokens: list[str]) -> str | None:
+    """The actually-invoked program token in `tokens`, or `None`."""
+    index = program_start(tokens)
+    return tokens[index] if index is not None else None
+
+
+__all__ = ["program_start", "program_token", "segments", "tokenize"]

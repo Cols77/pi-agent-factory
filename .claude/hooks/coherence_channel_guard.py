@@ -17,6 +17,20 @@ comment, and per segment it is token-based rather than a substring search
 over the segment text, so a raw backend call cannot be exempted just because
 an adapter module's name happens to appear elsewhere in the same segment --
 inside an unrelated argument such as a quoted prompt string.
+
+A segment cannot simultaneously *be* the raw `coherence` program and *be*
+`python -m <adapter>`: a single process has exactly one actually-invoked
+program (`_shell_segments.program_token`, shared with
+`coherence_finalize_gate.py` so the two hooks never disagree). A raw
+`coherence plan <verb>` call is denied on that basis alone -- an unrelated
+`-m <adapter>` token appearing later in the same segment does not corroborate
+anything and is never treated as an exemption. Conversely, any `-m`/script
+target that resolves under the `coherence`/`coherence.planning` namespace but
+is not one of the four sanctioned adapter modules is denied by default,
+rather than only recognizing one specific way of spelling the backend entry
+point; and inline Python (`-c`) that mentions the `coherence` package is
+denied for the same reason `coherence_finalize_gate.py` denies it for
+`finalize` -- this hook cannot verify what such code actually calls.
 """
 
 from __future__ import annotations
@@ -25,6 +39,7 @@ import json
 import re
 import sys
 
+from _shell_segments import program_token
 from _shell_segments import segments as shell_segments
 
 _ADAPTER_MODULES = (
@@ -36,12 +51,29 @@ _ADAPTER_MODULES = (
 
 _VERB = re.compile(r"[a-z][a-z-]*")
 
+_COHERENCE_MENTION = re.compile(r"\bcoherence\b")
+
 _REASON = (
     "Direct `coherence plan {verb}` calls bypass the validated adapter "
     "(run-id grammar, argv-only invocation, exit-code contract, payload "
     "validation). Use `uv run python -m coherence.planning.guided_entrypoint "
     "{verb} ...` for capture verbs or `...guided_pipeline {verb} ...` for "
     "bootstrap/check/review/handoff."
+)
+
+_NAMESPACE_REASON = (
+    "`{module}` is not one of the sanctioned adapter modules "
+    "(coherence.planning.guided_entrypoint, guided_pipeline, "
+    "legal_actions_adapter, artifact_navigator). A module under the "
+    "coherence/coherence.planning namespace that is not explicitly "
+    "allow-listed is refused by default, the same way an unrecognized "
+    "`coherence` CLI spelling is."
+)
+
+_INLINE_EXEC_REASON = (
+    "This runs inline Python (-c) that mentions the coherence package, which this "
+    "hook cannot verify goes through a sanctioned adapter. Use `uv run python -m "
+    "coherence.planning.<adapter> ...` instead."
 )
 
 _UNPARSEABLE_REASON = (
@@ -51,25 +83,40 @@ _UNPARSEABLE_REASON = (
 )
 
 
-def _invokes_adapter(tokens: list[str]) -> bool:
-    """True when `tokens` actually invoke one of the sanctioned adapters --
-    as the target of `-m`, never merely as text appearing somewhere in an
-    argument."""
-    for index, token in enumerate(tokens):
-        if token == "-m" and index + 1 < len(tokens) and tokens[index + 1] in _ADAPTER_MODULES:
-            return True
-    return False
-
-
 def _backend_verb(tokens: list[str]) -> str | None:
-    """The verb of a raw `coherence plan <verb>` invocation among `tokens`,
-    matched positionally (real adjacent argv tokens), or `None`."""
+    """The verb of a raw `coherence plan <verb>` invocation, when `coherence`
+    is the actually-invoked program in `tokens` (never merely a token that
+    appears somewhere in an unrelated argument), or `None`."""
+    if program_token(tokens) != "coherence":
+        return None
     for index in range(len(tokens) - 2):
         if tokens[index] == "coherence" and tokens[index + 1] == "plan":
             verb = tokens[index + 2]
             if _VERB.fullmatch(verb):
                 return verb
     return None
+
+
+def _raw_module_target(tokens: list[str]) -> str | None:
+    """The `-m` module target, when the actually-invoked program in `tokens`
+    is a Python interpreter and `-m` immediately follows it, or `None`."""
+    if program_token(tokens) not in ("python", "python3", "py"):
+        return None
+    for index, token in enumerate(tokens):
+        if token == "-m" and index + 1 < len(tokens):
+            return tokens[index + 1]
+    return None
+
+
+def _inline_exec_code(tokens: list[str]) -> str | None:
+    """The code argument of a `-c` inline execution, when the actually-invoked
+    program in `tokens` is a Python interpreter, or `None`."""
+    if program_token(tokens) not in ("python", "python3", "py"):
+        return None
+    if "-c" not in tokens:
+        return None
+    code_index = tokens.index("-c") + 1
+    return " ".join(tokens[code_index:])
 
 
 def decide(command: str) -> str | None:
@@ -86,11 +133,20 @@ def decide(command: str) -> str | None:
 
     for tokens in parsed:
         verb = _backend_verb(tokens)
-        if verb is None:
-            continue
-        if _invokes_adapter(tokens):
-            continue
-        return _REASON.format(verb=verb)
+        if verb is not None:
+            return _REASON.format(verb=verb)
+
+        module = _raw_module_target(tokens)
+        if (
+            module is not None
+            and module not in _ADAPTER_MODULES
+            and (module == "coherence" or module.startswith("coherence."))
+        ):
+            return _NAMESPACE_REASON.format(module=module)
+
+        code = _inline_exec_code(tokens)
+        if code is not None and _COHERENCE_MENTION.search(code):
+            return _INLINE_EXEC_REASON
     return None
 
 

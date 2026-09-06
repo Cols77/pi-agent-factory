@@ -70,7 +70,7 @@ def build_session_command(project_root: Path, run_id: str, verb: str, **fields: 
         run_id,
     ]
     for name in _VERB_FIELDS[verb]:
-        command.extend([f"--{name.replace('_', '-')}", fields[name]])
+        command.append(f"--{name.replace('_', '-')}={fields[name]}")
     command.append("--json")
     return command
 

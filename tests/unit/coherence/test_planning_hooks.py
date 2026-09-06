@@ -109,6 +109,58 @@ def test_guard_denies_a_raw_call_that_merely_mentions_an_adapter_in_an_argument(
     assert reason is not None
 
 
+def test_guard_allows_unrelated_text_that_merely_contains_the_verb_sequence(
+    guard: ModuleType,
+) -> None:
+    """`coherence` must be the actually-invoked program, not merely a word
+    sequence appearing anywhere in the segment (an echo, a commit message)."""
+    assert guard.decide("echo done for coherence plan review") is None
+
+
+def test_guard_denies_a_raw_call_even_with_an_inert_trailing_adapter_flag(
+    guard: ModuleType,
+) -> None:
+    """A single process cannot simultaneously be `coherence` and `python -m
+    <adapter>` -- an unused, trailing `-m` token must never exempt a real raw
+    `coherence plan` call from denial."""
+    reason = guard.decide(
+        "uv run coherence plan resolve --run-id FEAT-018 --project-root . "
+        "--challenge-id challenge-a2-evidence --resolution resolve --response auto "
+        "--provenance intent-review-agent -m coherence.planning.guided_entrypoint"
+    )
+
+    assert reason is not None
+    assert "adapter" in reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run python -m coherence.planning.cli finalize --run-id r --status provisional",
+        "uv run python -m coherence.cli plan finalize --run-id r --status provisional",
+        "uv run python -m coherence.planning.session finalize --run-id r",
+    ],
+)
+def test_guard_denies_unsanctioned_modules_under_the_coherence_namespace(
+    guard: ModuleType, command: str
+) -> None:
+    """Only the four allow-listed adapter modules may be reached via `-m`;
+    every other spelling under the `coherence`/`coherence.planning` namespace
+    is refused by default rather than silently permitted."""
+    reason = guard.decide(command)
+
+    assert reason is not None
+
+
+def test_guard_denies_inline_python_exec_that_mentions_coherence(guard: ModuleType) -> None:
+    reason = guard.decide(
+        "uv run python -c \"from coherence.planning.cli import main; "
+        "main(['finalize','--run-id','r'])\""
+    )
+
+    assert reason is not None
+
+
 # --- finalize gate -------------------------------------------------------
 
 
@@ -315,6 +367,48 @@ def test_gate_ignores_the_adapter_and_finalize_words_in_an_unrelated_commit_mess
     )
 
     assert reason is None
+
+
+def test_gate_ignores_a_grep_that_merely_mentions_the_adapter_file_and_the_word(
+    gate: ModuleType, tmp_path: Path
+) -> None:
+    """`finalize` appearing as a bare token (a grep pattern) alongside the
+    adapter's basename (a grep target) must not be mistaken for the adapter
+    module actually being invoked with `finalize` as its subcommand."""
+    reason = gate.decide(
+        tmp_path,
+        'grep -n "finalize" src/coherence/planning/guided_entrypoint.py',
+    )
+
+    assert reason is None
+
+
+def test_gate_denies_a_review_that_is_stale_relative_to_a_later_answer(
+    gate: ModuleType, tmp_path: Path
+) -> None:
+    """A review recorded early in a run must not permanently satisfy the gate
+    once a later, never-reviewed answer is appended -- the review must be the
+    most recent capture content, not merely present somewhere in history."""
+    _journal(
+        tmp_path,
+        "FEAT-018",
+        [
+            {
+                "run_id": "FEAT-018",
+                "sequence": 1,
+                "kind": "capture_started",
+                "payload": {"prompt": "p"},
+            },
+            _answer(2, "user"),
+            _answer(3, "intent-review-agent"),
+            _answer(4, "user"),
+        ],
+    )
+
+    reason = gate.decide(tmp_path, FINALIZE)
+
+    assert reason is not None
+    assert "stale" in reason.lower() or "not the most recent" in reason.lower()
 
 
 def test_gate_denies_finalize_reached_through_a_preceding_cd(
