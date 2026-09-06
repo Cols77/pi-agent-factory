@@ -8,6 +8,13 @@ from typing import Any
 import pytest
 
 from coherence.planning.adapter_backend import BackendError, invoke_backend, require_safe_run_id
+from coherence.planning.guided_entrypoint import (
+    SESSION_VERBS,
+    build_session_command,
+    main,
+    parse_session_response,
+    run_session_command,
+)
 from tests.unit._legal_actions_json import completed_json
 
 pytestmark = pytest.mark.unit
@@ -81,3 +88,209 @@ def test_invocation_never_uses_a_shell(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert isinstance(seen["command"], list)
     assert seen["kwargs"]["shell"] is False
+
+
+# --- capture-session verbs -----------------------------------------------
+
+
+def session_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema": 1,
+        "ok": True,
+        "run_id": "run-001",
+        "state": "capture",
+        "next_sequence": 2,
+        "journal_sha256": "a" * 64,
+        "challenges": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def challenge(**overrides: Any) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "id": "challenge-a1-evidence",
+        "kind": "unsupported_claim",
+        "claim": "This always works",
+        "rationale": "This consequential claim is asserted without supporting evidence.",
+        "provenance": "user",
+        "evidence_needed": "repository inspection or a cited external source",
+        "status": "unresolved",
+        "response": "",
+        "response_provenance": "",
+    }
+    item.update(overrides)
+    return item
+
+
+def test_session_verbs_are_exactly_the_implemented_capture_verbs() -> None:
+    assert SESSION_VERBS == ("start", "resume", "status", "append", "resolve", "finalize")
+
+
+def test_start_builds_argv_only_command_with_prompt() -> None:
+    command = build_session_command(Path("/p"), "FEAT-018", "start", prompt="Plan the thing")
+
+    assert command == [
+        "uv",
+        "run",
+        "coherence",
+        "plan",
+        "start",
+        "--project-root",
+        str(Path("/p")),
+        "--run-id",
+        "FEAT-018",
+        "--prompt",
+        "Plan the thing",
+        "--json",
+    ]
+
+
+def test_append_passes_each_field_as_its_own_argv_token() -> None:
+    command = build_session_command(
+        Path("/p"),
+        "run-001",
+        "append",
+        answer_id="a3",
+        question="What breaks?",
+        text="Nothing",
+        source="intent-review-agent",
+    )
+
+    assert command[command.index("--answer-id") + 1] == "a3"
+    assert command[command.index("--question") + 1] == "What breaks?"
+    assert command[command.index("--text") + 1] == "Nothing"
+    assert command[command.index("--source") + 1] == "intent-review-agent"
+
+
+def test_unsupported_verb_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported planning session verb"):
+        build_session_command(Path("/p"), "run-001", "adopt")
+
+
+def test_parse_accepts_ok_payload_with_challenges() -> None:
+    payload = session_payload(challenges=[challenge()])
+
+    assert parse_session_response(json.dumps(payload), "run-001") == payload
+
+
+def test_parse_returns_operation_failure_without_raising() -> None:
+    payload = {"schema": 1, "run_id": "run-001", "ok": False, "error": "session already exists"}
+
+    assert parse_session_response(json.dumps(payload), "run-001")["ok"] is False
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        session_payload(schema=2),
+        session_payload(run_id="other"),
+        session_payload(ok="yes"),
+        session_payload(state="handoff_ready"),
+        session_payload(state="spec_authoring"),
+        session_payload(next_sequence=0),
+        session_payload(journal_sha256=""),
+        session_payload(challenges="none"),
+        session_payload(challenges=[{"id": "c1"}]),
+        {"schema": 1, "run_id": "run-001", "ok": False, "error": ""},
+    ],
+)
+def test_parse_rejects_off_contract_payloads(payload: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="invalid planning session response"):
+        parse_session_response(json.dumps(payload), "run-001")
+
+
+@pytest.mark.parametrize("raw", ["", "not json", "[]", "null"])
+def test_parse_rejects_non_objects(raw: str) -> None:
+    with pytest.raises(ValueError, match="invalid planning session response"):
+        parse_session_response(raw, "run-001")
+
+
+def test_run_session_command_returns_validated_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = session_payload(state="intent_provisional")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=0))
+
+    assert run_session_command(Path("/p"), "run-001", "finalize", status="provisional") == payload
+
+
+def test_run_session_command_rejects_unsafe_run_id_without_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+
+    with pytest.raises(BackendError, match="safe run-id grammar"):
+        run_session_command(Path("/p"), "../escape", "status")
+
+    assert calls == []
+
+
+def test_run_session_command_wraps_malformed_payload_as_backend_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess([], returncode=0, stdout="{bad", stderr=""),
+    )
+
+    with pytest.raises(BackendError, match="invalid planning session response"):
+        run_session_command(Path("/p"), "run-001", "status")
+
+
+# --- capture-session CLI -------------------------------------------------
+
+
+def test_main_prints_payload_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = session_payload(challenges=[challenge()])
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=0))
+
+    assert main(["status", "--run-id", "run-001", "--project-root", "."]) == 0
+    assert json.loads(capsys.readouterr().out) == payload
+
+
+def test_main_exits_zero_for_operation_error_so_the_host_can_react(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = {"schema": 1, "run_id": "run-001", "ok": False, "error": "state is stale or missing"}
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=1))
+
+    assert main(["status", "--run-id", "run-001"]) == 0
+    assert json.loads(capsys.readouterr().out)["error"] == "state is stale or missing"
+
+
+def test_main_exits_one_when_nothing_is_trustworthy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: completed_json({}, returncode=9, stderr="boom")
+    )
+
+    assert main(["status", "--run-id", "run-001"]) == 1
+    assert "boom" in json.loads(capsys.readouterr().out)["error"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["adopt", "--run-id", "run-001"],
+        ["start", "--run-id", "run-001"],
+        ["finalize", "--run-id", "run-001", "--status", "adopted"],
+        [
+            "resolve",
+            "--run-id",
+            "r",
+            "--challenge-id",
+            "c",
+            "--resolution",
+            "approve",
+            "--response",
+            "ok",
+        ],
+    ],
+)
+def test_main_usage_errors_exit_two(argv: list[str]) -> None:
+    assert main(argv) == 2
