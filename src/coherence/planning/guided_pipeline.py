@@ -72,15 +72,22 @@ def run_pipeline_command(
     caller must act on, not a crash.
     """
     require_safe_run_id(run_id)
-    code, stdout = invoke_backend(
+    code, stdout, stderr = invoke_backend(
         build_pipeline_command(project_root, run_id, verb, **fields), project_root
     )
+
+    def _malformed() -> BackendError:
+        detail = stderr.strip()
+        if detail:
+            return BackendError(f"invalid planning pipeline response; backend stderr: {detail[:500]}")
+        return BackendError("invalid planning pipeline response")
+
     try:
         payload = json.loads(stdout)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise BackendError("invalid planning pipeline response") from exc
+        raise _malformed() from exc
     if not isinstance(payload, dict):
-        raise BackendError("invalid planning pipeline response")
+        raise _malformed()
     return code, payload
 
 

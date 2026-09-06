@@ -57,3 +57,18 @@ def test_non_executing_boundary_is_stated(text: str) -> None:
 def test_run_id_grammar_and_usage_message_are_present(text: str) -> None:
     assert "^[A-Za-z0-9][A-Za-z0-9._-]*$" in text
     assert "usage: /coherence-plan <run-id-or-FEAT-NNN>" in text
+
+
+def test_start_or_resume_dispatch_is_not_swapped(text: str) -> None:
+    """Pin which verb each status outcome dispatches to. A swap here (calling
+    `start` on `ok: true` or `resume` on `ok: false`) would double-start every
+    existing run and never resume one, and every other assertion in this file
+    is blind to that swap."""
+    section = text[text.index("## 2. Start or resume") : text.index("## 3.")]
+
+    true_branch = section[section.index("`ok: true`") : section.index("`ok: false`")]
+    false_branch = section[section.index("`ok: false`") :]
+
+    assert "resume" in true_branch
+    assert "start" not in true_branch
+    assert "start" in false_branch

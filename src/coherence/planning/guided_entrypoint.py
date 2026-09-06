@@ -124,12 +124,15 @@ def run_session_command(
 ) -> dict[str, Any]:
     """Invoke one session verb and return its validated payload."""
     require_safe_run_id(run_id)
-    _, stdout = invoke_backend(
+    _, stdout, stderr = invoke_backend(
         build_session_command(project_root, run_id, verb, **fields), project_root
     )
     try:
         return parse_session_response(stdout, run_id)
     except ValueError as exc:
+        detail = stderr.strip()
+        if detail:
+            raise BackendError(f"{exc}; backend stderr: {detail[:500]}") from exc
         raise BackendError(str(exc)) from exc
 
 

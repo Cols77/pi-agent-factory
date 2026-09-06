@@ -42,10 +42,11 @@ def test_trusted_exit_codes_return_stdout(monkeypatch: pytest.MonkeyPatch, exit_
         subprocess, "run", lambda *a, **k: completed_json({"ok": True}, returncode=exit_code)
     )
 
-    code, stdout = invoke_backend(["uv", "run", "coherence", "plan", "status"], Path("/p"))
+    code, stdout, stderr = invoke_backend(["uv", "run", "coherence", "plan", "status"], Path("/p"))
 
     assert code == exit_code
     assert json.loads(stdout) == {"ok": True}
+    assert stderr == ""
 
 
 @pytest.mark.parametrize("exit_code", [2, 3, 127])
@@ -151,6 +152,42 @@ def test_start_builds_argv_only_command_with_prompt() -> None:
     ]
 
 
+def test_resume_builds_argv_only_command() -> None:
+    command = build_session_command(Path("/p"), "FEAT-018", "resume")
+
+    assert command == [
+        "uv",
+        "run",
+        "coherence",
+        "plan",
+        "resume",
+        "--project-root",
+        str(Path("/p")),
+        "--run-id",
+        "FEAT-018",
+        "--json",
+    ]
+
+
+def test_run_session_command_resume_round_trips_the_backend_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = session_payload(run_id="FEAT-018", state="intent_provisional")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=0))
+
+    assert run_session_command(Path("/p"), "FEAT-018", "resume") == payload
+
+
+def test_main_resume_prints_payload_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = session_payload(run_id="FEAT-018")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=0))
+
+    assert main(["resume", "--run-id", "FEAT-018", "--project-root", "."]) == 0
+    assert json.loads(capsys.readouterr().out) == payload
+
+
 def test_append_passes_each_field_as_its_own_argv_token() -> None:
     command = build_session_command(
         Path("/p"),
@@ -240,6 +277,24 @@ def test_run_session_command_wraps_malformed_payload_as_backend_error(
     )
 
     with pytest.raises(BackendError, match="invalid planning session response"):
+        run_session_command(Path("/p"), "run-001", "status")
+
+
+def test_run_session_command_surfaces_stderr_when_a_trusted_exit_has_empty_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A crash inside the backend can still exit with a trusted code and no
+    stdout (see session.py::_write_state raising OSError past cli.py's
+    ``except SessionError``). The real cause must not be discarded."""
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            [], returncode=1, stdout="", stderr="PermissionError: [WinError 5] ..."
+        ),
+    )
+
+    with pytest.raises(BackendError, match="PermissionError"):
         run_session_command(Path("/p"), "run-001", "status")
 
 
@@ -388,4 +443,19 @@ def test_pipeline_rejects_non_json_output(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     with pytest.raises(BackendError, match="invalid planning pipeline response"):
+        run_pipeline_command(Path("/p"), "FEAT-018", "review")
+
+
+def test_pipeline_surfaces_stderr_when_a_trusted_exit_has_unparseable_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            [], returncode=1, stdout="", stderr="Traceback: KeyError('boom')"
+        ),
+    )
+
+    with pytest.raises(BackendError, match="KeyError"):
         run_pipeline_command(Path("/p"), "FEAT-018", "review")

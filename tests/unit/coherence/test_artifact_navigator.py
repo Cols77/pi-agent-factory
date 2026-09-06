@@ -91,3 +91,43 @@ def test_seed_prompt_quotes_the_feature_verbatim_without_paraphrase(project: Pat
     assert "WIDGET-PIPELINE" in prompt
     assert "Widgets flow from intake to dispatch." in prompt
     assert "docs/features/FEAT-018.md" in prompt
+
+
+def test_unparseable_frontmatter_is_reported_as_an_error_not_an_empty_graph(
+    tmp_path: Path,
+) -> None:
+    """An ordinary YAML mistake (an unquoted colon) must not be silently read
+    back as "this feature declares no requirements" -- that drops declared
+    SRs and the authority spec with no signal anything went wrong."""
+    _write(
+        tmp_path / "docs/features/FEAT-021.md",
+        "---\n"
+        "id: FEAT-021\n"
+        "title: Widgets: the sequel\n"
+        "description: Real description here.\n"
+        "authority_spec: docs/superpowers/specs/s.md\n"
+        "requirements:\n  - SR-090\n"
+        "---\n\n# FEAT-021\n",
+    )
+
+    context = resolve_feature_context(tmp_path, "FEAT-021")
+
+    assert context["present"] is True
+    assert context["frontmatter_error"] is not None
+    assert context["requirements"] == []
+    assert context["authority_spec"] == {"path": None, "present": False}
+    # A parse failure must not be reported through `missing` as though the
+    # declaration were simply absent -- there is no path to report missing.
+    assert context["missing"] == []
+
+
+def test_seed_prompt_refuses_when_frontmatter_failed_to_parse(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "docs/features/FEAT-021.md",
+        "---\ntitle: Widgets: the sequel\ndescription: d\n---\n\nbody\n",
+    )
+
+    context = resolve_feature_context(tmp_path, "FEAT-021")
+
+    with pytest.raises(ValueError, match="frontmatter"):
+        seed_prompt(context)

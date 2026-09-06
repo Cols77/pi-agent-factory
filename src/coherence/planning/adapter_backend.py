@@ -35,11 +35,15 @@ def require_safe_run_id(run_id: str) -> None:
         raise BackendError("run_id must match the safe run-id grammar")
 
 
-def invoke_backend(command: list[str], project_root: Path) -> tuple[int, str]:
-    """Run an argv-only backend command and return `(exit_code, stdout)`.
+def invoke_backend(command: list[str], project_root: Path) -> tuple[int, str, str]:
+    """Run an argv-only backend command and return `(exit_code, stdout, stderr)`.
 
     Raises ``BackendError`` on a launch failure or an exit code outside
-    ``TRUSTED_EXIT_CODES``; in the latter case stdout is discarded unread.
+    ``TRUSTED_EXIT_CODES``; in the latter case stdout is discarded unread but
+    stderr is still carried in the raised error. A trusted exit code returns
+    stderr alongside stdout so a caller that cannot parse stdout (a crash
+    inside the backend can still exit with a trusted code and empty stdout)
+    has the real diagnostic to report instead of guessing.
     """
     try:
         result = subprocess.run(
@@ -55,7 +59,7 @@ def invoke_backend(command: list[str], project_root: Path) -> tuple[int, str]:
 
     if result.returncode not in TRUSTED_EXIT_CODES:
         raise BackendError((result.stderr or "backend exited unsuccessfully").strip())
-    return result.returncode, result.stdout or ""
+    return result.returncode, result.stdout or "", result.stderr or ""
 
 
 __all__ = ["TRUSTED_EXIT_CODES", "BackendError", "invoke_backend", "require_safe_run_id"]

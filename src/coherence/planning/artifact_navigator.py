@@ -27,23 +27,31 @@ REQUIREMENT_ID = re.compile(r"^SR-\d{3}$")
 _STATUS_NOTE = re.compile(r"^>\s*Status:\s*(.+)$", re.MULTILINE)
 
 
-def _frontmatter(path: Path) -> tuple[dict[str, Any], str]:
-    """Return `(frontmatter, body)`; `({}, "")` when absent or unreadable."""
+def _frontmatter(path: Path) -> tuple[dict[str, Any], str, str | None]:
+    """Return `(frontmatter, body, error)`.
+
+    `error` is `None` when the file was read and any frontmatter block present
+    parsed to a mapping (an absent block or a block that parses to something
+    else, such as a bare scalar or list, is not itself an error -- there is
+    simply nothing declared). `error` carries a message when the file could
+    not be read or its frontmatter block could not be parsed as YAML at all,
+    so a caller can distinguish "nothing declared" from "declaration lost".
+    """
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return {}, ""
+    except (OSError, UnicodeError) as exc:
+        return {}, "", f"could not read {path}: {exc}"
     if not text.startswith("---\n"):
-        return {}, text
+        return {}, text, None
     _, _, remainder = text.partition("---\n")
     raw, separator, body = remainder.partition("\n---")
     if not separator:
-        return {}, text
+        return {}, text, None
     try:
         loaded = yaml.safe_load(raw)
-    except yaml.YAMLError:
-        return {}, body
-    return (loaded if isinstance(loaded, dict) else {}), body
+    except yaml.YAMLError as exc:
+        return {}, body, f"frontmatter in {path} is not valid YAML: {exc}"
+    return (loaded if isinstance(loaded, dict) else {}), body, None
 
 
 def _artifact(project_root: Path, relative: str | None) -> dict[str, Any]:
@@ -64,8 +72,9 @@ def _requirement(project_root: Path, requirement_id: str) -> dict[str, Any]:
             "statement": None,
             "status_note": None,
             "acceptance": [],
+            "frontmatter_error": None,
         }
-    meta, body = _frontmatter(path)
+    meta, body, error = _frontmatter(path)
     note = _STATUS_NOTE.search(body)
     acceptance = meta.get("acceptance")
     return {
@@ -76,6 +85,7 @@ def _requirement(project_root: Path, requirement_id: str) -> dict[str, Any]:
         "statement": meta.get("statement"),
         "status_note": note.group(1).strip() if note else None,
         "acceptance": acceptance if isinstance(acceptance, list) else [],
+        "frontmatter_error": error,
     }
 
 
@@ -99,12 +109,20 @@ def resolve_feature_context(project_root: Path, feature_id: str) -> dict[str, An
         "implementation_plan": {"path": None, "present": False},
         "bundle": _artifact(project_root, f"bundles/{feature_id}.json"),
         "missing": [],
+        "frontmatter_error": None,
     }
     if not context["present"]:
         context["missing"] = [relative]
         return context
 
-    meta, _ = _frontmatter(path)
+    meta, _, error = _frontmatter(path)
+    context["frontmatter_error"] = error
+    if error is not None:
+        # The declaration itself could not be read back. Reporting empty
+        # requirements/authority_spec/etc. here would read as "this feature
+        # declares none of that", which is false -- it declares something we
+        # failed to parse. Stop before fabricating an empty-but-valid graph.
+        return context
     context["title"] = meta.get("title")
     context["description"] = meta.get("description")
     context["status"] = meta.get("status")
@@ -133,6 +151,11 @@ def seed_prompt(context: dict[str, Any]) -> str:
     """Compose the capture seed from the feature's own words, never a paraphrase."""
     if not context.get("present"):
         raise ValueError(f"{context['feature_id']} has no drafted feature document")
+    if context.get("frontmatter_error"):
+        raise ValueError(
+            f"{context['feature_id']}'s frontmatter could not be parsed: "
+            f"{context['frontmatter_error']}"
+        )
     return (
         f"Plan {context['feature_id']} ({context['title']}): {context['description']} "
         f"[source: {context['feature_path']}]"
