@@ -161,6 +161,26 @@ def test_guard_denies_inline_python_exec_that_mentions_coherence(guard: ModuleTy
     assert reason is not None
 
 
+def test_guard_denies_an_unparseable_command_that_looks_like_a_plan_call(
+    guard: ModuleType,
+) -> None:
+    """The documented fail-closed behaviour for unbalanced quoting -- see
+    `decide`'s `_UNPARSEABLE_REASON` branch -- must actually deny, not just
+    exist in the docstring."""
+    reason = guard.decide('uv run coherence plan finalize --run-id r --status "unterminated')
+
+    assert reason is not None
+
+
+def test_guard_allows_unparseable_text_that_does_not_look_like_a_plan_call(
+    guard: ModuleType,
+) -> None:
+    """The other side of the same branch: unparseable text that merely
+    mentions "coherence" (so it reaches the branch at all) but never looks
+    like a `plan` call must not be denied on parse failure alone."""
+    assert guard.decide('echo "unterminated coherence mention') is None
+
+
 # --- finalize gate -------------------------------------------------------
 
 
@@ -457,6 +477,30 @@ def test_gate_imports_the_shared_run_id_grammar_rather_than_restating_it(
     from coherence.planning.legal_actions_adapter import SAFE_RUN_ID
 
     assert gate.SAFE_RUN_ID is SAFE_RUN_ID
+
+
+def test_gate_denies_an_unparseable_command_that_looks_like_a_finalize_call(
+    gate: ModuleType, tmp_path: Path
+) -> None:
+    """The documented fail-closed behaviour for unbalanced quoting -- see
+    `decide`'s `_UNPARSEABLE_REASON` branch -- must actually deny, not just
+    exist in the docstring."""
+    reason = gate.decide(
+        tmp_path,
+        "uv run python -m coherence.planning.guided_entrypoint finalize "
+        '--run-id r --status "unterminated',
+    )
+
+    assert reason is not None
+
+
+def test_gate_allows_unparseable_text_that_does_not_look_like_a_finalize_call(
+    gate: ModuleType, tmp_path: Path
+) -> None:
+    """The other side of the same branch: unparseable text that merely
+    mentions "coherence" (so it reaches the branch at all) but never looks
+    like a finalize call must not be denied on parse failure alone."""
+    assert gate.decide(tmp_path, 'echo "unterminated mention of coherence') is None
 
 
 # --- challenge surface ---------------------------------------------------

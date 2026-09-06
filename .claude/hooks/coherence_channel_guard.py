@@ -39,7 +39,7 @@ import json
 import re
 import sys
 
-from _shell_segments import program_token
+from _shell_segments import program_basename, program_name, program_start
 from _shell_segments import segments as shell_segments
 
 _ADAPTER_MODULES = (
@@ -86,21 +86,23 @@ _UNPARSEABLE_REASON = (
 def _backend_verb(tokens: list[str]) -> str | None:
     """The verb of a raw `coherence plan <verb>` invocation, when `coherence`
     is the actually-invoked program in `tokens` (never merely a token that
-    appears somewhere in an unrelated argument), or `None`."""
-    if program_token(tokens) != "coherence":
+    appears somewhere in an unrelated argument, and matched by normalized
+    basename so `/usr/local/bin/coherence` is recognized the same way as the
+    bare `coherence` spelling), or `None`."""
+    start = program_start(tokens)
+    if start is None or program_basename(tokens[start]) != "coherence":
         return None
-    for index in range(len(tokens) - 2):
-        if tokens[index] == "coherence" and tokens[index + 1] == "plan":
-            verb = tokens[index + 2]
-            if _VERB.fullmatch(verb):
-                return verb
+    if start + 2 < len(tokens) and tokens[start + 1] == "plan":
+        verb = tokens[start + 2]
+        if _VERB.fullmatch(verb):
+            return verb
     return None
 
 
 def _raw_module_target(tokens: list[str]) -> str | None:
     """The `-m` module target, when the actually-invoked program in `tokens`
     is a Python interpreter and `-m` immediately follows it, or `None`."""
-    if program_token(tokens) not in ("python", "python3", "py"):
+    if program_name(tokens) not in ("python", "python3", "py"):
         return None
     for index, token in enumerate(tokens):
         if token == "-m" and index + 1 < len(tokens):
@@ -111,7 +113,7 @@ def _raw_module_target(tokens: list[str]) -> str | None:
 def _inline_exec_code(tokens: list[str]) -> str | None:
     """The code argument of a `-c` inline execution, when the actually-invoked
     program in `tokens` is a Python interpreter, or `None`."""
-    if program_token(tokens) not in ("python", "python3", "py"):
+    if program_name(tokens) not in ("python", "python3", "py"):
         return None
     if "-c" not in tokens:
         return None

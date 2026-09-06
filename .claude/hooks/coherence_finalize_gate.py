@@ -41,9 +41,10 @@ import re
 import sys
 from pathlib import Path
 
-from _shell_segments import program_start, program_token
+from _shell_segments import program_basename, program_name, program_start
 from _shell_segments import segments as shell_segments
 from coherence.planning.legal_actions_adapter import SAFE_RUN_ID
+from coherence.planning.paths import safe_resolve, safe_root
 
 REVIEW_SOURCE = "intent-review-agent"
 
@@ -83,17 +84,16 @@ def _adapter_invocation_end(tokens: list[str]) -> int | None:
     start = program_start(tokens)
     if start is None:
         return None
-    program = tokens[start]
-    basename = program.replace("\\", "/").rsplit("/", 1)[-1]
+    basename = program_basename(tokens[start])
     if basename == _ADAPTER_SCRIPT_BASENAME:
         # The adapter script is itself the invoked program (e.g. run directly
         # as an executable), with no `python` prefix of its own.
         return start + 1
-    if program in ("python", "python3", "py") and start + 1 < len(tokens):
+    if basename in ("python", "python3", "py") and start + 1 < len(tokens):
         next_token = tokens[start + 1]
         if next_token == "-m" and start + 2 < len(tokens) and tokens[start + 2] == _ADAPTER_MODULE:
             return start + 3
-        next_basename = next_token.replace("\\", "/").rsplit("/", 1)[-1]
+        next_basename = program_basename(next_token)
         if next_basename == _ADAPTER_SCRIPT_BASENAME:
             return start + 2
     return None
@@ -131,13 +131,47 @@ def _events(journal: Path) -> list[dict] | None:
     return events
 
 
+def _payload(event: dict) -> dict:
+    """`event["payload"]` if it is a dict, else `{}`.
+
+    The journal parser (`_events`) only guarantees each *event* line is a
+    JSON object; the `payload` value inside it is untrusted and can be
+    anything JSON allows (a string, a number, a list, `true`, `null`) -- a
+    plain `(event.get("payload") or {}).get(...)` crashes with an
+    `AttributeError` on any non-dict *truthy* payload, which `main()` does
+    not catch, turning an intended deny into a non-blocking hook error that
+    Claude Code does not treat as a block. Every payload read must go
+    through here instead."""
+    payload = event.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
 def _is_review(event: dict) -> bool:
-    return (event.get("payload") or {}).get("source") == REVIEW_SOURCE
+    return _payload(event).get("source") == REVIEW_SOURCE
 
 
 def _sequence(event: dict) -> int | None:
     value = event.get("sequence")
     return value if isinstance(value, int) else None
+
+
+def _resolve_project_root(project_root: Path, root_value: str | None) -> Path | None:
+    """Resolve `--project-root` the same way every other consumer of a
+    project root in this codebase does (see `intent.py::_safe_project_root`,
+    `bootstrap.py`, `cli.py::_safe_root`, ...): through `safe_root`/
+    `safe_resolve`, never a bare `Path` join. A bare join lets an absolute
+    `--project-root` value replace `project_root` outright, or a
+    `..`-laden relative value escape it, so the gate would validate
+    review/challenge state against a journal the command author fully
+    controls rather than the real run's journal. `None` if the resolved
+    root is unsafe (a symlink/junction component, or a path that does not
+    stay under `project_root`)."""
+    safe_project_root = safe_root(project_root)
+    if safe_project_root is None:
+        return None
+    if not root_value:
+        return safe_project_root
+    return safe_resolve(safe_project_root, safe_project_root / root_value)
 
 
 def _decide_finalize(project_root: Path, tokens: list[str]) -> str | None:
@@ -148,7 +182,13 @@ def _decide_finalize(project_root: Path, tokens: list[str]) -> str | None:
         return f"finalize requires a --run-id matching {SAFE_RUN_ID.pattern}"
 
     root_value = _last_flag_value(tokens, "--project-root")
-    root = project_root / root_value if root_value else project_root
+    root = _resolve_project_root(project_root, root_value)
+    if root is None:
+        return (
+            f"--project-root {root_value!r} does not resolve to a safe path under the "
+            "project root this hook is running in. Finalize is blocked until the project "
+            "root can be verified."
+        )
 
     journal = root / ".factory" / "planning" / run_id / "capture" / "events.jsonl"
     events = _events(journal)
@@ -184,17 +224,27 @@ def _decide_finalize(project_root: Path, tokens: list[str]) -> str | None:
             f"again and record its verdict with `append --source {REVIEW_SOURCE}` before finalize."
         )
 
-    raised = {
-        (event.get("payload") or {}).get("id")
-        for event in events
-        if event.get("kind") == "challenge_raised"
-    }
-    resolved = {
-        (event.get("payload") or {}).get("id")
-        for event in events
-        if event.get("kind") == "challenge_resolved"
-    }
-    outstanding = sorted(item for item in raised - resolved if item)
+    raised: set[str] = set()
+    resolved: set[str] = set()
+    for event in events:
+        kind = event.get("kind")
+        if kind not in ("challenge_raised", "challenge_resolved"):
+            continue
+        challenge_id = _payload(event).get("id")
+        if not isinstance(challenge_id, str) or not challenge_id:
+            # A challenge record this gate cannot identify is exactly the
+            # kind of anomaly it must fail toward denying on, mirroring the
+            # `_events() is None` fail-closed path -- an id-less challenge
+            # can never be confirmed dispositioned, so it must never be
+            # silently dropped from `raised`/`resolved` and treated as if it
+            # were never raised at all.
+            return (
+                f"Run {run_id}'s capture journal has a {kind} event with a missing or "
+                "malformed id. Finalize is blocked until the journal is corrected -- a "
+                "challenge that cannot be identified cannot be confirmed as dispositioned."
+            )
+        (raised if kind == "challenge_raised" else resolved).add(challenge_id)
+    outstanding = sorted(raised - resolved)
     if outstanding:
         return (
             "These challenges have no recorded human disposition: "
@@ -222,7 +272,7 @@ def decide(project_root: Path, command: str) -> str | None:
         if not tokens:
             continue
 
-        program = program_token(tokens)
+        program = program_name(tokens)
         end = _adapter_invocation_end(tokens)
         is_finalize_call = end is not None and end < len(tokens) and tokens[end] == "finalize"
 
@@ -254,7 +304,22 @@ def main() -> int:
         return 0
     tool_input = event.get("tool_input")
     command = str((tool_input or {}).get("command", "") if isinstance(tool_input, dict) else "")
-    reason = decide(Path(str(event.get("cwd") or ".")), command)
+    try:
+        reason = decide(Path(str(event.get("cwd") or ".")), command)
+    except Exception:
+        # `decide` should never raise -- every payload read goes through
+        # `_payload` and every project-root read through `_resolve_project_root`
+        # precisely so a malformed journal or an unsafe path produces a deny
+        # reason, not an exception. But per Claude Code's PreToolUse contract
+        # only exit code 2 blocks a tool call; any other non-zero exit here
+        # (an unhandled exception's traceback and exit 1) is non-blocking, so
+        # an exception this fails to anticipate must still fail toward deny
+        # rather than silently letting the call through.
+        reason = (
+            "This finalize call could not be safety-checked (the capture journal or "
+            "the command could not be fully verified). Inspect the run's journal for "
+            "malformed content, then retry."
+        )
     if reason is None:
         return 0
     print(

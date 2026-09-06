@@ -20,6 +20,7 @@ from coherence.planning.guided_pipeline import (
     build_pipeline_command,
     run_pipeline_command,
 )
+from coherence.planning.guided_pipeline import main as pipeline_main
 from tests.unit._legal_actions_json import completed_json
 
 pytestmark = pytest.mark.unit
@@ -472,6 +473,109 @@ def test_pipeline_surfaces_stderr_when_a_trusted_exit_has_unparseable_stdout(
 
     with pytest.raises(BackendError, match="KeyError"):
         run_pipeline_command(Path("/p"), "FEAT-018", "review")
+
+
+# --- pipeline-verbs CLI ---------------------------------------------------
+#
+# `guided_pipeline.main` (the entrypoint `coherence-plan.md` actually invokes
+# for bootstrap/check/review/handoff) had no direct test coverage: nothing
+# asserted that `--decompose` on the CLI actually reaches the backend
+# command, that the printed envelope carries `backend_exit_code` alongside
+# the payload, or the exit-code mapping -- mirroring the `guided_entrypoint`
+# `main()` test set below.
+
+
+def test_pipeline_main_decompose_flag_reaches_the_backend_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured.append(command)
+        return completed_json({"schema": 1, "run_id": "FEAT-018", "ok": True}, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = pipeline_main(
+        [
+            "bootstrap",
+            "--run-id",
+            "FEAT-018",
+            "--intent",
+            "i",
+            "--spec",
+            "s",
+            "--plan",
+            "p",
+            "--decompose",
+        ]
+    )
+
+    assert exit_code == 0
+    assert "--decompose" in captured[0]
+
+
+def test_pipeline_main_omits_decompose_flag_when_not_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The inverse of the above: a typo that hard-codes `decompose` to
+    `"false"` regardless of the CLI flag would make `--decompose` silently
+    stop generating `tasks/T-NNN.md` for every real invocation -- this must
+    fail if that ever happens."""
+    captured: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured.append(command)
+        return completed_json({"schema": 1, "run_id": "FEAT-018", "ok": True}, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    exit_code = pipeline_main(
+        ["bootstrap", "--run-id", "FEAT-018", "--intent", "i", "--spec", "s", "--plan", "p"]
+    )
+
+    assert exit_code == 0
+    assert "--decompose" not in captured[0]
+
+
+def test_pipeline_main_prints_backend_exit_code_alongside_the_payload(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = {"schema": 1, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "X"}]}
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=1))
+
+    exit_code = pipeline_main(
+        ["check", "--run-id", "FEAT-018", "--intent", "i", "--spec", "s", "--plan", "p"]
+    )
+
+    assert exit_code == 0  # findings are data, not a crash -- see run_pipeline_command's docstring
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["backend_exit_code"] == 1
+    assert printed["findings"][0]["code"] == "X"
+
+
+def test_pipeline_main_exits_one_when_the_backend_is_untrustworthy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: completed_json({}, returncode=9, stderr="boom")
+    )
+
+    assert pipeline_main(["review", "--run-id", "FEAT-018"]) == 1
+    assert "boom" in json.loads(capsys.readouterr().out)["error"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["adopt", "--run-id", "r"],
+        ["bootstrap", "--run-id", "r"],
+        ["check", "--run-id", "r"],
+    ],
+)
+def test_pipeline_main_usage_errors_exit_two(argv: list[str]) -> None:
+    assert pipeline_main(argv) == 2
 
 
 # --- SR-065 AC-1/AC-3: command-dispatch and non-executing-boundary pinning
