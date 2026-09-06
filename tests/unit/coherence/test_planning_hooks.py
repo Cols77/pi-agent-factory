@@ -222,3 +222,69 @@ def test_gate_refuses_an_unsafe_run_id_rather_than_reading_a_path(
     )
 
     assert reason is not None
+
+
+# --- challenge surface ---------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def surface() -> ModuleType:
+    return _load("coherence_challenge_surface")
+
+
+def test_surface_reports_nothing_when_no_challenge_is_unresolved(surface: ModuleType) -> None:
+    payload = {"ok": True, "challenges": [{"id": "c1", "status": "deferred"}]}
+
+    assert surface.summarize(payload) is None
+
+
+def test_surface_lists_every_unresolved_challenge_verbatim(surface: ModuleType) -> None:
+    payload = {
+        "ok": True,
+        "challenges": [
+            {
+                "id": "c1",
+                "status": "unresolved",
+                "kind": "unsupported_claim",
+                "claim": "This always works",
+                "rationale": "No evidence.",
+                "evidence_needed": "a citation",
+            },
+            {
+                "id": "c2",
+                "status": "resolved",
+                "kind": "tradeoff",
+                "claim": "x",
+                "rationale": "y",
+                "evidence_needed": "z",
+            },
+        ],
+    }
+
+    text = surface.summarize(payload)
+
+    assert "c1" in text
+    assert "This always works" in text
+    assert "a citation" in text
+    assert "c2" not in text
+
+
+def test_surface_ignores_payloads_that_are_not_ok(surface: ModuleType) -> None:
+    assert surface.summarize({"ok": False, "error": "boom"}) is None
+
+
+def test_surface_tolerates_a_malformed_payload(surface: ModuleType) -> None:
+    assert surface.summarize({"ok": True, "challenges": "nope"}) is None
+
+
+def test_settings_register_every_hook() -> None:
+    settings = json.loads(
+        (Path(__file__).parents[3] / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    serialized = json.dumps(settings)
+
+    assert "coherence_channel_guard.py" in serialized
+    assert "coherence_finalize_gate.py" in serialized
+    assert "coherence_challenge_surface.py" in serialized
+    assert '"PreToolUse"' in serialized
+    assert '"PostToolUse"' in serialized

@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR/.claude/hooks/coherence_channel_guard.py\""
+          },
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR/.claude/hooks/coherence_finalize_gate.py\""
+          },
+          {
+            "type": "agent",
+            "if": "Bash(*guided_entrypoint finalize*)",
+            "timeout": 240,
+            "statusMessage": "Reviewing captured intent before finalize",
+            "prompt": "You are the FEAT-017 intent review for a Coherence planning run about to be finalized. Read the run's capture journal at .factory/planning/<run-id>/capture/events.jsonl (the run id is in the command being run) and the materialized .intent/intent.json. Review the captured intent for material gaps: unstated assumptions, unsupported claims that Coherence's keyword matcher would miss, contradictions between answers, scope that is not bounded, and success criteria that are absent or unmeasurable. Record your verdict in the journal by running: uv run python -m coherence.planning.guided_entrypoint append --run-id <run-id> --project-root . --answer-id <a{next_sequence}> --question 'Intent review finding' --text '<finding>' --source intent-review-agent -- record one append per finding, and record a single 'no findings' entry if the capture is adequate. You must never choose a challenge resolution or a terminal capture status; those are human decisions. Return {\"ok\": true} if you recorded your verdict and the capture is adequate to proceed, or {\"ok\": false, \"reason\": \"<what the human still needs to decide or supply>\"} if material gaps remain."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"$CLAUDE_PROJECT_DIR/.claude/hooks/coherence_challenge_surface.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If this session ran the /coherence-plan workflow, check for overclaiming: did the assistant state that a planning stage completed without the corresponding backend command actually succeeding, describe progress into a stage Coherence cannot produce (only capture, intent_provisional, and blocked exist), choose a challenge resolution or terminal status on the human's behalf, or claim tasks were generated without a successful bootstrap --decompose? If any of those happened, respond {\"ok\": false, \"reason\": \"<what to correct>\"}. Otherwise respond {\"ok\": true}."
+          }
+        ]
+      }
+    ]
+  }
+}
