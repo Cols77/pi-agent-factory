@@ -3,8 +3,8 @@
 This module is the single source of truth for the safety-critical logic shared
 by every host-specific, read-only presentation adapter for
 ``coherence plan legal-actions`` (the Hermes plugin at
-``.hermes/plugins/coherence-plan/plugin.py``, the Claude Code entry point
-invoked by ``.claude/commands/coherence-plan.md``, and any future host). It
+``.hermes/plugins/coherence-plan/plugin.py``, the final projection step of
+Claude Code's ``.claude/commands/coherence-plan.md``, and any future host). It
 owns:
 
 - the safe run-id grammar, checked before a run id ever reaches a subprocess
@@ -24,6 +24,14 @@ factored out so that no host duplicates (and risks re-diverging) the
 fail-closed handling it implements. See
 ``.hermes/plugins/coherence-plan/README.md``'s "Authority and boundaries"
 section for the contract every caller of this module must preserve.
+
+Read-only describes *this module*, not every host surface that uses it. Hermes's
+``/coherence-plan`` card is read-only end to end. Claude Code's
+``/coherence-plan`` drives a full guided planning run, but it reaches every
+mutating verb through ``coherence.planning.guided_entrypoint`` (capture:
+start/resume/status/append/resolve/finalize) and
+``coherence.planning.guided_pipeline`` (bootstrap/check/review/handoff); this
+module is only the projection renderer that workflow calls at the end.
 
 Each host adapter owns only its own framing around this module: how it
 receives the raw run-id text, and what usage message it shows for an unsafe
