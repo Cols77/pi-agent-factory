@@ -8,9 +8,17 @@ satisfies:
 - SR-054
 source_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 source_task: 6
-status: todo
+status: done
 title: Register FEAT-17 trace links and prove the feature against the live register
 ---
+
+## Closure note
+
+*2026-09-07.* T-037 points at SR-054; FEAT-017 owns the correct eight SRs in
+`bundles/FEAT-017.json` and `requirements/index.json`; and
+`tests/unit/coherence/test_planning_trace_contract.py` passes. This records T-037's
+trace/bookkeeping evidence only, not SR consent, adoption, merge, release, or broader
+FEAT-017 completion.
 
 - Modify: `requirements/SR-043.md`
 - Modify: `requirements/SR-044.md`

@@ -175,8 +175,9 @@ pass before the next begins, rather than run ad hoc afterwards.
 
 **This project's own contract wins.** `coherence.planning.workflow` is a deliberately host-neutral
 coordinator whose `Reviewer` callback is the sole semantic-judgment boundary, and
-`coherence.planning.gates` compiles the planning gate pack ([[SR-055]]). Where those exist, the
-host tool *executes* that contract; it never replaces it.
+`coherence.planning.gates` contains the shipped consent validators. [[SR-055]] defines and intends
+the planning gate-pack contract, but the current shipped module does not yet compile a gate pack.
+Where those contracts exist, the host tool *executes* them; it never replaces them.
 
 ## Execution Handoff
 
