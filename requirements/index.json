@@ -2,38 +2,38 @@
   "requirements": [
     {
       "id": "SR-001",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:c6706af200cc2f5b6ba478ba3264434b520a1f0977cb0cd9e8109da4644dae7b",
+      "stale": false
     },
     {
       "id": "SR-002",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:cdd91c95971c05f0d5900667f5fcdd8a92c13aa9f2c7c2ee9a44f593d42d3a63",
+      "stale": false
     },
     {
       "id": "SR-003",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:8026892385cb57e99381604838a45b55a76c7e9e76564e932b7451762e7c52f8",
+      "stale": false
     },
     {
       "id": "SR-004",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:6d3cd454016b4b1ea8ccbb709f0cdec619099519e399293392581aa80c8d2fa6",
+      "stale": false
     },
     {
       "id": "SR-005",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:78d68765864139a74f3c5fd75711ac2a088090fb3dee94d927c83f0c6cc9adf0",
+      "stale": false
     },
     {
       "id": "SR-006",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:482d1d281697cd22475225deb502c458dc3021e8058c1c814977ec3f096ff30b",
+      "stale": false
     },
     {
       "id": "SR-007",
-      "checksum": null,
-      "proposed": true
+      "checksum": "sha256:bc1add89cd7d8c9b0b56fde64b12a551f979401a2a822eb030faff9086b9fd06",
+      "stale": false
     },
     {
       "id": "SR-008",
@@ -297,6 +297,26 @@
     },
     {
       "id": "SR-060",
+      "checksum": null,
+      "proposed": true
+    },
+    {
+      "id": "SR-063",
+      "checksum": null,
+      "proposed": true
+    },
+    {
+      "id": "SR-064",
+      "checksum": null,
+      "proposed": true
+    },
+    {
+      "id": "SR-065",
+      "checksum": null,
+      "proposed": true
+    },
+    {
+      "id": "SR-070",
       "checksum": null,
       "proposed": true
     }
