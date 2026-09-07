@@ -8,9 +8,17 @@ satisfies:
 - SR-053
 source_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 source_task: 4
-status: todo
+status: done
 title: Wire the existing `/plan` authoring host to the backend gate
 ---
+
+## Closure note
+
+Verified done on 2026-09-07: `pi-ext/factory-watch/src/index.ts` registers
+`plan-gate` and `pi-ext/factory-watch/src/skill-prompt.ts` routes the
+authoring session through it exclusively, matching this task's DoD text.
+No further implementation required; remaining FEAT-017 work is per-SR
+human consent, tracked separately from this task.
 
 - Modify: `pi-ext/factory-watch/src/skill-prompt.ts`
 - Modify: `pi-ext/factory-watch/src/index.ts`

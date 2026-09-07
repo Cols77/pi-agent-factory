@@ -8,9 +8,16 @@ satisfies:
 - SR-043
 source_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 source_task: 5
-status: todo
+status: done
 title: Add the bootstrap composition and available deterministic gates
 ---
+
+## Closure note
+
+Verified done on 2026-09-07: `coherence plan bootstrap` is registered in
+`src/coherence/planning/cli.py`, backed by `src/coherence/planning/bootstrap.py`.
+No further implementation required; remaining FEAT-017 work is per-SR
+human consent, tracked separately from this task.
 
 - Create: `src/coherence/planning/bootstrap.py`
 - Modify: `src/coherence/planning/cli.py`
