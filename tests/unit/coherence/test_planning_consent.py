@@ -107,6 +107,19 @@ def test_rejects_malformed_json_and_does_not_accept_a_bulk_record(tmp_path: Path
     )
 
 
+def test_rejects_deeply_nested_malformed_consent_without_leaking_recursion(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / ".factory" / "planning" / "run-17" / "consent" / "SR-071.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"nested":' * 1_100 + "null" + "}" * 1_100, encoding="utf-8")
+
+    assert validate_sr_decisions(tmp_path, "run-17", {"SR-071": "1" * 64}) == (
+        False,
+        "invalid human consent: SR-071",
+    )
+
+
 @pytest.mark.parametrize(
     ("run_id", "sr_id"),
     [

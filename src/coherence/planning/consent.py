@@ -177,7 +177,7 @@ def validate_sr_decisions(
             return False, f"invalid human consent: {sr_id}"
         try:
             payload = strict_json_loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+        except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError, RecursionError):
             return False, f"invalid human consent: {sr_id}"
         valid, stale = _valid_record(payload, run_id, sr_id, digest)
         if stale:
