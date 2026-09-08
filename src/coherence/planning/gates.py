@@ -181,11 +181,11 @@ def validate_sr_consent(
     derivation_report_sha256: str,
     artifact_hashes: dict[str, str],
 ) -> tuple[bool, str]:
-    """Validate the explicit, exact-set consent required after derivation.
+    """Validate legacy aggregate SR consent for compatibility callers only.
 
-    This deliberately uses a separate schema from the legacy FEAT-017
-    registration record.  Legacy records remain readable, while adoption is
-    never inferred from a clean report or an unbound free-text answer.
+    New guided lifecycle code must use
+    :func:`coherence.planning.consent.validate_sr_decisions`; this aggregate
+    record neither calls nor satisfies that per-SR human-consent contract.
     """
     if not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None or not isinstance(candidate_srs, (list, tuple)):
         return False, "SR consent identity is invalid"

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
+from coherence.planning.consent import write_sr_decision
 from coherence.planning.intent import read_intent
 from coherence.planning.session import (
     SessionError,
@@ -421,6 +422,41 @@ def _review(args: argparse.Namespace) -> int:
     return 1 if not report.ok or report.findings else 0
 
 
+def _record_sr_consent(args: argparse.Namespace) -> int:
+    """Record one explicit, independently reviewed SR decision."""
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
+    try:
+        path = write_sr_decision(
+            root,
+            args.run_id,
+            args.sr_id,
+            args.requirement_sha256,
+            args.decision,
+            args.reviewer,
+            args.phrase,
+            args.reason,
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "SR_CONSENT_INVALID", str(exc)), indent=2))
+        return 1
+    print(
+        json.dumps(
+            {
+                "schema": 1,
+                "ok": True,
+                "action": "record-sr-consent",
+                "consent": path.relative_to(root).as_posix(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def _session_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "legal-actions":
@@ -505,6 +541,17 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
 
+    consent = sub.add_parser("record-sr-consent")
+    consent.add_argument("--run-id", required=True)
+    consent.add_argument("--project-root", required=True, type=Path)
+    consent.add_argument("--sr-id", required=True)
+    consent.add_argument("--requirement-sha256", required=True)
+    consent.add_argument("--decision", required=True)
+    consent.add_argument("--reviewer", required=True)
+    consent.add_argument("--phrase", required=True)
+    consent.add_argument("--reason", required=True)
+    consent.add_argument("--json", action="store_true")
+
     for name in ("start", "resume", "status", "append", "resolve", "finalize", "legal-actions"):
         command = sub.add_parser(name)
         command.add_argument("--run-id", required=True)
@@ -537,6 +584,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review(args)
     if args.command == "handoff":
         return _handoff(args)
+    if args.command == "record-sr-consent":
+        return _record_sr_consent(args)
     if args.command in {"start", "resume", "status", "append", "resolve", "finalize", "legal-actions"}:
         return _session_command(args)
     return _suggest(args)
