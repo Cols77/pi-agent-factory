@@ -13,19 +13,29 @@ from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
 
-_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055", "SR-065"}
+_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055", "SR-065", "SR-071"}
 _LEGACY_SRS = {"SR-043", "SR-044", "SR-050", "SR-051", "SR-052", "SR-053", "SR-054"}
 _PLAN = "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
+_CLOSURE_SPEC = "docs/superpowers/specs/2026-09-08-feat017-closure-slice-design.md"
+_SOURCE_SPECS = {
+    "SR-043": _CLOSURE_SPEC,
+    "SR-044": _CLOSURE_SPEC,
+    "SR-051": "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+    "SR-052": "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+    "SR-053": _CLOSURE_SPEC,
+    "SR-054": _CLOSURE_SPEC,
+    "SR-055": _CLOSURE_SPEC,
+    "SR-065": _CLOSURE_SPEC,
+    "SR-071": _CLOSURE_SPEC,
+}
 
 
 def test_feat17_requirement_sources_match_all_live_authority_anchors() -> None:
     root = Path(__file__).parents[3]
-    spec_path = root / "docs" / "superpowers" / "specs" / "2026-08-27-feat17-planning-bootstrap-design.md"
-
     for requirement_id in sorted(_EXPECTED_SRS):
         requirement_path = root / "requirements" / f"{requirement_id}.md"
         requirement = frontmatter.load(str(requirement_path))
-        assert _source_matches(root, requirement["source"], spec_path), requirement_id
+        assert _source_matches(root, requirement["source"], root / _SOURCE_SPECS[requirement_id]), requirement_id
 
 
 def test_feat17_trace_contract_names_all_requirements_and_implementation_task() -> None:
@@ -243,7 +253,7 @@ def test_feat17_legacy_evidence_cannot_establish_current_consent() -> None:
     )[0] is False
 
 
-def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_sr065() -> None:
+def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_sr065_and_sr071() -> None:
     root = Path(__file__).parents[3]
     plan = _source_text(root, _PLAN)
     dossier = _source_text(root, "docs/features/FEAT-017.md")
@@ -271,23 +281,19 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_and_s
     assert "`starts_automatically: false`" in compact_plan
     assert "implements proposed `SR-065`" in compact_plan
     assert "No `satisfies` relationship, formal consent, canonical adoption, or downstream execution" in compact_plan
-    assert "eight owned SR projections" in dossier
+    assert "nine owned SR projections" in dossier
     assert not list((root / "tasks").glob("T-057-*.md"))
 
     assert sr055["id"] == "SR-055"
     assert sr055["title"] == "Versioned planning gate pack enforcement"
     assert sr055["domain"] == "behavioral"
     assert sr055["upstream"] == ["SR-035", "SR-036"]
-    assert sr055["source"] == (
-        "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md#3d"
-    )
+    assert sr055["source"] == f"{_CLOSURE_SPEC}#Versioned planning gate pack"
     statement = cast(str, sr055["statement"])
     assert "compile an explicit versioned planning gate pack" in statement
     assert "block proposal handoff" in statement
     assert "proposed; semantic adoption remains subject" in " ".join(sr055.content.split())
     assert sr065["id"] == "SR-065"
-    assert sr065["source"] == (
-        "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md#3h"
-    )
+    assert sr065["source"] == f"{_CLOSURE_SPEC}#Lifecycle contract"
     assert "host-guided planning entrypoint" in cast(str, sr065["statement"])
     assert "proposed; semantic adoption remains subject" in " ".join(sr065.content.split())
