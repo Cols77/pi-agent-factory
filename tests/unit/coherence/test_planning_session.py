@@ -120,19 +120,21 @@ def test_session_rejects_unsafe_or_mismatched_run_ids(tmp_path: Path) -> None:
         append_session_answer(tmp_path, "run-001", "x", "q", "a", event_run_id="run-002")
 
 
-def test_legal_actions_are_closed_and_block_until_handoff_is_persisted(tmp_path: Path) -> None:
+def test_legal_actions_for_a_started_run_begin_with_author_requirements(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "Build a planner")
 
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["run_id"] == "run-001"
-    assert projection["blocked"] is True
-    assert projection["reason"] == "SESSION_NOT_READY"
-    assert projection["legal_next_actions"] == []
+    assert projection["schema"] == 2
+    assert projection["blocked"] is False
+    assert projection["reason"] is None
+    assert projection["legal_next_actions"] == ["author-requirements"]
     assert projection["starts_automatically"] is False
     assert projection["action_registry"]["legal_ids"] == [
-        "inspect-handoff", "revalidate-handoff", "select-downstream-workflow",
-        "create-downstream-session", "resolve-blocking-input",
+        "author-requirements", "record-sr-consent", "author-spec", "author-plan",
+        "review-spec", "review-plan", "run-planning-gates", "create-handoff",
+        "inspect-handoff",
     ]
 
 
@@ -148,3 +150,75 @@ def test_legal_actions_reject_stale_persisted_identity(tmp_path: Path) -> None:
     assert projection["blocked"] is True
     assert projection["reason"] == "STALE_SESSION_STATE"
     assert projection["legal_next_actions"] == []
+
+
+def test_legal_actions_block_an_unresolved_captured_challenge(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+    append_session_answer(tmp_path, "run-001", "claim", "What do you know?", "This always works")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is True
+    assert projection["reason"] == "UNRESOLVED_CHALLENGE"
+    assert projection["legal_next_actions"] == []
+
+
+def test_legal_actions_reject_intent_from_another_run(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "First request")
+    start_session(tmp_path, "run-002", "Another request")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is True
+    assert projection["reason"] == "STALE_INTENT_SNAPSHOT"
+    assert projection["legal_next_actions"] == []
+
+
+def test_legal_actions_reject_cancelled_capture(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "First request")
+    finalize_session(tmp_path, "run-001", "cancelled")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
+
+
+def test_legal_actions_reject_stale_intent_without_rewriting_it(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "First request")
+    intent_path = tmp_path / ".intent/intent.json"
+    old_intent = intent_path.read_bytes()
+    append_session_answer(tmp_path, "run-001", "goal", "What?", "A planner")
+    intent_path.write_bytes(old_intent)
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["reason"] == "STALE_INTENT_SNAPSHOT"
+    assert projection["legal_next_actions"] == []
+    assert intent_path.read_bytes() == old_intent
+
+
+def test_legal_actions_for_a_valid_handoff_only_exposes_inspection(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+    handoff_path = tmp_path / ".factory" / "planning" / "run-001" / "handoff.json"
+    handoff_path.parent.mkdir(parents=True, exist_ok=True)
+    handoff_path.write_text(json.dumps({
+        "schema": 1,
+        "run_id": "run-001",
+        "selected_workflow": "standard-development",
+        "menu": [
+            {"id": "standard-development", "label": "Standard governed development", "selected": True, "starts_automatically": False},
+            {"id": "health-recovery", "label": "Health recovery", "selected": False, "starts_automatically": False},
+            {"id": "feature-planning", "label": "Another feature-planning workflow", "selected": False, "starts_automatically": False},
+        ],
+        "canonical_artifacts": [],
+        "semantic_report_hashes": {},
+        "resolution_journal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "starts_automatically": False,
+    }), encoding="utf-8")
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is False
+    assert projection["reason"] is None
+    assert projection["legal_next_actions"] == ["inspect-handoff"]

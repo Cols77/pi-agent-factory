@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,103 @@ def test_parse_accepts_valid_blocked_projection() -> None:
     parsed = parse_legal_actions_projection(json.dumps(payload), "run-001")
 
     assert parsed == payload
+
+
+def _schema_two_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema": 2,
+        "run_id": "run-001",
+        "blocked": False,
+        "reason": None,
+        "state": "capture",
+        "legal_next_actions": ["author-requirements"],
+        "starts_automatically": False,
+        "run_identity": {
+            "run_id": "run-001",
+            "next_sequence": 2,
+            "journal_sha256": "a" * 64,
+        },
+        "action_registry": {
+            "schema": 1,
+            "legal_ids": ["author-requirements"],
+            "registry_hash": hashlib.sha256(b"author-requirements").hexdigest(),
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_parse_accepts_schema_two_single_action_projection() -> None:
+    payload = _schema_two_payload()
+
+    assert parse_legal_actions_projection(json.dumps(payload), "run-001") == payload
+
+
+def test_parse_rejects_schema_two_multiple_actions() -> None:
+    payload = _schema_two_payload(
+        legal_next_actions=["author-requirements", "record-sr-consent"]
+    )
+
+    with pytest.raises(ValueError, match="invalid planning legal-actions response"):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+def test_parse_rejects_schema_two_missing_lifecycle_identity() -> None:
+    payload = _schema_two_payload()
+    payload.pop("run_identity")
+
+    with pytest.raises(ValueError, match="invalid planning legal-actions response"):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+@pytest.mark.parametrize("identity", [None, {}, {"run_id": "other-run"}])
+def test_parse_rejects_unblocked_projection_without_matching_identity(identity: object) -> None:
+    payload = _schema_two_payload(run_identity=identity)
+
+    with pytest.raises(ValueError):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+def test_parse_rejects_multiple_actions_in_legacy_schema() -> None:
+    payload = valid_payload(legal_next_actions=["author-spec", "author-plan"])
+
+    with pytest.raises(ValueError):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+@pytest.mark.parametrize("changes", [
+    {"schema": 2},
+    {"registry_hash": "bad-hash"},
+    {"registry_hash": "0" * 64},
+    {"legal_ids": ["author-requirements", "author-requirements"]},
+])
+def test_parse_rejects_invalid_action_registry(changes: dict[str, object]) -> None:
+    payload = _schema_two_payload()
+    payload["action_registry"].update(changes)
+
+    with pytest.raises(ValueError):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+@pytest.mark.parametrize("changes", [
+    {"next_sequence": True},
+    {"next_sequence": 0},
+    {"journal_sha256": "not-a-digest"},
+])
+def test_parse_rejects_invalid_run_identity(changes: dict[str, object]) -> None:
+    payload = _schema_two_payload()
+    payload["run_identity"].update(changes)
+
+    with pytest.raises(ValueError):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
+def test_parse_accepts_blocked_projection_without_identity() -> None:
+    payload = _schema_two_payload(
+        blocked=True, reason="STALE_SESSION_STATE", legal_next_actions=[], run_identity=None
+    )
+
+    assert parse_legal_actions_projection(json.dumps(payload), "run-001") == payload
 
 
 def test_parse_rejects_invalid_json() -> None:

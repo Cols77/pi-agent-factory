@@ -41,6 +41,7 @@ here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -90,17 +91,53 @@ def parse_legal_actions_projection(raw: str, run_id: str) -> dict[str, Any]:
         raise ValueError("invalid planning legal-actions response")
     if (
         type(payload.get("schema")) is not int
-        or payload["schema"] != 1
+        or payload["schema"] not in {1, 2}
         or not isinstance(payload.get("run_id"), str)
         or payload["run_id"] != run_id
         or not isinstance(payload.get("blocked"), bool)
         or "reason" not in payload
         or not (payload["reason"] is None or isinstance(payload["reason"], str))
         or not isinstance(payload.get("legal_next_actions"), list)
+        or len(payload["legal_next_actions"]) > 1
         or not all(isinstance(action, str) for action in payload["legal_next_actions"])
         or payload.get("starts_automatically") is not False
     ):
         raise ValueError("invalid planning legal-actions response")
+    if payload["schema"] == 2:
+        actions = payload["legal_next_actions"]
+        registry = payload.get("action_registry")
+        identity = payload.get("run_identity")
+        if (
+            not isinstance(payload.get("state"), str)
+            or len(actions) > 1
+            or not isinstance(registry, dict)
+            or type(registry.get("schema")) is not int
+            or registry["schema"] != 1
+            or not isinstance(registry.get("legal_ids"), list)
+            or not all(isinstance(action, str) for action in registry["legal_ids"])
+            or len(set(registry["legal_ids"])) != len(registry["legal_ids"])
+            or not isinstance(registry.get("registry_hash"), str)
+            or registry["registry_hash"] != hashlib.sha256(
+                "\n".join(registry["legal_ids"]).encode()
+            ).hexdigest()
+            or "run_identity" not in payload
+            or (identity is not None and not isinstance(identity, dict))
+            or (not payload["blocked"] and (
+                not isinstance(identity, dict) or identity.get("run_id") != run_id
+            ))
+            or (not payload["blocked"] and (payload["reason"] is not None or len(actions) != 1))
+            or (payload["blocked"] and (not isinstance(payload["reason"], str) or bool(actions)))
+            or (actions and actions[0] not in registry["legal_ids"])
+        ):
+            raise ValueError("invalid planning legal-actions response")
+        if isinstance(identity, dict) and (
+            identity.get("run_id") != run_id
+            or type(identity.get("next_sequence")) is not int
+            or identity["next_sequence"] < 1
+            or not isinstance(identity.get("journal_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", identity["journal_sha256"]) is None
+        ):
+            raise ValueError("invalid planning legal-actions response")
     return payload
 
 
