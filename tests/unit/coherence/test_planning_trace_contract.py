@@ -13,7 +13,7 @@ from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
 
-_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055", "SR-065", "SR-071"}
+_EXPECTED_SRS = {"SR-043", "SR-044", "SR-051", "SR-052", "SR-053", "SR-054", "SR-055", "SR-065", "SR-071", "SR-072"}
 _LEGACY_SRS = {"SR-043", "SR-044", "SR-050", "SR-051", "SR-052", "SR-053", "SR-054"}
 _PLAN = "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
 _CLOSURE_SPEC = "docs/superpowers/specs/2026-09-08-feat017-closure-slice-design.md"
@@ -27,6 +27,7 @@ _SOURCE_SPECS = {
     "SR-055": _CLOSURE_SPEC,
     "SR-065": _CLOSURE_SPEC,
     "SR-071": _CLOSURE_SPEC,
+    "SR-072": _CLOSURE_SPEC,
 }
 
 
@@ -281,7 +282,7 @@ def test_feat17_plan_amendment_reserves_tasks_and_registers_proposed_sr055_sr065
     assert "`starts_automatically: false`" in compact_plan
     assert "implements proposed `SR-065`" in compact_plan
     assert "No `satisfies` relationship, formal consent, canonical adoption, or downstream execution" in compact_plan
-    assert "nine owned SR projections" in dossier
+    assert "ten owned SR projections" in dossier
     assert not list((root / "tasks").glob("T-057-*.md"))
 
     assert sr055["id"] == "SR-055"

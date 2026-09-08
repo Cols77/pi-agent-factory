@@ -11,6 +11,7 @@ requirements:
   - SR-055
   - SR-065
   - SR-071
+  - SR-072
 ---
 
 # FEAT-017 coordinated closure slice
@@ -79,6 +80,27 @@ bulk decision can satisfy this prerequisite. Any requirement-content change
 invalidates its consent and blocks later stages until a new current decision is
 recorded.
 
+## Semantic challenge review
+
+The existing deterministic keyword detector remains a supplementary tripwire;
+it is not semantic review. After meaningful capture changes, a host may
+explicitly trigger a semantic reviewer to identify unstated assumptions,
+unsupported claims, contradictions, unbounded scope, or missing and
+unmeasurable success criteria.
+
+The reviewer proposes structured challenges containing an affected claim,
+rationale, evidence needed, and attributable provenance. Coherence persists
+and surfaces those challenges through its existing challenge records. The
+reviewer, hook, and host cannot resolve, dismiss, or turn a finding into human
+consent. Every proposed challenge requires an explicit human `resolve`,
+`revise`, `defer`, or `accept` disposition before a stage that declares
+challenge resolution mandatory can proceed.
+
+The invocation mechanism is host-specific but the result is not: Claude Code
+may use an agent hook, while Codex or Hermes may use their respective host
+integration. All produce the same Coherence-owned record rather than a
+host-local review state.
+
 ## Artifact and evidence transitions
 
 Each later action requires current evidence for all its predecessors. A mere
@@ -146,3 +168,4 @@ projection without duplicated sequencing logic.
 - SR-055 owns compiled, versioned planning gate-pack enforcement.
 - SR-065 owns the sole guided, state- and evidence-derived action projection.
 - SR-071 reserves the read-only visualizer extension point.
+- SR-072 owns semantic challenge review and explicit human disposition.
