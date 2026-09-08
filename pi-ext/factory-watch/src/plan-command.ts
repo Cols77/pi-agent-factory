@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { ExtCommandCtx } from "./pi-types.js";
 
@@ -11,7 +12,12 @@ export interface PlanLegalActionsResponse {
   selected_downstream_workflow?: string | null;
   starts_automatically: false;
   state?: string;
-  run_identity?: Record<string, unknown>;
+  run_identity?: Record<string, unknown> | null;
+  action_registry?: {
+    schema: number;
+    legal_ids: string[];
+    registry_hash: string;
+  };
 }
 
 export interface PlanCommand {
@@ -39,21 +45,59 @@ export function parsePlanLegalActionsResponse(raw: string):
   | { ok: true; value: PlanLegalActionsResponse }
   | { ok: false; error: string } {
   try {
-    const value = JSON.parse(raw) as Partial<PlanLegalActionsResponse>;
+    const value: unknown = JSON.parse(raw);
     if (
-      value.schema !== 1 || typeof value.run_id !== "string" ||
+      !isRecord(value) ||
+      (value.schema !== 1 && value.schema !== 2) || typeof value.run_id !== "string" ||
       typeof value.blocked !== "boolean" ||
       !(value.reason === null || typeof value.reason === "string") ||
       !Array.isArray(value.legal_next_actions) ||
+      value.legal_next_actions.length > 1 ||
       !value.legal_next_actions.every((item) => typeof item === "string") ||
       value.starts_automatically !== false
     ) {
       return { ok: false, error: "invalid planning legal-actions response" };
     }
-    return { ok: true, value: value as PlanLegalActionsResponse };
+    if (value.schema === 2) {
+      // Validate the Python adapter's wire contract without deriving a stage.
+      const actions = value.legal_next_actions;
+      const registry = value.action_registry;
+      const identity = value.run_identity;
+      if (
+        typeof value.state !== "string" ||
+        !isRecord(registry) || registry.schema !== 1 ||
+        !Array.isArray(registry.legal_ids) ||
+        !registry.legal_ids.every((action) => typeof action === "string") ||
+        new Set(registry.legal_ids).size !== registry.legal_ids.length ||
+        typeof registry.registry_hash !== "string" ||
+        registry.registry_hash !== createHash("sha256")
+          .update(registry.legal_ids.join("\n"), "utf8").digest("hex") ||
+        !("run_identity" in value) ||
+        (identity !== null && !isRecord(identity)) ||
+        (!value.blocked && (!isRecord(identity) || value.reason !== null || actions.length !== 1)) ||
+        (value.blocked && (typeof value.reason !== "string" || actions.length !== 0)) ||
+        (actions[0] !== undefined && !registry.legal_ids.includes(actions[0]))
+      ) {
+        return { ok: false, error: "invalid planning legal-actions response" };
+      }
+      if (isRecord(identity) && (
+        identity.run_id !== value.run_id ||
+        typeof identity.next_sequence !== "number" ||
+        !Number.isInteger(identity.next_sequence) || identity.next_sequence < 1 ||
+        typeof identity.journal_sha256 !== "string" ||
+        identity.journal_sha256.length !== 64 || !/^[0-9a-f]{64}$/.test(identity.journal_sha256)
+      )) {
+        return { ok: false, error: "invalid planning legal-actions response" };
+      }
+    }
+    return { ok: true, value: value as unknown as PlanLegalActionsResponse };
   } catch {
     return { ok: false, error: "invalid planning legal-actions response" };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function renderPlanLegalActions(value: PlanLegalActionsResponse): string {
