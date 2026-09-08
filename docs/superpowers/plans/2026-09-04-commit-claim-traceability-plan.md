@@ -126,7 +126,8 @@ under way:
 That branch contains an entire `src/coherence/planning/` package (9,532 lines of source):
 `workflow.py` (a host-neutral coordinator over three `WorkflowStage`s — `SPEC_ALIGNMENT`,
 `PLAN_TASK_ALIGNMENT`, `DERIVATION_ALIGNMENT` — whose `Reviewer` callback is documented as *"the
-sole semantic judgment boundary"*), `gates.py` (planning gate pack, [[SR-055]]), `check.py`
+sole semantic judgment boundary"*), `gates.py` (shipped consent validators; the [[SR-055]] compiled
+gate pack remains future work), `check.py`
 (cross-artifact review, [[SR-053]]), `kanban.py` (Hermes host backend), `intent.py` ([[SR-052]]),
 `handoff.py`, and `runner.py`.
 

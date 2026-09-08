@@ -9,9 +9,17 @@ satisfies:
 - SR-051
 source_plan: docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md
 source_task: 3
-status: todo
+status: done
 title: Expose the deterministic planning gate through `coherence plan`
 ---
+
+## Closure note
+
+Verified done on 2026-09-07: `coherence plan check` and `coherence plan suggest`
+are both registered in `src/coherence/planning/cli.py` and wired from
+`src/coherence/cli.py`'s `"plan"` group entry. No further implementation
+required; remaining FEAT-017 work is per-SR human consent, tracked
+separately from this task.
 
 - Modify: `src/coherence/cli.py`
 - Create: `src/coherence/planning/cli.py`
