@@ -8,12 +8,13 @@ import pytest
 import coherence.planning.intent as planning_intent
 from coherence.planning.intent import (
     CaptureEvent,
+    IntentError,
     append_capture_event,
     materialize_intent,
     read_intent,
     validate_intent,
 )
-from coherence.planning.model import IntentAnswer
+from coherence.planning.model import IntentAnswer, PlanningChallenge
 
 pytestmark = pytest.mark.unit
 
@@ -322,3 +323,69 @@ def test_challenge_resolution_is_preserved_in_materialized_intent(tmp_path: Path
     assert document.challenges[0].response == "Accepted pending evidence"
     assert document.challenges[0].provenance == "user"
     assert document.challenges[0].response_provenance == "user:pi"
+
+
+def test_host_semantic_challenge_proposal_is_persisted_as_unresolved(tmp_path: Path) -> None:
+    from coherence.planning.intent import propose_capture_challenge
+
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}))
+    propose_capture_challenge(
+        tmp_path, "run-001", "semantic-1", "unsupported_claim", "always safe",
+        "The host found no supporting evidence.", "repository inspection", "host:semantic-review",
+    )
+    materialize_intent(tmp_path, "run-001", tmp_path / ".intent/intent.json")
+
+    document = read_intent(tmp_path / ".intent/intent.json", project_root=tmp_path)
+    assert document.challenges == (PlanningChallenge(
+        "semantic-1", "unsupported_claim", "always safe",
+        "The host found no supporting evidence.", "host:semantic-review", "repository inspection",
+    ),)
+    event = json.loads((tmp_path / ".factory/planning/run-001/capture/events.jsonl").read_text().splitlines()[-1])
+    assert event == {
+        "run_id": "run-001", "sequence": 2, "kind": "semantic_challenge_proposed",
+        "payload": {
+            "id": "semantic-1", "kind": "unsupported_claim", "claim": "always safe",
+            "rationale": "The host found no supporting evidence.",
+            "evidence_needed": "repository inspection", "provenance": "host:semantic-review",
+        },
+    }
+
+
+@pytest.mark.parametrize("forbidden", ["status", "response", "resolution", "approval", "consent"])
+def test_semantic_challenge_proposal_rejects_resolution_or_authority_fields(
+    tmp_path: Path, forbidden: str
+) -> None:
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}))
+
+    with pytest.raises(IntentError, match="exactly"):
+        append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 2, "semantic_challenge_proposed", {
+            "id": "semantic-1", "kind": "unsupported_claim", "claim": "always safe",
+            "rationale": "No evidence", "evidence_needed": "inspection", "provenance": "host:semantic-review",
+            forbidden: "malicious",
+        }))
+
+
+def test_semantic_challenge_proposal_rejects_duplicate_ids(tmp_path: Path) -> None:
+    from coherence.planning.intent import propose_capture_challenge
+
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}))
+    propose_capture_challenge(tmp_path, "run-001", "semantic-1", "unsupported_claim", "claim", "why", "proof", "host:review")
+
+    with pytest.raises(IntentError, match="duplicate challenge id"):
+        propose_capture_challenge(tmp_path, "run-001", "semantic-1", "unsupported_claim", "claim", "why", "proof", "host:review")
+
+
+def test_only_explicit_human_resolution_changes_a_proposed_challenge(tmp_path: Path) -> None:
+    from coherence.planning.intent import propose_capture_challenge, resolve_capture_challenge
+
+    append_capture_event(tmp_path, "run-001", CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}))
+    propose_capture_challenge(tmp_path, "run-001", "semantic-1", "unsupported_claim", "claim", "why", "proof", "host:review")
+
+    with pytest.raises(IntentError, match="human provenance"):
+        resolve_capture_challenge(tmp_path, "run-001", "semantic-1", "accept", "looks good", "host:review")
+    materialize_intent(tmp_path, "run-001", tmp_path / ".intent/intent.json")
+    assert read_intent(tmp_path / ".intent/intent.json", project_root=tmp_path).challenges[0].status == "unresolved"
+
+    resolve_capture_challenge(tmp_path, "run-001", "semantic-1", "accept", "looks good", "user:pi")
+    materialize_intent(tmp_path, "run-001", tmp_path / ".intent/intent.json")
+    assert read_intent(tmp_path / ".intent/intent.json", project_root=tmp_path).challenges[0].status == "accepted"

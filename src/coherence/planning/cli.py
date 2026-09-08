@@ -14,6 +14,7 @@ from coherence.planning.session import (
     append_session_answer,
     finalize_session,
     legal_actions_session,
+    propose_session_challenge,
     resume_session,
     resolve_session_challenge,
     start_session,
@@ -478,6 +479,11 @@ def _session_command(args: argparse.Namespace) -> int:
                 args.text,
                 source=args.source,
             )
+        elif args.command == "propose-challenge":
+            session = propose_session_challenge(
+                args.project_root, args.run_id, args.id, args.kind, args.claim,
+                args.rationale, args.evidence_needed, args.provenance,
+            )
         elif args.command == "resolve":
             session = resolve_session_challenge(
                 args.project_root, args.run_id, args.challenge_id, args.resolution,
@@ -552,7 +558,7 @@ def _parser() -> argparse.ArgumentParser:
     consent.add_argument("--reason", required=True)
     consent.add_argument("--json", action="store_true")
 
-    for name in ("start", "resume", "status", "append", "resolve", "finalize", "legal-actions"):
+    for name in ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"):
         command = sub.add_parser(name)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=Path("."), type=Path)
@@ -571,6 +577,13 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--resolution", choices=("resolve", "revise", "defer", "accept"), required=True)
             command.add_argument("--response", required=True)
             command.add_argument("--provenance", default="user")
+        elif name == "propose-challenge":
+            command.add_argument("--id", required=True)
+            command.add_argument("--kind", required=True)
+            command.add_argument("--claim", required=True)
+            command.add_argument("--rationale", required=True)
+            command.add_argument("--evidence-needed", required=True)
+            command.add_argument("--provenance", required=True)
     return parser
 
 
@@ -586,7 +599,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _handoff(args)
     if args.command == "record-sr-consent":
         return _record_sr_consent(args)
-    if args.command in {"start", "resume", "status", "append", "resolve", "finalize", "legal-actions"}:
+    if args.command in {"start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"}:
         return _session_command(args)
     return _suggest(args)
 

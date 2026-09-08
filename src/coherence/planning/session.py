@@ -15,6 +15,7 @@ from coherence.planning.intent import (
     append_capture_event,
     detect_challenges,
     materialize_intent,
+    propose_capture_challenge,
     read_intent,
     resolve_capture_challenge,
 )
@@ -370,6 +371,33 @@ def resolve_session_challenge(
     return session
 
 
+def propose_session_challenge(
+    project_root: Path, run_id: str, challenge_id: str, kind: str, claim: str,
+    rationale: str, evidence_needed: str, provenance: str,
+) -> PlanningSession:
+    """Persist a host challenge proposal without resolving or approving anything."""
+    root = _root(project_root)
+    _validate_run_id(run_id)
+    if not all(
+        isinstance(value, str) and value
+        for value in (challenge_id, kind, claim, rationale, evidence_needed, provenance)
+    ):
+        raise SessionError("semantic challenge proposal fields must be non-empty text")
+    if not provenance.startswith("host:"):
+        raise SessionError("semantic challenge proposal requires host provenance")
+    try:
+        propose_capture_challenge(
+            root, run_id, challenge_id, kind, claim, rationale, evidence_needed, provenance,
+        )
+        _materialize(root, run_id)
+    except IntentError as exc:
+        raise SessionError(str(exc)) from exc
+    journal = _journal(root, run_id)
+    session = _project(root, run_id, _events(journal, run_id))
+    _write_state(root, session)
+    return session
+
+
 def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
@@ -396,6 +424,7 @@ __all__ = [
     "append_session_answer",
     "finalize_session",
     "legal_actions_session",
+    "propose_session_challenge",
     "resume_session",
     "resolve_session_challenge",
     "start_session",

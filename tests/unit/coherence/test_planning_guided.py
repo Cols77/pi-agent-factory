@@ -131,7 +131,7 @@ def challenge(**overrides: Any) -> dict[str, Any]:
 
 
 def test_session_verbs_are_exactly_the_implemented_capture_verbs() -> None:
-    assert SESSION_VERBS == ("start", "resume", "status", "append", "resolve", "finalize")
+    assert SESSION_VERBS == ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize")
 
 
 def test_start_builds_argv_only_command_with_prompt() -> None:
@@ -203,6 +203,37 @@ def test_append_joins_each_flag_and_value_as_one_argv_token() -> None:
     assert "--question=What breaks?" in command
     assert "--text=Nothing" in command
     assert "--source=intent-review-agent" in command
+
+
+def test_propose_challenge_is_a_transport_only_backend_command() -> None:
+    command = build_session_command(
+        Path("/p"), "run-001", "propose-challenge", id="semantic-1",
+        kind="unsupported_claim", claim="always safe", rationale="No evidence",
+        evidence_needed="repository inspection", provenance="host:semantic-review",
+    )
+
+    assert command == [
+        "uv", "run", "coherence", "plan", "propose-challenge", "--project-root", str(Path("/p")),
+        "--run-id", "run-001", "--id=semantic-1", "--kind=unsupported_claim",
+        "--claim=always safe", "--rationale=No evidence", "--evidence-needed=repository inspection",
+        "--provenance=host:semantic-review", "--json",
+    ]
+
+
+def test_propose_challenge_rejects_malformed_host_data_without_invoking_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(BackendError, match="non-empty text"):
+        run_session_command(
+            Path("/p"), "run-001", "propose-challenge", id="semantic-1",
+            kind="unsupported_claim", claim="", rationale="No evidence",
+            evidence_needed="repository inspection", provenance="host:semantic-review",
+        )
+
+    assert calls == []
 
 
 @pytest.mark.parametrize("hyphen_value", ["-N/A", "-none", "-1", "--looks-like-a-flag"])

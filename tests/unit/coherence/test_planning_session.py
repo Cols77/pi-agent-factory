@@ -11,6 +11,7 @@ from coherence.planning.session import (
     append_session_answer,
     finalize_session,
     legal_actions_session,
+    propose_session_challenge,
     resume_session,
     start_session,
     status_session,
@@ -161,6 +162,19 @@ def test_legal_actions_block_an_unresolved_captured_challenge(tmp_path: Path) ->
     assert projection["blocked"] is True
     assert projection["reason"] == "UNRESOLVED_CHALLENGE"
     assert projection["legal_next_actions"] == []
+
+
+def test_legal_actions_block_an_unresolved_host_proposed_challenge(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+    propose_session_challenge(
+        tmp_path, "run-001", "semantic-1", "unsupported_claim", "always safe",
+        "No evidence was supplied", "repository inspection", "host:semantic-review",
+    )
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["blocked"] is True
+    assert projection["reason"] == "UNRESOLVED_CHALLENGE"
 
 
 def test_legal_actions_reject_intent_from_another_run(tmp_path: Path) -> None:
