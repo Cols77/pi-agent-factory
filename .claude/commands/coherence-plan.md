@@ -104,12 +104,34 @@ uv run python -m coherence.planning.guided_entrypoint resolve --run-id <run-id> 
 When the human says capture is complete, ask which terminal status applies:
 `provisional`, `needs_user`, or `cancelled`. **Never choose it yourself.**
 
+Before calling `finalize`, dispatch an intent-review subagent yourself (a normal
+subagent call from this session, not the finalize hook — the hook's own agent is
+read-only and cannot write) to review the run's capture journal
+(`.factory/planning/<run-id>/capture/events.jsonl`) and `.intent/intent.json` for
+material gaps: unstated assumptions, unsupported claims, contradictions between
+answers, unbounded scope, and absent or unmeasurable success criteria. It reports
+findings as plain text (or a single "no findings" line); it never decides whether
+they block, never chooses a resolution, and never touches planning state itself.
+
+Record every returned finding (or the single "no findings" line) yourself, from
+this session — which already has working Bash access — via one `append` call per
+finding, `--source intent-review-agent`, using `a<next_sequence>` from the most
+recent payload, **before** calling finalize:
+
+```
+uv run python -m coherence.planning.guided_entrypoint append --run-id <run-id> --project-root . --answer-id a<next_sequence> --question "Intent review finding" --text "<finding>" --source intent-review-agent
+```
+
+Only then call finalize:
+
 ```
 uv run python -m coherence.planning.guided_entrypoint finalize --run-id <run-id> --project-root . --status <their choice>
 ```
 
-A hook runs an intent-review agent here and blocks finalize until the review is
-recorded and every challenge is dispositioned. If it denies, satisfy the stated
+A hook still runs a read-only agent review here and blocks finalize until a
+recorded review exists and every challenge is dispositioned — recording the
+review yourself first (above) satisfies that by construction rather than relying
+on the hook's own agent to write it. If finalize still denies, satisfy the stated
 reason and retry.
 
 ## 6. Author the spec
