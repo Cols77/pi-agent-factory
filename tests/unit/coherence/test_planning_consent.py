@@ -160,6 +160,30 @@ def test_validation_rejects_mixed_type_candidate_identifiers_without_raising(
     )
 
 
+def test_oversized_decision_does_not_replace_an_existing_valid_consent(
+    tmp_path: Path,
+) -> None:
+    digest = "1" * 64
+    _write_approval(tmp_path, "run-17", "SR-071", digest)
+
+    with pytest.raises(ValueError, match="exceeds 1 MiB"):
+        write_sr_decision(
+            tmp_path,
+            "run-17",
+            "SR-071",
+            digest,
+            "approve",
+            "human",
+            CONSENT_PHRASE,
+            "r" * 1_048_576,
+        )
+
+    assert validate_sr_decisions(tmp_path, "run-17", {"SR-071": digest}) == (
+        True,
+        "human consent is current for all candidate SRs",
+    )
+
+
 def test_legacy_aggregate_consent_contract_remains_available(tmp_path: Path) -> None:
     path = tmp_path / ".factory" / "planning" / "run-17" / "sr-consent.json"
     path.parent.mkdir(parents=True)

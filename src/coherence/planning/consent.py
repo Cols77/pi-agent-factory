@@ -29,6 +29,7 @@ _DECISION_KEYS = frozenset(
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SR_ID = re.compile(r"^SR-[0-9]+$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_MAX_RECORD_BYTES = 1_048_576
 
 
 def _valid_run_id(value: object) -> bool:
@@ -71,7 +72,7 @@ def _validate_write_inputs(
         raise ValueError("human consent reason is required")
 
 
-def _atomic_write(path: Path, payload: dict[str, object]) -> None:
+def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=".consent-", suffix=".tmp", dir=str(path.parent)
@@ -79,7 +80,7 @@ def _atomic_write(path: Path, payload: dict[str, object]) -> None:
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
-            stream.write(strict_json_dumps(payload) + "\n")
+            stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
@@ -118,7 +119,10 @@ def write_sr_decision(
         "phrase": phrase,
         "reason": reason,
     }
-    _atomic_write(path, payload)
+    serialized = strict_json_dumps(payload) + "\n"
+    if len(serialized.encode("utf-8")) > _MAX_RECORD_BYTES:
+        raise ValueError("human consent record exceeds 1 MiB")
+    _atomic_write(path, serialized)
     return path
 
 
