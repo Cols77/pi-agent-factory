@@ -41,15 +41,26 @@ because the review found real, unresolved gaps in what FEAT-017 as a whole deliv
 - **SR-054: PARTIAL.** Generated tasks carry no affected-SR (`satisfies`) field, and the
   completion-preflight obligation that would enforce it self-disables when the field is
   absent (`compiler.py:229–234`).
-- **Task-status drift found:** `tasks/T-037-...md` is `status: todo` despite being fully
-  satisfied per the same evidence standard used to correct T-034/035/036 — needs the same
-  correction.
-- **Documentation drift found:** `.pi/skills/writing-plans/SKILL.md:177` and
-  `docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md:129` both assert the
-  SR-055 gate pack already exists. It does not; both need correcting, the skill file with
-  more urgency since it actively instructs hosts.
 
 None of the above is fabricated, assumed, or worked around — see the full report for every
 citation. This task should move to `status: done` only once these are resolved (or
 explicitly deferred by the human as separate, tracked work) and a follow-up review confirms
 it.
+
+### Resolved since this review
+
+- Commit `269f0ed` fixed both drift items this review found: `tasks/T-037-...md` is now
+  `status: done` with a cited closure note, and `.pi/skills/writing-plans/SKILL.md` /
+  `docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md` no longer claim the
+  SR-055 gate pack exists — they now say `gates.py` holds only the shipped consent
+  validators and that the compiled gate-pack contract remains future work.
+
+### Candidate SR-055 fix — parked, not reviewed or approved
+
+A candidate fix for part of the SR-055 finding above (report-authenticity binding,
+run-id/path-escape safety, and a stable first-blocking failure code in a prototype
+`gate_pack.py`) exists on branch `feat/feat17-trace-gate-enforcement`. That branch also
+carries SR-054 enforcement work. **Neither has been reviewed or approved by a human** and
+neither is merged; do not treat this task's SR-055/SR-054 findings as resolved on the
+strength of that branch existing. See that branch's own design doc for its (explicitly
+unapproved) direction before reviving it.
