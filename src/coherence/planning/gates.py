@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +15,9 @@ from coherence.planning.anchors import authority_anchor_matches
 from coherence.planning.consent import validate_sr_decisions
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
+from coherence.planning.review import GeneratedTaskReviewInput, review_cross_artifact_relations
+from coherence.register.register import parse_requirement
+from substrate.ledger.tasks import load_tasks
 
 _REQUIRED_FEATURE_ID = "FEAT-017"
 _CONSENT_KEYS = frozenset({"schema", "run_id", "decision", "reviewer", "reason", "requirements"})
@@ -113,6 +117,15 @@ def _pack_without_digest(feature_id: str, version: str) -> dict[str, object]:
             "resolver": "requirement_consent_current",
             "dependencies": ["planning-report-current"],
             "expected_evidence": ["feature_requirements", "per_sr_consent"],
+            "failure_behavior": "block_handoff",
+        },
+        {
+            "id": "cross-artifact-review-current",
+            "stage": "planning",
+            "required": True,
+            "resolver": "cross_artifact_review_current",
+            "dependencies": ["planning-report-current"],
+            "expected_evidence": ["cross-artifact-review.json", "task_relation_artifacts"],
             "failure_behavior": "block_handoff",
         },
     ]
@@ -336,10 +349,157 @@ def _resolve_requirement_consent(root: Path, run_id: str) -> tuple[str, list[dic
         return "fail", []
 
 
+def _cross_artifact_record(
+    root: Path, run_id: str, raw_tasks: object,
+) -> dict[str, object]:
+    """Recompute explicit producer inputs against current canonical files."""
+    report, report_evidence = _planning_report(root, run_id)
+    if not isinstance(raw_tasks, dict):
+        raise PlanningGateError("cross-artifact task inputs are invalid")
+    task_dir = safe_resolve(root, root / "tasks")
+    if task_dir is None:
+        raise PlanningGateError("cross-artifact task directory is unsafe")
+    task_paths = sorted(path.relative_to(root).as_posix() for path in task_dir.glob("T-*.md"))
+    report_paths = {entry["path"] for entry in report_evidence[1:]}
+    if set(raw_tasks) != set(task_paths) or not set(task_paths) <= report_paths:
+        raise PlanningGateError("cross-artifact review must cover every canonical generated task")
+    for path in task_paths:
+        if safe_resolve(root, root / path) is None:
+            raise PlanningGateError("cross-artifact task path is unsafe")
+        if _read_metadata(root / path) is None:
+            raise PlanningGateError("cross-artifact task metadata is malformed")
+    parsed_tasks = {task.path.relative_to(root).as_posix(): task for task in load_tasks(task_dir)}
+    tasks: list[GeneratedTaskReviewInput] = []
+    required_ids: set[str] = set()
+    inputs: dict[str, str] = {entry["path"]: entry["sha256"] for entry in report_evidence}
+    fields = {"id", "artifact_paths", "changes_production", "changes_validation", "affected_srs", "satisfies"}
+    for path in task_paths:
+        raw = raw_tasks[path]
+        if not isinstance(raw, dict) or set(raw) != fields:
+            raise PlanningGateError("cross-artifact task input schema is invalid")
+        if (
+            raw["id"] != parsed_tasks[path].id
+            or type(raw["changes_production"]) is not bool
+            or type(raw["changes_validation"]) is not bool
+            or not isinstance(raw["artifact_paths"], list) or not raw["artifact_paths"]
+            or not all(_safe_relative(item) for item in raw["artifact_paths"])
+        ):
+            raise PlanningGateError("cross-artifact task classification is invalid")
+        for field in ("affected_srs", "satisfies"):
+            value = raw[field]
+            if value is not None and (
+                not isinstance(value, list)
+                or not all(isinstance(item, str) and _SR_ID.fullmatch(item) for item in value)
+            ):
+                raise PlanningGateError("cross-artifact SR declaration schema is invalid")
+        metadata = _read_metadata(root / path)
+        assert metadata is not None
+        mirror = parsed_tasks[path].satisfies if {"satisfies", "justification"} & set(metadata) else None
+        if raw["satisfies"] != mirror:
+            raise PlanningGateError("cross-artifact satisfies input does not match the canonical task parser")
+        task = GeneratedTaskReviewInput(
+            raw["id"], tuple(raw["artifact_paths"]), raw["changes_production"],
+            raw["changes_validation"],
+            tuple(raw["affected_srs"]) if raw["affected_srs"] is not None else None,
+            tuple(mirror) if mirror is not None else None,
+        )
+        tasks.append(task)
+        for relative in task.artifact_paths:
+            source = safe_resolve(root, root / relative)
+            if source is None:
+                raise PlanningGateError("cross-artifact task artifact path is unsafe")
+            if source.is_file():
+                inputs[relative] = _digest(source.read_bytes())
+        if task.needs_sr_declaration:
+            required_ids.update(task.affected_srs or ())
+    requirements = []
+    for sr_id in sorted(required_ids):
+        relative = f"requirements/{sr_id}.md"
+        path = safe_resolve(root, root / relative)
+        if path is None:
+            raise PlanningGateError("cross-artifact requirement path is unsafe")
+        if not path.exists():
+            continue  # The pure reviewer reports the dangling SR declaration.
+        metadata = _read_metadata(path)
+        if metadata is None or metadata.get("id") != sr_id:
+            raise PlanningGateError("cross-artifact requirement metadata is invalid")
+        try:
+            requirements.append(parse_requirement(path))
+        except (AttributeError, KeyError) as exc:
+            raise PlanningGateError("cross-artifact requirement metadata is malformed") from exc
+        inputs[relative] = _digest(path.read_bytes())
+        for field in ("implemented_by", "verified_by"):
+            entries = metadata.get(field)
+            if not isinstance(entries, list):
+                continue  # The relation resolver owns malformed relation findings.
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                    continue
+                relative = entry["path"].replace("\\", "/")
+                if not _safe_relative(relative):
+                    raise PlanningGateError("cross-artifact relation path is unsafe")
+                source = safe_resolve(root, root / relative)
+                if source is None:
+                    raise PlanningGateError("cross-artifact relation path is unsafe")
+                if source.is_file():
+                    inputs[relative] = _digest(source.read_bytes())
+    review = review_cross_artifact_relations(root, requirements, tasks)
+    return {
+        "schema": 1, "run_id": run_id, "report_sha256": _canonical_digest(report),
+        "tasks": raw_tasks, "artifact_hashes": dict(sorted(inputs.items())),
+        "review": review.to_dict(),
+    }
+
+
+def write_cross_artifact_review(
+    root: Path, run_id: str, tasks: Mapping[str, GeneratedTaskReviewInput],
+) -> dict[str, object]:
+    """Record producer-classified tasks, including blocking findings, for planning gates.
+
+    Keys are canonical ``tasks/T-*.md`` paths. Every generated task must be
+    represented and already included in report.json. Classifications are
+    explicit producer facts; this boundary never infers docs-only exemptions.
+    """
+    root = safe_root(root) or root
+    run_dir = _planning_run_dir(root, run_id)
+    path = safe_resolve(root, run_dir / "cross-artifact-review.json")
+    if path is None:
+        raise PlanningGateError("cross-artifact review path is unsafe")
+    try:
+        raw_tasks = json.loads(json.dumps({path: asdict(task) for path, task in tasks.items()}))
+        record = _cross_artifact_record(root, run_id, raw_tasks)
+    except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError) as exc:
+        raise PlanningGateError("cross-artifact review inputs are invalid") from exc
+    _atomic_write(path, _encoded_result(record))
+    return record
+
+
+def _resolve_cross_artifact_review(root: Path, run_id: str) -> tuple[str, list[dict[str, str]]]:
+    try:
+        path = safe_resolve(root, _planning_run_dir(root, run_id) / "cross-artifact-review.json")
+        if path is None or not path.is_file():
+            raise PlanningGateError("cross-artifact review evidence is missing")
+        record = _read_json(path, "cross-artifact review evidence is unreadable")
+        if not isinstance(record, dict) or type(record.get("schema")) is not int:
+            raise PlanningGateError("cross-artifact review schema is invalid")
+        current = _cross_artifact_record(root, run_id, record.get("tasks"))
+        review = current["review"]
+        hashes = current["artifact_hashes"]
+        assert isinstance(review, dict) and isinstance(hashes, dict)
+        if _encoded_result(record) != _encoded_result(current) or review["ok"] is not True:
+            raise PlanningGateError("cross-artifact review is stale or contains blocking findings")
+        evidence = [{"path": f".factory/planning/{run_id}/cross-artifact-review.json", "sha256": _digest(path.read_bytes())}]
+        evidence.extend({"path": name, "sha256": digest} for name, digest in hashes.items())
+        return "pass", evidence
+    except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
+        return "fail", []
+
+
 _RESOLVERS = {
     "planning_report_current": _resolve_planning_report,
     "human_review_current": _resolve_human_review,
     "requirement_consent_current": _resolve_requirement_consent,
+    "cross_artifact_review_current": _resolve_cross_artifact_review,
 }
 
 
@@ -668,4 +828,5 @@ __all__ = [
     "validate_planning_gate_result",
     "validate_requirement_consent",
     "validate_sr_consent",
+    "write_cross_artifact_review",
 ]

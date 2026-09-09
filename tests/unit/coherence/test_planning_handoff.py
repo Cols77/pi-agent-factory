@@ -15,7 +15,7 @@ from coherence.planning.handoff import (
     validate_handoff,
     write_handoff,
 )
-from coherence.planning.gates import compile_planning_gate_pack, evaluate_planning_gate_pack
+from coherence.planning.gates import compile_planning_gate_pack, evaluate_planning_gate_pack, write_cross_artifact_review
 from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.model import PlanningFinding, PlanningReport
 from coherence.planning.run import planning_report_digest
@@ -57,6 +57,8 @@ def _write_current_gate_result(root: Path, report: PlanningReport) -> None:
         root, report.run_id, "SR-001", hashlib.sha256(requirement.read_bytes()).hexdigest(),
         "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
     )
+    if not any(finding.severity == "error" for finding in report.findings):
+        write_cross_artifact_review(root, report.run_id, {})
     evaluate_planning_gate_pack(root, report.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
 
 

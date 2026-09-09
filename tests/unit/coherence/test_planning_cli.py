@@ -9,6 +9,8 @@ import pytest
 
 from coherence.cli import main
 from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
+from coherence.planning.gates import write_cross_artifact_review
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
@@ -79,6 +81,7 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
                 f"id: T-{number:03d}\n"
                 f"title: {title} Task\n"
                 "status: todo\n"
+                "dod: []\n"
                 "source_plan: docs/superpowers/plans/intent-plan.md\n"
                 f"source_task: {number}\n"
                 "---\n",
@@ -87,7 +90,11 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
         requirement_ids = ("SR-001", "SR-002")
         requirements_dir = root / "requirements"
         requirements_dir.mkdir()
-        for req_id in requirement_ids:
+        (root / "src").mkdir()
+        (root / "tests").mkdir()
+        (root / "tests/test_planner.py").write_text("def test_planner():\n    assert 1 == 1\n", encoding="utf-8")
+        for req_id, name in zip(requirement_ids, ("first", "second"), strict=True):
+            (root / f"src/{name}.py").write_text("def behavior():\n    return 1\n", encoding="utf-8")
             (requirements_dir / f"{req_id}.md").write_text(
                 "---\n"
                 f"id: {req_id}\n"
@@ -96,6 +103,8 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
                 "domain: behavioral\n"
                 "upstream: []\n"
                 "source: docs/superpowers/specs/intent-spec.md#goal\n"
+                f"implemented_by:\n  - path: src/{name}.py\n    symbol: {name}:behavior\n"
+                "verified_by:\n  - path: tests/test_planner.py\n    test: tests/test_planner.py::test_planner\n"
                 "---\n",
                 encoding="utf-8",
             )
@@ -305,6 +314,12 @@ def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.Ca
             root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
             "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
         )
+    write_cross_artifact_review(root, "run-001", {
+        f"tasks/T-{number:03d}-{name}.md": GeneratedTaskReviewInput(
+            f"T-{number:03d}", (f"src/{name}.py",), True, False, (f"SR-{number:03d}",),
+        )
+        for number, name in ((1, "first"), (2, "second"))
+    })
     assert main([
         "plan", "run-planning-gates", "--project-root", str(root), "--run-id", "run-001", "--json",
     ]) == 0

@@ -15,6 +15,7 @@ from coherence.planning.gates import (
     compile_planning_gate_pack,
     evaluate_planning_gate_pack,
     validate_planning_gate_result,
+    write_cross_artifact_review,
 )
 from coherence.planning.run import planning_report_digest
 
@@ -113,6 +114,7 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
         }),
         encoding="utf-8",
     )
+    write_cross_artifact_review(root, run_id, {})
 
 
 def _publish_result(root: Path, payload: dict[str, object], run_id: str = "run-001") -> None:
@@ -125,6 +127,39 @@ def _publish_result(root: Path, payload: dict[str, object], run_id: str = "run-0
     results.mkdir(exist_ok=True)
     (results / f"{digest}.json").write_bytes(encoded)
     (root / ".factory" / "planning" / run_id / "planning-gate-result.json").write_bytes(encoded)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "json", "schema", "run", "hash", "review", "numeric-ok", "unknown", "tasks"])
+def test_cross_artifact_evidence_fails_closed(tmp_path: Path, mutation: str) -> None:
+    _write_current_planning_evidence(tmp_path)
+    path = tmp_path / ".factory/planning/run-001/cross-artifact-review.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        path.unlink()
+    elif mutation == "json":
+        path.write_text('{"schema":1,"schema":1}', encoding="utf-8")
+    else:
+        if mutation == "schema":
+            record["schema"] = True
+        elif mutation == "run":
+            record["run_id"] = "another-run"
+        elif mutation == "hash":
+            record["artifact_hashes"]["docs/plan.md"] = "0" * 64
+        elif mutation == "review":
+            record["review"]["findings"] = [{"code": "fabricated"}]
+        elif mutation == "numeric-ok":
+            record["review"]["ok"] = 1
+        elif mutation == "unknown":
+            record["extra"] = "unsupported"
+        elif mutation == "tasks":
+            record["tasks"] = []
+        path.write_text(json.dumps(record), encoding="utf-8")
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert isinstance(result["executions"], list)
+    assert result["executions"][-1]["status"] == "fail"
+    with pytest.raises(PlanningGateError):
+        validate_planning_gate_result(tmp_path, "run-001", pack)
 
 
 def test_compiled_pack_is_deterministic_versioned_and_complete() -> None:
@@ -189,6 +224,7 @@ def test_error_finding_or_empty_or_mismatched_requirement_consent_blocks_gate_re
         "report_sha256": planning_report_digest(report),
     }), encoding="utf-8")
     result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert isinstance(result["executions"], list)
     assert result["executions"][0]["status"] == "fail"
     with pytest.raises(PlanningGateError):
         validate_planning_gate_result(tmp_path, "run-001", pack)
@@ -199,6 +235,7 @@ def test_error_finding_or_empty_or_mismatched_requirement_consent_blocks_gate_re
         "reason": "No coverage.", "requirements": [],
     }), encoding="utf-8")
     result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert isinstance(result["executions"], list)
     assert result["executions"][2]["status"] == "fail"
     with pytest.raises(PlanningGateError):
         validate_planning_gate_result(tmp_path, "run-001", pack)
@@ -208,6 +245,7 @@ def test_error_finding_or_empty_or_mismatched_requirement_consent_blocks_gate_re
         "reason": "Wrong coverage.", "requirements": ["SR-999"],
     }), encoding="utf-8")
     result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert isinstance(result["executions"], list)
     assert result["executions"][2]["status"] == "fail"
 
 
@@ -259,6 +297,7 @@ def test_consent_must_cover_every_current_feature_requirement(tmp_path: Path, mu
         )
     pack = compile_planning_gate_pack("FEAT-017", "v1")
     result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert isinstance(result["executions"], list)
     assert result["executions"][2]["status"] == "fail"
     with pytest.raises(PlanningGateError):
         validate_planning_gate_result(tmp_path, "run-001", pack)
