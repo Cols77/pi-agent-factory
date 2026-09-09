@@ -233,6 +233,6 @@ def test_legal_actions_for_a_valid_handoff_only_exposes_inspection(tmp_path: Pat
 
     projection = legal_actions_session(tmp_path, "run-001")
 
-    assert projection["blocked"] is False
-    assert projection["reason"] is None
-    assert projection["legal_next_actions"] == ["inspect-handoff"]
+    assert projection["blocked"] is True
+    assert projection["reason"] == "HANDOFF_INVALID"
+    assert projection["legal_next_actions"] == []

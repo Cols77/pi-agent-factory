@@ -48,6 +48,15 @@ def test_legal_actions_progress_through_absent_durable_evidence(tmp_path: Path) 
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["review-spec"]
     run_dir = tmp_path / ".factory/planning" / run_id
     run_dir.joinpath("spec-review.json").write_text('{"status":"pass"}', encoding="utf-8")
+    artifacts = ({"path": "docs/plan.md", "sha256": _sha(plan)}, {"path": "docs/spec.md", "sha256": _sha(spec)})
+    report = {"schema": 1, "run_id": run_id, "ok": True, "artifacts": list(artifacts),
+              "findings": [], "next_actions": [], "review_required": True, "suggestion": None}
+    run_dir.joinpath("report.json").write_text(json.dumps(report), encoding="utf-8")
+    run_dir.joinpath("review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": run_id, "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed.", "reviewed_artifacts": [item["path"] for item in artifacts],
+        "report_sha256": planning_report_digest(report),
+    }), encoding="utf-8")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["review-plan"]
     run_dir.joinpath("plan-review.json").write_text('{"status":"pass"}', encoding="utf-8")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["run-planning-gates"]

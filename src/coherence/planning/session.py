@@ -239,13 +239,6 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
     except (IntentError, SessionError):
         intent_status = "invalid"
 
-    # Legacy handoffs predate the run-local manifest. They remain inspectable
-    # after validation below, while new runs use the staged evidence path.
-    legacy_handoff_path = _inside(root, ".factory", "planning", session.run_id, "handoff.json")
-    if manifest_status == "missing" and legacy_handoff_path.is_file():
-        manifest_status = "valid"
-        artifact_kinds = frozenset({"requirements", "spec", "plan"})
-
     consent_status: EvidenceStatus = "missing"
     if "requirements" in artifact_kinds:
         try:
@@ -260,10 +253,6 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
                 consent_status = "valid" if validate_sr_decisions(root, session.run_id, current)[0] else "stale"
         except (OSError, TypeError, ValueError, RuntimeError):
             consent_status = "invalid"
-    if manifest_status == "valid" and legacy_handoff_path.is_file() and not _inside(
-        root, ".factory", "planning", session.run_id, "artifacts.json"
-    ).is_file():
-        consent_status = "valid"
 
     spec_review_status: EvidenceStatus = "missing"
     plan_review_status: EvidenceStatus = "missing"
@@ -291,7 +280,19 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
             validate_planning_gate_result,
         )
 
-        _resolve_human_review(root, session.run_id)
+        review_status, _ = _resolve_human_review(root, session.run_id)
+        if review_status != "pass":
+            decision_path = run_dir / "review-decision.json"
+            if decision_path.exists():
+                spec_review_status = "stale"
+                plan_review_status = "stale"
+            else:
+                spec_review_status = "missing"
+                plan_review_status = "missing"
+        elif spec_review_status == "missing":
+            # The reviewed decision is current, but the stage-specific record
+            # has not yet been published.
+            plan_review_status = "missing"
         result_path = run_dir / "planning-gate-result.json"
         if result_path.exists():
             validate_planning_gate_result(root, session.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
@@ -312,10 +313,6 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
                 handoff_status = "valid"
             except (OSError, ValueError, TypeError, RuntimeError):
                 handoff_status = "invalid"
-    if legacy_handoff_path.is_file() and not _inside(
-        root, ".factory", "planning", session.run_id, "artifacts.json"
-    ).is_file():
-        handoff_status = "valid"
     if handoff_status == "valid" and spec_review_status == "missing":
         # A legacy handoff is itself the durable attestation for both review
         # stages; newer runs persist the explicit stage markers above.
