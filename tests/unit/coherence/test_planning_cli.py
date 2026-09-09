@@ -294,10 +294,20 @@ def _handoff_args(root: Path, workflow: str = "standard-development") -> list[st
     ]
 
 
+def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.CaptureFixture[str]) -> None:
+    decision_path = root / ".factory" / "planning" / "run-001" / "review-decision.json"
+    decision_path.write_text(json.dumps(_approval(report)), encoding="utf-8")
+    assert main([
+        "plan", "run-planning-gates", "--project-root", str(root), "--run-id", "run-001", "--json",
+    ]) == 0
+    capsys.readouterr()
+
+
 def test_plan_handoff_emits_summary_menu_and_revalidates_existing_handoff(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _write_checked_report(tmp_path, capsys)
+    report = _write_checked_report(tmp_path, capsys)
+    _run_planning_gates(tmp_path, report, capsys)
 
     assert main(_handoff_args(tmp_path)) == 0
     output = json.loads(capsys.readouterr().out)

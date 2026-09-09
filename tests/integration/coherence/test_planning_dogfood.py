@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from coherence.planning.check import check_planning_input
-from coherence.planning.gates import validate_sr_consent
+from coherence.planning.gates import (
+    compile_planning_gate_pack,
+    evaluate_planning_gate_pack,
+    validate_sr_consent,
+)
 from coherence.planning.handoff import build_downstream_menu, build_handoff, validate_handoff, write_handoff
 from coherence.planning.intent import read_intent
 from coherence.planning.loop import FreshReviewLoop, LoopStatus
@@ -154,7 +158,22 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path)
         "artifact_hashes": {}}), encoding="utf-8")
     assert validate_sr_consent(root, "run-001", ["SR-001", "SR-002"], "0" * 64, {})[0]
     report = check_planning_input(_input(root, spec, plan))
-    payload = build_handoff(root, report, workflow="standard-development", gate_summary={"status": "pass"})
+    run_dir = root / ".factory/planning/run-001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_report = report.to_dict()
+    (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning artifacts.",
+        "reviewed_artifacts": [entry["path"] for entry in raw_report["artifacts"]],
+        "report_sha256": planning_report_digest(raw_report),
+    }), encoding="utf-8")
+    (run_dir / "requirement-consent.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning requirements.", "requirements": [],
+    }), encoding="utf-8")
+    evaluate_planning_gate_pack(root, "run-001", compile_planning_gate_pack("FEAT-017", "v1"))
+    payload = build_handoff(root, report, workflow="standard-development")
     path, _ = write_handoff(root, payload)
     assert validate_handoff(root, path)["starts_automatically"] is False
     assert json.loads(consent.read_text(encoding="utf-8"))["phrase"] == CONSENT_PHRASE

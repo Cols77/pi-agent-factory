@@ -8,6 +8,12 @@ from pathlib import Path
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
 from coherence.planning.consent import write_sr_decision
+from coherence.planning.gates import (
+    PlanningGateError,
+    compile_planning_gate_pack,
+    evaluate_planning_gate_pack,
+    validate_planning_gate_result,
+)
 from coherence.planning.intent import read_intent
 from coherence.planning.session import (
     SessionError,
@@ -458,6 +464,30 @@ def _record_sr_consent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_planning_gates(args: argparse.Namespace) -> int:
+    """Compile and evaluate planning evidence gates without running factory gates."""
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    try:
+        pack = compile_planning_gate_pack("FEAT-017", "v1")
+        result = evaluate_planning_gate_pack(root, args.run_id, pack)
+        validate_planning_gate_result(root, args.run_id, pack)
+    except (PlanningGateError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "PLANNING_GATES_BLOCKED", str(exc)), indent=2))
+        return 1
+    print(json.dumps({
+        "schema": 1,
+        "ok": True,
+        "action": "run-planning-gates",
+        "planning_gate_pack_sha256": pack["sha256"],
+        "planning_gate_result_sha256": result["result_sha256"],
+        "executions": result["executions"],
+    }, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _session_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "legal-actions":
@@ -538,6 +568,11 @@ def _parser() -> argparse.ArgumentParser:
     handoff.add_argument("--workflow", default="standard-development")
     handoff.add_argument("--json", action="store_true")
 
+    planning_gates = sub.add_parser("run-planning-gates")
+    planning_gates.add_argument("--run-id", required=True)
+    planning_gates.add_argument("--project-root", required=True, type=Path)
+    planning_gates.add_argument("--json", action="store_true")
+
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--intent", required=True, type=Path)
     bootstrap.add_argument("--spec", required=True, type=Path)
@@ -597,6 +632,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review(args)
     if args.command == "handoff":
         return _handoff(args)
+    if args.command == "run-planning-gates":
+        return _run_planning_gates(args)
     if args.command == "record-sr-consent":
         return _record_sr_consent(args)
     if args.command in {"start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"}:

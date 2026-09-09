@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Mapping
 
 from coherence.planning.model import PlanningReport
+from coherence.planning.gates import (
+    PlanningGateError,
+    compile_planning_gate_pack,
+    validate_planning_gate_result,
+)
 from coherence.planning.paths import safe_resolve, safe_root
 
 WORKFLOWS = (
@@ -99,7 +104,23 @@ def build_handoff(
     safe = safe_root(root)
     if safe is None:
         raise HandoffError("project root is unsafe")
+    # ``gate_summary`` was an unauthenticated display field and historically
+    # defaulted to pass.  Retaining it would create a second, bypassable gate
+    # authority, so compatibility is deliberately fail-closed.
+    if gate_summary is not None:
+        raise HandoffError("legacy gate_summary cannot authorize a handoff")
+    try:
+        gate_pack = compile_planning_gate_pack("FEAT-017", "v1")
+        gate_result = validate_planning_gate_result(safe, report.run_id, gate_pack)
+    except PlanningGateError as exc:
+        raise HandoffError("current validated planning gate result is required") from exc
     artifacts = _artifact_hashes(safe, report)
+    stored_report = safe_resolve(safe, safe / ".factory" / "planning" / report.run_id / "report.json")
+    try:
+        if stored_report is None or json.loads(stored_report.read_text(encoding="utf-8")) != report.to_dict():
+            raise HandoffError("handoff report does not match current gate evidence")
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HandoffError("handoff report evidence is unreadable") from exc
     semantic = dict(semantic_report_hashes) if semantic_report_hashes is not None else _semantic_hashes(safe, report.run_id)
     if any(not isinstance(key, str) or not isinstance(value, str) or len(value) != 64 for key, value in semantic.items()):
         raise HandoffError("invalid semantic report hash")
@@ -119,7 +140,11 @@ def build_handoff(
         report,
         semantic_notes=semantic_notes,
         unresolved=unresolved,
-        gate_summary=gate_summary or {"status": "pass"},
+        gate_summary={
+            "status": "pass",
+            "planning_gate_pack_sha256": gate_pack["sha256"],
+            "planning_gate_result_sha256": gate_result["result_sha256"],
+        },
     )
     return {
         "schema": 1,
@@ -130,7 +155,13 @@ def build_handoff(
         "semantic_report_hashes": semantic,
         "resolution_journal_sha256": _resolution_digest(safe, report.run_id),
         "model_metadata": model,
-        "gate_summary": dict(gate_summary or {"status": "pass" if report.ok else "fail"}),
+        "planning_gate_pack_sha256": gate_pack["sha256"],
+        "planning_gate_result_sha256": gate_result["result_sha256"],
+        "gate_summary": {
+            "status": "pass",
+            "planning_gate_pack_sha256": gate_pack["sha256"],
+            "planning_gate_result_sha256": gate_result["result_sha256"],
+        },
         "summary": summary,
         "starts_automatically": False,
         "creation": {"source": "coherence-planning", "report_run_id": report.run_id},
@@ -219,6 +250,23 @@ def validate_handoff(root: Path, path: Path) -> dict[str, object]:
         raise HandoffError("semantic review report changed")
     if payload.get("resolution_journal_sha256") != _resolution_digest(safe, run_id):
         raise HandoffError("resolution journal changed")
+    try:
+        gate_pack = compile_planning_gate_pack("FEAT-017", "v1")
+        gate_result = validate_planning_gate_result(safe, run_id, gate_pack)
+    except PlanningGateError as exc:
+        raise HandoffError("planning gate result is missing, stale, or invalid") from exc
+    if (
+        payload.get("planning_gate_pack_sha256") != gate_pack["sha256"]
+        or payload.get("planning_gate_result_sha256") != gate_result["result_sha256"]
+    ):
+        raise HandoffError("handoff planning gate hashes are stale or invalid")
+    expected_summary = {
+        "status": "pass",
+        "planning_gate_pack_sha256": gate_pack["sha256"],
+        "planning_gate_result_sha256": gate_result["result_sha256"],
+    }
+    if payload.get("gate_summary") != expected_summary:
+        raise HandoffError("handoff gate summary is not derived from the validated gate result")
     return payload
 
 
