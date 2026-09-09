@@ -31,6 +31,67 @@ def test_missing_cross_artifact_review_blocks_handoff(tmp_path: Path) -> None:
         build_handoff(tmp_path, _read_report(run_dir / "report.json", "run-001"))
 
 
+@pytest.mark.parametrize("field", ["implemented_by", "verified_by"])
+def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, field: str) -> None:
+    from coherence.planning.cli import _read_report
+    from tests.unit.coherence.test_planning_gates import _write_current_planning_evidence
+
+    _write_current_planning_evidence(tmp_path)
+    run_dir = tmp_path / ".factory/planning/run-001"
+    task_path = tmp_path / "tasks/T-001.md"
+    task_path.parent.mkdir()
+    task_path.write_text("---\nid: T-001\ntitle: Behavior\nstatus: todo\ndod: []\n---\n", encoding="utf-8")
+    (tmp_path / "source.json").write_text("{}", encoding="utf-8")
+    numeric_target = tmp_path / "123"
+    numeric_target.write_text("original validation evidence", encoding="utf-8")
+    other_field = "verified_by" if field == "implemented_by" else "implemented_by"
+    requirement = tmp_path / "requirements/SR-001.md"
+    valid_metadata = (
+        "---\nid: SR-001\ntitle: Behavior\nstatement: Behavior is traced.\ndomain: behavioral\n"
+        f"{other_field}:\n  - path: source.json\n{field}:\n  - path: '123'\n---\n"
+    )
+    requirement.write_text(valid_metadata, encoding="utf-8")
+    raw_report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    raw_report["artifacts"].append({"path": "tasks/T-001.md", "sha256": _sha(task_path)})
+    (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
+    decision = json.loads((run_dir / "review-decision.json").read_text(encoding="utf-8"))
+    decision.update(report_sha256=planning_report_digest(raw_report), reviewed_artifacts=[item["path"] for item in raw_report["artifacts"]])
+    (run_dir / "review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    tasks = {"tasks/T-001.md": GeneratedTaskReviewInput("T-001", ("source.json",), True, False, ("SR-001",))}
+    record = write_cross_artifact_review(tmp_path, "run-001", tasks)
+    assert isinstance(record["artifact_hashes"], dict)
+    assert record["artifact_hashes"]["123"] == _sha(numeric_target)
+
+    requirement.write_text(valid_metadata.replace("path: '123'", "path: 123"), encoding="utf-8")
+    write_sr_decision(tmp_path, "run-001", "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed current requirement.")
+    with pytest.raises(PlanningGateError):
+        write_cross_artifact_review(tmp_path, "run-001", tasks)
+
+    # Reproduce the old record shape: resolver accepted str(123), while the
+    # producer silently excluded that target from its freshness hashes.
+    record["artifact_hashes"]["requirements/SR-001.md"] = _sha(requirement)
+    del record["artifact_hashes"]["123"]
+    (run_dir / "cross-artifact-review.json").write_text(json.dumps(record), encoding="utf-8")
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    report = _read_report(run_dir / "report.json", "run-001")
+    for content in ("original validation evidence", "mutated validation evidence"):
+        numeric_target.write_text(content, encoding="utf-8")
+        result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+        assert isinstance(result["executions"], list)
+        assert result["executions"][-1]["status"] == "fail"
+        with pytest.raises(HandoffError):
+            build_handoff(tmp_path, report)
+
+    requirement.write_text(valid_metadata, encoding="utf-8")
+    write_sr_decision(tmp_path, "run-001", "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed string path.")
+    write_cross_artifact_review(tmp_path, "run-001", tasks)
+    evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    build_handoff(tmp_path, report)
+    numeric_target.write_text("another mutation", encoding="utf-8")
+    with pytest.raises(HandoffError):
+        build_handoff(tmp_path, report)
+
+
 @pytest.mark.parametrize("production,validation", [(True, False), (False, True)])
 def test_cross_artifact_review_blocks_missing_sr_then_allows_current_relations(
     tmp_path: Path, production: bool, validation: bool, monkeypatch: pytest.MonkeyPatch,

@@ -433,8 +433,10 @@ def _cross_artifact_record(
             if not isinstance(entries, list):
                 continue  # The relation resolver owns malformed relation findings.
             for entry in entries:
-                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                if not isinstance(entry, dict):
                     continue
+                if not isinstance(entry.get("path"), str):
+                    raise PlanningGateError("cross-artifact relation path must be a string")
                 relative = entry["path"].replace("\\", "/")
                 if not _safe_relative(relative):
                     raise PlanningGateError("cross-artifact relation path is unsafe")

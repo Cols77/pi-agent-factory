@@ -176,6 +176,21 @@ def test_a_path_that_does_not_exist_on_disk_is_rejected(tmp_path: Path):
 
 
 @pytest.mark.sr("SR-050")
+@pytest.mark.parametrize("field", ["implemented_by", "verified_by"])
+def test_a_non_string_relation_path_is_rejected(tmp_path: Path, field: str):
+    if field == "implemented_by":
+        _write(tmp_path / "src" / "evidence.py", "def thing():\n    return 1\n")
+        entry = {"path": 123, "symbol": "evidence:thing"}
+    else:
+        _write(tmp_path / "tests" / "test_evidence.py", "def test_thing():\n    assert True\n")
+        entry = {"path": 123, "test": "tests/test_evidence.py::test_thing"}
+    resolution = resolve_sr_relations(tmp_path, {field: [entry]})
+    assert not resolution.ok
+    assert resolution.issues[0].field == field
+    assert "must be a string" in resolution.issues[0].detail
+
+
+@pytest.mark.sr("SR-050")
 def test_a_line_number_shaped_symbol_identity_is_rejected(tmp_path: Path):
     _write_prod(tmp_path)
     meta = {
