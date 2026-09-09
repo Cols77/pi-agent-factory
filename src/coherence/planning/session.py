@@ -11,10 +11,14 @@ from pathlib import Path
 from coherence.planning.intent import (
     CaptureEvent,
     IntentError,
+    IntentDocument,
     append_capture_event,
+    capture_lock,
     detect_challenges,
     materialize_intent,
+    read_capture_events,
     read_intent,
+    replay_capture_intent,
     resolve_capture_challenge,
 )
 from coherence.planning.paths import safe_resolve, safe_root
@@ -22,6 +26,14 @@ from coherence.planning.serialization import strict_json_dumps, strict_json_load
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _LEGAL_ACTION_IDS = (
+    "start-capture",
+    "capture-answer",
+    "resolve-challenge",
+    "finalize-capture",
+    "author-spec",
+    "author-plan",
+    "review-spec",
+    "review-plan",
     "inspect-handoff",
     "revalidate-handoff",
     "select-downstream-workflow",
@@ -81,45 +93,52 @@ def _state_path(root: Path, run_id: str) -> Path:
     return _inside(root, ".factory", "planning", run_id, "state.json")
 
 
-def _intent_path(root: Path) -> Path:
+def _intent_path(root: Path, run_id: str) -> Path:
+    return _inside(root, ".factory", "planning", run_id, "intent.json")
+
+
+def _legacy_intent_path(root: Path) -> Path:
     return _inside(root, ".intent", "intent.json")
+
+
+def read_session_intent(root: Path, run_id: str) -> IntentDocument:
+    root = _root(root)
+    _validate_run_id(run_id)
+    with capture_lock(root, run_id):
+        try:
+            path = _intent_path(root, run_id)
+            if path.is_symlink() or path.exists():
+                if not path.is_file():
+                    raise SessionError("intent is invalid")
+            else:
+                legacy_path = _legacy_intent_path(root)
+                if not legacy_path.is_file():
+                    raise SessionError("intent could not be read")
+                path = legacy_path
+            intent = read_intent(path, project_root=root)
+            canonical = replay_capture_intent(root, run_id)
+        except (SessionError, IntentError) as exc:
+            raise SessionError("intent is invalid") from exc
+        if intent.run_id != run_id:
+            raise SessionError("intent run_id does not match session run_id")
+        if intent != canonical:
+            raise SessionError("intent does not match capture journal")
+        return intent
 
 
 def _materialize(root: Path, run_id: str) -> None:
     """Materialize the journal without replacing the last good snapshot on failure."""
     try:
-        materialize_intent(root, run_id, _intent_path(root))
+        materialize_intent(root, run_id, _intent_path(root, run_id))
     except IntentError as exc:
         raise SessionError(str(exc)) from exc
 
 
-def _events(path: Path, run_id: str) -> list[CaptureEvent]:
-    if not path.exists():
-        return []
+def _events(root: Path, run_id: str) -> list[CaptureEvent]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as exc:
-        raise SessionError("capture journal is unreadable") from exc
-    events: list[CaptureEvent] = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            value = strict_json_loads(line)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise SessionError("capture journal is malformed") from exc
-        if not isinstance(value, dict) or value.get("run_id") != run_id:
-            raise SessionError("capture journal run_id does not match")
-        sequence = value.get("sequence")
-        kind = value.get("kind")
-        payload = value.get("payload")
-        if type(sequence) is not int or not isinstance(kind, str) or not isinstance(payload, dict):
-            raise SessionError("capture journal event is malformed")
-        events.append(CaptureEvent(run_id, sequence, kind, payload))
-    sequences = [event.sequence for event in events]
-    if sequences != sorted(sequences) or sequences != list(range(1, len(sequences) + 1)):
-        raise SessionError("capture journal sequences are contradictory")
-    return events
+        return read_capture_events(root, run_id)
+    except IntentError as exc:
+        raise SessionError(str(exc)) from exc
 
 
 def _digest(path: Path) -> str:
@@ -167,32 +186,35 @@ def start_session(project_root: Path, run_id: str, prompt: str) -> PlanningSessi
     if not isinstance(prompt, str) or not prompt:
         raise SessionError("prompt must be non-empty text")
     journal = _journal(root, run_id)
-    if journal.exists():
-        raise SessionError("planning session already exists")
-    append_capture_event(
-        root,
-        run_id,
-        CaptureEvent(run_id, 1, "capture_started", {"prompt": prompt}),
-    )
-    _materialize(root, run_id)
-    session = _project(root, run_id, _events(journal, run_id))
-    _write_state(root, session)
-    return session
+    with capture_lock(root, run_id):
+        if journal.exists():
+            raise SessionError("planning session already exists")
+        append_capture_event(
+            root,
+            run_id,
+            CaptureEvent(run_id, 1, "capture_started", {"prompt": prompt}),
+            _lock_held=True,
+        )
+        _materialize(root, run_id)
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
 
 
 def resume_session(project_root: Path, run_id: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
-    _materialize(root, run_id)
-    session = _project(root, run_id, _events(_journal(root, run_id), run_id))
-    _write_state(root, session)
-    return session
+    with capture_lock(root, run_id):
+        _materialize(root, run_id)
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
 
 
 def status_session(project_root: Path, run_id: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
-    expected = _project(root, run_id, _events(_journal(root, run_id), run_id))
+    expected = _project(root, run_id, _events(root, run_id))
     path = _state_path(root, run_id)
     try:
         payload = strict_json_loads(path.read_text(encoding="utf-8"))
@@ -201,6 +223,14 @@ def status_session(project_root: Path, run_id: str) -> PlanningSession:
     if not isinstance(payload, dict) or payload != expected.to_dict():
         raise SessionError("state is stale or contradictory")
     return expected
+
+
+def _run_identity(session: PlanningSession) -> dict[str, object]:
+    return {
+        "run_id": session.run_id,
+        "next_sequence": session.next_sequence,
+        "journal_sha256": session.journal_sha256,
+    }
 
 
 def legal_actions_session(project_root: Path, run_id: str) -> dict[str, object]:
@@ -224,15 +254,93 @@ def legal_actions_session(project_root: Path, run_id: str) -> dict[str, object]:
             "registry_hash": _ACTION_REGISTRY_HASH,
         },
     }
+
+    try:
+        journal = _journal(root, run_id)
+        state_path = _state_path(root, run_id)
+        intent_path = _intent_path(root, run_id)
+        handoff_path = _inside(root, ".factory", "planning", run_id, "handoff.json")
+        legacy_intent_path = _legacy_intent_path(root)
+        lock_path = journal.parent.parent / ".capture.lock"
+    except SessionError:
+        base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
+        return base
+    if not journal.exists():
+        if any(path.exists() for path in (
+            state_path, intent_path, handoff_path, legacy_intent_path, lock_path,
+        )):
+            base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
+            return base
+        base.update({
+            "blocked": False,
+            "reason": None,
+            "state": "not_started",
+            "legal_next_actions": ["start-capture"],
+        })
+        return base
+
     try:
         session = status_session(root, run_id)
     except SessionError:
         base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
         return base
 
-    handoff = _inside(root, ".factory", "planning", run_id, "handoff.json")
+    if session.state == "blocked":
+        base.update({
+            "blocked": True,
+            "reason": "CAPTURE_CANCELLED",
+            "state": session.state,
+            "run_identity": _run_identity(session),
+        })
+        return base
+
+    if session.state == "capture":
+        try:
+            intent = read_session_intent(root, run_id)
+            unresolved = any(challenge.status == "unresolved" for challenge in intent.challenges)
+        except SessionError:
+            base.update({
+                "blocked": True,
+                "reason": "INTENT_INVALID",
+                "state": session.state,
+                "run_identity": _run_identity(session),
+            })
+            return base
+        legal = ["resolve-challenge"] if unresolved else ["capture-answer", "finalize-capture"]
+        base.update({
+            "blocked": False,
+            "reason": None,
+            "state": session.state,
+            "run_identity": _run_identity(session),
+            "legal_next_actions": legal,
+        })
+        return base
+
+    # session.state == "intent_provisional"
+    try:
+        read_session_intent(root, run_id)
+    except SessionError:
+        base.update({
+            "blocked": True,
+            "reason": "INTENT_INVALID",
+            "state": session.state,
+            "run_identity": _run_identity(session),
+        })
+        return base
+
+    try:
+        handoff = _inside(root, ".factory", "planning", run_id, "handoff.json")
+    except SessionError:
+        base.update({"blocked": True, "reason": "HANDOFF_INVALID", "state": session.state})
+        return base
     if not handoff.is_file():
-        base.update({"blocked": True, "reason": "SESSION_NOT_READY", "state": session.state})
+        base.update({
+            "blocked": False,
+            "reason": None,
+            "state": session.state,
+            "run_identity": _run_identity(session),
+            "legal_next_actions": ["author-spec", "author-plan", "review-spec", "review-plan"],
+        })
         return base
     try:
         # Import lazily to keep session persistence independent of handoff code.
@@ -246,11 +354,7 @@ def legal_actions_session(project_root: Path, run_id: str) -> dict[str, object]:
         "blocked": False,
         "reason": None,
         "state": session.state,
-        "run_identity": {
-            "run_id": session.run_id,
-            "next_sequence": session.next_sequence,
-            "journal_sha256": session.journal_sha256,
-        },
+        "run_identity": _run_identity(session),
         "selected_downstream_workflow": handoff_payload.get("selected_workflow"),
         "legal_next_actions": ["inspect-handoff", "revalidate-handoff"],
     })
@@ -273,36 +377,48 @@ def append_session_answer(
         raise SessionError("event run_id does not match session run_id")
     if not all(isinstance(value, str) and value for value in (answer_id, question, text, source)):
         raise SessionError("answer fields must be non-empty text")
-    journal = _journal(root, run_id)
-    events = _events(journal, run_id)
-    if not events:
-        raise SessionError("planning session has not started")
-    append_capture_event(
-        root,
-        run_id,
-        CaptureEvent(
-            run_id,
-            len(events) + 1,
-            "answer_captured",
-            {"id": answer_id, "question": question, "text": text, "source": source},
-        ),
-    )
-    _materialize(root, run_id)
-    document = read_intent(_intent_path(root), project_root=root)
-    known = {challenge.id for challenge in document.challenges}
-    for challenge in detect_challenges(document.answers):
-        if challenge.id not in known:
-            current_events = _events(journal, run_id)
-            append_capture_event(root, run_id, CaptureEvent(
-                run_id, len(current_events) + 1, "challenge_raised",
-                {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
-                 "rationale": challenge.rationale, "provenance": challenge.provenance,
-                 "evidence_needed": challenge.evidence_needed},
-            ))
-    _materialize(root, run_id)
-    session = _project(root, run_id, _events(journal, run_id))
-    _write_state(root, session)
-    return session
+    with capture_lock(root, run_id):
+        events = _events(root, run_id)
+        if not events:
+            raise SessionError("planning session has not started")
+        try:
+            append_capture_event(
+                root,
+                run_id,
+                CaptureEvent(
+                    run_id,
+                    len(events) + 1,
+                    "answer_captured",
+                    {"id": answer_id, "question": question, "text": text, "source": source},
+                ),
+                _lock_held=True,
+            )
+        except IntentError as exc:
+            raise SessionError(str(exc)) from exc
+        _materialize(root, run_id)
+        document = read_session_intent(root, run_id)
+        known = {challenge.id for challenge in document.challenges}
+        for challenge in detect_challenges(document.answers):
+            if challenge.id not in known:
+                current_events = _events(root, run_id)
+                try:
+                    append_capture_event(
+                        root,
+                        run_id,
+                        CaptureEvent(
+                            run_id, len(current_events) + 1, "challenge_raised",
+                            {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
+                             "rationale": challenge.rationale, "provenance": challenge.provenance,
+                             "evidence_needed": challenge.evidence_needed},
+                        ),
+                        _lock_held=True,
+                    )
+                except IntentError as exc:
+                    raise SessionError(str(exc)) from exc
+        _materialize(root, run_id)
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
 
 
 def resolve_session_challenge(
@@ -312,15 +428,18 @@ def resolve_session_challenge(
     """Record an explicit human resolution and refresh the durable snapshot."""
     root = _root(project_root)
     _validate_run_id(run_id)
-    try:
-        resolve_capture_challenge(root, run_id, challenge_id, resolution, response, provenance)
-        _materialize(root, run_id)
-    except IntentError as exc:
-        raise SessionError(str(exc)) from exc
-    journal = _journal(root, run_id)
-    session = _project(root, run_id, _events(journal, run_id))
-    _write_state(root, session)
-    return session
+    with capture_lock(root, run_id):
+        try:
+            resolve_capture_challenge(
+                root, run_id, challenge_id, resolution, response, provenance,
+                _lock_held=True,
+            )
+            _materialize(root, run_id)
+        except IntentError as exc:
+            raise SessionError(str(exc)) from exc
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
 
 
 def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSession:
@@ -328,19 +447,23 @@ def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSe
     _validate_run_id(run_id)
     if status not in {"provisional", "cancelled", "needs_user"}:
         raise SessionError("unsupported capture status")
-    journal = _journal(root, run_id)
-    events = _events(journal, run_id)
-    if not events:
-        raise SessionError("planning session has not started")
-    append_capture_event(
-        root,
-        run_id,
-        CaptureEvent(run_id, len(events) + 1, "capture_status", {"status": status}),
-    )
-    _materialize(root, run_id)
-    session = _project(root, run_id, _events(journal, run_id))
-    _write_state(root, session)
-    return session
+    with capture_lock(root, run_id):
+        events = _events(root, run_id)
+        if not events:
+            raise SessionError("planning session has not started")
+        try:
+            append_capture_event(
+                root,
+                run_id,
+                CaptureEvent(run_id, len(events) + 1, "capture_status", {"status": status}),
+                _lock_held=True,
+            )
+        except IntentError as exc:
+            raise SessionError(str(exc)) from exc
+        _materialize(root, run_id)
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
 
 
 __all__ = [
@@ -349,6 +472,7 @@ __all__ = [
     "append_session_answer",
     "finalize_session",
     "legal_actions_session",
+    "read_session_intent",
     "resume_session",
     "resolve_session_challenge",
     "start_session",

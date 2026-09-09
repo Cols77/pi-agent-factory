@@ -4,7 +4,10 @@ import json
 import os
 import re
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from threading import RLock, local
+from typing import Iterator
 
 from coherence.planning.model import CaptureEvent, IntentAnswer, IntentDocument, PlanningChallenge, PlanningFinding
 from coherence.planning.paths import safe_resolve, safe_root
@@ -16,7 +19,23 @@ _SECRET_RE = re.compile(
 )
 _BRIEF_FIELDS = ("goal", "scope", "constraints", "non_goals", "done_when", "open_questions")
 _STATUSES = {"provisional", "needs_user", "cancelled"}
+_CHALLENGE_STATUSES = {"unresolved", "resolved", "revised", "deferred", "accepted"}
 _EVENT_KINDS = {"capture_started", "answer_captured", "capture_status", "question_deferred", "challenge_raised", "challenge_resolved"}
+_LOCK_REGISTRY_GUARD = RLock()
+_LOCK_REGISTRY: dict[Path, RLock] = {}
+_LOCK_STATE = local()
+
+
+def _reset_locks_after_fork() -> None:
+    global _LOCK_REGISTRY, _LOCK_REGISTRY_GUARD
+    _LOCK_REGISTRY_GUARD = RLock()
+    _LOCK_REGISTRY = {}
+    _LOCK_STATE.depths = {}
+
+
+_register_at_fork = getattr(os, "register_at_fork", None)
+if callable(_register_at_fork):
+    _register_at_fork(after_in_child=_reset_locks_after_fork)
 
 
 class IntentError(ValueError):
@@ -49,6 +68,61 @@ def _validate_run_id(run_id: str) -> None:
 def _journal_path(root: Path, run_id: str) -> Path:
     _validate_run_id(run_id)
     return _safe_path(root, root / ".factory" / "planning" / run_id / "capture" / "events.jsonl")
+
+
+@contextmanager
+def capture_lock(root: Path, run_id: str) -> Iterator[None]:
+    """Serialize capture mutations across threads and processes for one run."""
+    project_root = _safe_project_root(root)
+    journal = _journal_path(project_root, run_id)
+    lock_path = journal.parent.parent / ".capture.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with _LOCK_REGISTRY_GUARD:
+            thread_lock = _LOCK_REGISTRY.setdefault(lock_path, RLock())
+        with thread_lock:
+            depths = getattr(_LOCK_STATE, "depths", {})
+            nested = depths.get(lock_path, 0) > 0
+            if nested:
+                depths[lock_path] += 1
+                try:
+                    yield
+                finally:
+                    depths[lock_path] -= 1
+                return
+            with lock_path.open("a+b") as handle:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(0, os.SEEK_END)
+                    if handle.tell() == 0:
+                        handle.write(b"0")
+                        handle.flush()
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    locked = True
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                    locked = True
+                depths[lock_path] = 1
+                _LOCK_STATE.depths = depths
+                try:
+                    yield
+                finally:
+                    depths.pop(lock_path, None)
+                    if locked:
+                        try:
+                            if os.name == "nt":
+                                handle.seek(0)
+                                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                            else:
+                                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                        except OSError:
+                            pass
+    except OSError as exc:
+        raise IntentError("capture lock could not be acquired") from exc
 
 
 def _as_text(value: object, field: str) -> str:
@@ -135,6 +209,9 @@ def read_intent(path: Path, *, project_root: Path) -> IntentDocument:
     _validate_run_id(run_id)
     redactions = _as_string_list(payload.get("redactions"), "redactions")
     capture_status = _as_text(payload.get("capture_status"), "capture_status")
+    challenges_value = payload.get("challenges", [])
+    if not isinstance(challenges_value, list):
+        raise IntentError("challenges must be a list")
     return IntentDocument(
         schema=2,
         run_id=run_id,
@@ -143,7 +220,7 @@ def read_intent(path: Path, *, project_root: Path) -> IntentDocument:
         brief=_brief(payload.get("brief")),
         capture_status=capture_status,
         redactions=redactions,
-        challenges=tuple(_challenge(item, index) for index, item in enumerate(payload.get("challenges", []))) if isinstance(payload.get("challenges", []), list) else (),
+        challenges=tuple(_challenge(item, index) for index, item in enumerate(challenges_value)),
     )
 
 
@@ -153,11 +230,21 @@ def _challenge(value: object, index: int) -> PlanningChallenge:
     fields = ("id", "kind", "claim", "rationale", "provenance", "evidence_needed")
     if any(not isinstance(value.get(field), str) for field in fields):
         raise IntentError(f"challenge {index} fields must be text")
+    status = value.get("status", "unresolved")
+    response = value.get("response", "")
+    response_provenance = value.get("response_provenance", "")
+    if (
+        not isinstance(status, str)
+        or status not in _CHALLENGE_STATUSES
+        or not isinstance(response, str)
+        or not isinstance(response_provenance, str)
+    ):
+        raise IntentError(f"challenge {index} resolution fields are invalid")
     return PlanningChallenge(
         id=value["id"], kind=value["kind"], claim=value["claim"],
         rationale=value["rationale"], provenance=value["provenance"],
-        evidence_needed=value["evidence_needed"], status=value.get("status", "unresolved"),
-        response=value.get("response", ""), response_provenance=value.get("response_provenance", ""),
+        evidence_needed=value["evidence_needed"], status=status,
+        response=response, response_provenance=response_provenance,
     )
 
 
@@ -282,14 +369,14 @@ def _read_events(journal: Path, run_id: str) -> list[CaptureEvent]:
         _event_to_dict(event)
         if event.run_id != run_id:
             raise IntentError("capture event run_id does not match journal run")
-        if event.sequence <= previous:
-            raise IntentError("capture event sequence must be strictly increasing")
+        if event.sequence != previous + 1:
+            raise IntentError("capture event sequence must be contiguous")
         previous = event.sequence
         events.append(event)
     return events
 
 
-def append_capture_event(root: Path, run_id: str, event: CaptureEvent) -> Path:
+def _append_capture_event(root: Path, run_id: str, event: CaptureEvent) -> Path:
     """Atomically append one validated event to a run-local capture journal."""
     project_root = _safe_project_root(root)
     journal = _journal_path(project_root, run_id)
@@ -314,6 +401,34 @@ def append_capture_event(root: Path, run_id: str, event: CaptureEvent) -> Path:
     return journal
 
 
+def append_capture_event(
+    root: Path, run_id: str, event: CaptureEvent, *, _lock_held: bool = False
+) -> Path:
+    """Append one validated event while serializing same-run writers."""
+    if _lock_held:
+        return _append_capture_event(root, run_id, event)
+    with capture_lock(root, run_id):
+        return _append_capture_event(root, run_id, event)
+
+
+def read_capture_events(root: Path, run_id: str) -> list[CaptureEvent]:
+    """Read and semantically validate one run's canonical capture journal."""
+    project_root = _safe_project_root(root)
+    journal = _journal_path(project_root, run_id)
+    if not journal.exists():
+        return []
+    with capture_lock(project_root, run_id):
+        events = _read_events(journal, run_id)
+        if events:
+            _replay_events(events, run_id)
+        return events
+
+
+def replay_capture_intent(root: Path, run_id: str) -> IntentDocument:
+    """Replay one run's canonical capture journal into its intent document."""
+    return _replay_events(read_capture_events(root, run_id), run_id)
+
+
 def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
     if not events:
         raise IntentError("capture journal is empty")
@@ -325,10 +440,13 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
     answer_ids: set[str] = set()
     brief = {field: [] for field in _BRIEF_FIELDS}
     status = "provisional"
+    capture_closed = False
     challenges: list[PlanningChallenge] = []
     for event in events[1:]:
         if event.run_id != run_id:
             raise IntentError("capture event run_id does not match requested run")
+        if capture_closed:
+            raise IntentError("capture is terminal")
         payload = event.payload
         if event.kind == "capture_started":
             raise IntentError("capture_started may occur only once")
@@ -350,6 +468,7 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
             status = _as_text(payload.get("status"), "capture_status.status")
             if status not in _STATUSES:
                 raise IntentError("capture status is invalid")
+            capture_closed = status in {"provisional", "cancelled"}
         elif event.kind == "question_deferred":
             question_id = _as_text(payload.get("id"), "question_deferred.id")
             brief["open_questions"].append(question_id)
@@ -386,8 +505,17 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
     )
 
 
-def resolve_capture_challenge(root: Path, run_id: str, challenge_id: str, resolution: str, response: str, provenance: str) -> Path:
+def resolve_capture_challenge(
+    root: Path, run_id: str, challenge_id: str, resolution: str, response: str,
+    provenance: str, *, _lock_held: bool = False,
+) -> Path:
     """Append an explicit human challenge resolution, preserving verbatim response/provenance."""
+    if not _lock_held:
+        with capture_lock(root, run_id):
+            return resolve_capture_challenge(
+                root, run_id, challenge_id, resolution, response, provenance,
+                _lock_held=True,
+            )
     project_root = _safe_project_root(root)
     journal = _journal_path(project_root, run_id)
     events = _read_events(journal, run_id)
@@ -396,10 +524,13 @@ def resolve_capture_challenge(root: Path, run_id: str, challenge_id: str, resolu
         raise IntentError("challenge resolution fields are invalid")
     if not any(challenge.id == challenge_id for challenge in document.challenges):
         raise IntentError("challenge resolution references an unknown challenge")
-    return append_capture_event(project_root, run_id, CaptureEvent(
+    event = CaptureEvent(
         run_id, len(events) + 1, "challenge_resolved",
         {"id": challenge_id, "resolution": resolution, "response": response, "provenance": provenance},
-    ))
+    )
+    if _lock_held:
+        return _append_capture_event(project_root, run_id, event)
+    return append_capture_event(project_root, run_id, event)
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -431,12 +562,16 @@ def _atomic_write(path: Path, content: str) -> None:
                 pass
 
 
-def materialize_intent(root: Path, run_id: str, destination: Path) -> Path:
+def materialize_intent(
+    root: Path, run_id: str, destination: Path, *, _lock_held: bool = False
+) -> Path:
     """Replay a capture journal into an atomic schema-two intent document."""
+    if not _lock_held:
+        with capture_lock(root, run_id):
+            return materialize_intent(root, run_id, destination, _lock_held=True)
     project_root = _safe_project_root(root)
-    journal = _journal_path(project_root, run_id)
     target = _safe_path(project_root, destination)
-    document = _replay_events(_read_events(journal, run_id), run_id)
+    document = _replay_events(read_capture_events(project_root, run_id), run_id)
     payload = {
         "schema": 2,
         "run_id": document.run_id,
@@ -472,7 +607,10 @@ __all__ = [
     "IntentDocument",
     "IntentError",
     "append_capture_event",
+    "capture_lock",
     "materialize_intent",
+    "read_capture_events",
+    "replay_capture_intent",
     "detect_challenges",
     "resolve_capture_challenge",
     "read_intent",

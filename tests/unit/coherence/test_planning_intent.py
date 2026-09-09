@@ -8,8 +8,11 @@ import pytest
 import coherence.planning.intent as planning_intent
 from coherence.planning.intent import (
     CaptureEvent,
+    IntentError,
     append_capture_event,
+    capture_lock,
     materialize_intent,
+    read_capture_events,
     read_intent,
     validate_intent,
 )
@@ -148,6 +151,57 @@ def test_capture_events_reject_invalid_transition_before_start(tmp_path: Path) -
                 payload={"id": "goal", "question": "q", "text": "a", "source": "user"},
             ),
         )
+
+
+def test_read_capture_events_rejects_malformed_known_event_payload(tmp_path: Path) -> None:
+    append_capture_event(
+        tmp_path,
+        "run-001",
+        CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}),
+    )
+    journal = tmp_path / ".factory" / "planning" / "run-001" / "capture" / "events.jsonl"
+    with journal.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "run_id": "run-001",
+            "sequence": 2,
+            "kind": "answer_captured",
+            "payload": {"id": "answer", "question": "Q", "source": "user"},
+        }) + "\n")
+
+    with pytest.raises(IntentError, match="answer_captured.text"):
+        read_capture_events(tmp_path, "run-001")
+
+
+def test_read_capture_events_rejects_sequence_gaps(tmp_path: Path) -> None:
+    append_capture_event(
+        tmp_path,
+        "run-001",
+        CaptureEvent("run-001", 1, "capture_started", {"prompt": "x"}),
+    )
+    journal = tmp_path / ".factory" / "planning" / "run-001" / "capture" / "events.jsonl"
+    with journal.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "run_id": "run-001",
+            "sequence": 3,
+            "kind": "answer_captured",
+            "payload": {"id": "answer", "question": "Q", "text": "A", "source": "user"},
+        }) + "\n")
+
+    with pytest.raises(IntentError, match="contiguous"):
+        read_capture_events(tmp_path, "run-001")
+
+
+def test_capture_lock_failures_use_the_intent_error_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_open(*args: object, **kwargs: object) -> object:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "open", fail_open)
+
+    with pytest.raises(IntentError, match="lock"):
+        with capture_lock(tmp_path, "run-001"):
+            pass
 
 
 def test_materialize_intent_replays_capture_events_verbatim(tmp_path: Path) -> None:

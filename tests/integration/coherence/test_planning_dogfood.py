@@ -367,7 +367,9 @@ def test_human_escalation_returns_prompt_then_next_loop_resumes_after_answer(tmp
     start_session(root, "run-answer", "request")
     append_session_answer(root, "run-answer", "owner", "Who owns the decision?", "human", source="user")
     assert resume_session(root, "run-answer").next_sequence == 3
-    assert read_intent(root / ".intent/intent.json", project_root=root).answers[-1].text == "human"
+    assert read_intent(
+        root / ".factory" / "planning" / "run-answer" / "intent.json", project_root=root
+    ).answers[-1].text == "human"
     resumed = FreshReviewLoop(project_root=root, backend=loop.backend,
                               model={"provider": "fixture", "model": "reviewer"})
     resumed_result = resumed.run(resumed.build_packet("run-human", "spec_alignment", 2, [artifact],
