@@ -22,6 +22,71 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _review_fixture(root: Path, *, decision: dict[str, object] | None = None) -> Path:
+    run_id = "review-negative"
+    start_session(root, run_id, "Review evidence")
+    req = root / "requirements/SR-001.md"
+    feature = root / "docs/features/FEAT-017.md"
+    spec = root / "docs/spec.md"
+    plan = root / "docs/plan.md"
+    req.parent.mkdir(parents=True)
+    feature.parent.mkdir(parents=True)
+    req.write_text("---\nid: SR-001\n---\nRequirement.\n", encoding="utf-8")
+    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
+    spec.write_text("spec", encoding="utf-8")
+    plan.write_text("plan", encoding="utf-8")
+    write_artifact_manifest(root, run_id, build_artifact_manifest(root, run_id, [
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+        {"kind": "spec", "path": "docs/spec.md"}, {"kind": "plan", "path": "docs/plan.md"},
+    ]))
+    write_sr_decision(root, run_id, "SR-001", _sha(req), "approve", "human", CONSENT_PHRASE, "Reviewed.")
+    run_dir = root / ".factory/planning" / run_id
+    run_dir.joinpath("spec-review.json").write_text('{"status":"pass"}', encoding="utf-8")
+    run_dir.joinpath("plan-review.json").write_text('{"status":"pass"}', encoding="utf-8")
+    artifacts = [{"path": "docs/plan.md", "sha256": _sha(plan)}, {"path": "docs/spec.md", "sha256": _sha(spec)}]
+    report = {"schema": 1, "run_id": run_id, "ok": True, "artifacts": artifacts,
+              "findings": [], "next_actions": [], "review_required": True, "suggestion": None}
+    run_dir.joinpath("report.json").write_text(json.dumps(report), encoding="utf-8")
+    if decision is not None:
+        run_dir.joinpath("review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    return run_dir
+
+
+@pytest.mark.parametrize("decision", [None, {}, {"decision": "reject"}])
+def test_review_marker_never_authorizes_gate_without_current_human_decision(
+    tmp_path: Path, decision: dict[str, object] | None,
+) -> None:
+    run_dir = _review_fixture(tmp_path, decision=decision)
+    if decision == {"decision": "reject"}:
+        (run_dir / "review-decision.json").write_text(json.dumps({"decision": "reject"}), encoding="utf-8")
+    projection = legal_actions_session(tmp_path, "review-negative")
+    assert projection["legal_next_actions"] != ["run-planning-gates"]
+    if decision is not None:
+        assert projection["blocked"] is True
+
+
+def test_refreshed_manifest_cannot_hide_mutated_reviewed_bytes(tmp_path: Path) -> None:
+    _review_fixture(tmp_path, decision={
+        "schema": 1, "run_id": "review-negative", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed.", "reviewed_artifacts": ["docs/plan.md", "docs/spec.md"],
+        "report_sha256": "placeholder",
+    })
+    run_dir = tmp_path / ".factory/planning/review-negative"
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    report_digest = planning_report_digest(report)
+    decision = json.loads((run_dir / "review-decision.json").read_text(encoding="utf-8"))
+    decision["report_sha256"] = report_digest
+    (run_dir / "review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    (tmp_path / "docs/spec.md").write_text("mutated", encoding="utf-8")
+    write_artifact_manifest(tmp_path, "review-negative", build_artifact_manifest(tmp_path, "review-negative", [
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+        {"kind": "spec", "path": "docs/spec.md"}, {"kind": "plan", "path": "docs/plan.md"},
+    ]))
+    projection = legal_actions_session(tmp_path, "review-negative")
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] != ["run-planning-gates"]
+
+
 def test_legal_actions_progress_through_absent_durable_evidence(tmp_path: Path) -> None:
     run_id = "staged-proof"
     start_session(tmp_path, run_id, "Stage the closure")
