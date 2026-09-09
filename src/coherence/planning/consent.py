@@ -171,12 +171,17 @@ def validate_sr_decisions(
     if project_root is None:
         return False, "project root contains a symlink or reparse point"
 
+    missing_detail: str | None = None
     for sr_id, digest in candidates:
         path = _decision_path(project_root, run_id, sr_id)
         if path is None:
             return False, f"invalid human consent: {sr_id}"
         if not path.exists():
-            return False, f"missing human consent: {sr_id}"
+            # Missing decisions are actionable only if every existing candidate
+            # decision is current and valid, regardless of candidate ordering.
+            if missing_detail is None:
+                missing_detail = f"missing human consent: {sr_id}"
+            continue
         if not path.is_file():
             return False, f"invalid human consent: {sr_id}"
         try:
@@ -188,6 +193,8 @@ def validate_sr_decisions(
             return False, f"stale human consent: {sr_id}"
         if not valid:
             return False, f"invalid human consent: {sr_id}"
+    if missing_detail is not None:
+        return False, missing_detail
     return True, "human consent is current for all candidate SRs"
 
 

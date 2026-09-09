@@ -67,6 +67,20 @@ def test_changed_requirement_hash_stales_only_the_matching_sr(tmp_path: Path) ->
     )
 
 
+@pytest.mark.parametrize("bad_status", ["stale", "invalid"])
+def test_missing_first_decision_cannot_hide_a_bad_later_decision(
+    tmp_path: Path, bad_status: str,
+) -> None:
+    current = {"SR-071": "1" * 64, "SR-072": "2" * 64}
+    path = _write_approval(tmp_path, "run-17", "SR-072", "3" * 64)
+    if bad_status == "invalid":
+        path.write_text("{", encoding="utf-8")
+
+    assert validate_sr_decisions(tmp_path, "run-17", current) == (
+        False, f"{bad_status} human consent: SR-072",
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "detail"),
     [

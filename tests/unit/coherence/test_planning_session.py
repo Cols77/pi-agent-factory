@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 import coherence.planning.session as planning_session
+from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
+from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.session import (
     SessionError,
     append_session_answer,
@@ -150,6 +153,50 @@ def test_legal_actions_reject_stale_persisted_identity(tmp_path: Path) -> None:
 
     assert projection["blocked"] is True
     assert projection["reason"] == "STALE_SESSION_STATE"
+    assert projection["legal_next_actions"] == []
+
+
+def test_partial_sr_consent_is_actionable_until_existing_evidence_is_bad(tmp_path: Path) -> None:
+    run_id = "partial-consent"
+    start_session(tmp_path, run_id, "Review two requirements")
+    feature = tmp_path / "docs/features/FEAT-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-017\nrequirements: [SR-001, SR-002]\n---\n", encoding="utf-8",
+    )
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    first = requirements / "SR-001.md"
+    first.write_text("---\nid: SR-001\n---\nFirst requirement.\n", encoding="utf-8")
+    (requirements / "SR-002.md").write_text(
+        "---\nid: SR-002\n---\nSecond requirement.\n", encoding="utf-8",
+    )
+    artifacts = [{"kind": "requirements", "path": "requirements/SR-001.md"}]
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    consent = write_sr_decision(
+        tmp_path, run_id, "SR-001", hashlib.sha256(first.read_bytes()).hexdigest(),
+        "approve", "human", CONSENT_PHRASE, "Reviewed the first requirement independently.",
+    )
+    original = first.read_bytes()
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["blocked"] is False
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
+    assert not (consent.parent / "SR-002.json").exists()
+
+    first.write_bytes(original + b"Changed requirement.\n")
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["reason"] == "STALE_REQUIREMENT_CONSENT"
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
+
+    first.write_bytes(original)
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    (consent.parent / "SR-002.json").write_text("{", encoding="utf-8")
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["reason"] == "REQUIREMENT_CONSENT_INVALID"
+    assert projection["blocked"] is True
     assert projection["legal_next_actions"] == []
 
 

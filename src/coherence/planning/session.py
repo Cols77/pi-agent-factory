@@ -246,11 +246,15 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
             from coherence.planning.consent import validate_sr_decisions
 
             current, _ = _current_feature_requirements(root)
-            consent_dir = _inside(root, ".factory", "planning", session.run_id, "consent")
-            if not consent_dir.exists() or not any(consent_dir.glob("*.json")):
+            valid, detail = validate_sr_decisions(root, session.run_id, current)
+            if valid:
+                consent_status = "valid"
+            elif detail.startswith("missing human consent:"):
                 consent_status = "missing"
+            elif detail.startswith("stale human consent:"):
+                consent_status = "stale"
             else:
-                consent_status = "valid" if validate_sr_decisions(root, session.run_id, current)[0] else "stale"
+                consent_status = "invalid"
         except (OSError, TypeError, ValueError, RuntimeError):
             consent_status = "invalid"
 
