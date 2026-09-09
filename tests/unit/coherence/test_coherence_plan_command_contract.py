@@ -72,3 +72,13 @@ def test_start_or_resume_dispatch_is_not_swapped(text: str) -> None:
     assert "resume" in true_branch
     assert "start" not in true_branch
     assert "start" in false_branch
+
+
+def test_claude_command_labels_manual_compatibility_route_separately_from_guided_route(
+    text: str,
+) -> None:
+    lowered = text.lower()
+    assert "compatibility route" in lowered
+    assert "guided route" in lowered
+    assert "does not claim a lifecycle-derived stage" in lowered
+    assert "legal-actions" in lowered

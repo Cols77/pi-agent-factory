@@ -591,3 +591,10 @@ def test_finalize_review_agent_is_advisory_not_a_content_veto() -> None:
     assert '"ok": false' not in prompt
     assert '"ok": true' in prompt
     assert "never" in prompt and ("veto" in prompt or "withhold" in prompt or "delay" in prompt)
+
+
+def test_semantic_review_hook_only_transports_proposed_challenges() -> None:
+    prompt = _finalize_review_agent_hook()["prompt"].lower()
+    assert "propose-challenge" in prompt
+    assert "--resolution" not in prompt
+    assert "--status" not in prompt

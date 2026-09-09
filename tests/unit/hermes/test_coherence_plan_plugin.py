@@ -133,6 +133,20 @@ def test_renders_backend_declared_actions_and_block_reason(
     assert "resolve-blocking-input" in output
 
 
+def test_returns_canonical_legal_actions_report_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+    module, _, (_, handler) = register_command()
+    expected = "Planning ready\nLegal actions: author-plan\nStarts automatically: no"
+    calls: list[tuple[Path, str]] = []
+
+    def fake_report(root: Path, run_id: str) -> str:
+        calls.append((root, run_id))
+        return expected
+
+    monkeypatch.setattr(module, "legal_actions_report", fake_report)
+    assert invoke(handler, "run-verbatim") == expected
+    assert calls == [(Path.cwd(), "run-verbatim")]
+
+
 def test_backend_projection_is_the_only_authority_for_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

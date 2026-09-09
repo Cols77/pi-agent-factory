@@ -9,6 +9,19 @@ adoption, and the handoff. You supply the semantic work — questions, spec, pla
 reviews — and transport the human's decisions. You never originate a planning
 decision and never grant consent.
 
+## Host routes: compatibility and guided
+
+This Claude command is the existing explicit compatibility route. It preserves
+manual, adapter-mediated sequencing for hosts that still use the command and
+its defense-in-depth hooks. It does not claim a lifecycle-derived stage.
+
+The guided route is the separate `/plan <run-id>` entrypoint. It reads
+Coherence's canonical `legal-actions` projection and presents only the one
+currently permitted, display-only action. It owns no local workflow state and
+does not require this compatibility command's manual sequencing. Treat that
+projection as authoritative for current lifecycle position; do not infer a
+stage from this command's prose.
+
 **Division of authority, which you must not blur:**
 
 - The backend decides *structure*: durability, ordering, hashes, parity,
@@ -109,8 +122,10 @@ uv run python -m coherence.planning.guided_entrypoint finalize --run-id <run-id>
 ```
 
 A hook runs an intent-review agent here and blocks finalize until the review is
-recorded and every challenge is dispositioned. If it denies, satisfy the stated
-reason and retry.
+recorded and every challenge is dispositioned. For semantic gaps, that hook
+may only transport `propose-challenge` records; it never resolves a challenge,
+writes approval or consent, or computes a lifecycle stage. If it denies,
+satisfy the stated reason and retry.
 
 ## 6. Author the spec
 
