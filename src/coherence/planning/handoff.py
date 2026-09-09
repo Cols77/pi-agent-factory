@@ -260,6 +260,17 @@ def validate_handoff(root: Path, path: Path) -> dict[str, object]:
         or payload.get("planning_gate_result_sha256") != gate_result["result_sha256"]
     ):
         raise HandoffError("handoff planning gate hashes are stale or invalid")
+    executions = gate_result["executions"]
+    assert isinstance(executions, list)  # guaranteed by gate-result validation
+    report_execution = next(
+        execution for execution in executions
+        if execution["gate_id"] == "planning-report-current"
+    )
+    report_evidence = report_execution["evidence"]
+    # The validated resolver attests report.json first, then its exact ordered
+    # canonical artifacts. Use that evidence without rereading the report.
+    if artifacts != report_evidence[1:]:
+        raise HandoffError("handoff artifacts do not match the validated planning gate report")
     expected_summary = {
         "status": "pass",
         "planning_gate_pack_sha256": gate_pack["sha256"],

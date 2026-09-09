@@ -94,6 +94,34 @@ def test_invalid_workflow_fails_closed() -> None:
         build_downstream_menu("run-process")
 
 
+@pytest.mark.parametrize("mutation", ["empty", "substituted", "appended", "duplicated"])
+def test_handoff_artifacts_must_match_gate_attested_list(tmp_path: Path, mutation: str) -> None:
+    report = _report(tmp_path)
+    _write_current_gate_result(tmp_path, report)
+    payload = build_handoff(tmp_path, report)
+    path, _ = write_handoff(tmp_path, payload)
+    assert validate_handoff(tmp_path, path) == payload
+
+    # A real file with a correct digest must not gain the report's authority.
+    substitute = tmp_path / "docs/substitute.md"
+    substitute.write_text("unreviewed plan", encoding="utf-8")
+    replacement = {
+        "path": "docs/substitute.md",
+        "sha256": hashlib.sha256(substitute.read_bytes()).hexdigest(),
+    }
+    original = list(report.artifacts)
+    payload["canonical_artifacts"] = {
+        "empty": [],
+        "substituted": [replacement],
+        "appended": [*original, replacement],
+        "duplicated": [*original, *original],
+    }[mutation]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(HandoffError, match="artifacts do not match.*gate"):
+        validate_handoff(tmp_path, path)
+
+
 def test_handoff_rejects_ok_report_with_error_finding(tmp_path: Path) -> None:
     clean = _report(tmp_path)
     _write_current_gate_result(tmp_path, clean)
