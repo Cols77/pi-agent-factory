@@ -58,7 +58,13 @@ def test_review_marker_never_authorizes_gate_without_current_human_decision(
 ) -> None:
     run_dir = _review_fixture(tmp_path, decision=decision)
     if decision == {"decision": "reject"}:
-        (run_dir / "review-decision.json").write_text(json.dumps({"decision": "reject"}), encoding="utf-8")
+        report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+        (run_dir / "review-decision.json").write_text(json.dumps({
+            "schema": 1, "run_id": "review-negative", "decision": "reject", "reviewer": "human",
+            "reason": "Rejected the reviewed planning evidence.",
+            "reviewed_artifacts": ["docs/plan.md", "docs/spec.md"],
+            "report_sha256": planning_report_digest(report),
+        }), encoding="utf-8")
     projection = legal_actions_session(tmp_path, "review-negative")
     assert projection["legal_next_actions"] != ["run-planning-gates"]
     if decision is not None:
