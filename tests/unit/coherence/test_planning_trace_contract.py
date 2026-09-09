@@ -39,6 +39,18 @@ def test_feat17_requirement_sources_match_all_live_authority_anchors() -> None:
         assert _source_matches(root, requirement["source"], root / _SOURCE_SPECS[requirement_id]), requirement_id
 
 
+def test_feat17_closure_trace_keeps_sr071_as_a_projection_seam_only() -> None:
+    root = Path(__file__).parents[3]
+    closure_ids = {"SR-043", "SR-044", "SR-053", "SR-054", "SR-055", "SR-065", "SR-071", "SR-072"}
+    assert all(_SOURCE_SPECS[requirement_id] == _CLOSURE_SPEC for requirement_id in closure_ids)
+    compact_spec = " ".join(_source_text(root, _CLOSURE_SPEC).split())
+    assert "does not implement a browser or TUI visualizer" in compact_spec
+    sr071 = frontmatter.load(str(root / "requirements" / "SR-071.md"))
+    statement = cast(str, sr071["statement"])
+    assert "browser" not in statement.lower()
+    assert "TUI" not in statement
+
+
 def test_feat17_trace_contract_names_all_requirements_and_implementation_task() -> None:
     root = Path(__file__).parents[3]
     dossier = frontmatter.load(str(root / "docs" / "features" / "FEAT-017.md"))
