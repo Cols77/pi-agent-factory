@@ -596,5 +596,9 @@ def test_finalize_review_agent_is_advisory_not_a_content_veto() -> None:
 def test_semantic_review_hook_only_transports_proposed_challenges() -> None:
     prompt = _finalize_review_agent_hook()["prompt"].lower()
     assert "propose-challenge" in prompt
+    assert "guided_entrypoint append" in prompt
+    assert "--source intent-review-agent" in prompt
     assert "--resolution" not in prompt
+    assert "approval" in prompt and "consent" in prompt
+    assert "lifecycle stage" in prompt
     assert "--status" not in prompt
