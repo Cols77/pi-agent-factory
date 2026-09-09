@@ -3,17 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-import coherence.planning.session as session_module
 from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
 from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.gates import compile_planning_gate_pack, evaluate_planning_gate_pack
 from coherence.planning.handoff import build_handoff, write_handoff
-from coherence.planning.lifecycle import LifecycleEvidence
 from coherence.planning.model import PlanningFinding, PlanningReport
 from coherence.planning.run import planning_report_digest
 from coherence.planning.session import legal_actions_session, start_session
@@ -85,16 +82,6 @@ def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
     handoff = build_handoff(tmp_path, report, workflow="standard-development")
     write_handoff(tmp_path, handoff)
 
-    # The current loader intentionally does not infer approvals from mere files;
-    # feed the clean, independently reviewed state into the real projector.
-    original_loader = session_module._lifecycle_evidence
-
-    def clean_evidence(root: Path, session: object) -> LifecycleEvidence:
-        evidence = original_loader(root, session)  # type: ignore[arg-type]
-        return replace(evidence, consent_status="valid", spec_review_status="valid",
-                       plan_review_status="valid", gate_status="valid")
-
-    monkeypatch.setattr(session_module, "_lifecycle_evidence", clean_evidence)
     projection = legal_actions_session(tmp_path, run_id)
     assert projection["legal_next_actions"] == ["inspect-handoff"]
     assert projection["starts_automatically"] is False

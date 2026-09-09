@@ -241,14 +241,36 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
 
     consent_status: EvidenceStatus = "missing"
     if "requirements" in artifact_kinds:
-        consent_dir = _inside(root, ".factory", "planning", session.run_id, "consent")
-        if consent_dir.exists():
-            if not consent_dir.is_dir():
-                consent_status = "invalid"
-            elif any(consent_dir.glob("*.json")):
-                # Current per-SR source hashes are not yet a lifecycle loader
-                # API.  Do not treat the mere presence of records as consent.
-                consent_status = "unknown"
+        try:
+            from coherence.planning.gates import _current_feature_requirements
+            from coherence.planning.consent import validate_sr_decisions
+
+            current, _ = _current_feature_requirements(root)
+            consent_status = "valid" if validate_sr_decisions(root, session.run_id, current)[0] else "stale"
+        except (OSError, TypeError, ValueError, RuntimeError):
+            consent_status = "invalid"
+
+    spec_review_status: EvidenceStatus = "missing"
+    plan_review_status: EvidenceStatus = "missing"
+    gate_status: EvidenceStatus = "missing"
+    try:
+        from coherence.planning.gates import (
+            _resolve_human_review,
+            compile_planning_gate_pack,
+            validate_planning_gate_result,
+        )
+
+        review_status, _ = _resolve_human_review(root, session.run_id)
+        if review_status == "pass":
+            spec_review_status = "valid"
+            plan_review_status = "valid"
+        elif review_status == "fail":
+            spec_review_status = "stale"
+            plan_review_status = "stale"
+        validate_planning_gate_result(root, session.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
+        gate_status = "valid"
+    except (OSError, TypeError, ValueError, RuntimeError):
+        gate_status = "invalid"
 
     handoff_status: EvidenceStatus = "missing"
     handoff = _inside(root, ".factory", "planning", session.run_id, "handoff.json")
@@ -275,9 +297,9 @@ def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEviden
         manifest_status=manifest_status,
         artifact_kinds=artifact_kinds,
         consent_status=consent_status,
-        spec_review_status="missing",
-        plan_review_status="missing",
-        gate_status="missing",
+        spec_review_status=spec_review_status,
+        plan_review_status=plan_review_status,
+        gate_status=gate_status,
         handoff_status=handoff_status,
         unresolved_challenges=unresolved_challenges,
         intent_status=intent_status,
