@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import yaml
 
 from coherence.planning.anchors import authority_anchor_matches
+from coherence.planning.consent import validate_sr_decisions
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 
@@ -22,6 +23,7 @@ _SR_CONSENT_KEYS = frozenset({
 })
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_SR_ID = re.compile(r"^SR-[0-9]+$")
 _CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
 
 # Planning gates are deliberately a separate, small assurance surface.  They
@@ -110,7 +112,7 @@ def _pack_without_digest(feature_id: str, version: str) -> dict[str, object]:
             "required": True,
             "resolver": "requirement_consent_current",
             "dependencies": ["planning-report-current"],
-            "expected_evidence": ["requirement-consent.json"],
+            "expected_evidence": ["feature_requirements", "per_sr_consent"],
             "failure_behavior": "block_handoff",
         },
     ]
@@ -128,8 +130,39 @@ def compile_planning_gate_pack(feature_id: str, version: str) -> dict[str, objec
 
 
 def _validated_pack(pack: object) -> dict[str, object]:
-    if not isinstance(pack, dict) or set(pack) != _PACK_KEYS:
+    if type(pack) is not dict or set(pack) != _PACK_KEYS:
         raise PlanningGateError("planning gate pack schema is invalid")
+    if type(pack.get("schema")) is not int or pack.get("schema") != 1:
+        raise PlanningGateError("planning gate pack schema is invalid")
+    if type(pack.get("feature_id")) is not str or type(pack.get("version")) is not str:
+        raise PlanningGateError("planning gate pack identity is invalid")
+    supplied_digest = pack.get("sha256")
+    supplied_payload = {key: value for key, value in pack.items() if key != "sha256"}
+    if type(supplied_digest) is not str or not _valid_digest(supplied_digest) or supplied_digest != _canonical_digest(supplied_payload):
+        raise PlanningGateError("planning gate pack digest is invalid")
+    gates = pack.get("gates")
+    if type(gates) is not list or not gates:
+        raise PlanningGateError("planning gate pack gates are invalid")
+    for gate in gates:
+        if type(gate) is not dict or set(gate) != _PACK_GATE_KEYS:
+            raise PlanningGateError("planning gate entry schema is invalid")
+        if (
+            type(gate.get("id")) is not str or not gate["id"]
+            or type(gate.get("stage")) is not str or not gate["stage"]
+            or type(gate.get("required")) is not bool
+            or type(gate.get("resolver")) is not str or not gate["resolver"]
+            or type(gate.get("failure_behavior")) is not str or not gate["failure_behavior"]
+        ):
+            raise PlanningGateError("planning gate entry has invalid field types")
+        dependencies = gate.get("dependencies")
+        expected_evidence = gate.get("expected_evidence")
+        if (
+            type(dependencies) is not list or not all(type(item) is str and item for item in dependencies)
+            or dependencies != sorted(dependencies) or len(dependencies) != len(set(dependencies))
+            or type(expected_evidence) is not list or not all(type(item) is str and item for item in expected_evidence)
+            or len(expected_evidence) != len(set(expected_evidence))
+        ):
+            raise PlanningGateError("planning gate entry lists are invalid")
     if pack.get("feature_id") != _PLANNING_GATE_FEATURE or pack.get("version") != _PLANNING_GATE_VERSION:
         raise PlanningGateError("planning gate pack identity is unknown")
     expected = compile_planning_gate_pack(_PLANNING_GATE_FEATURE, _PLANNING_GATE_VERSION)
@@ -159,6 +192,20 @@ def _planning_report(root: Path, run_id: str) -> tuple[dict[str, object], list[d
         or payload.get("review_required") is not True or payload.get("suggestion") is not None
     ):
         raise PlanningGateError("planning report evidence is not a clean current report")
+    findings = payload.get("findings")
+    if not isinstance(findings, list):
+        raise PlanningGateError("planning report findings are invalid")
+    # Match run._report_artifacts' review-decision contract: only warnings
+    # are compatible with a clean report, regardless of the report's ok flag.
+    for finding in findings:
+        if (
+            not isinstance(finding, dict) or set(finding) != {"code", "severity", "subject", "detail"}
+            or not all(isinstance(finding.get(field), str) for field in ("code", "severity", "subject", "detail"))
+            or finding["severity"] not in {"error", "warning"}
+        ):
+            raise PlanningGateError("planning report findings are invalid")
+        if finding["severity"] == "error":
+            raise PlanningGateError("planning report contains blocking error findings")
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise PlanningGateError("planning report has no canonical artifacts")
@@ -217,26 +264,74 @@ def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, 
         return "fail", []
 
 
+def _current_feature_requirements(
+    root: Path,
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Return the current FEAT-017 requirements and their planning consent evidence."""
+    feature_path = safe_resolve(root, root / "docs" / "features" / f"{_PLANNING_GATE_FEATURE}.md")
+    if feature_path is None or not feature_path.is_file():
+        raise PlanningGateError("feature requirement coverage is missing")
+    metadata = _read_metadata(feature_path)
+    requirement_ids = metadata.get("requirements") if metadata is not None else None
+    if (
+        metadata is None or metadata.get("id") != _PLANNING_GATE_FEATURE
+        or not isinstance(requirement_ids, list) or not requirement_ids
+        or not all(isinstance(item, str) and _SR_ID.fullmatch(item) is not None for item in requirement_ids)
+        or len(requirement_ids) != len(set(requirement_ids))
+    ):
+        raise PlanningGateError("feature requirement coverage is invalid")
+    current: dict[str, str] = {}
+    evidence = [{"path": "docs/features/FEAT-017.md", "sha256": _digest(feature_path.read_bytes())}]
+    for requirement_id in sorted(requirement_ids):
+        requirement_path = safe_resolve(root, root / "requirements" / f"{requirement_id}.md")
+        if requirement_path is None or not requirement_path.is_file():
+            raise PlanningGateError("current feature requirement is missing")
+        requirement_metadata = _read_metadata(requirement_path)
+        if requirement_metadata is None or requirement_metadata.get("id") != requirement_id:
+            raise PlanningGateError("current feature requirement is malformed")
+        current[requirement_id] = _digest(requirement_path.read_bytes())
+        evidence.append({"path": f"requirements/{requirement_id}.md", "sha256": current[requirement_id]})
+    return current, evidence
+
+
 def _resolve_requirement_consent(root: Path, run_id: str) -> tuple[str, list[dict[str, str]]]:
     try:
         run_dir = _planning_run_dir(root, run_id)
+        current, current_evidence = _current_feature_requirements(root)
         path = safe_resolve(root, run_dir / "requirement-consent.json")
-        if path is None or not path.is_file():
-            raise PlanningGateError("requirement consent is missing")
-        consent = _read_json(path, "requirement consent is unreadable")
-        if not isinstance(consent, dict) or set(consent) != _CONSENT_KEYS:
-            raise PlanningGateError("requirement consent schema is invalid")
-        requirements = consent.get("requirements")
-        if (
-            type(consent.get("schema")) is not int or consent.get("schema") != 1
-            or consent.get("run_id") != run_id or consent.get("decision") != "approve"
-            or consent.get("reviewer") != "human"
-            or not isinstance(consent.get("reason"), str) or not str(consent["reason"]).strip()
-            or not isinstance(requirements, list) or not all(isinstance(item, str) for item in requirements)
-            or requirements != sorted(requirements) or len(requirements) != len(set(requirements))
-        ):
-            raise PlanningGateError("requirement consent is not current and approved")
-        return "pass", [{"path": ".factory/planning/%s/requirement-consent.json" % run_id, "sha256": _digest(path.read_bytes())}]
+        if path is None:
+            raise PlanningGateError("requirement consent path is unsafe")
+        # Legacy records remain readable but can never replace per-SR consent.
+        if path.exists():
+            consent = _read_json(path, "requirement consent is unreadable")
+            if not isinstance(consent, dict) or set(consent) != _CONSENT_KEYS:
+                raise PlanningGateError("requirement consent schema is invalid")
+            if (
+                type(consent.get("schema")) is not int or consent.get("schema") != 1
+                or consent.get("run_id") != run_id or consent.get("decision") != "approve"
+                or consent.get("reviewer") != "human"
+                or not isinstance(consent.get("reason"), str) or not str(consent["reason"]).strip()
+                or consent.get("requirements") != list(current)
+            ):
+                raise PlanningGateError("requirement consent is not current and approved")
+            current_evidence.append({
+                "path": f".factory/planning/{run_id}/requirement-consent.json",
+                "sha256": _digest(path.read_bytes()),
+            })
+        consent_ok, _ = validate_sr_decisions(root, run_id, current)
+        if not consent_ok:
+            raise PlanningGateError("per-SR human consent is missing or stale")
+        for requirement_id in current:
+            decision_path = safe_resolve(
+                root, run_dir / "consent" / f"{requirement_id}.json",
+            )
+            if decision_path is None or not decision_path.is_file():
+                raise PlanningGateError("per-SR human consent evidence is missing")
+            current_evidence.append({
+                "path": f".factory/planning/{run_id}/consent/{requirement_id}.json",
+                "sha256": _digest(decision_path.read_bytes()),
+            })
+        return "pass", current_evidence
     except PlanningGateError:
         return "fail", []
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ from coherence.planning.handoff import (
     write_handoff,
 )
 from coherence.planning.gates import compile_planning_gate_pack, evaluate_planning_gate_pack
+from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.model import PlanningFinding, PlanningReport
 from coherence.planning.run import planning_report_digest
 
@@ -44,14 +47,16 @@ def _write_current_gate_result(root: Path, report: PlanningReport) -> None:
         "reviewed_artifacts": ["docs/plan.md"],
         "report_sha256": planning_report_digest(raw_report),
     }), encoding="utf-8")
-    (run_dir / "requirement-consent.json").write_text(json.dumps({
-        "schema": 1,
-        "run_id": report.run_id,
-        "decision": "approve",
-        "reviewer": "human",
-        "reason": "Reviewed planning requirements.",
-        "requirements": [],
-    }), encoding="utf-8")
+    feature = root / "docs/features/FEAT-017.md"
+    feature.parent.mkdir(exist_ok=True)
+    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
+    requirement = root / "requirements/SR-001.md"
+    requirement.parent.mkdir(exist_ok=True)
+    requirement.write_text("---\nid: SR-001\n---\nCurrent requirement.\n", encoding="utf-8")
+    write_sr_decision(
+        root, report.run_id, "SR-001", hashlib.sha256(requirement.read_bytes()).hexdigest(),
+        "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
+    )
     evaluate_planning_gate_pack(root, report.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
 
 
@@ -87,6 +92,16 @@ def test_handoff_round_trip_is_hash_bound_and_paths_stay_in_run(tmp_path: Path) 
 def test_invalid_workflow_fails_closed() -> None:
     with pytest.raises(HandoffError):
         build_downstream_menu("run-process")
+
+
+def test_handoff_rejects_ok_report_with_error_finding(tmp_path: Path) -> None:
+    clean = _report(tmp_path)
+    _write_current_gate_result(tmp_path, clean)
+    build_handoff(tmp_path, clean)
+    contradictory = replace(clean, findings=(PlanningFinding("BLOCK", "error", "plan", "Blocking defect."),))
+    _write_current_gate_result(tmp_path, contradictory)
+    with pytest.raises(HandoffError):
+        build_handoff(tmp_path, contradictory)
 
 
 def test_validator_rejects_tampered_workflow_menu_and_unsafe_run_id(tmp_path: Path) -> None:

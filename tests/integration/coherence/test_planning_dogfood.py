@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 from pathlib import Path
 
 import pytest
 
 from coherence.planning.check import check_planning_input
+from coherence.planning.consent import CONSENT_PHRASE as PER_SR_CONSENT_PHRASE, write_sr_decision
 from coherence.planning.gates import (
     compile_planning_gate_pack,
     evaluate_planning_gate_pack,
@@ -170,8 +172,14 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path)
     }), encoding="utf-8")
     (run_dir / "requirement-consent.json").write_text(json.dumps({
         "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
-        "reason": "Reviewed planning requirements.", "requirements": [],
+        "reason": "Reviewed planning requirements.", "requirements": ["SR-001", "SR-002"],
     }), encoding="utf-8")
+    for sr_id in ("SR-001", "SR-002"):
+        requirement = root / "requirements" / f"{sr_id}.md"
+        write_sr_decision(
+            root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
+            "approve", "human", PER_SR_CONSENT_PHRASE, "Reviewed this requirement independently.",
+        )
     evaluate_planning_gate_pack(root, "run-001", compile_planning_gate_pack("FEAT-017", "v1"))
     payload = build_handoff(root, report, workflow="standard-development")
     path, _ = write_handoff(root, payload)

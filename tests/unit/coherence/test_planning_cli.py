@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from coherence.cli import main
+from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
@@ -297,6 +299,12 @@ def _handoff_args(root: Path, workflow: str = "standard-development") -> list[st
 def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.CaptureFixture[str]) -> None:
     decision_path = root / ".factory" / "planning" / "run-001" / "review-decision.json"
     decision_path.write_text(json.dumps(_approval(report)), encoding="utf-8")
+    for sr_id in ("SR-001", "SR-002"):
+        requirement = root / "requirements" / f"{sr_id}.md"
+        write_sr_decision(
+            root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
+            "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
+        )
     assert main([
         "plan", "run-planning-gates", "--project-root", str(root), "--run-id", "run-001", "--json",
     ]) == 0
