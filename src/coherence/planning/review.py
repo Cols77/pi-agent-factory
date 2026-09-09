@@ -10,7 +10,7 @@ structured-relation resolver.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import frontmatter
 
@@ -69,13 +69,38 @@ def _structured_entries(meta: dict, field: str) -> tuple[dict, ...]:
     return tuple(entry for entry in raw if isinstance(entry, dict))
 
 
+def _project_relative_posix(raw: str) -> str | None:
+    """Normalize a safe project-relative path for comparison only.
+
+    The relation resolver accepts project-relative paths, including native
+    Windows separators.  Use the same confinement boundary before comparing
+    task and relation paths, while converting their spelling to one POSIX
+    form.  This never resolves a filesystem path and rejects drive-qualified,
+    absolute, and parent-traversing input.
+    """
+    text = raw.strip()
+    candidate = PurePosixPath(text.replace("\\", "/"))
+    windows = PureWindowsPath(text)
+    if (
+        not text
+        or candidate.is_absolute()
+        or windows.is_absolute()
+        or windows.drive
+        or ".." in candidate.parts
+    ):
+        return None
+    return candidate.as_posix()
+
+
 def _relation_paths(meta: dict) -> set[str]:
     paths: set[str] = set()
     for field in ("implemented_by", "verified_by"):
         for entry in _structured_entries(meta, field):
             path = entry.get("path")
-            if isinstance(path, str) and path.strip():
-                paths.add(path.strip())
+            if isinstance(path, str):
+                normalized = _project_relative_posix(path)
+                if normalized is not None:
+                    paths.add(normalized)
     return paths
 
 
@@ -103,6 +128,11 @@ def _read_only_index(root: Path, requirements: tuple[Requirement, ...]) -> CodeI
                 continue
             if (root / candidate).is_file():
                 files.add(candidate.as_posix())
+    # ``build_index(..., files=[])`` treats the empty list as a request for
+    # source discovery.  An empty review has no relation inputs at all, so use
+    # the model's normal empty-index representation instead.
+    if not files:
+        return CodeIndex(fingerprint="no-files")
     return build_index(root, files=sorted(files))
 
 
@@ -147,7 +177,12 @@ def _review_requirement(
         findings.append(_finding(_issue_code(issue), req.id, f"{req.id}: {issue.detail}"))
 
     relation_paths = _relation_paths(meta)
-    if task.artifact_paths and relation_paths.isdisjoint(task.artifact_paths):
+    artifact_paths = {
+        normalized
+        for path in task.artifact_paths
+        if (normalized := _project_relative_posix(path)) is not None
+    }
+    if artifact_paths and relation_paths.isdisjoint(artifact_paths):
         findings.append(
             _finding(
                 "RELATION_OVERSTATED",

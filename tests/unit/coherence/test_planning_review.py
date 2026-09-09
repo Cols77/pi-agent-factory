@@ -71,6 +71,21 @@ def _review(root: Path, *tasks: GeneratedTaskReviewInput):
 
 
 @pytest.mark.sr("SR-053")
+def test_empty_review_does_not_discover_source_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_discovery(*_args: object, **_kwargs: object) -> list[str]:
+        raise AssertionError("empty review must not discover source files")
+
+    monkeypatch.setattr("substrate.codemap.build.discover_source_files", unexpected_discovery)
+
+    report = review_cross_artifact_relations(tmp_path, (), ())
+
+    assert report.ok is True
+    assert report.findings == ()
+
+
+@pytest.mark.sr("SR-053")
 def test_production_task_without_affected_sr_declaration_is_missing(review_repo: Path) -> None:
 
     report = _review(
@@ -142,6 +157,46 @@ def test_task_relation_is_overstated_when_task_artifacts_have_no_canonical_overl
     )
 
     assert "RELATION_OVERSTATED" in [finding.code for finding in report.findings]
+
+
+@pytest.mark.sr("SR-053")
+@pytest.mark.parametrize("artifact_path", ("./src/feature.py", r"src\feature.py"))
+def test_equivalent_task_artifact_path_does_not_overstate_relation(
+    review_repo: Path,
+    artifact_path: str,
+) -> None:
+    report = _review(
+        review_repo,
+        GeneratedTaskReviewInput("T-001", (artifact_path,), True, False, ("SR-101",)),
+    )
+
+    assert "RELATION_OVERSTATED" not in [finding.code for finding in report.findings]
+
+
+@pytest.mark.sr("SR-053")
+@pytest.mark.parametrize("relation_path", ("./src/feature.py", r"src\feature.py"))
+def test_equivalent_canonical_relation_path_does_not_overstate_task(
+    review_repo: Path,
+    relation_path: str,
+) -> None:
+    _requirement(
+        review_repo,
+        "SR-101",
+        implemented_by=[{"path": relation_path, "symbol": "feature:behavior"}],
+        verified_by=[
+            {
+                "path": "tests/unit/test_feature.py",
+                "test": "tests/unit/test_feature.py::test_behavior",
+            }
+        ],
+    )
+
+    report = _review(
+        review_repo,
+        GeneratedTaskReviewInput("T-001", ("src/feature.py",), True, False, ("SR-101",)),
+    )
+
+    assert "RELATION_OVERSTATED" not in [finding.code for finding in report.findings]
 
 
 @pytest.mark.sr("SR-053")
