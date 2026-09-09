@@ -437,7 +437,9 @@ def _cross_artifact_record(
                     continue
                 if not isinstance(entry.get("path"), str):
                     raise PlanningGateError("cross-artifact relation path must be a string")
-                relative = entry["path"].replace("\\", "/")
+                if "\\" in entry["path"]:
+                    raise PlanningGateError("cross-artifact relation path must use forward slashes")
+                relative = entry["path"]
                 if not _safe_relative(relative):
                     raise PlanningGateError("cross-artifact relation path is unsafe")
                 source = safe_resolve(root, root / relative)

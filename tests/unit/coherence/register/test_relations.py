@@ -191,6 +191,21 @@ def test_a_non_string_relation_path_is_rejected(tmp_path: Path, field: str):
 
 
 @pytest.mark.sr("SR-050")
+@pytest.mark.parametrize("field", ["implemented_by", "verified_by"])
+def test_a_backslash_relation_path_is_rejected_cross_platform(tmp_path: Path, field: str):
+    if field == "implemented_by":
+        _write_prod(tmp_path)
+        entry = {"path": r"src\widgets\feature.py", "symbol": "widgets.feature:feature_context"}
+    else:
+        _write_test_file(tmp_path)
+        entry = {"path": r"tests\unit\test_feature.py", "test": "tests/unit/test_feature.py::test_feature_context"}
+    resolution = resolve_sr_relations(tmp_path, {field: [entry]})
+    assert not resolution.ok
+    assert resolution.issues[0].field == field
+    assert "normalized" in resolution.issues[0].detail
+
+
+@pytest.mark.sr("SR-050")
 def test_a_line_number_shaped_symbol_identity_is_rejected(tmp_path: Path):
     _write_prod(tmp_path)
     meta = {

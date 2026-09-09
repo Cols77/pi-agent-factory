@@ -91,6 +91,17 @@ def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, 
     with pytest.raises(HandoffError):
         build_handoff(tmp_path, report)
 
+    backslash_target = tmp_path / "dir" / "target"
+    backslash_target.parent.mkdir()
+    backslash_target.write_text("backslash target", encoding="utf-8")
+    requirement.write_text(valid_metadata.replace("path: '123'", r"path: dir\target"), encoding="utf-8")
+    with pytest.raises(PlanningGateError):
+        write_cross_artifact_review(tmp_path, "run-001", tasks)
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert result["executions"][-1]["status"] == "fail"
+    with pytest.raises(HandoffError):
+        build_handoff(tmp_path, report)
+
 
 @pytest.mark.parametrize("production,validation", [(True, False), (False, True)])
 def test_cross_artifact_review_blocks_missing_sr_then_allows_current_relations(

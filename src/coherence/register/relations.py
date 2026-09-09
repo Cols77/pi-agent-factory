@@ -189,7 +189,7 @@ def resolve_sr_relations(
             if not raw_path or not str(raw_path).strip():
                 issues.append(ReferenceIssue(field, i, f"{field}[{i}] missing required 'path'"))
                 continue
-            if raw_path != Path(raw_path).as_posix():
+            if "\\" in raw_path or raw_path != Path(raw_path).as_posix():
                 issues.append(ReferenceIssue(field, i, f"{field}[{i}] path must be normalized project-relative text"))
                 continue
             rel_path = _confined_path(root, str(raw_path))
