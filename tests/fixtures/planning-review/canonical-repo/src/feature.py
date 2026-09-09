@@ -1,0 +1,2 @@
+def behavior():
+    return True

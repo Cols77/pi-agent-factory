@@ -147,7 +147,12 @@ def _resolve_test(index: CodeIndex, rel_path: str, test: str) -> str | None:
     return None
 
 
-def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
+def resolve_sr_relations(
+    root: Path,
+    meta: dict,
+    *,
+    index: CodeIndex | None = None,
+) -> RelationResolution:
     """Resolve every ``implemented_by``/``verified_by`` structured-relation
     entry an SR's raw frontmatter declares (SR-050/AC-1). A non-dict entry
     (the legacy plain-string ``verified_by: [T-001]`` graph edge) is not
@@ -230,7 +235,12 @@ def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
     if not pending:
         return RelationResolution(issues=tuple(issues))
 
-    index = ensure_fresh(root, files=sorted(needed_files))
+    # ``index`` lets a read-only caller provide an in-memory code map built
+    # from the exact same declared files.  The normal register path preserves
+    # its established fresh-and-persisted cache behaviour; only callers that
+    # explicitly provide an index opt out of that cache write.
+    if index is None:
+        index = ensure_fresh(root, files=sorted(needed_files))
     for field, i, entry, rel_str in pending:
         if field == "implemented_by":
             detail = _resolve_symbol(index, rel_str, str(entry["symbol"]))
