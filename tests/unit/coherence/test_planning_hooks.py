@@ -53,7 +53,7 @@ def test_guard_allows_unrelated_commands(guard: ModuleType, command: str) -> Non
 
 @pytest.mark.parametrize(
     "verb", ["start", "resume", "append", "resolve", "finalize", "bootstrap", "check", "handoff",
-             "write-cross-artifact-review", "record-sr-consent", "run-planning-gates"]
+             "write-artifact-manifest", "write-cross-artifact-review", "record-sr-consent", "run-planning-gates"]
 )
 def test_guard_denies_direct_backend_planning_calls(guard: ModuleType, verb: str) -> None:
     reason = guard.decide(f"uv run coherence plan {verb} --run-id r --project-root .")
@@ -68,6 +68,8 @@ def test_guard_denies_direct_backend_planning_calls(guard: ModuleType, verb: str
         "uv run python -m coherence.planning.guided_entrypoint start --run-id r --prompt p",
         "uv run python -m coherence.planning.guided_pipeline check --run-id r --intent i "
         "--spec s --plan p",
+        "uv run python -m coherence.planning.guided_pipeline write-artifact-manifest "
+        "--run-id r --artifacts-json='[]'",
         "uv run python -m coherence.planning.guided_pipeline write-cross-artifact-review "
         "--run-id r --tasks-json='{}'",
         "uv run python -m coherence.planning.guided_pipeline run-planning-gates --run-id r",

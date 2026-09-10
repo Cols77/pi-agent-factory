@@ -5,6 +5,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from coherence.planning.artifacts import write_artifact_manifest
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
 from coherence.planning.consent import write_sr_decision
@@ -466,6 +467,25 @@ def _record_sr_consent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_artifact_manifest(args: argparse.Namespace) -> int:
+    """Persist only explicitly supplied artifact kinds, paths, and current hashes."""
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
+    try:
+        artifacts = strict_json_loads(args.artifacts_json)
+        path = write_artifact_manifest(
+            root, args.run_id, {"schema": 1, "run_id": args.run_id, "artifacts": artifacts},
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "ARTIFACT_MANIFEST_INVALID", str(exc)), indent=2))
+        return 1
+    print(json.dumps({"schema": 1, "ok": True, "action": "write-artifact-manifest",
+                      "manifest": path.relative_to(root).as_posix()}, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _write_cross_artifact_review(args: argparse.Namespace) -> int:
     """Carry explicit producer classifications to the canonical evidence writer."""
     root = _safe_root(args.project_root)
@@ -600,6 +620,12 @@ def _parser() -> argparse.ArgumentParser:
     planning_gates.add_argument("--project-root", required=True, type=Path)
     planning_gates.add_argument("--json", action="store_true")
 
+    manifest = sub.add_parser("write-artifact-manifest")
+    manifest.add_argument("--run-id", required=True)
+    manifest.add_argument("--project-root", required=True, type=Path)
+    manifest.add_argument("--artifacts-json", required=True)
+    manifest.add_argument("--json", action="store_true")
+
     cross_review = sub.add_parser("write-cross-artifact-review")
     cross_review.add_argument("--run-id", required=True)
     cross_review.add_argument("--project-root", required=True, type=Path)
@@ -669,6 +695,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_planning_gates(args)
     if args.command == "write-cross-artifact-review":
         return _write_cross_artifact_review(args)
+    if args.command == "write-artifact-manifest":
+        return _write_artifact_manifest(args)
     if args.command == "record-sr-consent":
         return _record_sr_consent(args)
     if args.command in {"start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"}:

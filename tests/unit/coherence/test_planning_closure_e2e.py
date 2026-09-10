@@ -400,6 +400,8 @@ def test_manifest_changes_invalidate_published_gate_and_handoff(
 def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from coherence.planning.cli import main as planning_main
+
     run_id = "closure-proof"
     start_session(tmp_path, run_id, "Prove the planning closure")
 
@@ -422,7 +424,12 @@ def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
                            ("spec", spec), ("plan", plan), ("task", task))
     ]
     artifacts.sort(key=lambda item: item["path"])
-    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    assert planning_main([
+        "write-artifact-manifest", "--project-root", str(tmp_path), "--run-id", run_id,
+        "--artifacts-json", json.dumps([
+            {**item, "sha256": _sha(tmp_path / item["path"])} for item in artifacts
+        ]), "--json",
+    ]) == 0
     write_sr_decision(
         tmp_path, run_id, "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE,
         "Independently reviewed the current requirement.",

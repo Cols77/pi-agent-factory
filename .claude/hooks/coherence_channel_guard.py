@@ -58,7 +58,7 @@ _REASON = (
     "(run-id grammar, argv-only invocation, exit-code contract, payload "
     "validation). Use `uv run python -m coherence.planning.guided_entrypoint "
     "{verb} ...` for capture verbs or `...guided_pipeline {verb} ...` for "
-    "bootstrap/check/review/write-cross-artifact-review/record-sr-consent/"
+    "bootstrap/check/review/write-artifact-manifest/write-cross-artifact-review/record-sr-consent/"
     "run-planning-gates/handoff. Consent transport requires an explicit human decision."
 )
 

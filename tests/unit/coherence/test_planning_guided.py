@@ -406,12 +406,13 @@ def test_main_usage_errors_exit_two(argv: list[str]) -> None:
 
 def test_pipeline_verbs_are_the_implemented_compile_and_handoff_verbs() -> None:
     assert PIPELINE_VERBS == (
-        "bootstrap", "check", "review", "write-cross-artifact-review",
+        "bootstrap", "check", "review", "write-artifact-manifest", "write-cross-artifact-review",
         "record-sr-consent", "run-planning-gates", "handoff",
     )
 
 
 @pytest.mark.parametrize("verb,fields", [
+    ("write-artifact-manifest", {"artifacts_json": '[]'}),
     ("write-cross-artifact-review", {"tasks_json": '{"tasks/T-001.md": {}}'}),
     ("run-planning-gates", {}),
     ("record-sr-consent", {
@@ -443,6 +444,8 @@ def test_pipeline_closure_verbs_only_transport_explicit_fields(
 
 
 @pytest.mark.parametrize("verb,fields", [
+    ("write-artifact-manifest", {}),
+    ("write-artifact-manifest", {"artifacts_json": " ", "approve": "true"}),
     ("write-cross-artifact-review", {}),
     ("write-cross-artifact-review", {"tasks_json": " "}),
     ("record-sr-consent", {"sr_id": "SR-001"}),

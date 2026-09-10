@@ -129,6 +129,25 @@ satisfy the stated reason and retry.
 
 ## 6. Author the spec
 
+When the backend returns `author-requirements`, author or revise the requirement
+documents within the human's requested scope. Register the explicitly selected
+artifacts through this sanctioned transport operation:
+
+```
+uv run python -m coherence.planning.guided_pipeline write-artifact-manifest --run-id <run-id> --project-root . --artifacts-json='<artifact list JSON>'
+```
+
+The JSON is a list of objects containing exactly `kind`, `path`, and `sha256`.
+For example, an authored requirement uses `kind: "requirements"`, its
+project-relative POSIX path, and the lowercase SHA-256 of its current bytes.
+The backend validates every path and hash and writes only the canonical
+`.factory/planning/<run-id>/artifacts.json`. It does not infer requirements or
+artifact kinds, grant consent, compute a lifecycle stage, or run subprocesses.
+Each call replaces the complete manifest: retain existing selected artifacts
+and register authored spec/plan artifacts as they become available. Then read
+the canonical `legal-actions` projection again. `author-requirements` remains
+the authoring action; manifest transport does not grant permission to act.
+
 No backend command writes a spec — this is your work. Write
 `docs/superpowers/specs/<date>-<slug>-design.md` from the captured intent
 (`.intent/intent.json`) plus the drafted artifacts from step 1. Cover the

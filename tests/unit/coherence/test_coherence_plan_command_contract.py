@@ -29,6 +29,13 @@ def test_command_never_calls_the_backend_directly(text: str) -> None:
     assert "uv run coherence plan" not in text
 
 
+def test_author_requirements_has_explicit_manifest_transport(text: str) -> None:
+    assert "author-requirements" in text
+    assert "coherence.planning.guided_pipeline write-artifact-manifest" in text
+    assert "--artifacts-json" in text
+    assert "sha256" in text
+
+
 def test_human_decisions_are_marked_as_never_the_models(text: str) -> None:
     lowered = text.lower()
     assert "never choose" in lowered

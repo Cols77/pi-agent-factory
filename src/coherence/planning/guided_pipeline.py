@@ -4,7 +4,7 @@ Where ``guided_entrypoint`` drives intent capture, this module drives what
 happens to authored artifacts afterwards: ``bootstrap`` (validate the
 intent/spec/plan triple and, with ``--decompose``, generate ``tasks/T-NNN.md``
 from the plan), ``check`` (structural parity and task metadata), ``review``,
-explicit cross-artifact evidence and human consent transport, planning gates,
+explicit artifact manifest, cross-artifact evidence and human consent transport, planning gates,
 and ``handoff``.
 
 The division of labour matters. Authoring the spec and the plan is model work --
@@ -32,7 +32,7 @@ from coherence.planning.adapter_backend import (
 )
 
 PIPELINE_VERBS = (
-    "bootstrap", "check", "review", "write-cross-artifact-review",
+    "bootstrap", "check", "review", "write-artifact-manifest", "write-cross-artifact-review",
     "record-sr-consent", "run-planning-gates", "handoff",
 )
 
@@ -40,6 +40,7 @@ _VERB_FIELDS: dict[str, tuple[str, ...]] = {
     "bootstrap": ("intent", "spec", "plan"),
     "check": ("intent", "spec", "plan"),
     "review": (),
+    "write-artifact-manifest": ("artifacts_json",),
     "write-cross-artifact-review": ("tasks_json",),
     "record-sr-consent": (
         "sr_id", "requirement_sha256", "decision", "reviewer", "phrase", "reason",
@@ -120,7 +121,7 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--decompose", action="store_true")
         if verb == "handoff":
             command.add_argument("--workflow", default="standard-development")
-        if verb in ("write-cross-artifact-review", "record-sr-consent"):
+        if verb in ("write-artifact-manifest", "write-cross-artifact-review", "record-sr-consent"):
             for name in _VERB_FIELDS[verb]:
                 command.add_argument(f"--{name.replace('_', '-')}", required=True)
     return parser

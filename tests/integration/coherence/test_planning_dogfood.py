@@ -36,6 +36,34 @@ FIXTURE = Path(__file__).parents[2] / "fixtures" / "planning-dogfood"
 CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
 
 
+def test_guided_manifest_transport_reaches_requirement_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coherence.planning.guided_pipeline import run_pipeline_command
+    from coherence.planning.session import legal_actions_session
+
+    # Use the installed project backend while its cwd is the consumer repository.
+    monkeypatch.setenv("UV_PROJECT", str(Path(__file__).parents[3]))
+    start_session(tmp_path, "transport-proof", "Register authored requirements")
+    assert legal_actions_session(tmp_path, "transport-proof")["legal_next_actions"] == ["author-requirements"]
+    requirement = tmp_path / "requirements/SR-001.md"
+    requirement.parent.mkdir()
+    requirement.write_text("---\nid: SR-001\n---\nAuthored requirement.\n", encoding="utf-8")
+    feature = tmp_path / "docs/features/FEAT-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
+    artifacts = [{"kind": "requirements", "path": "requirements/SR-001.md",
+                  "sha256": hashlib.sha256(requirement.read_bytes()).hexdigest()}]
+    code, payload = run_pipeline_command(
+        tmp_path, "transport-proof", "write-artifact-manifest", artifacts_json=json.dumps(artifacts),
+    )
+    assert code == 0
+    assert payload["ok"] is True
+    projection = legal_actions_session(tmp_path, "transport-proof")
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
+
+
 def _fixture_json(name: str) -> dict:
     return json.loads((FIXTURE / "clean" / name).read_text(encoding="utf-8"))
 
