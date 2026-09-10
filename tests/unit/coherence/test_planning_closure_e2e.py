@@ -255,6 +255,38 @@ def test_review_marker_never_authorizes_gate_without_current_human_decision(
         assert projection["blocked"] is True
 
 
+@pytest.mark.parametrize("kind", ["spec", "plan"])
+@pytest.mark.parametrize("same_bytes", [False, True])
+def test_repointed_manifest_cannot_reuse_review_of_another_path(
+    tmp_path: Path, kind: str, same_bytes: bool,
+) -> None:
+    run_id = "review-negative"
+    run_dir = _review_fixture(tmp_path)
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": run_id, "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed.", "reviewed_artifacts": ["docs/plan.md", "docs/spec.md"],
+        "report_sha256": planning_report_digest(report),
+    }), encoding="utf-8")
+    assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["run-planning-gates"]
+
+    replacement = tmp_path / f"docs/replacement-{kind}.md"
+    replacement.write_text(kind if same_bytes else "Unreviewed replacement.", encoding="utf-8")
+    artifacts = [
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+        {"kind": "spec", "path": "docs/spec.md"},
+        {"kind": "plan", "path": "docs/plan.md"},
+    ]
+    for artifact in artifacts:
+        if artifact["kind"] == kind:
+            artifact["path"] = replacement.relative_to(tmp_path).as_posix()
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["legal_next_actions"] != ["run-planning-gates"]
+    assert projection["blocked"] is True
+
+
 def test_refreshed_manifest_cannot_hide_mutated_reviewed_bytes(tmp_path: Path) -> None:
     _review_fixture(tmp_path, decision={
         "schema": 1, "run_id": "review-negative", "decision": "approve", "reviewer": "human",
@@ -315,6 +347,50 @@ def test_legal_actions_progress_through_absent_durable_evidence(tmp_path: Path) 
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["review-plan"]
     run_dir.joinpath("plan-review.json").write_text('{"status":"pass"}', encoding="utf-8")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["run-planning-gates"]
+
+
+@pytest.mark.parametrize("mutation", ["missing", "repointed", "malformed", "empty"])
+def test_manifest_changes_invalidate_published_gate_and_handoff(
+    tmp_path: Path, mutation: str,
+) -> None:
+    from coherence.planning.cli import _read_report
+    from coherence.planning.gates import validate_planning_gate_result
+    from coherence.planning.handoff import validate_handoff
+    from tests.unit.coherence.test_planning_gates import _write_current_planning_evidence
+
+    run_id = "run-001"
+    start_session(tmp_path, run_id, "Review current manifest")
+    _write_current_planning_evidence(tmp_path, run_id)
+    manifest_path = write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(
+        tmp_path, run_id, [{"kind": "plan", "path": "docs/plan.md"}],
+    ))
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    evaluate_planning_gate_pack(tmp_path, run_id, pack)
+    report = _read_report(tmp_path / ".factory/planning/run-001/report.json", run_id)
+    handoff_path, _ = write_handoff(tmp_path, build_handoff(tmp_path, report))
+    assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["inspect-handoff"]
+
+    if mutation == "missing":
+        manifest_path.unlink()
+    elif mutation == "malformed":
+        manifest_path.write_text("{}", encoding="utf-8")
+    else:
+        replacement = tmp_path / "docs/replacement.md"
+        replacement.write_text("Unreviewed replacement.", encoding="utf-8")
+        artifacts = [] if mutation == "empty" else [{"kind": "plan", "path": "docs/replacement.md"}]
+        write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+
+    with pytest.raises(PlanningGateError):
+        validate_planning_gate_result(tmp_path, run_id, pack)
+    with pytest.raises(HandoffError):
+        build_handoff(tmp_path, report)
+    with pytest.raises(HandoffError):
+        validate_handoff(tmp_path, handoff_path)
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
+    handoff_path.unlink()
+    assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] != ["create-handoff"]
 
 
 def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(

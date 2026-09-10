@@ -12,6 +12,7 @@ from typing import Any, Mapping
 import yaml
 
 from coherence.planning.anchors import authority_anchor_matches
+from coherence.planning.artifacts import ArtifactError, read_artifact_manifest
 from coherence.planning.consent import validate_sr_decisions
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
@@ -272,8 +273,28 @@ def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, 
             or decision.get("report_sha256") != _canonical_digest(report)
         ):
             raise PlanningGateError("review decision is not current and approved")
-        return "pass", [{"path": ".factory/planning/%s/review-decision.json" % run_id, "sha256": _digest(path.read_bytes())}, report_evidence[0]]
-    except PlanningGateError:
+        manifest_path = safe_resolve(root, run_dir / "artifacts.json")
+        if manifest_path is None:
+            raise PlanningGateError("artifact manifest path is unsafe")
+        evidence = [
+            {"path": f".factory/planning/{run_id}/review-decision.json", "sha256": _digest(path.read_bytes())},
+            report_evidence[0],
+        ]
+        if manifest_path.exists():
+            manifest_artifacts = read_artifact_manifest(root, run_id)["artifacts"]
+            if not isinstance(manifest_artifacts, list):
+                raise PlanningGateError("artifact manifest entries are invalid")
+            for artifact in manifest_artifacts:
+                if artifact["kind"] in {"spec", "plan"} and {
+                    "path": artifact["path"], "sha256": artifact["sha256"],
+                } not in artifacts:
+                    raise PlanningGateError("review decision does not cover current manifest artifacts")
+            evidence.append({
+                "path": f".factory/planning/{run_id}/artifacts.json",
+                "sha256": _digest(manifest_path.read_bytes()),
+            })
+        return "pass", evidence
+    except (PlanningGateError, ArtifactError):
         return "fail", []
 
 
