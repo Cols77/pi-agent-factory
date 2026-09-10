@@ -170,6 +170,38 @@ gate; that defeats the only structural guarantee this stage provides.
 
 ```
 uv run python -m coherence.planning.guided_pipeline review --run-id <run-id> --project-root .
+```
+
+Record the producer's explicit classification of every canonical generated task
+against the current `report.json`:
+
+```
+uv run python -m coherence.planning.guided_pipeline write-cross-artifact-review --run-id <run-id> --project-root . --tasks-json='<task mapping JSON>'
+```
+
+The mapping keys are `tasks/T-*.md` paths. Each value must supply exactly `id`,
+`artifact_paths` (nonempty relative path list), `changes_production` and
+`changes_validation` (booleans), `affected_srs` (SR list or null), and `satisfies`
+(canonical task declaration or null). Supply classifications from the reviewed
+task scope; the adapter never infers a docs-only exemption. Inspect returned
+findings and resolve them before proceeding. Regenerate this evidence after a
+report or reviewed artifact changes.
+
+Human consent remains a separate prerequisite. Present the current report and
+each SR to the human. Transport only their explicit per-SR response, using the
+current requirement digest and their decision, identity, phrase, and reason:
+
+```
+uv run python -m coherence.planning.guided_pipeline record-sr-consent --run-id <run-id> --project-root . --sr-id <SR-id> --requirement-sha256 <digest> --decision <human decision> --reviewer <human identity> --phrase='<human consent phrase>' --reason='<human reason>'
+```
+
+This records an existing human decision; it does not grant consent or supply
+approval defaults. Current `review-decision.json` and `requirement-consent.json`
+must also be supplied through the human review flow; never fabricate these
+records. Missing consent is a blocker. Once the required evidence is present:
+
+```
+uv run python -m coherence.planning.guided_pipeline run-planning-gates --run-id <run-id> --project-root .
 uv run python -m coherence.planning.guided_pipeline handoff --run-id <run-id> --project-root . --workflow standard-development
 uv run python -m coherence.planning.legal_actions_adapter <run-id>
 ```
@@ -178,6 +210,9 @@ Print the projection verbatim. The handoff's `starts_automatically` field is
 always `false`, which the projection renders as `Starts automatically: no`; that
 is a hard invariant. The action list is display-only — seeing an action never
 authorizes running it.
+
+`run-planning-gates` evaluates planning evidence only. It does not execute
+implementation gates or compute the lifecycle stage in the adapter.
 
 ## 10. Stop
 

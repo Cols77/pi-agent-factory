@@ -13,7 +13,9 @@ from coherence.planning.gates import (
     compile_planning_gate_pack,
     evaluate_planning_gate_pack,
     validate_planning_gate_result,
+    write_cross_artifact_review,
 )
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.intent import read_intent
 from coherence.planning.session import (
     SessionError,
@@ -464,6 +466,31 @@ def _record_sr_consent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_cross_artifact_review(args: argparse.Namespace) -> int:
+    """Carry explicit producer classifications to the canonical evidence writer."""
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    try:
+        raw = strict_json_loads(args.tasks_json)
+        fields = {"id", "artifact_paths", "changes_production", "changes_validation", "affected_srs", "satisfies"}
+        if not isinstance(raw, dict) or any(
+            not isinstance(item, dict) or set(item) != fields for item in raw.values()
+        ):
+            raise PlanningGateError("cross-artifact task input schema is invalid")
+        tasks = {path: GeneratedTaskReviewInput(**item) for path, item in raw.items()}
+        record = write_cross_artifact_review(root, args.run_id, tasks)
+    except (PlanningGateError, OSError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "CROSS_ARTIFACT_REVIEW_INVALID", str(exc)), indent=2))
+        return 1
+    review = record["review"]
+    assert isinstance(review, dict)
+    print(json.dumps({"schema": 1, "ok": review["ok"],
+                      "action": "write-cross-artifact-review", **record}, indent=2, ensure_ascii=False))
+    return 0 if review["ok"] else 1
+
+
 def _run_planning_gates(args: argparse.Namespace) -> int:
     """Compile and evaluate planning evidence gates without running factory gates."""
     root = _safe_root(args.project_root)
@@ -573,6 +600,12 @@ def _parser() -> argparse.ArgumentParser:
     planning_gates.add_argument("--project-root", required=True, type=Path)
     planning_gates.add_argument("--json", action="store_true")
 
+    cross_review = sub.add_parser("write-cross-artifact-review")
+    cross_review.add_argument("--run-id", required=True)
+    cross_review.add_argument("--project-root", required=True, type=Path)
+    cross_review.add_argument("--tasks-json", required=True)
+    cross_review.add_argument("--json", action="store_true")
+
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--intent", required=True, type=Path)
     bootstrap.add_argument("--spec", required=True, type=Path)
@@ -634,6 +667,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _handoff(args)
     if args.command == "run-planning-gates":
         return _run_planning_gates(args)
+    if args.command == "write-cross-artifact-review":
+        return _write_cross_artifact_review(args)
     if args.command == "record-sr-consent":
         return _record_sr_consent(args)
     if args.command in {"start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"}:

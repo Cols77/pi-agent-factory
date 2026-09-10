@@ -405,7 +405,58 @@ def test_main_usage_errors_exit_two(argv: list[str]) -> None:
 
 
 def test_pipeline_verbs_are_the_implemented_compile_and_handoff_verbs() -> None:
-    assert PIPELINE_VERBS == ("bootstrap", "check", "review", "handoff")
+    assert PIPELINE_VERBS == (
+        "bootstrap", "check", "review", "write-cross-artifact-review",
+        "record-sr-consent", "run-planning-gates", "handoff",
+    )
+
+
+@pytest.mark.parametrize("verb,fields", [
+    ("write-cross-artifact-review", {"tasks_json": '{"tasks/T-001.md": {}}'}),
+    ("run-planning-gates", {}),
+    ("record-sr-consent", {
+        "sr_id": "SR-001", "requirement_sha256": "a" * 64, "decision": "reject",
+        "reviewer": "human", "phrase": "-explicit human response", "reason": "Needs revision",
+    }),
+])
+def test_pipeline_closure_verbs_only_transport_explicit_fields(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    verb: str, fields: dict[str, str],
+) -> None:
+    captured: list[list[str]] = []
+
+    def backend(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert kwargs["shell"] is False
+        captured.append(command)
+        return completed_json({"ok": False, "blocked": True}, returncode=1)
+
+    monkeypatch.setattr(subprocess, "run", backend)
+    flags = [f"--{key.replace('_', '-')}={value}" for key, value in fields.items()]
+    assert pipeline_main([verb, "--run-id", "run-001", "--project-root", "/p", *flags]) == 0
+    assert captured == [[
+        "uv", "run", "coherence", "plan", verb, "--project-root", str(Path("/p")),
+        "--run-id", "run-001", *flags, "--json",
+    ]]
+    assert json.loads(capsys.readouterr().out) == {
+        "backend_exit_code": 1, "ok": False, "blocked": True,
+    }
+
+
+@pytest.mark.parametrize("verb,fields", [
+    ("write-cross-artifact-review", {}),
+    ("write-cross-artifact-review", {"tasks_json": " "}),
+    ("record-sr-consent", {"sr_id": "SR-001"}),
+    ("run-planning-gates", {"approve": "true"}),
+])
+def test_pipeline_rejects_missing_or_extra_transport_fields_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch, verb: str, fields: dict[str, str],
+) -> None:
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("invalid transport input must not invoke a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    with pytest.raises(BackendError, match="fields"):
+        run_pipeline_command(Path("/p"), "run-001", verb, **fields)
 
 
 def test_bootstrap_passes_all_three_artifacts_and_decompose() -> None:

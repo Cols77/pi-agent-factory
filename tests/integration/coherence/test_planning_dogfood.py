@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,9 @@ from coherence.planning.gates import (
     compile_planning_gate_pack,
     evaluate_planning_gate_pack,
     validate_sr_consent,
+    write_cross_artifact_review,
 )
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.handoff import build_downstream_menu, build_handoff, validate_handoff, write_handoff
 from coherence.planning.intent import read_intent
 from coherence.planning.loop import FreshReviewLoop, LoopStatus
@@ -51,15 +54,25 @@ def _consumer(tmp_path: Path) -> tuple[Path, Path, Path]:
     tasks.mkdir()
     for number, title in ((1, "first"), (2, "second")):
         (tasks / f"T-{number:03d}-{title}.md").write_text(
-            f"---\nid: T-{number:03d}\ntitle: {title.title()} Task\nstatus: todo\n"
+            f"---\nid: T-{number:03d}\ntitle: {title.title()} Task\nstatus: todo\ndod: []\n"
             "source_plan: docs/superpowers/plans/intent-plan.md\n"
             f"source_task: {number}\n---\n", encoding="utf-8")
     requirements = root / "requirements"
     requirements.mkdir()
-    for req_id in ("SR-001", "SR-002"):
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "tests/test_planner.py").write_text(
+        "from first import behavior as first\nfrom second import behavior as second\n"
+        "\ndef test_planner():\n    assert first() == second() == 1\n",
+        encoding="utf-8",
+    )
+    for req_id, name in zip(("SR-001", "SR-002"), ("first", "second"), strict=True):
+        (root / f"src/{name}.py").write_text("def behavior():\n    return 1\n", encoding="utf-8")
         (requirements / f"{req_id}.md").write_text(
             f"---\nid: {req_id}\ntitle: {req_id} requirement\nstatement: {req_id} statement\n"
-            "domain: behavioral\nupstream: []\nsource: docs/superpowers/specs/intent-spec.md#goal\n---\n",
+            "domain: behavioral\nupstream: []\nsource: docs/superpowers/specs/intent-spec.md#goal\n"
+            f"implemented_by:\n  - path: src/{name}.py\n    symbol: {name}:behavior\n"
+            "verified_by:\n  - path: tests/test_planner.py\n    test: tests/test_planner.py::test_planner\n---\n",
             encoding="utf-8")
     feature = root / "docs/features/FEAT-017.md"
     feature.parent.mkdir(parents=True)
@@ -89,7 +102,9 @@ def _packet_from_prompt(root: Path, prompt: str):
         reviewer_role=payload["reviewer_role"], reviewer_session_id=None)
 
 
-def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path) -> None:
+def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root, spec, plan = _consumer(tmp_path)
     start_session(root, "run-001", "Build a deterministic planner")
     append_session_answer(root, "run-001", "goal", "What is the goal?", "Build a deterministic planner")
@@ -180,6 +195,17 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path)
             root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
             "approve", "human", PER_SR_CONSENT_PHRASE, "Reviewed this requirement independently.",
         )
+    def no_downstream_execution(*args: object, **kwargs: object) -> None:
+        pytest.fail("planning review, gates, and handoff must not launch subprocesses")
+
+    monkeypatch.setattr(subprocess, "run", no_downstream_execution)
+    cross_review = write_cross_artifact_review(root, "run-001", {
+        f"tasks/T-{number:03d}-{name}.md": GeneratedTaskReviewInput(
+            f"T-{number:03d}", (f"src/{name}.py",), True, False, (f"SR-{number:03d}",),
+        )
+        for number, name in ((1, "first"), (2, "second"))
+    })
+    assert isinstance(cross_review["review"], dict) and cross_review["review"]["ok"] is True
     evaluate_planning_gate_pack(root, "run-001", compile_planning_gate_pack("FEAT-017", "v1"))
     payload = build_handoff(root, report, workflow="standard-development")
     path, _ = write_handoff(root, payload)

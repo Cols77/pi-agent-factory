@@ -326,6 +326,55 @@ def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.Ca
     capsys.readouterr()
 
 
+def test_cross_artifact_cli_records_explicit_tasks_without_execution_or_consent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+
+    _write_checked_report(tmp_path, capsys)
+    run_dir = tmp_path / ".factory/planning/run-001"
+    before = {path.name: path.read_bytes() for path in run_dir.glob("*consent*.json")}
+    tasks = {
+        f"tasks/T-{number:03d}-{name}.md": {
+            "id": f"T-{number:03d}", "artifact_paths": [f"src/{name}.py"],
+            "changes_production": True, "changes_validation": False,
+            "affected_srs": [f"SR-{number:03d}"], "satisfies": None,
+        }
+        for number, name in ((1, "first"), (2, "second"))
+    }
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("cross-artifact recording must not launch a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main([
+        "plan", "write-cross-artifact-review", "--project-root", str(tmp_path),
+        "--run-id", "run-001", "--tasks-json", json.dumps(tasks), "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    record = json.loads((run_dir / "cross-artifact-review.json").read_text(encoding="utf-8"))
+    assert record["tasks"] == tasks
+    assert record["review"]["ok"] is True
+    assert {path.name: path.read_bytes() for path in run_dir.glob("*consent*.json")} == before
+    assert not (run_dir / "planning-gate-result.json").exists()
+    assert not (run_dir / "handoff.json").exists()
+
+
+@pytest.mark.parametrize("raw", ["[]", "{}", '{"tasks/T-001-first.md": {}}',
+                                  '{"x": {}, "x": {}}', "not json"])
+def test_cross_artifact_cli_rejects_invalid_or_incomplete_classifications(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], raw: str,
+) -> None:
+    _write_checked_report(tmp_path, capsys)
+    assert main([
+        "plan", "write-cross-artifact-review", "--project-root", str(tmp_path),
+        "--run-id", "run-001", "--tasks-json", raw, "--json",
+    ]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "CROSS_ARTIFACT_REVIEW_INVALID"
+    assert not (tmp_path / ".factory/planning/run-001/cross-artifact-review.json").exists()
+
+
 def test_plan_handoff_emits_summary_menu_and_revalidates_existing_handoff(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
