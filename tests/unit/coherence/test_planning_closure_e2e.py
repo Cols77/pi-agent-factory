@@ -380,6 +380,8 @@ def test_manifest_changes_invalidate_published_gate_and_handoff(
         artifacts = [] if mutation == "empty" else [{"kind": "plan", "path": "docs/replacement.md"}]
         write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
 
+    evaluated = evaluate_planning_gate_pack(tmp_path, run_id, pack)
+    assert evaluated["executions"][1]["status"] == "fail"
     with pytest.raises(PlanningGateError):
         validate_planning_gate_result(tmp_path, run_id, pack)
     with pytest.raises(HandoffError):

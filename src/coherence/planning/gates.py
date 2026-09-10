@@ -282,7 +282,7 @@ def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, 
         ]
         if manifest_path.exists():
             manifest_artifacts = read_artifact_manifest(root, run_id)["artifacts"]
-            if not isinstance(manifest_artifacts, list):
+            if not isinstance(manifest_artifacts, list) or not manifest_artifacts:
                 raise PlanningGateError("artifact manifest entries are invalid")
             for artifact in manifest_artifacts:
                 if artifact["kind"] in {"spec", "plan"} and {
@@ -293,6 +293,26 @@ def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, 
                 "path": f".factory/planning/{run_id}/artifacts.json",
                 "sha256": _digest(manifest_path.read_bytes()),
             })
+        else:
+            # A previously manifest-bound review cannot be replayed after its
+            # manifest disappears. Preserve compatibility with legacy runs
+            # that never published a manifest at all.
+            result_path = safe_resolve(root, run_dir / "planning-gate-result.json")
+            if result_path is not None and result_path.is_file():
+                prior = _read_json(result_path, "planning gate result is unreadable")
+                if isinstance(prior, dict) and isinstance(prior.get("executions"), list):
+                    human = next(
+                        (item for item in prior["executions"]
+                         if isinstance(item, dict) and item.get("gate_id") == "human-review-current"),
+                        None,
+                    )
+                    prior_evidence = human.get("evidence") if isinstance(human, dict) else None
+                    if isinstance(prior_evidence, list) and any(
+                        isinstance(item, dict)
+                        and item.get("path") == f".factory/planning/{run_id}/artifacts.json"
+                        for item in prior_evidence
+                    ):
+                        raise PlanningGateError("artifact manifest is missing")
         return "pass", evidence
     except (PlanningGateError, ArtifactError):
         return "fail", []
