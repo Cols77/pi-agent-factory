@@ -382,6 +382,8 @@ def test_manifest_changes_invalidate_published_gate_and_handoff(
 
     evaluated = evaluate_planning_gate_pack(tmp_path, run_id, pack)
     assert evaluated["executions"][1]["status"] == "fail"
+    evaluated_again = evaluate_planning_gate_pack(tmp_path, run_id, pack)
+    assert evaluated_again["executions"][1]["status"] == "fail"
     with pytest.raises(PlanningGateError):
         validate_planning_gate_result(tmp_path, run_id, pack)
     with pytest.raises(HandoffError):
