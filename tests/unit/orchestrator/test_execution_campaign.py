@@ -245,7 +245,20 @@ def test_confirmation_run_must_cover_the_declared_set(tmp_path: Path) -> None:
         campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
 
 
-def test_registered_flaky_failure_is_never_also_a_regression(tmp_path: Path) -> None:
+def test_a_regressed_registered_flaky_failure_is_still_a_blocking_regression(
+    tmp_path: Path,
+) -> None:
+    """INVERTED (fourth cycle): the plan is explicit that "a deterministic
+    failure introduced by the current change is a regression regardless of any
+    entry" (docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md
+    lines 29 and 551; human decision 1, 2026-09-11: the quarantine discipline is
+    "owner + review_after; fix-or-delete at expiry; NEVER COVERING A
+    DETERMINISTIC FAILURE INTRODUCED BY THE CHANGE; count kept visible").
+
+    Here "known" PASSED in the baseline and fails after DEV: registry
+    membership must NOT subtract it from the regressions. It is blocking, and
+    it is still surfaced in ``registry_candidates`` so the stale entry remains
+    visible for curation."""
     runner = ScriptedCampaignRunner(
         [snapshot("known"), snapshot(failed=("known",), declared=("known",))]
     )
@@ -254,8 +267,105 @@ def test_registered_flaky_failure_is_never_also_a_regression(tmp_path: Path) -> 
     baseline = campaign.capture_baseline(contract_fixture(tmp_path))
     outcome = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
 
-    assert outcome.regressions == ()
-    assert outcome.flaky_ids == ("known",)
+    assert outcome.regressions == ("known",)
+    assert outcome.flaky_ids == ()
+    assert outcome.pre_existing_failures == ()
+    assert outcome.registry_candidates == ("known",)
+    assert outcome.classification_reruns == {}
+    assert outcome.pass_rate_gate_passed is False
+    assert runner.calls == 2  # no confirmation re-run: the regression is listed
+
+
+def test_deleting_a_registry_entry_does_not_serve_a_stale_non_blocking_verdict(
+    tmp_path: Path,
+) -> None:
+    """B1 (fourth cycle): the classification is never served from a cache keyed
+    on the pass snapshot. An id with no baseline history classifies as
+    quarantined while it is registered; deleting the registry entry and
+    re-evaluating the SAME snapshot must make the failure blocking."""
+    acknowledged_pass = snapshot("a", failed=("known",), declared=("a", "known"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline: "known" has no history
+            acknowledged_pass,  # pass 1: quarantined
+            acknowledged_pass,  # pass 2: the same snapshot, now unregistered
+            acknowledged_pass,  # its one bounding confirmation: still failing
+        ]
+    )
+    registry = HumanFlakyRegistry({"known"})
+    campaign = TestCampaign(runner, flaky_registry=registry)
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    quarantined = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert quarantined.flaky_ids == ("known",)
+    assert quarantined.regressions == ()
+    assert quarantined.pass_rate_gate_passed is True
+    assert runner.calls == 2  # no confirmation: the id is registered
+
+    registry._ids.discard("known")
+    blocking = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert blocking.flaky_ids == ()
+    assert blocking.regressions == ("known",)
+    assert blocking.pass_rate_gate_passed is False
+
+
+def test_registering_a_flaky_test_does_not_serve_a_stale_blocking_verdict(
+    tmp_path: Path,
+) -> None:
+    """B2 (fourth cycle): the mirror of B1. An unregistered failure is blocking;
+    a human registering the id and a re-evaluation of the SAME snapshot must
+    return a non-blocking verdict, not the cached blocking one."""
+    ambiguous_pass = snapshot("a", failed=("known",), declared=("a", "known"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline: "known" has no history
+            ambiguous_pass,  # pass 1: unregistered -> confirmation re-run
+            ambiguous_pass,  # the confirmation: still failing -> regression
+            ambiguous_pass,  # pass 2: the same snapshot, now registered
+        ]
+    )
+    registry = HumanFlakyRegistry(set())
+    campaign = TestCampaign(runner, flaky_registry=registry)
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    blocking = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert blocking.regressions == ("known",)
+    assert blocking.flaky_ids == ()
+    assert blocking.pass_rate_gate_passed is False
+    assert runner.calls == 3  # baseline, pass, one bounded confirmation
+
+    registry._ids.add("known")
+    quarantined = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert quarantined.flaky_ids == ("known",)
+    assert quarantined.regressions == ()
+    assert quarantined.pass_rate_gate_passed is True
+    # The pass's own run only: the registry-independent confirmation is reused.
+    assert runner.calls == 4
+
+
+def test_evaluate_after_dev_rejects_a_baseline_it_did_not_capture(tmp_path: Path) -> None:
+    """C (fourth cycle): a substituted baseline silently corrupts the
+    dispositions (a genuine regression withheld from the fixer and mislabelled
+    to the human as a registry candidate), so only the captured snapshot is
+    accepted."""
+    runner = ScriptedCampaignRunner([snapshot("a", "b"), snapshot("a", failed=("b",))])
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    # Never captured at all.
+    never = TestCampaign(ScriptedCampaignRunner([]), flaky_registry=EmptyFlakyRegistry())
+    with pytest.raises(CampaignError, match="baseline"):
+        never.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+
+    # A different snapshot, even a plausible one, is refused before any run.
+    with pytest.raises(CampaignError, match="baseline"):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), snapshot("a"))
+    assert runner.calls == 1
+
+    # The captured baseline itself still works.
+    outcome = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert outcome.regressions == ("b",)
+    assert runner.calls == 2
 
 
 def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
