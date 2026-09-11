@@ -16,9 +16,12 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from factory.orchestrator.types import AgentRole
+
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a factory -> coherence import loop
+    from coherence.execution.gate_plan import GatePlan
 
 # The closed worker-lane vocabulary. Declared once; every signature that takes a
 # lane uses this alias.
@@ -69,6 +72,7 @@ class ExecutionContract:
     spec_ref: str | None
     max_fixer_iterations: int
     contract_sha256: str
+    gate_plan_sha256: str | None = None
 
     def __post_init__(self) -> None:
         """Fail closed on any directly-constructed value.
@@ -90,6 +94,7 @@ class ExecutionContract:
                 "plan_ref": self.plan_ref,
                 "spec_ref": self.spec_ref,
                 "max_fixer_iterations": self.max_fixer_iterations,
+                "gate_plan_sha256": self.gate_plan_sha256,
             }
         )
         object.__setattr__(self, "required_gates", normalized["required_gates"])
@@ -110,6 +115,36 @@ class ExecutionContract:
     def rebuild_hash(self) -> str:
         """Recompute the digest from the stored inputs (never the stored hash)."""
         return _sha256_canonical(_payload_without_hash(self))
+
+    def with_gate_plan(self, gate_plan: GatePlan) -> ExecutionContract:
+        """Return a NEW frozen contract bound to a compiled Coherence GatePlan.
+
+        This is the only way a contract learns a GatePlan: the returned contract
+        carries ``gate_plan_sha256`` and the plan's ``workflow_version``, and its
+        ``contract_sha256`` is recomputed through :meth:`rebuild_hash`. The
+        receiver's stored digest is never mutated in place.
+        """
+        digest = getattr(gate_plan, "gate_plan_sha256", None)
+        if not isinstance(digest, str) or len(digest) != 64 or set(digest) > set("0123456789abcdef"):
+            raise ValueError("with_gate_plan requires a compiled GatePlan identity")
+        plan_version = getattr(gate_plan, "workflow_version", None)
+        if plan_version != self.workflow_version:
+            raise ValueError(
+                "gate plan workflow_version does not match the contract "
+                f"({plan_version!r} != {self.workflow_version!r})"
+            )
+        return type(self).build(
+            run_id=self.run_id,
+            task_id=self.task_id,
+            workflow_version=plan_version,
+            workspace=self.workspace,
+            required_gates=self.required_gates,
+            satisfies=self.satisfies,
+            plan_ref=self.plan_ref,
+            spec_ref=self.spec_ref,
+            max_fixer_iterations=self.max_fixer_iterations,
+            gate_plan_sha256=digest,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Canonical, JSON-safe projection: ``schema: 1`` + every bound input."""
@@ -169,6 +204,7 @@ def _payload_from_values(values: dict[str, Any]) -> dict[str, Any]:
         "plan_ref": values["plan_ref"],
         "spec_ref": values["spec_ref"],
         "max_fixer_iterations": values["max_fixer_iterations"],
+        "gate_plan_sha256": values["gate_plan_sha256"],
     }
 
 
@@ -185,6 +221,7 @@ def _payload_without_hash(contract: ExecutionContract) -> dict[str, Any]:
             "plan_ref": contract.plan_ref,
             "spec_ref": contract.spec_ref,
             "max_fixer_iterations": contract.max_fixer_iterations,
+            "gate_plan_sha256": contract.gate_plan_sha256,
         }
     )
 
@@ -238,6 +275,15 @@ def _normalize_contract_values(values: dict[str, object]) -> dict[str, Any]:
         if value is not None and not isinstance(value, str):
             raise ValueError(f"{name} must be a string or None")
         normalized[name] = value
+
+    unbound = values.get("gate_plan_sha256")
+    if unbound is not None and (
+        not isinstance(unbound, str)
+        or len(unbound) != 64
+        or set(unbound) > set("0123456789abcdef")
+    ):
+        raise ValueError("gate_plan_sha256 must be a canonical sha256 digest or None")
+    normalized["gate_plan_sha256"] = unbound
 
     iterations = values["max_fixer_iterations"]
     if not isinstance(iterations, int) or isinstance(iterations, bool) or iterations <= 0:

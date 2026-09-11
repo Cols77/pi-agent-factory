@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from coherence.execution.gate_plan import CANONICAL_EXECUTION_STAGES
 from factory.orchestrator.git_ops import GitOps
 from factory.orchestrator.journal import RunCheckpoint, RunEvent, RunJournal
 
@@ -15,9 +17,72 @@ from factory.orchestrator.journal import RunCheckpoint, RunEvent, RunJournal
 # referenced by path instead, keeping both files bounded.
 MAX_INLINE_PAYLOAD_BYTES = 512 * 1024
 
+_HEX = set("0123456789abcdef")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _stage_event_sha256(
+    cursor: GovernedStageCursor, state: str, data: dict | None
+) -> str:
+    """The deterministic hash of one recorded stage evidence (the cursor chain)."""
+    payload = {
+        "stage_id": cursor.stage_id,
+        "revision": cursor.revision,
+        "attempt": cursor.attempt,
+        "attempt_key": cursor.attempt_key,
+        "state": state,
+        "data": data or {},
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class RunCursorError(RuntimeError):
+    """A governed stage cursor is unknown, stale, replayed or non-monotonic."""
+
+
+@dataclass(frozen=True)
+class GovernedStageCursor:
+    """SR-049 governed position in the fixed execution graph.
+
+    ``(stage_id, revision, attempt)`` identifies the evidence; ``attempt_key`` is
+    the deterministic fencing key for that revision/attempt; and
+    ``parent_event_sha256`` chains the cursor to the last recorded stage
+    evidence, so a replay or a forged parent is detectable.
+    """
+
+    stage_id: str
+    revision: int
+    attempt: int
+    parent_event_sha256: str | None
+    attempt_key: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stage_id, str) or not self.stage_id:
+            raise ValueError("stage_id must be a non-blank string")
+        for name in ("revision", "attempt"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name} must be an int >= 1")
+        parent = self.parent_event_sha256
+        if parent is not None and (
+            not isinstance(parent, str) or len(parent) != 64 or set(parent) > _HEX
+        ):
+            raise ValueError("parent_event_sha256 must be a canonical sha256 digest or None")
+        if not isinstance(self.attempt_key, str) or not self.attempt_key:
+            raise ValueError("attempt_key must be a non-blank string")
+
+    def to_dict(self) -> dict:
+        return {
+            "stage_id": self.stage_id,
+            "revision": self.revision,
+            "attempt": self.attempt,
+            "parent_event_sha256": self.parent_event_sha256,
+            "attempt_key": self.attempt_key,
+        }
 
 
 @dataclass
@@ -32,6 +97,8 @@ class RunExecution:
     completed: list[dict] = field(default_factory=list)
     agent_sessions: dict[str, str] = field(default_factory=dict)
     artifacts: list[str] = field(default_factory=list)
+    stage_cursors: dict[str, GovernedStageCursor] = field(default_factory=dict)
+    invalidated_stages: set[str] = field(default_factory=set)
 
     @classmethod
     def create(
@@ -137,6 +204,114 @@ class RunExecution:
         )
         self.journal.checkpoint(checkpoint)
         return checkpoint
+
+    def open_cursor(self, stage_id: str) -> GovernedStageCursor:
+        """Return the live cursor for a stage, or fail closed if it has none."""
+        return self._live_cursor(stage_id)
+
+    def begin_revision(self, stage_id: str) -> GovernedStageCursor:
+        """Open the next revision of a stage (attempt 1) and invalidate descendants.
+
+        A fixer revision is exactly this: revision ``n + 1`` of the stage makes
+        every *later* stage in the canonical graph stale, so its old revision
+        cannot be recorded or resumed.
+        """
+        self._require_canonical_stage(stage_id)
+        previous = self.stage_cursors.get(stage_id)
+        revision = 1 if previous is None else previous.revision + 1
+        cursor = self._new_cursor(stage_id, revision, 1)
+        self.stage_cursors[stage_id] = cursor
+        if previous is not None:
+            self._invalidate_descendants(stage_id)
+        return cursor
+
+    def begin_attempt(self, stage_id: str) -> GovernedStageCursor:
+        """Open the next attempt of the *same* revision (human retry).
+
+        The new attempt gets a fresh fencing key and no recorded parent; the
+        previous attempt's evidence is left untouched.
+        """
+        previous = self.stage_cursors.get(stage_id)
+        if previous is None:
+            raise RunCursorError(f"no governed cursor for stage {stage_id!r}")
+        cursor = self._new_cursor(stage_id, previous.revision, previous.attempt + 1)
+        self.stage_cursors[stage_id] = cursor
+        return cursor
+
+    def record_stage(
+        self, cursor: GovernedStageCursor, *, state: str = "completed", data: dict | None = None
+    ) -> GovernedStageCursor:
+        """Journal one stage evidence for the cursor's revision/attempt.
+
+        Rejects an unknown stage, a stale/replayed cursor, a non-monotonic
+        revision/attempt, a mismatched fencing key and a mismatched parent-event
+        hash. Returns the advanced (frozen) cursor; the caller's cursor is never
+        rewritten.
+        """
+        if not isinstance(cursor, GovernedStageCursor):
+            raise RunCursorError("record_stage requires a GovernedStageCursor")
+        stored = self.stage_cursors.get(cursor.stage_id)
+        if stored is None:
+            raise RunCursorError(f"no governed cursor for stage {cursor.stage_id!r}")
+        if (cursor.revision, cursor.attempt) != (stored.revision, stored.attempt):
+            raise RunCursorError(
+                "stale or non-monotonic stage cursor: "
+                f"{cursor.stage_id} r{cursor.revision} a{cursor.attempt} != "
+                f"r{stored.revision} a{stored.attempt}"
+            )
+        if cursor.attempt_key != stored.attempt_key:
+            raise RunCursorError(
+                f"stage cursor fencing key does not match {stored.attempt_key!r}"
+            )
+        if cursor.parent_event_sha256 != stored.parent_event_sha256:
+            raise RunCursorError(
+                "replayed stage cursor or mismatched parent-event hash for "
+                f"{cursor.stage_id!r}"
+            )
+
+        payload = {**(data or {}), "stage_cursor": cursor.to_dict()}
+        self.record(
+            node=cursor.stage_id,
+            state=state,
+            attempt=cursor.attempt,
+            next_node=cursor.stage_id,
+            remaining={},
+            data=payload,
+        )
+        advanced = replace(cursor, parent_event_sha256=_stage_event_sha256(cursor, state, data))
+        self.stage_cursors[cursor.stage_id] = advanced
+        return advanced
+
+    def _live_cursor(self, stage_id: str) -> GovernedStageCursor:
+        cursor = self.stage_cursors.get(stage_id)
+        if cursor is None:
+            raise RunCursorError(
+                f"no governed cursor for stage {stage_id!r} "
+                "(never begun, or invalidated by a later revision)"
+            )
+        return cursor
+
+    def _require_canonical_stage(self, stage_id: str) -> None:
+        if stage_id not in CANONICAL_EXECUTION_STAGES:
+            raise RunCursorError(
+                f"unknown execution stage {stage_id!r}; the graph is fixed by SR-034"
+            )
+
+    def _new_cursor(self, stage_id: str, revision: int, attempt: int) -> GovernedStageCursor:
+        return GovernedStageCursor(
+            stage_id=stage_id,
+            revision=revision,
+            attempt=attempt,
+            parent_event_sha256=None,
+            attempt_key=f"{self.run_id}/{self.task_id}/{stage_id}/r{revision}/a{attempt}/v1",
+        )
+
+    def _invalidate_descendants(self, stage_id: str) -> None:
+        """Every later stage in the canonical graph is stale after a revision."""
+        index = CANONICAL_EXECUTION_STAGES.index(stage_id)
+        for descendant in CANONICAL_EXECUTION_STAGES[index + 1 :]:
+            self.invalidated_stages.add(descendant)
+            self.stage_cursors.pop(descendant, None)
 
     def _bounded_payload(self, node: str, payload: dict) -> dict:
         """Inline small payloads; externalise oversized ones to a blob file.

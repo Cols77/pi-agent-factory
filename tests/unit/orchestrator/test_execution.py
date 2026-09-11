@@ -113,3 +113,48 @@ def test_checkpoint_records_tracked_fingerprint_and_schema_v2(tmp_path):
     )
     assert checkpoint.schema_version == 2
     assert checkpoint.tracked_fingerprint == git.tracked_fp
+
+
+def test_run_execution_cursor_extension_is_additive_to_record_behavior(tmp_path):
+    """SR-049: the governed cursor adds revision/attempt evidence to the journal
+    without changing what record() already journals."""
+    from factory.orchestrator.execution import RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    cursor = execution.begin_revision("dev")
+    assert (cursor.stage_id, cursor.revision, cursor.attempt) == ("dev", 1, 1)
+    assert cursor.attempt_key == "run-1/T-001/dev/r1/a1/v1"
+    assert cursor.parent_event_sha256 is None
+
+    recorded = execution.record_stage(cursor, state="completed", data={"outcome": "pass"})
+    assert recorded.parent_event_sha256 is not None
+    event = execution.journal.events()[-1]
+    assert event.node == "dev" and event.attempt_id == "dev-1"
+    assert event.data["stage_cursor"]["revision"] == 1
+
+    # The pre-existing record() path is untouched.
+    checkpoint = execution.record(
+        node="context-gather", state="completed", attempt=1, next_node="dev",
+        remaining={"dev": 3}, data={"outcome": "pass"},
+    )
+    assert checkpoint.node == "dev"
+
+
+def test_run_execution_cursor_rejects_unknown_stage_and_replay(tmp_path):
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    with pytest.raises(RunCursorError):
+        execution.open_cursor("dev")
+    with pytest.raises(RunCursorError):
+        execution.begin_attempt("dev")
+
+    cursor = execution.begin_revision("dev")
+    execution.record_stage(cursor, state="completed")
+    with pytest.raises(RunCursorError):
+        execution.record_stage(cursor)
+    assert execution.stage_cursors["dev"].attempt == 1

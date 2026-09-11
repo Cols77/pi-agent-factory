@@ -164,3 +164,90 @@ def test_payload_builder_raises_a_real_exception_not_a_bare_assert(tmp_path: Pat
                 "max_fixer_iterations": 1,
             }
         )
+
+
+def test_with_gate_plan_returns_a_new_frozen_contract_and_never_mutates_the_digest(
+    tmp_path: Path,
+) -> None:
+    from coherence.execution.gate_plan import compile_gate_plan
+
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="governed-execution/v1",
+        workspace=tmp_path / "worktree",
+        required_gates=("unit", "full"),
+        satisfies=("SR-034", "SR-049"),
+        plan_ref=None,
+        spec_ref=None,
+        max_fixer_iterations=2,
+    )
+    gate_plan = compile_gate_plan(
+        workflow_version=contract.workflow_version,
+        version="behavior-change@1",
+        required_gates=("unit", "full"),
+        preflight_policy="mandatory-only",
+    )
+
+    assert contract.gate_plan_sha256 is None
+    bound = contract.with_gate_plan(gate_plan)
+
+    assert bound is not contract
+    assert bound.gate_plan_sha256 == gate_plan.gate_plan_sha256
+    assert bound.workflow_version == gate_plan.workflow_version
+    assert bound.contract_sha256 == bound.rebuild_hash()
+    assert bound.contract_sha256 != contract.contract_sha256
+    assert bound.to_dict()["gate_plan_sha256"] == gate_plan.gate_plan_sha256
+
+    # The unbound contract keeps its own identity: nothing was rewritten in place.
+    assert contract.gate_plan_sha256 is None
+    assert contract.contract_sha256 == contract.rebuild_hash()
+    assert contract.to_dict()["gate_plan_sha256"] is None
+
+    with pytest.raises(FrozenInstanceError):
+        bound.contract_sha256 = "0" * 64  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        bound.gate_plan_sha256 = "0" * 64  # type: ignore[misc]
+
+
+def test_with_gate_plan_rejects_a_forged_plan_or_a_divergent_workflow(tmp_path: Path) -> None:
+    from coherence.execution.gate_plan import compile_gate_plan
+
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="governed-execution/v1",
+        workspace=tmp_path,
+        required_gates=("unit",),
+        satisfies=(),
+        plan_ref=None,
+        spec_ref=None,
+        max_fixer_iterations=1,
+    )
+    other_workflow = compile_gate_plan(
+        workflow_version="governed-execution/v2",
+        version="behavior-change@1",
+        required_gates=("unit",),
+        preflight_policy="mandatory-only",
+    )
+
+    with pytest.raises(ValueError):
+        contract.with_gate_plan("not-a-gate-plan")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        contract.with_gate_plan(other_workflow)
+
+    # A directly-constructed contract cannot forge a binding either.
+    with pytest.raises(ValueError):
+        ExecutionContract(
+            run_id="run-013",
+            task_id="T-013",
+            workflow_version="governed-execution/v1",
+            workspace=tmp_path,
+            required_gates=("unit",),
+            satisfies=(),
+            plan_ref=None,
+            spec_ref=None,
+            max_fixer_iterations=1,
+            contract_sha256="f" * 64,
+            gate_plan_sha256="0" * 64,
+        )
