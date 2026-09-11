@@ -500,7 +500,9 @@ def _write_cross_artifact_review(args: argparse.Namespace) -> int:
         ):
             raise PlanningGateError("cross-artifact task input schema is invalid")
         tasks = {path: GeneratedTaskReviewInput(**item) for path, item in raw.items()}
-        record = write_cross_artifact_review(root, args.run_id, tasks)
+        record = write_cross_artifact_review(
+            root, args.run_id, tasks, selected_workflow=args.workflow,
+        )
     except (PlanningGateError, OSError, ValueError, TypeError) as exc:
         print(json.dumps(_blocked(args.run_id, "CROSS_ARTIFACT_REVIEW_INVALID", str(exc)), indent=2))
         return 1
@@ -630,6 +632,7 @@ def _parser() -> argparse.ArgumentParser:
     cross_review.add_argument("--run-id", required=True)
     cross_review.add_argument("--project-root", required=True, type=Path)
     cross_review.add_argument("--tasks-json", required=True)
+    cross_review.add_argument("--workflow", default="standard-development")
     cross_review.add_argument("--json", action="store_true")
 
     bootstrap = sub.add_parser("bootstrap")

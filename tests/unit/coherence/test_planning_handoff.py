@@ -16,21 +16,17 @@ from coherence.planning.handoff import (
     write_handoff,
 )
 from coherence.planning.gates import compile_planning_gate_pack, evaluate_planning_gate_pack, write_cross_artifact_review
-from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.model import PlanningFinding, PlanningReport
 from coherence.planning.run import planning_report_digest
+from tests.unit.coherence.test_planning_gates import _write_current_planning_evidence
 
 pytestmark = pytest.mark.unit
 
 
 def _report(root: Path) -> PlanningReport:
-    (root / "docs").mkdir(exist_ok=True)
-    (root / "docs" / "plan.md").write_text("plan", encoding="utf-8")
-    import hashlib
-    digest = hashlib.sha256(b"plan").hexdigest()
-    return PlanningReport(1, "run-001", True, ({"path": "docs/plan.md", "sha256": digest},),
-                          (PlanningFinding("NOTE", "warning", "plan", "unresolved note"),),
-                          (), True, None)
+    _write_current_planning_evidence(root)
+    raw = json.loads((root / ".factory/planning/run-001/report.json").read_text(encoding="utf-8"))
+    return PlanningReport(1, "run-001", True, tuple(raw["artifacts"]), (), (), True, None)
 
 
 def _write_current_gate_result(root: Path, report: PlanningReport) -> None:
@@ -44,19 +40,9 @@ def _write_current_gate_result(root: Path, report: PlanningReport) -> None:
         "decision": "approve",
         "reviewer": "human",
         "reason": "Reviewed planning artifacts.",
-        "reviewed_artifacts": ["docs/plan.md"],
+        "reviewed_artifacts": [item["path"] for item in raw_report["artifacts"]],
         "report_sha256": planning_report_digest(raw_report),
     }), encoding="utf-8")
-    feature = root / "docs/features/FEAT-017.md"
-    feature.parent.mkdir(exist_ok=True)
-    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
-    requirement = root / "requirements/SR-001.md"
-    requirement.parent.mkdir(exist_ok=True)
-    requirement.write_text("---\nid: SR-001\n---\nCurrent requirement.\n", encoding="utf-8")
-    write_sr_decision(
-        root, report.run_id, "SR-001", hashlib.sha256(requirement.read_bytes()).hexdigest(),
-        "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
-    )
     if not any(finding.severity == "error" for finding in report.findings):
         write_cross_artifact_review(root, report.run_id, {})
     evaluate_planning_gate_pack(root, report.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
@@ -94,6 +80,21 @@ def test_handoff_round_trip_is_hash_bound_and_paths_stay_in_run(tmp_path: Path) 
 def test_invalid_workflow_fails_closed() -> None:
     with pytest.raises(HandoffError):
         build_downstream_menu("run-process")
+
+
+def test_handoff_workflow_must_match_the_current_cross_artifact_review(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    _write_current_gate_result(tmp_path, report)
+    with pytest.raises(HandoffError, match="does not match"):
+        build_handoff(tmp_path, report, workflow="health-recovery")
+
+    write_cross_artifact_review(
+        tmp_path, report.run_id, {}, selected_workflow="health-recovery",
+    )
+    evaluate_planning_gate_pack(tmp_path, report.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
+    with pytest.raises(HandoffError, match="does not match"):
+        build_handoff(tmp_path, report, workflow="standard-development")
+    assert build_handoff(tmp_path, report, workflow="health-recovery")["selected_workflow"] == "health-recovery"
 
 
 @pytest.mark.parametrize("mutation", ["empty", "substituted", "appended", "duplicated"])

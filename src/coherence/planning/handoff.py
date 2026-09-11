@@ -12,6 +12,7 @@ from coherence.planning.model import PlanningReport
 from coherence.planning.gates import (
     PlanningGateError,
     compile_planning_gate_pack,
+    selected_planning_workflow,
     validate_planning_gate_result,
 )
 from coherence.planning.paths import safe_resolve, safe_root
@@ -112,6 +113,8 @@ def build_handoff(
     try:
         gate_pack = compile_planning_gate_pack("FEAT-017", "v1")
         gate_result = validate_planning_gate_result(safe, report.run_id, gate_pack)
+        if workflow != selected_planning_workflow(safe, report.run_id, gate_pack):
+            raise HandoffError("handoff workflow does not match the reviewed planning selection")
     except PlanningGateError as exc:
         raise HandoffError("current validated planning gate result is required") from exc
     artifacts = _artifact_hashes(safe, report)
@@ -253,6 +256,8 @@ def validate_handoff(root: Path, path: Path) -> dict[str, object]:
     try:
         gate_pack = compile_planning_gate_pack("FEAT-017", "v1")
         gate_result = validate_planning_gate_result(safe, run_id, gate_pack)
+        if selected != selected_planning_workflow(safe, run_id, gate_pack):
+            raise HandoffError("handoff workflow does not match the reviewed planning selection")
     except PlanningGateError as exc:
         raise HandoffError("planning gate result is missing, stale, or invalid") from exc
     if (

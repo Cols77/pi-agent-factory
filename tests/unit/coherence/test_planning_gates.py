@@ -9,6 +9,7 @@ import pytest
 
 from coherence.cli import main
 from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
+from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
 from coherence.planning.gates import (
     PlanningGateError,
     _validate_feat17_bundle_members,
@@ -65,7 +66,13 @@ def _sha(path: Path) -> str:
 def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> None:
     plan = root / "docs" / "plan.md"
     plan.parent.mkdir(parents=True, exist_ok=True)
-    plan.write_text("# plan\n", encoding="utf-8")
+    plan.write_text("---\nspec_ref: SPEC-1\n---\n# plan\nclaim:goal\n", encoding="utf-8")
+    spec = root / "docs/spec.md"
+    spec.write_text("---\nid: SPEC-1\ntitle: Specification\nstatus: draft\n---\n# Goal\nclaim:goal\n", encoding="utf-8")
+    intent = root / ".intent/intent.json"
+    intent.parent.mkdir(exist_ok=True)
+    if not intent.exists():
+        intent.write_text(json.dumps({"schema": 1, "prompt": "Plan the goal", "answers": [{"id": "goal", "text": "Plan the goal"}]}), encoding="utf-8")
     run_dir = root / ".factory" / "planning" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     report = {
@@ -97,7 +104,10 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
     )
     requirement = root / "requirements" / "SR-001.md"
     requirement.parent.mkdir(exist_ok=True)
-    requirement.write_text("---\nid: SR-001\n---\nCurrent requirement.\n", encoding="utf-8")
+    requirement.write_text("---\nid: SR-001\ntitle: Goal\nstatement: Plan the goal.\ndomain: behavioral\nupstream: []\nsource: docs/spec.md#Goal\n---\nCurrent requirement.\n", encoding="utf-8")
+    bundle = root / "bundles/FEAT-017.json"
+    bundle.parent.mkdir(exist_ok=True)
+    bundle.write_text(json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}), encoding="utf-8")
     requirement_digest = _sha(requirement)
     write_sr_decision(
         root, run_id, "SR-001", requirement_digest, "approve", "human", CONSENT_PHRASE,
@@ -114,7 +124,77 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
         }),
         encoding="utf-8",
     )
+    _refresh_full_review(root, run_id)
     write_cross_artifact_review(root, run_id, {})
+
+
+def _refresh_full_review(root: Path, run_id: str = "run-001") -> None:
+    """Explicit fixture review of the complete current planning source set."""
+    run_dir = root / ".factory/planning" / run_id
+    entries = [{"kind": kind, "path": path} for kind, path in (
+        ("intent", ".intent/intent.json"), ("spec", "docs/spec.md"), ("plan", "docs/plan.md"),
+        ("feature", "docs/features/FEAT-017.md"), ("bundle", "bundles/FEAT-017.json"),
+        ("requirements", "requirements/SR-001.md"),
+    )]
+    write_artifact_manifest(root, run_id, build_artifact_manifest(root, run_id, entries))
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    paths = {item["path"] for item in report["artifacts"]} | {item["path"] for item in entries}
+    report["artifacts"] = [{"path": path, "sha256": _sha(root / path)} for path in sorted(paths)]
+    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    decision = json.loads((run_dir / "review-decision.json").read_text(encoding="utf-8"))
+    decision.update(report_sha256=planning_report_digest(report), reviewed_artifacts=sorted(paths))
+    (run_dir / "review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+
+
+@pytest.mark.parametrize("mutation", [
+    "missing-bundle", "wrong-members", "duplicate-members", "missing-intent", "intent-mismatch",
+    "spec-mismatch", "plan-mismatch", "missing-manifest", "extra-consent", "source-anchor",
+])
+def test_full_planning_artifacts_are_required_even_without_production_tasks(tmp_path: Path, mutation: str) -> None:
+    _write_current_planning_evidence(tmp_path)
+    if mutation.startswith("missing-"):
+        path = {"missing-bundle": "bundles/FEAT-017.json", "missing-intent": ".intent/intent.json",
+                "missing-manifest": ".factory/planning/run-001/artifacts.json"}[mutation]
+        (tmp_path / path).unlink()
+    elif mutation in {"wrong-members", "duplicate-members"}:
+        members = ["feat:FEAT-017", "sr:SR-999"] if mutation == "wrong-members" else ["feat:FEAT-017", "sr:SR-001", "sr:SR-001"]
+        (tmp_path / "bundles/FEAT-017.json").write_text(json.dumps({"id": "FEAT-017", "members": members}), encoding="utf-8")
+    elif mutation == "extra-consent":
+        write_sr_decision(tmp_path, "run-001", "SR-999", "0" * 64, "approve", "human", CONSENT_PHRASE, "Unrelated SR.")
+    else:
+        path, before, after = {
+            "intent-mismatch": (".intent/intent.json", '"id": "goal"', '"id": "other"'),
+            "spec-mismatch": ("docs/spec.md", "SPEC-1", "SPEC-2"),
+            "plan-mismatch": ("docs/plan.md", "SPEC-1", "SPEC-2"),
+            "source-anchor": ("requirements/SR-001.md", "#Goal", "#absent"),
+        }[mutation]
+        target = tmp_path / path
+        target.write_text(target.read_text(encoding="utf-8").replace(before, after), encoding="utf-8")
+    # Replaying neither a stale review nor stale consent can make a changed
+    # planning source current; the gate must reject the captured evidence.
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert result["executions"][-1]["status"] == "fail"
+    with pytest.raises(PlanningGateError):
+        validate_planning_gate_result(tmp_path, "run-001", pack)
+
+
+def test_full_gate_evidence_covers_sources_decisions_and_selected_workflow(tmp_path: Path) -> None:
+    _write_current_planning_evidence(tmp_path)
+    run_dir = tmp_path / ".factory/planning/run-001"
+    record = json.loads((run_dir / "cross-artifact-review.json").read_text(encoding="utf-8"))
+    assert record["selected_workflow"] == "standard-development"
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    assert record["selected_workflow"] in pack["workflows"]
+    assert record["planning_gate_pack_sha256"] == pack["sha256"]
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert validate_planning_gate_result(tmp_path, "run-001", pack) == result
+    evidence = {entry["path"]: entry["sha256"] for entry in result["executions"][-1]["evidence"]}
+    for path in (".intent/intent.json", "docs/spec.md", "docs/plan.md", "docs/features/FEAT-017.md",
+                 "bundles/FEAT-017.json", "requirements/SR-001.md", ".factory/planning/run-001/artifacts.json",
+                 ".factory/planning/run-001/consent/SR-001.json", ".factory/planning/run-001/review-decision.json",
+                 ".factory/planning/run-001/cross-artifact-review.json"):
+        assert evidence[path] == _sha(tmp_path / path)
 
 
 def _publish_result(root: Path, payload: dict[str, object], run_id: str = "run-001") -> None:

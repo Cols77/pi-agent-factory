@@ -34,7 +34,7 @@ def test_missing_cross_artifact_review_blocks_handoff(tmp_path: Path) -> None:
 @pytest.mark.parametrize("field", ["implemented_by", "verified_by"])
 def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, field: str) -> None:
     from coherence.planning.cli import _read_report
-    from tests.unit.coherence.test_planning_gates import _write_current_planning_evidence
+    from tests.unit.coherence.test_planning_gates import _refresh_full_review, _write_current_planning_evidence
 
     _write_current_planning_evidence(tmp_path)
     run_dir = tmp_path / ".factory/planning/run-001"
@@ -47,10 +47,11 @@ def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, 
     other_field = "verified_by" if field == "implemented_by" else "implemented_by"
     requirement = tmp_path / "requirements/SR-001.md"
     valid_metadata = (
-        "---\nid: SR-001\ntitle: Behavior\nstatement: Behavior is traced.\ndomain: behavioral\n"
-        f"{other_field}:\n  - path: source.json\n{field}:\n  - path: '123'\n---\n"
+        "---\nid: SR-001\ntitle: Behavior\nstatement: Behavior is traced.\ndomain: behavioral\nupstream: []\n"
+        f"source: docs/spec.md#Goal\n{other_field}:\n  - path: source.json\n{field}:\n  - path: '123'\n---\n"
     )
     requirement.write_text(valid_metadata, encoding="utf-8")
+    _refresh_full_review(tmp_path)
     raw_report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
     raw_report["artifacts"].append({"path": "tasks/T-001.md", "sha256": _sha(task_path)})
     (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
@@ -84,6 +85,7 @@ def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, 
 
     requirement.write_text(valid_metadata, encoding="utf-8")
     write_sr_decision(tmp_path, "run-001", "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed string path.")
+    _refresh_full_review(tmp_path)
     write_cross_artifact_review(tmp_path, "run-001", tasks)
     evaluate_planning_gate_pack(tmp_path, "run-001", pack)
     build_handoff(tmp_path, report)

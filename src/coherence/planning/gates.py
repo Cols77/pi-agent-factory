@@ -14,6 +14,7 @@ import yaml
 from coherence.planning.anchors import authority_anchor_matches
 from coherence.planning.artifacts import ArtifactError, read_artifact_manifest
 from coherence.planning.consent import validate_sr_decisions
+from coherence.planning.intent import IntentError, read_intent, validate_intent
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 from coherence.planning.review import GeneratedTaskReviewInput, review_cross_artifact_relations
@@ -36,7 +37,7 @@ _CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
 # factory gate runner or make claims about implementation validation.
 _PLANNING_GATE_FEATURE = "FEAT-017"
 _PLANNING_GATE_VERSION = "v1"
-_PACK_KEYS = frozenset({"schema", "feature_id", "version", "gates", "sha256"})
+_PACK_KEYS = frozenset({"schema", "feature_id", "version", "workflows", "gates", "sha256"})
 _PACK_GATE_KEYS = frozenset({
     "id", "stage", "required", "resolver", "dependencies", "expected_evidence",
     "failure_behavior",
@@ -54,6 +55,8 @@ _REVIEW_DECISION_KEYS = frozenset({
     "schema", "run_id", "decision", "reviewer", "reason", "reviewed_artifacts",
     "report_sha256",
 })
+_WORKFLOWS = ("standard-development", "health-recovery", "feature-planning")
+_REQUIRED_ARTIFACT_KINDS = frozenset({"intent", "spec", "plan", "feature", "bundle", "requirements"})
 
 
 class PlanningGateError(ValueError):
@@ -130,7 +133,13 @@ def _pack_without_digest(feature_id: str, version: str) -> dict[str, object]:
             "failure_behavior": "block_handoff",
         },
     ]
-    return {"schema": 1, "feature_id": feature_id, "version": version, "gates": gates}
+    return {
+        "schema": 1,
+        "feature_id": feature_id,
+        "version": version,
+        "workflows": list(_WORKFLOWS),
+        "gates": gates,
+    }
 
 
 def compile_planning_gate_pack(feature_id: str, version: str) -> dict[str, object]:
@@ -154,6 +163,9 @@ def _validated_pack(pack: object) -> dict[str, object]:
     supplied_payload = {key: value for key, value in pack.items() if key != "sha256"}
     if type(supplied_digest) is not str or not _valid_digest(supplied_digest) or supplied_digest != _canonical_digest(supplied_payload):
         raise PlanningGateError("planning gate pack digest is invalid")
+    workflows = pack.get("workflows")
+    if workflows != list(_WORKFLOWS):
+        raise PlanningGateError("planning gate pack workflows are invalid")
     gates = pack.get("gates")
     if type(gates) is not list or not gates:
         raise PlanningGateError("planning gate pack gates are invalid")
@@ -249,9 +261,105 @@ def _resolve_planning_report(root: Path, run_id: str) -> tuple[str, list[dict[st
     return "pass", evidence
 
 
+def _required_planning_sources(
+    root: Path, run_id: str,
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Validate and hash the complete, current planning source set.
+
+    The manifest is the existing transport for source selection.  It is not a
+    second planning state: this boundary merely requires that its selections,
+    the report, and the canonical FEAT-017 registration describe the same
+    current files.
+    """
+    run_dir = _planning_run_dir(root, run_id)
+    manifest_path = safe_resolve(root, run_dir / "artifacts.json")
+    if manifest_path is None or not manifest_path.is_file():
+        raise PlanningGateError("artifact manifest is missing")
+    try:
+        manifest = read_artifact_manifest(root, run_id)
+    except ArtifactError as exc:
+        raise PlanningGateError("artifact manifest is invalid") from exc
+    manifest_items = manifest.get("artifacts")
+    if not isinstance(manifest_items, list):
+        raise PlanningGateError("artifact manifest entries are invalid")
+    by_kind = {item["kind"]: item for item in manifest_items if isinstance(item, dict)}
+    if set(by_kind) != _REQUIRED_ARTIFACT_KINDS:
+        raise PlanningGateError("artifact manifest does not cover the required planning sources")
+    fixed_paths = {
+        "intent": ".intent/intent.json",
+        "feature": "docs/features/FEAT-017.md",
+        "bundle": "bundles/FEAT-017.json",
+    }
+    if any(by_kind[kind].get("path") != path for kind, path in fixed_paths.items()):
+        raise PlanningGateError("artifact manifest source paths are invalid")
+    spec_path = safe_resolve(root, root / str(by_kind["spec"]["path"]))
+    plan_path = safe_resolve(root, root / str(by_kind["plan"]["path"]))
+    intent_path = safe_resolve(root, root / ".intent" / "intent.json")
+    if (
+        spec_path is None or plan_path is None or intent_path is None
+        or not spec_path.is_file() or not plan_path.is_file() or not intent_path.is_file()
+    ):
+        raise PlanningGateError("required planning source is missing")
+    try:
+        intent = read_intent(intent_path, project_root=root)
+    except IntentError as exc:
+        raise PlanningGateError("captured intent is invalid") from exc
+    if intent.run_id is not None and intent.run_id != run_id:
+        raise PlanningGateError("captured intent belongs to another run")
+    if any(finding.severity == "error" for finding in validate_intent(intent)):
+        raise PlanningGateError("captured intent is not current and valid")
+    spec_metadata = _read_metadata(spec_path)
+    plan_metadata = _read_metadata(plan_path)
+    if (
+        spec_metadata is None or plan_metadata is None
+        or not isinstance(spec_metadata.get("id"), str) or not spec_metadata["id"].strip()
+        or plan_metadata.get("spec_ref") != spec_metadata["id"]
+    ):
+        raise PlanningGateError("specification and plan are not aligned")
+    current, feature_evidence = _current_feature_requirements(root, spec_path=spec_path)
+    requirement_manifest_path = by_kind["requirements"].get("path")
+    if requirement_manifest_path not in {f"requirements/{requirement_id}.md" for requirement_id in current}:
+        raise PlanningGateError("artifact manifest requirement source is invalid")
+    report, report_evidence = _planning_report(root, run_id)
+    report_artifacts = report.get("artifacts")
+    assert isinstance(report_artifacts, list)  # guaranteed by _planning_report
+    report_hashes = {item["path"]: item["sha256"] for item in report_artifacts}
+    required_evidence = [
+        *manifest_items,
+        *({"path": item["path"], "sha256": item["sha256"]} for item in feature_evidence),
+    ]
+    for item in required_evidence:
+        path, digest = item.get("path"), item.get("sha256")
+        if not isinstance(path, str) or not isinstance(digest, str) or report_hashes.get(path) != digest:
+            raise PlanningGateError("planning report does not cover the current planning sources")
+    evidence = [
+        *report_evidence,
+        {"path": f".factory/planning/{run_id}/artifacts.json", "sha256": _digest(manifest_path.read_bytes())},
+    ]
+    return current, _deduplicated_evidence(evidence)
+
+
+def _deduplicated_evidence(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Reject conflicting evidence and retain deterministic first occurrence order."""
+    result: list[dict[str, str]] = []
+    seen: dict[str, str] = {}
+    for item in items:
+        path, digest = item.get("path"), item.get("sha256")
+        if not isinstance(path, str) or not isinstance(digest, str) or not _valid_digest(digest):
+            raise PlanningGateError("planning gate evidence is invalid")
+        if path in seen:
+            if seen[path] != digest:
+                raise PlanningGateError("planning gate evidence is contradictory")
+            continue
+        seen[path] = digest
+        result.append({"path": path, "sha256": digest})
+    return result
+
+
 def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, str]]]:
     try:
         report, report_evidence = _planning_report(root, run_id)
+        _, source_evidence = _required_planning_sources(root, run_id)
         run_dir = _planning_run_dir(root, run_id)
         path = safe_resolve(root, run_dir / "review-decision.json")
         if path is None or not path.is_file():
@@ -273,58 +381,17 @@ def _resolve_human_review(root: Path, run_id: str) -> tuple[str, list[dict[str, 
             or decision.get("report_sha256") != _canonical_digest(report)
         ):
             raise PlanningGateError("review decision is not current and approved")
-        manifest_path = safe_resolve(root, run_dir / "artifacts.json")
-        if manifest_path is None:
-            raise PlanningGateError("artifact manifest path is unsafe")
         evidence = [
             {"path": f".factory/planning/{run_id}/review-decision.json", "sha256": _digest(path.read_bytes())},
-            report_evidence[0],
+            *source_evidence,
         ]
-        if manifest_path.exists():
-            manifest_artifacts = read_artifact_manifest(root, run_id)["artifacts"]
-            if not isinstance(manifest_artifacts, list) or not manifest_artifacts:
-                raise PlanningGateError("artifact manifest entries are invalid")
-            for artifact in manifest_artifacts:
-                if artifact["kind"] in {"spec", "plan"} and {
-                    "path": artifact["path"], "sha256": artifact["sha256"],
-                } not in artifacts:
-                    raise PlanningGateError("review decision does not cover current manifest artifacts")
-            evidence.append({
-                "path": f".factory/planning/{run_id}/artifacts.json",
-                "sha256": _digest(manifest_path.read_bytes()),
-            })
-        else:
-            # A previously manifest-bound review cannot be replayed after its
-            # manifest disappears. Preserve compatibility with legacy runs
-            # that never published a manifest at all.
-            result_dir = safe_resolve(root, run_dir / "planning-gate-results")
-            prior_results = result_dir.glob("*.json") if result_dir is not None else ()
-            for result_path in prior_results:
-                try:
-                    prior = _read_json(result_path, "planning gate result is unreadable")
-                except PlanningGateError:
-                    continue
-                if not isinstance(prior, dict) or not isinstance(prior.get("executions"), list):
-                    continue
-                human = next(
-                    (item for item in prior["executions"]
-                     if isinstance(item, dict) and item.get("gate_id") == "human-review-current"),
-                    None,
-                )
-                prior_evidence = human.get("evidence") if isinstance(human, dict) else None
-                if isinstance(prior_evidence, list) and any(
-                    isinstance(item, dict)
-                    and item.get("path") == f".factory/planning/{run_id}/artifacts.json"
-                    for item in prior_evidence
-                ):
-                    raise PlanningGateError("artifact manifest is missing")
-        return "pass", evidence
+        return "pass", _deduplicated_evidence(evidence)
     except (PlanningGateError, ArtifactError):
         return "fail", []
 
 
 def _current_feature_requirements(
-    root: Path,
+    root: Path, *, spec_path: Path | None = None,
 ) -> tuple[dict[str, str], list[dict[str, str]]]:
     """Return the current FEAT-017 requirements and their planning consent evidence."""
     feature_path = safe_resolve(root, root / "docs" / "features" / f"{_PLANNING_GATE_FEATURE}.md")
@@ -341,6 +408,17 @@ def _current_feature_requirements(
         raise PlanningGateError("feature requirement coverage is invalid")
     current: dict[str, str] = {}
     evidence = [{"path": "docs/features/FEAT-017.md", "sha256": _digest(feature_path.read_bytes())}]
+    if spec_path is not None:
+        bundle_path = safe_resolve(root, root / "bundles" / f"{_PLANNING_GATE_FEATURE}.json")
+        if bundle_path is None or not bundle_path.is_file():
+            raise PlanningGateError("feature bundle is missing")
+        bundle = _read_json(bundle_path, "feature bundle is unreadable")
+        if not isinstance(bundle, dict) or set(bundle) != {"id", "members"} or bundle.get("id") != _PLANNING_GATE_FEATURE:
+            raise PlanningGateError("feature bundle is invalid")
+        bundle_valid, _ = _validate_feat17_bundle_members(bundle.get("members"), list(requirement_ids))
+        if not bundle_valid:
+            raise PlanningGateError("feature bundle membership is invalid")
+        evidence.append({"path": "bundles/FEAT-017.json", "sha256": _digest(bundle_path.read_bytes())})
     for requirement_id in sorted(requirement_ids):
         requirement_path = safe_resolve(root, root / "requirements" / f"{requirement_id}.md")
         if requirement_path is None or not requirement_path.is_file():
@@ -348,6 +426,14 @@ def _current_feature_requirements(
         requirement_metadata = _read_metadata(requirement_path)
         if requirement_metadata is None or requirement_metadata.get("id") != requirement_id:
             raise PlanningGateError("current feature requirement is malformed")
+        if spec_path is not None:
+            if any(
+                not isinstance(requirement_metadata.get(field), str) or not str(requirement_metadata[field]).strip()
+                for field in ("title", "statement", "domain")
+            ) or not isinstance(requirement_metadata.get("upstream"), list):
+                raise PlanningGateError("current feature requirement is incomplete")
+            if not _source_matches(root, requirement_metadata.get("source"), spec_path):
+                raise PlanningGateError("current feature requirement source is invalid")
         current[requirement_id] = _digest(requirement_path.read_bytes())
         evidence.append({"path": f"requirements/{requirement_id}.md", "sha256": current[requirement_id]})
     return current, evidence
@@ -356,7 +442,7 @@ def _current_feature_requirements(
 def _resolve_requirement_consent(root: Path, run_id: str) -> tuple[str, list[dict[str, str]]]:
     try:
         run_dir = _planning_run_dir(root, run_id)
-        current, current_evidence = _current_feature_requirements(root)
+        current, current_evidence = _required_planning_sources(root, run_id)
         path = safe_resolve(root, run_dir / "requirement-consent.json")
         if path is None:
             raise PlanningGateError("requirement consent path is unsafe")
@@ -380,6 +466,13 @@ def _resolve_requirement_consent(root: Path, run_id: str) -> tuple[str, list[dic
         consent_ok, _ = validate_sr_decisions(root, run_id, current)
         if not consent_ok:
             raise PlanningGateError("per-SR human consent is missing or stale")
+        consent_dir = safe_resolve(root, run_dir / "consent")
+        if consent_dir is None or not consent_dir.is_dir():
+            raise PlanningGateError("per-SR human consent evidence is missing")
+        expected_names = {f"{requirement_id}.json" for requirement_id in current}
+        actual_names = {entry.name for entry in consent_dir.iterdir() if entry.is_file()}
+        if actual_names != expected_names:
+            raise PlanningGateError("per-SR human consent does not cover the exact requirement set")
         for requirement_id in current:
             decision_path = safe_resolve(
                 root, run_dir / "consent" / f"{requirement_id}.json",
@@ -390,15 +483,18 @@ def _resolve_requirement_consent(root: Path, run_id: str) -> tuple[str, list[dic
                 "path": f".factory/planning/{run_id}/consent/{requirement_id}.json",
                 "sha256": _digest(decision_path.read_bytes()),
             })
-        return "pass", current_evidence
+        return "pass", _deduplicated_evidence(current_evidence)
     except PlanningGateError:
         return "fail", []
 
 
 def _cross_artifact_record(
-    root: Path, run_id: str, raw_tasks: object,
+    root: Path, run_id: str, raw_tasks: object, selected_workflow: object,
 ) -> dict[str, object]:
     """Recompute explicit producer inputs against current canonical files."""
+    if selected_workflow not in _WORKFLOWS:
+        raise PlanningGateError("cross-artifact selected workflow is invalid")
+    pack = compile_planning_gate_pack(_PLANNING_GATE_FEATURE, _PLANNING_GATE_VERSION)
     report, report_evidence = _planning_report(root, run_id)
     if not isinstance(raw_tasks, dict):
         raise PlanningGateError("cross-artifact task inputs are invalid")
@@ -496,13 +592,18 @@ def _cross_artifact_record(
     review = review_cross_artifact_relations(root, requirements, tasks)
     return {
         "schema": 1, "run_id": run_id, "report_sha256": _canonical_digest(report),
+        "selected_workflow": selected_workflow, "planning_gate_pack_sha256": pack["sha256"],
         "tasks": raw_tasks, "artifact_hashes": dict(sorted(inputs.items())),
         "review": review.to_dict(),
     }
 
 
 def write_cross_artifact_review(
-    root: Path, run_id: str, tasks: Mapping[str, GeneratedTaskReviewInput],
+    root: Path,
+    run_id: str,
+    tasks: Mapping[str, GeneratedTaskReviewInput],
+    *,
+    selected_workflow: str = "standard-development",
 ) -> dict[str, object]:
     """Record producer-classified tasks, including blocking findings, for planning gates.
 
@@ -517,7 +618,7 @@ def write_cross_artifact_review(
         raise PlanningGateError("cross-artifact review path is unsafe")
     try:
         raw_tasks = json.loads(json.dumps({path: asdict(task) for path, task in tasks.items()}))
-        record = _cross_artifact_record(root, run_id, raw_tasks)
+        record = _cross_artifact_record(root, run_id, raw_tasks, selected_workflow)
     except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError) as exc:
         raise PlanningGateError("cross-artifact review inputs are invalid") from exc
     _atomic_write(path, _encoded_result(record))
@@ -532,17 +633,48 @@ def _resolve_cross_artifact_review(root: Path, run_id: str) -> tuple[str, list[d
         record = _read_json(path, "cross-artifact review evidence is unreadable")
         if not isinstance(record, dict) or type(record.get("schema")) is not int:
             raise PlanningGateError("cross-artifact review schema is invalid")
-        current = _cross_artifact_record(root, run_id, record.get("tasks"))
+        _, source_evidence = _required_planning_sources(root, run_id)
+        current = _cross_artifact_record(
+            root, run_id, record.get("tasks"), record.get("selected_workflow"),
+        )
         review = current["review"]
         hashes = current["artifact_hashes"]
         assert isinstance(review, dict) and isinstance(hashes, dict)
         if _encoded_result(record) != _encoded_result(current) or review["ok"] is not True:
             raise PlanningGateError("cross-artifact review is stale or contains blocking findings")
+        human_status, human_evidence = _resolve_human_review(root, run_id)
+        consent_status, consent_evidence = _resolve_requirement_consent(root, run_id)
+        if human_status != "pass" or consent_status != "pass":
+            raise PlanningGateError("cross-artifact review lacks current approval evidence")
         evidence = [{"path": f".factory/planning/{run_id}/cross-artifact-review.json", "sha256": _digest(path.read_bytes())}]
         evidence.extend({"path": name, "sha256": digest} for name, digest in hashes.items())
-        return "pass", evidence
+        evidence.extend(source_evidence)
+        evidence.extend(human_evidence)
+        evidence.extend(consent_evidence)
+        return "pass", _deduplicated_evidence(evidence)
     except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
         return "fail", []
+
+
+def selected_planning_workflow(root: Path, run_id: str, pack: Mapping[str, object]) -> str:
+    """Return the explicit, current workflow selection attested by the review."""
+    validated_pack = _validated_pack(dict(pack))
+    status, _ = _resolve_cross_artifact_review(root, run_id)
+    if status != "pass":
+        raise PlanningGateError("cross-artifact workflow selection is missing or stale")
+    path = safe_resolve(root, _planning_run_dir(root, run_id) / "cross-artifact-review.json")
+    if path is None or not path.is_file():
+        raise PlanningGateError("cross-artifact workflow review is missing")
+    record = _read_json(path, "cross-artifact workflow review is unreadable")
+    selected = record.get("selected_workflow") if isinstance(record, dict) else None
+    if (
+        not isinstance(record, dict)
+        or record.get("planning_gate_pack_sha256") != validated_pack["sha256"]
+        or not isinstance(selected, str)
+        or selected not in _WORKFLOWS
+    ):
+        raise PlanningGateError("cross-artifact workflow selection is invalid")
+    return selected
 
 
 _RESOLVERS = {
@@ -875,6 +1007,7 @@ __all__ = [
     "PlanningGateError",
     "compile_planning_gate_pack",
     "evaluate_planning_gate_pack",
+    "selected_planning_workflow",
     "validate_planning_gate_result",
     "validate_requirement_consent",
     "validate_sr_consent",
