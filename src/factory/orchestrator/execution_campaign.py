@@ -99,8 +99,10 @@ class CampaignResult:
                 raise CampaignError(
                     f"{test_id!r} must get exactly one classification re-run, got {count}"
                 )
-        # Every classified id must be a declared failure; a disposition can never
-        # name a test outside the campaign's own failed/declared set.
+        # Every failed id is classified exactly once: a disposition can name no
+        # id outside the campaign's own failed set, and no failed id may be left
+        # without a disposition.
+        dispositioned: dict[str, str] = {}
         for name, ids in (
             ("regressions", self.regressions),
             ("pre_existing_failures", self.pre_existing_failures),
@@ -110,18 +112,22 @@ class CampaignResult:
             unknown = frozenset(ids) - failed
             if unknown:
                 raise CampaignError(f"{name} escape the failed test id set: {sorted(unknown)}")
-            undeclared = frozenset(ids) - declared
-            if undeclared:
-                raise CampaignError(
-                    f"{name} escape the declared test id set: {sorted(undeclared)}"
-                )
-        overlap = frozenset(self.regressions) & frozenset(self.flaky_ids)
-        if overlap:
+            for test_id in ids:
+                if test_id in dispositioned:
+                    raise CampaignError(
+                        f"{test_id!r} cannot be both {dispositioned[test_id]} and {name}"
+                    )
+                dispositioned[test_id] = name
+        unclassified = failed - set(dispositioned)
+        if unclassified:
+            raise CampaignError(f"failed ids carry no disposition: {sorted(unclassified)}")
+        # Quarantined known-flaky failures are non-blocking: only a failure that
+        # is not a registered flake can contradict a passed pass-rate gate.
+        blocking = failed - frozenset(self.flaky_ids)
+        if self.pass_rate_gate_passed and blocking:
             raise CampaignError(
-                f"an id cannot be both a regression and a known flake: {sorted(overlap)}"
+                f"pass rate gate cannot pass while blocking failures remain: {sorted(blocking)}"
             )
-        if self.pass_rate_gate_passed and failed:
-            raise CampaignError("pass rate gate cannot pass while failures remain")
 
 
 @dataclass
@@ -134,7 +140,7 @@ class TestCampaign:
     runner: TestCampaignRunner
     flaky_registry: FlakyRegistry
     _baseline: TestSnapshot | None = field(default=None, init=False, repr=False)
-    _result: CampaignResult | None = field(default=None, init=False, repr=False)
+    _evaluated: set[TestSnapshot] = field(default_factory=set, init=False, repr=False)
 
     def capture_baseline(self, contract: ExecutionContract) -> TestSnapshot:
         """Run the required suite exactly once, before DEV."""
@@ -145,12 +151,19 @@ class TestCampaign:
     def evaluate_after_dev(
         self, contract: ExecutionContract, baseline: TestSnapshot
     ) -> CampaignResult:
-        """Compare against the baseline and classify every failure."""
-        if self._result is not None:
-            # One campaign, one classification: a repeat call would add a second
-            # confirmation run for the same unlisted failure.
-            raise CampaignError("campaign already evaluated; classification is once-only")
+        """Compare against the baseline and classify every failure.
+
+        The once-only protection is keyed on the pass being evaluated -- the
+        snapshot this run produces -- not on the campaign's lifetime: the plan's
+        kernel captures the baseline once and evaluates every DEV pass (each
+        fixer revision and human retry) on the same injected campaign. The pass
+        identity is consumed the moment it is observed, so a retry of a pass
+        whose first evaluation raised still cannot re-run its confirmation.
+        """
         current = self.runner.run(contract)
+        if current in self._evaluated:
+            raise CampaignError("pass already evaluated; classification is once-only")
+        self._evaluated.add(current)
         failed = set(current.failed_ids)
         declared = set(current.declared_ids)
 
@@ -161,8 +174,10 @@ class TestCampaign:
         pre_existing = set(baseline.failed_ids) & failed
         # Registered known-flaky failures run non-blocking and are recorded.
         flaky_ids = {test_id for test_id in failed if self.flaky_registry.is_registered(test_id)}
-        # Registry membership wins: a known flake is never also a blocking regression.
+        # Registry membership wins: a known flake is dispositioned as flaky only,
+        # never also as a blocking regression or pre-existing failure.
         regressions -= flaky_ids
+        pre_existing -= flaky_ids
 
         reruns: dict[str, int] = {}
         candidates: list[str] = []
@@ -189,12 +204,11 @@ class TestCampaign:
             flaky_ids=tuple(sorted(flaky_ids)),
             registry_candidates=tuple(sorted(candidates)),
             classification_reruns=reruns,
-            pass_rate_gate_passed=not failed,
+            pass_rate_gate_passed=not (failed - flaky_ids),
             fixer_iterations_consumed=0,
             failed_ids=frozenset(current.failed_ids),
             declared_ids=frozenset(current.declared_ids),
         )
-        self._result = result
         return result
 
 

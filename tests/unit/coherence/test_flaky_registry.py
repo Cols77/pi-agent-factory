@@ -199,3 +199,37 @@ def test_registry_rejects_expired_or_naive_instants(tmp_path: Path) -> None:
     )
     with pytest.raises(FlakyRegistryError):
         read_flaky(tmp_path, TEST_ID)
+
+
+def test_read_path_tolerates_legacy_naive_instants(tmp_path: Path) -> None:
+    """D4: the naive/offset strictness belongs to the WRITE path. A record
+    written under the shared deferral convention (naive -> UTC) must stay
+    readable, and an unreadable record must not escape into the run."""
+    path = flaky_path(tmp_path, TEST_ID)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "test_id": TEST_ID,
+                "reason": "legacy record",
+                "decided_by": "human",
+                "decided_at": "2026-09-11T00:00:00",  # naive, legacy convention
+                "review_after": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert is_registered_flaky(tmp_path, TEST_ID) is True
+    assert read_flaky(tmp_path, TEST_ID).decided_at == "2026-09-11T00:00:00"
+
+    # A non-human record is still rejected by the reader, but the driver read
+    # path treats it as not-registered rather than raising into the run.
+    path.write_text(
+        json.dumps({"schema": 1, "test_id": TEST_ID, "decided_by": "agent"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(FlakyRegistryError):
+        read_flaky(tmp_path, TEST_ID)
+    assert is_registered_flaky(tmp_path, TEST_ID) is False

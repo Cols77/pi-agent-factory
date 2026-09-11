@@ -71,15 +71,14 @@ class ReviewSwarmResult:
             )
 
     def review_for(self, lane: Lane) -> ReviewResult:
-        """Closed-lane lookup: exactly one review per declared lane, or raise."""
+        """Closed-lane lookup.
+
+        ``__post_init__`` is the single gate for the exactly-one-review-per-lane
+        guarantee, so this is a total lookup with no unreachable re-validation.
+        """
         if lane not in REVIEW_LANES:
             raise ReviewProtocolError(f"unknown review lane: {lane!r}")
-        matches = [review for review in self.reviews if review.lane == lane]
-        if not matches:
-            raise ReviewProtocolError(f"review lane missing from swarm result: {lane!r}")
-        if len(matches) > 1:
-            raise ReviewProtocolError(f"duplicate review lane in swarm result: {lane!r}")
-        return matches[0]
+        return next(review for review in self.reviews if review.lane == lane)
 
 
 def build_review_prompt(

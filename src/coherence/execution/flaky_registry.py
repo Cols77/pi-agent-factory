@@ -79,14 +79,18 @@ def read_flaky(root: Path, test_id: str) -> FlakyRecord:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise FlakyRegistryError(f"{path.name}: not valid JSON") from exc
-    return _validate_record(payload, test_id)
+    return _validate_record(payload, test_id, strict=False)
 
 
 def is_registered_flaky(root: Path, test_id: str) -> bool:
-    """Whether ``test_id`` is a registered known-flaky test (driver read path)."""
+    """Whether ``test_id`` is a registered known-flaky test (driver read path).
+
+    A legacy or unreadable record is NOT a registered flake: a hard error must
+    never escape this read path into the run it is classifying.
+    """
     try:
         read_flaky(root, test_id)
-    except FlakyNotRegisteredError:
+    except FlakyRegistryError:
         return False
     return True
 
@@ -113,6 +117,7 @@ def register_flaky(
             "review_after": review_after,
         },
         test_id,
+        strict=True,
     )
     path = flaky_path(root, test_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,21 +135,29 @@ def _validate_test_id(test_id: str) -> None:
         raise FlakyRegistryError(f"unsafe test id (path escape): {test_id!r}")
 
 
-def _aware_instant(value: str, field: str) -> datetime:
-    """A validated, timezone-aware ISO instant; naive or non-ISO input raises."""
+def _aware_instant(value: str, field: str, *, strict: bool) -> datetime:
+    """A validated, timezone-aware ISO instant.
+
+    ``strict`` is the write-path stance: a new human record must carry an
+    explicit timezone offset, so a naive instant raises. The read path is
+    tolerant of legacy records under the shared deferral convention
+    (``coherence.deferrals._parse_instant`` normalizes a naive instant to UTC
+    rather than rejecting it), so a pre-existing on-disk record stays readable.
+    """
     try:
-        _parse_instant(value)
+        instant = _parse_instant(value)
     except ValueError as exc:
         raise FlakyRegistryError(f"invalid {field}: {value!r}") from exc
-    normalized = value.strip()
-    if normalized[-1] in "Zz":
-        normalized = normalized[:-1] + "+00:00"
-    if datetime.fromisoformat(normalized).tzinfo is None:
-        raise FlakyRegistryError(f"{field} must carry a timezone offset: {value!r}")
-    return _parse_instant(value)
+    if strict:
+        normalized = value.strip()
+        if normalized[-1] in "Zz":
+            normalized = normalized[:-1] + "+00:00"
+        if datetime.fromisoformat(normalized).tzinfo is None:
+            raise FlakyRegistryError(f"{field} must carry a timezone offset: {value!r}")
+    return instant
 
 
-def _validate_record(payload: object, requested_id: str) -> FlakyRecord:
+def _validate_record(payload: object, requested_id: str, *, strict: bool) -> FlakyRecord:
     if not isinstance(payload, dict):
         raise FlakyRegistryError("flaky record must be a JSON object")
     unknown = set(payload) - set(_FIELDS)
@@ -167,12 +180,12 @@ def _validate_record(payload: object, requested_id: str) -> FlakyRecord:
     decided_at = payload.get("decided_at")
     if not isinstance(decided_at, str):
         raise FlakyRegistryError("flaky record requires a string decided_at")
-    decided_instant = _aware_instant(decided_at, "decided_at")
+    decided_instant = _aware_instant(decided_at, "decided_at", strict=strict)
     review_after = payload.get("review_after")
     if review_after is not None:
         if not isinstance(review_after, str):
             raise FlakyRegistryError("review_after must be an ISO instant or null")
-        review_instant = _aware_instant(review_after, "review_after")
+        review_instant = _aware_instant(review_after, "review_after", strict=strict)
         if review_instant <= decided_instant:
             raise FlakyRegistryError(
                 f"review_after {review_after!r} must be after decided_at {decided_at!r}"

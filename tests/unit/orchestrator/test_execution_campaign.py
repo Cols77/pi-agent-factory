@@ -259,11 +259,13 @@ def test_registered_flaky_failure_is_never_also_a_regression(tmp_path: Path) -> 
 
 
 def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
+    same_pass = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
     runner = ScriptedCampaignRunner(
         [
             snapshot("a"),
+            same_pass,
             snapshot("a", failed=("ghost",), declared=("a", "ghost")),
-            snapshot("a", failed=("ghost",), declared=("a", "ghost")),
+            same_pass,  # a second evaluation of the SAME pass
         ]
     )
     campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
@@ -273,4 +275,119 @@ def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(CampaignError):
         campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    # Only the pass's own suite run; the confirmation is never repeated.
+    assert runner.calls == 4
+
+
+def test_successive_passes_evaluate_but_repeating_a_pass_is_refused(tmp_path: Path) -> None:
+    """D1: the kernel injects ONE campaign, captures the baseline ONCE outside
+    the loop, and evaluates inside ``while True:`` -- every DEV pass (each fixer
+    revision and human retry) needs its own evaluation."""
+    regressing_pass = snapshot("a", failed=("b",), declared=("a", "b"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a", "b"),  # baseline, captured once before the loop
+            regressing_pass,  # pass 1
+            snapshot("a", "b"),  # pass 2: the fixer cleared the failure
+            regressing_pass,  # a repeat evaluation of pass 1
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    first = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert first.regressions == ("b",)
+    assert first.pass_rate_gate_passed is False
+
+    second = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert second.regressions == ()
+    assert second.pass_rate_gate_passed is True
+
+    with pytest.raises(CampaignError):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+
+
+def test_evaluation_guard_latches_on_the_error_path(tmp_path: Path) -> None:
+    """D2: a pass whose first evaluation RAISES is still consumed, so a retry of
+    the same pass cannot re-run the bounded confirmation."""
+    pass_snapshot = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline
+            pass_snapshot,  # evaluation #1: "ghost" has no baseline history
+            snapshot("a"),  # confirmation drops the declared id -> raises
+            pass_snapshot,  # retry of the SAME pass
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    with pytest.raises(CampaignError, match="omits declared test ids"):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
     assert runner.calls == 3
+
+    with pytest.raises(CampaignError, match="once-only"):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert runner.calls == 4  # the pass run only -- never a second confirmation
+
+
+def test_pass_rate_gate_compares_only_blocking_failures(tmp_path: Path) -> None:
+    """D3: quarantined known-flaky failures are non-blocking, so a run whose only
+    failures are quarantined may pass the gate; a real failure still cannot."""
+    quarantined = CampaignResult(
+        snapshot=snapshot("a", failed=("known",), declared=("a", "known")),
+        regressions=(),
+        pre_existing_failures=(),
+        flaky_ids=("known",),
+        registry_candidates=(),
+        classification_reruns={},
+        pass_rate_gate_passed=True,
+        failed_ids=frozenset({"known"}),
+        declared_ids=frozenset({"a", "known"}),
+    )
+    assert quarantined.pass_rate_gate_passed is True
+
+    runner = ScriptedCampaignRunner(
+        [snapshot("a"), snapshot("a", failed=("known",), declared=("a", "known"))]
+    )
+    campaign = TestCampaign(runner, flaky_registry=HumanFlakyRegistry({"known"}))
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+    outcome = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+
+    assert outcome.flaky_ids == ("known",)
+    assert outcome.pass_rate_gate_passed is True
+
+    with pytest.raises(CampaignError, match="blocking"):
+        CampaignResult(
+            snapshot=snapshot("a", failed=("b",), declared=("a", "b")),
+            regressions=("b",),
+            pre_existing_failures=(),
+            flaky_ids=(),
+            registry_candidates=(),
+            classification_reruns={},
+            pass_rate_gate_passed=True,
+            failed_ids=frozenset({"b"}),
+            declared_ids=frozenset({"a", "b"}),
+        )
+
+
+def test_every_failed_id_must_carry_exactly_one_disposition() -> None:
+    """D5: a failed id may not be left without a disposition set."""
+    good = snapshot("a", failed=("b",))
+
+    def result(**overrides: object) -> CampaignResult:
+        kwargs: dict[str, object] = {
+            "regressions": (),
+            "pre_existing_failures": (),
+            "flaky_ids": (),
+            "registry_candidates": (),
+            "classification_reruns": {},
+            "pass_rate_gate_passed": False,
+            "failed_ids": frozenset({"b"}),
+            "declared_ids": frozenset({"a", "b"}),
+        }
+        kwargs.update(overrides)
+        return CampaignResult(snapshot=good, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.raises(CampaignError, match="disposition"):
+        result()  # "b" failed but no disposition set names it

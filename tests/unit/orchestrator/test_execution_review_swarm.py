@@ -236,3 +236,32 @@ def test_swarm_result_requires_both_lanes_and_wraps_lane_errors(tmp_path: Path) 
             events=[],
         )
     assert quality.lane == "quality-review"
+
+
+def test_swarm_lane_invariant_lives_in_the_constructor(tmp_path: Path) -> None:
+    """D6: the exactly-one-review-per-lane guarantee is enforced by
+    ``ReviewSwarmResult.__post_init__``, so ``review_for`` is a total lookup."""
+    spec = ReviewResult(
+        lane="spec-review",
+        result=AgentResult(ok=True, output={}, session_id="s"),
+        session_id="s",
+        findings=(),
+        dod_met=True,
+    )
+    quality = ReviewResult(
+        lane="quality-review",
+        result=AgentResult(ok=True, output={}, session_id="t"),
+        session_id="t",
+        findings=(),
+        dod_met=True,
+    )
+    with pytest.raises(ReviewProtocolError):
+        ReviewSwarmResult((spec,), datetime.now(timezone.utc))
+    with pytest.raises(ReviewProtocolError):
+        ReviewSwarmResult((spec, spec), datetime.now(timezone.utc))
+
+    complete = ReviewSwarmResult((spec, quality), datetime.now(timezone.utc))
+    assert complete.review_for("spec-review") is spec
+    assert complete.review_for("quality-review") is quality
+    with pytest.raises(ReviewProtocolError):
+        complete.review_for("fixer")  # type: ignore[arg-type]
