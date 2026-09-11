@@ -63,16 +63,36 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _capture_intent(root: Path, run_id: str) -> None:
+    """Capture the run intent through the session API.
+
+    The lifecycle projector replays the session journal and rejects a hand-written
+    ``.intent/intent.json`` as STALE_INTENT_SNAPSHOT, so the fixture must drive the
+    same capture path the host uses. Repeated calls on one root are a no-op.
+    """
+    from coherence.planning.intent import IntentError, read_intent
+    from coherence.planning.session import append_session_answer, start_session
+
+    journal = root / ".factory" / "planning" / run_id / "capture" / "events.jsonl"
+    if not journal.exists():
+        start_session(root, run_id, "Plan the goal")
+    else:
+        try:
+            document = read_intent(root / ".intent" / "intent.json", project_root=root)
+        except (IntentError, OSError, ValueError):
+            document = None
+        if document is not None and any(answer.id == "goal" for answer in document.answers):
+            return
+    append_session_answer(root, run_id, "goal", "What is the goal?", "Plan the goal")
+
+
 def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> None:
     plan = root / "docs" / "plan.md"
     plan.parent.mkdir(parents=True, exist_ok=True)
     plan.write_text("---\nspec_ref: SPEC-1\n---\n# plan\nclaim:goal\n", encoding="utf-8")
     spec = root / "docs/spec.md"
     spec.write_text("---\nid: SPEC-1\ntitle: Specification\nstatus: draft\n---\n# Goal\nclaim:goal\n", encoding="utf-8")
-    intent = root / ".intent/intent.json"
-    intent.parent.mkdir(exist_ok=True)
-    if not intent.exists():
-        intent.write_text(json.dumps({"schema": 1, "prompt": "Plan the goal", "answers": [{"id": "goal", "text": "Plan the goal"}]}), encoding="utf-8")
+    _capture_intent(root, run_id)
     run_dir = root / ".factory" / "planning" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     report = {
@@ -128,22 +148,46 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
     write_cross_artifact_review(root, run_id, {})
 
 
-def _refresh_full_review(root: Path, run_id: str = "run-001") -> None:
-    """Explicit fixture review of the complete current planning source set."""
+_FULL_PLANNING_SOURCES = (
+    ("intent", ".intent/intent.json"),
+    ("spec", "docs/spec.md"),
+    ("plan", "docs/plan.md"),
+    ("feature", "docs/features/FEAT-017.md"),
+    ("bundle", "bundles/FEAT-017.json"),
+    ("requirements", "requirements/SR-001.md"),
+)
+
+
+def _refresh_artifact_evidence(
+    root: Path,
+    run_id: str = "run-001",
+    entries: tuple[tuple[str, str], ...] | None = None,
+) -> list[str]:
+    """Publish the artifact manifest and re-bind report/review evidence to current bytes.
+
+    The planning gate requires the manifest to cover the complete source set and the
+    report to hash exactly those current bytes, so any fixture that mutates a planning
+    source must call this afterwards rather than replaying stale evidence.
+    """
     run_dir = root / ".factory/planning" / run_id
-    entries = [{"kind": kind, "path": path} for kind, path in (
-        ("intent", ".intent/intent.json"), ("spec", "docs/spec.md"), ("plan", "docs/plan.md"),
-        ("feature", "docs/features/FEAT-017.md"), ("bundle", "bundles/FEAT-017.json"),
-        ("requirements", "requirements/SR-001.md"),
-    )]
-    write_artifact_manifest(root, run_id, build_artifact_manifest(root, run_id, entries))
+    pairs = _FULL_PLANNING_SOURCES if entries is None else tuple(entries)
+    items = [{"kind": kind, "path": path} for kind, path in pairs]
+    write_artifact_manifest(root, run_id, build_artifact_manifest(root, run_id, items))
     report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
-    paths = {item["path"] for item in report["artifacts"]} | {item["path"] for item in entries}
+    paths = {item["path"] for item in report["artifacts"]} | {item["path"] for item in items}
     report["artifacts"] = [{"path": path, "sha256": _sha(root / path)} for path in sorted(paths)]
     (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
-    decision = json.loads((run_dir / "review-decision.json").read_text(encoding="utf-8"))
-    decision.update(report_sha256=planning_report_digest(report), reviewed_artifacts=sorted(paths))
-    (run_dir / "review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    decision_path = run_dir / "review-decision.json"
+    if decision_path.is_file():
+        decision = json.loads(decision_path.read_text(encoding="utf-8"))
+        decision.update(report_sha256=planning_report_digest(report), reviewed_artifacts=sorted(paths))
+        decision_path.write_text(json.dumps(decision), encoding="utf-8")
+    return sorted(paths)
+
+
+def _refresh_full_review(root: Path, run_id: str = "run-001") -> None:
+    """Explicit fixture review of the complete current planning source set."""
+    _refresh_artifact_evidence(root, run_id)
 
 
 @pytest.mark.parametrize("mutation", [

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from coherence.cli import main
+from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
 from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.gates import write_cross_artifact_review
 from coherence.planning.review import GeneratedTaskReviewInput
@@ -306,8 +307,31 @@ def _handoff_args(root: Path, workflow: str = "standard-development") -> list[st
 
 
 def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.CaptureFixture[str]) -> None:
-    decision_path = root / ".factory" / "planning" / "run-001" / "review-decision.json"
-    decision_path.write_text(json.dumps(_approval(report)), encoding="utf-8")
+    """Bind the complete planning source set, then run the planning gates.
+
+    The planning gate requires the artifact manifest to cover every planning source and
+    the report to hash exactly those current bytes, so the fixture must publish the
+    manifest and re-hash the report before the gates can pass.
+    """
+    run_dir = root / ".factory" / "planning" / "run-001"
+    entries = [
+        {"kind": "intent", "path": ".intent/intent.json"},
+        {"kind": "spec", "path": "docs/superpowers/specs/intent-spec.md"},
+        {"kind": "plan", "path": "docs/superpowers/plans/intent-plan.md"},
+        {"kind": "feature", "path": "docs/features/FEAT-017.md"},
+        {"kind": "bundle", "path": "bundles/FEAT-017.json"},
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+    ]
+    write_artifact_manifest(root, "run-001", build_artifact_manifest(root, "run-001", entries))
+    covered = {item["path"] for item in entries} | {"requirements/SR-002.md"} | {
+        item["path"] for item in report["artifacts"]
+    }
+    report["artifacts"] = [
+        {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
+        for path in sorted(covered)
+    ]
+    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps(_approval(report)), encoding="utf-8")
     for sr_id in ("SR-001", "SR-002"):
         requirement = root / "requirements" / f"{sr_id}.md"
         write_sr_decision(

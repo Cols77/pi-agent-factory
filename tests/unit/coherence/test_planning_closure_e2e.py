@@ -14,7 +14,11 @@ from coherence.planning.handoff import HandoffError, build_handoff, write_handof
 from coherence.planning.model import PlanningFinding, PlanningReport
 from coherence.planning.run import planning_report_digest
 from coherence.planning.review import GeneratedTaskReviewInput
-from coherence.planning.session import legal_actions_session, start_session
+from coherence.planning.session import append_session_answer, legal_actions_session, start_session
+from tests.unit.coherence.test_planning_gates import (
+    _FULL_PLANNING_SOURCES,
+    _refresh_full_review,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -130,10 +134,14 @@ def test_cross_artifact_review_blocks_missing_sr_then_allows_current_relations(
     requirement = tmp_path / "requirements/SR-001.md"
     requirement.write_text(
         "---\nid: SR-001\ntitle: Behavior\nstatement: Behavior is traced.\ndomain: behavioral\n"
+        "upstream: []\nsource: docs/spec.md#Goal\n"
         "implemented_by:\n  - path: src/feature.py\n    symbol: feature:behavior\n"
         "verified_by:\n  - path: tests/test_feature.py\n    test: tests/test_feature.py::test_behavior\n---\n",
         encoding="utf-8",
     )
+    # Rewriting a planning source invalidates the reviewed report: re-bind the manifest,
+    # report, and review decision to the current bytes before attesting consent.
+    _refresh_full_review(tmp_path, run_id)
     write_sr_decision(tmp_path, run_id, "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed current relations.")
     raw = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
     raw["artifacts"].append({"path": "tasks/T-001.md", "sha256": _sha(task_path)})
@@ -209,30 +217,64 @@ def _sha(path: Path) -> str:
 
 
 def _review_fixture(root: Path, *, decision: dict[str, object] | None = None) -> Path:
+    """Stage a run whose complete planning source set is current and reviewable.
+
+    Review currency is derived from the full source set, so the fixture must author
+    canonically-formed sources and publish a manifest covering every one of them
+    before the review evidence can be considered current.
+    """
+    from tests.unit.coherence.test_planning_gates import _refresh_artifact_evidence
+
     run_id = "review-negative"
     start_session(root, run_id, "Review evidence")
+    # Capture the intent through the session API: the projector replays the journal and
+    # rejects a hand-written intent.json as a stale snapshot.
+    append_session_answer(root, run_id, "goal", "What is being reviewed?", "Review evidence")
     req = root / "requirements/SR-001.md"
     feature = root / "docs/features/FEAT-017.md"
     spec = root / "docs/spec.md"
     plan = root / "docs/plan.md"
+    intent = root / ".intent/intent.json"
     req.parent.mkdir(parents=True)
     feature.parent.mkdir(parents=True)
-    req.write_text("---\nid: SR-001\n---\nRequirement.\n", encoding="utf-8")
-    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
-    spec.write_text("spec", encoding="utf-8")
-    plan.write_text("plan", encoding="utf-8")
-    write_artifact_manifest(root, run_id, build_artifact_manifest(root, run_id, [
-        {"kind": "requirements", "path": "requirements/SR-001.md"},
-        {"kind": "spec", "path": "docs/spec.md"}, {"kind": "plan", "path": "docs/plan.md"},
-    ]))
+    intent.parent.mkdir(parents=True, exist_ok=True)
+    req.write_text(
+        "---\nid: SR-001\ntitle: Review Evidence\nstatement: The evidence is reviewed.\n"
+        "domain: behavioral\nupstream: []\nsource: docs/spec.md#Goal\n---\nRequirement.\n",
+        encoding="utf-8",
+    )
+    feature.write_text(
+        "---\nid: FEAT-017\ntitle: Review evidence coverage\nrequirements: [SR-001]\n---\n",
+        encoding="utf-8",
+    )
+    spec.write_text(
+        "---\nid: SPEC-1\ntitle: Review Specification\nstatus: draft\n---\n"
+        "# Goal\nThe goal is reviewed.\n",
+        encoding="utf-8",
+    )
+    plan.write_text(
+        "---\nspec_ref: SPEC-1\n---\n# Plan\n\n### Task 1: Review\n\n**Files:**\n"
+        "- Create: `docs/review.md`\n\n**Interfaces:**\n- Produces: `goal` support.\n",
+        encoding="utf-8",
+    )
+    bundle = root / "bundles/FEAT-017.json"
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}),
+        encoding="utf-8",
+    )
     write_sr_decision(root, run_id, "SR-001", _sha(req), "approve", "human", CONSENT_PHRASE, "Reviewed.")
     run_dir = root / ".factory/planning" / run_id
     run_dir.joinpath("spec-review.json").write_text('{"status":"pass"}', encoding="utf-8")
     run_dir.joinpath("plan-review.json").write_text('{"status":"pass"}', encoding="utf-8")
-    artifacts = [{"path": "docs/plan.md", "sha256": _sha(plan)}, {"path": "docs/spec.md", "sha256": _sha(spec)}]
+    artifacts = [
+        {"path": "docs/plan.md", "sha256": _sha(plan)},
+        {"path": "docs/spec.md", "sha256": _sha(spec)},
+    ]
     report = {"schema": 1, "run_id": run_id, "ok": True, "artifacts": artifacts,
               "findings": [], "next_actions": [], "review_required": True, "suggestion": None}
     run_dir.joinpath("report.json").write_text(json.dumps(report), encoding="utf-8")
+    _refresh_artifact_evidence(root, run_id)
     if decision is not None:
         run_dir.joinpath("review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
     return run_dir
@@ -267,7 +309,7 @@ def test_repointed_manifest_cannot_reuse_review_of_another_path(
     report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
     (run_dir / "review-decision.json").write_text(json.dumps({
         "schema": 1, "run_id": run_id, "decision": "approve", "reviewer": "human",
-        "reason": "Reviewed.", "reviewed_artifacts": ["docs/plan.md", "docs/spec.md"],
+        "reason": "Reviewed.", "reviewed_artifacts": [item["path"] for item in report["artifacts"]],
         "report_sha256": planning_report_digest(report),
     }), encoding="utf-8")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["run-planning-gates"]
@@ -290,22 +332,22 @@ def test_repointed_manifest_cannot_reuse_review_of_another_path(
 
 
 def test_refreshed_manifest_cannot_hide_mutated_reviewed_bytes(tmp_path: Path) -> None:
-    _review_fixture(tmp_path, decision={
-        "schema": 1, "run_id": "review-negative", "decision": "approve", "reviewer": "human",
-        "reason": "Reviewed.", "reviewed_artifacts": ["docs/plan.md", "docs/spec.md"],
-        "report_sha256": "placeholder",
-    })
-    run_dir = tmp_path / ".factory/planning/review-negative"
+    from tests.unit.coherence.test_planning_gates import _FULL_PLANNING_SOURCES
+
+    run_dir = _review_fixture(tmp_path)
     report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
-    report_digest = planning_report_digest(report)
-    decision = json.loads((run_dir / "review-decision.json").read_text(encoding="utf-8"))
-    decision["report_sha256"] = report_digest
-    (run_dir / "review-decision.json").write_text(json.dumps(decision), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": "review-negative", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed.", "reviewed_artifacts": [item["path"] for item in report["artifacts"]],
+        "report_sha256": planning_report_digest(report),
+    }), encoding="utf-8")
     (tmp_path / "docs/spec.md").write_text("mutated", encoding="utf-8")
-    write_artifact_manifest(tmp_path, "review-negative", build_artifact_manifest(tmp_path, "review-negative", [
-        {"kind": "requirements", "path": "requirements/SR-001.md"},
-        {"kind": "spec", "path": "docs/spec.md"}, {"kind": "plan", "path": "docs/plan.md"},
-    ]))
+    # A refreshed manifest naming the same complete source set cannot launder the
+    # mutation: the reviewed bytes no longer match the report the decision attests.
+    write_artifact_manifest(tmp_path, "review-negative", build_artifact_manifest(
+        tmp_path, "review-negative",
+        [{"kind": kind, "path": path} for kind, path in _FULL_PLANNING_SOURCES],
+    ))
     projection = legal_actions_session(tmp_path, "review-negative")
     assert projection["blocked"] is True
     assert projection["legal_next_actions"] != ["run-planning-gates"]
@@ -314,13 +356,25 @@ def test_refreshed_manifest_cannot_hide_mutated_reviewed_bytes(tmp_path: Path) -
 def test_legal_actions_progress_through_absent_durable_evidence(tmp_path: Path) -> None:
     run_id = "staged-proof"
     start_session(tmp_path, run_id, "Stage the closure")
+    append_session_answer(tmp_path, run_id, "goal", "What is being staged?", "Stage the closure")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["author-requirements"]
     requirement = tmp_path / "requirements/SR-001.md"
     feature = tmp_path / "docs/features/FEAT-017.md"
     requirement.parent.mkdir(parents=True)
     feature.parent.mkdir(parents=True)
-    requirement.write_text("---\nid: SR-001\n---\nRequirement.\n", encoding="utf-8")
-    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
+    requirement.write_text(
+        "---\nid: SR-001\ntitle: Staged Requirement\nstatement: The closure is staged.\n"
+        "domain: behavioral\nupstream: []\nsource: docs/spec.md#Goal\n---\nRequirement.\n",
+        encoding="utf-8",
+    )
+    feature.write_text(
+        "---\nid: FEAT-017\ntitle: Staged closure\nrequirements: [SR-001]\n---\n", encoding="utf-8",
+    )
+    bundle = tmp_path / "bundles/FEAT-017.json"
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}), encoding="utf-8",
+    )
     write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, [
         {"kind": "requirements", "path": "requirements/SR-001.md"},
     ]))
@@ -328,22 +382,37 @@ def test_legal_actions_progress_through_absent_durable_evidence(tmp_path: Path) 
     write_sr_decision(tmp_path, run_id, "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed.")
     spec = tmp_path / "docs/spec.md"
     plan = tmp_path / "docs/plan.md"
-    spec.write_text("spec", encoding="utf-8")
-    plan.write_text("plan", encoding="utf-8")
+    spec.write_text(
+        "---\nid: SPEC-1\ntitle: Staged Specification\nstatus: draft\n---\n"
+        "# Goal\nThe goal is staged.\n", encoding="utf-8",
+    )
+    plan.write_text(
+        "---\nspec_ref: SPEC-1\n---\n# Plan\n\n### Task 1: Stage\n\n**Files:**\n"
+        "- Create: `docs/staged.md`\n\n**Interfaces:**\n- Produces: `goal` support.\n", encoding="utf-8",
+    )
     write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, [
         {"kind": "requirements", "path": "requirements/SR-001.md"},
         {"kind": "spec", "path": "docs/spec.md"}, {"kind": "plan", "path": "docs/plan.md"},
     ]))
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["review-spec"]
+
+    # Human review is only current once the complete planning source set is published,
+    # so the run is completed here before the review stages are attested.
     run_dir = tmp_path / ".factory/planning" / run_id
     run_dir.joinpath("spec-review.json").write_text('{"status":"pass"}', encoding="utf-8")
-    artifacts = ({"path": "docs/plan.md", "sha256": _sha(plan)}, {"path": "docs/spec.md", "sha256": _sha(spec)})
-    report = {"schema": 1, "run_id": run_id, "ok": True, "artifacts": list(artifacts),
-              "findings": [], "next_actions": [], "review_required": True, "suggestion": None}
-    run_dir.joinpath("report.json").write_text(json.dumps(report), encoding="utf-8")
-    run_dir.joinpath("review-decision.json").write_text(json.dumps({
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, [
+        {"kind": kind, "path": path} for kind, path in _FULL_PLANNING_SOURCES
+    ]))
+    paths = sorted(path for _, path in _FULL_PLANNING_SOURCES)
+    report = {
+        "schema": 1, "run_id": run_id, "ok": True,
+        "artifacts": [{"path": path, "sha256": _sha(tmp_path / path)} for path in paths],
+        "findings": [], "next_actions": [], "review_required": True, "suggestion": None,
+    }
+    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
         "schema": 1, "run_id": run_id, "decision": "approve", "reviewer": "human",
-        "reason": "Reviewed.", "reviewed_artifacts": [item["path"] for item in artifacts],
+        "reason": "Reviewed.", "reviewed_artifacts": paths,
         "report_sha256": planning_report_digest(report),
     }), encoding="utf-8")
     assert legal_actions_session(tmp_path, run_id)["legal_next_actions"] == ["review-plan"]
@@ -358,13 +427,14 @@ def test_manifest_changes_invalidate_published_gate_and_handoff(
     from coherence.planning.cli import _read_report
     from coherence.planning.gates import validate_planning_gate_result
     from coherence.planning.handoff import validate_handoff
-    from tests.unit.coherence.test_planning_gates import _write_current_planning_evidence
+    from tests.unit.coherence.test_planning_gates import _FULL_PLANNING_SOURCES, _write_current_planning_evidence
 
     run_id = "run-001"
-    start_session(tmp_path, run_id, "Review current manifest")
     _write_current_planning_evidence(tmp_path, run_id)
+    # The initial state must be a complete, currently-validated planning closure; the
+    # mutation under test is applied to this manifest afterwards.
     manifest_path = write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(
-        tmp_path, run_id, [{"kind": "plan", "path": "docs/plan.md"}],
+        tmp_path, run_id, [{"kind": kind, "path": path} for kind, path in _FULL_PLANNING_SOURCES],
     ))
     pack = compile_planning_gate_pack("FEAT-017", "v1")
     evaluate_planning_gate_pack(tmp_path, run_id, pack)
@@ -406,24 +476,44 @@ def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
 
     run_id = "closure-proof"
     start_session(tmp_path, run_id, "Prove the planning closure")
+    append_session_answer(tmp_path, run_id, "goal", "What does the closure prove?", "Prove the planning closure")
 
     requirement = tmp_path / "requirements" / "SR-001.md"
     feature = tmp_path / "docs" / "features" / "FEAT-017.md"
     spec = tmp_path / "docs" / "spec.md"
     plan = tmp_path / "docs" / "plan.md"
     task = tmp_path / "tasks" / "T-001-proof.md"
-    for path in (requirement, feature, spec, plan, task):
+    bundle = tmp_path / "bundles" / "FEAT-017.json"
+    for path in (requirement, feature, spec, plan, task, bundle):
         path.parent.mkdir(parents=True, exist_ok=True)
-    requirement.write_text("---\nid: SR-001\n---\nCurrent requirement.\n", encoding="utf-8")
-    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
-    spec.write_text("---\nid: SPEC-1\n---\nAuthored specification.\n", encoding="utf-8")
-    plan.write_text("---\nid: PLAN-1\n---\nAuthored implementation plan.\n", encoding="utf-8")
+    requirement.write_text(
+        "---\nid: SR-001\ntitle: Closure Proof\nstatement: The closure is proven.\n"
+        "domain: behavioral\nupstream: []\nsource: docs/spec.md#Goal\n---\nCurrent requirement.\n",
+        encoding="utf-8",
+    )
+    feature.write_text(
+        "---\nid: FEAT-017\ntitle: Closure proof coverage\nrequirements: [SR-001]\n---\n", encoding="utf-8",
+    )
+    spec.write_text(
+        "---\nid: SPEC-1\ntitle: Closure Specification\nstatus: draft\n---\n"
+        "# Goal\nThe goal is proven.\n", encoding="utf-8",
+    )
+    plan.write_text(
+        "---\nspec_ref: SPEC-1\n---\n# Closure Plan\n\n### Task 1: Proof\n\n**Files:**\n"
+        "- Create: `docs/closure.md`\n\n**Interfaces:**\n- Produces: `goal` support.\n",
+        encoding="utf-8",
+    )
     task.write_text("---\nid: T-001\ntitle: Documentation\nstatus: todo\ndod: []\n---\nDocument the plan.\n", encoding="utf-8")
+    bundle.write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}), encoding="utf-8",
+    )
 
     artifacts = [
         {"kind": kind, "path": path.relative_to(tmp_path).as_posix()}
-        for kind, path in (("requirements", requirement), ("feature", feature),
-                           ("spec", spec), ("plan", plan), ("task", task))
+        for kind, path in (
+            ("intent", tmp_path / ".intent" / "intent.json"), ("requirements", requirement),
+            ("feature", feature), ("spec", spec), ("plan", plan), ("bundle", bundle),
+        )
     ]
     artifacts.sort(key=lambda item: item["path"])
     assert planning_main([
@@ -442,9 +532,16 @@ def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
         encoding="utf-8",
     )
 
+    # The generated task is not a planning source kind, but the review requires it to be
+    # covered by the report, so it is listed as a reviewed artifact alongside the sources.
+    reviewed = sorted(
+        [{"path": item["path"], "sha256": _sha(tmp_path / item["path"])} for item in artifacts]
+        + [{"path": "tasks/T-001-proof.md", "sha256": _sha(task)}],
+        key=lambda item: item["path"],
+    )
     report = PlanningReport(
         1, run_id, True,
-        tuple({"path": item["path"], "sha256": _sha(tmp_path / item["path"])} for item in artifacts),
+        tuple(reviewed),
         (PlanningFinding("NOTE", "warning", "task", "clean task/relation review"),),
         (), True, None,
     )
@@ -455,7 +552,7 @@ def test_coordinated_closure_is_non_executing_and_ends_at_inspect_handoff(
     (run_dir / "review-decision.json").write_text(json.dumps({
         "schema": 1, "run_id": run_id, "decision": "approve", "reviewer": "human",
         "reason": "Reviewed authored spec, plan, and task relations.",
-        "reviewed_artifacts": [item["path"] for item in artifacts],
+        "reviewed_artifacts": [item["path"] for item in reviewed],
         "report_sha256": planning_report_digest(raw_report),
     }), encoding="utf-8")
 
