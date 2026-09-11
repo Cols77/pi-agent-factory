@@ -17,8 +17,8 @@ or Kanban state.
 - `uv` on `PATH`.
 - A checkout of this repository with its Coherence environment available to
   `uv run coherence`.
-- Run Hermes with this repository as its working directory (or otherwise set
-  the project root to this checkout).
+- Either run Hermes with this repository as its working directory, or point
+  `COHERENCE_PROJECT_ROOT` at it (see "Project root resolution" below).
 
 The backend command used by the adapter is an argv-only subprocess invocation:
 
@@ -29,6 +29,47 @@ uv run coherence plan legal-actions --project-root <project-root> --run-id <run-
 The adapter passes no shell command string and rejects a run ID containing path
 separators, whitespace, shell syntax, or other characters outside its safe
 run-ID grammar before invoking the backend.
+
+## Where the shared logic comes from
+
+The safety-critical logic lives in
+`src/coherence/planning/legal_actions_adapter.py`, shared with every other host
+adapter. This plugin loads that module **by file path** rather than with
+`import coherence.planning.legal_actions_adapter`.
+
+The package import would first execute `coherence/planning/__init__.py`, which
+eagerly imports the whole planning chain (`bootstrap` → `check` → `model` →
+`semantic` → `serialization` → `python-frontmatter`). A host process that only
+*wants to render a projection* would then need this project's full runtime
+installed in its own interpreter, on a matching Python version. The adapter
+module itself imports only the standard library, so loading it directly keeps
+the host's environment untouched while still executing this repository's source
+verbatim. There is no second copy of the logic to drift.
+
+## Project root resolution
+
+The backend is invoked with an explicit `--project-root`, resolved in this
+order:
+
+1. `COHERENCE_PROJECT_ROOT`, when set.
+2. The current working directory, when it is itself a checkout (it contains
+   `pyproject.toml` and `src/coherence`). This keeps the ordinary "run Hermes
+   from the repository" path — and `Path.cwd()` — unchanged.
+3. The checkout that owns the shared adapter, when the working directory is
+   not a checkout. This is what lets a host started elsewhere (a user-level
+   plugin install, for example) query this project anyway.
+4. The current working directory, as a last resort.
+
+Step 3 locates the checkout from `COHERENCE_REPO_ROOT`, else a `repo_root.txt`
+file written beside this plugin by an install that lives outside the checkout,
+else this file's own location when it is installed inside a checkout. A
+checkout that cannot be located is rendered as a planning block; it never
+raises into the host.
+
+| Variable | Meaning |
+|---|---|
+| `COHERENCE_REPO_ROOT` | The checkout holding `src/coherence/planning/legal_actions_adapter.py` |
+| `COHERENCE_PROJECT_ROOT` | The `--project-root` passed to the backend |
 
 ## Explicit opt-in activation
 
