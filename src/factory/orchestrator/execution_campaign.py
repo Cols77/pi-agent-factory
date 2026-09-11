@@ -140,7 +140,17 @@ class TestCampaign:
     runner: TestCampaignRunner
     flaky_registry: FlakyRegistry
     _baseline: TestSnapshot | None = field(default=None, init=False, repr=False)
-    _evaluated: set[TestSnapshot] = field(default_factory=set, init=False, repr=False)
+    # Completed classifications by pass snapshot, plus the bounded confirmation
+    # memo keyed on (pass snapshot, unlisted failed id). Keying on the snapshot
+    # identity makes classification idempotent per pass AND per id: a repeat of
+    # a pass, or a new pass whose run produced an identical snapshot, reuses the
+    # recorded confirmation instead of issuing another one.
+    _results: dict[TestSnapshot, CampaignResult] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _confirmations: dict[TestSnapshot, dict[str, TestSnapshot]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def capture_baseline(self, contract: ExecutionContract) -> TestSnapshot:
         """Run the required suite exactly once, before DEV."""
@@ -153,17 +163,20 @@ class TestCampaign:
     ) -> CampaignResult:
         """Compare against the baseline and classify every failure.
 
-        The once-only protection is keyed on the pass being evaluated -- the
-        snapshot this run produces -- not on the campaign's lifetime: the plan's
-        kernel captures the baseline once and evaluates every DEV pass (each
-        fixer revision and human retry) on the same injected campaign. The pass
-        identity is consumed the moment it is observed, so a retry of a pass
-        whose first evaluation raised still cannot re-run its confirmation.
+        Classification is idempotent per (pass snapshot, unlisted failed id):
+        every call classifies the pass its run produced -- a repeated call, or a
+        new pass whose run produced an identical snapshot, returns a result
+        rather than raising -- and each unlisted failed id still gets AT MOST
+        ONE bounded confirmation re-run per snapshot. The confirmation outcome
+        is recorded the moment it is observed, so a retry of a pass whose first
+        evaluation raised reuses it and re-raises instead of re-running it.
         """
         current = self.runner.run(contract)
-        if current in self._evaluated:
-            raise CampaignError("pass already evaluated; classification is once-only")
-        self._evaluated.add(current)
+        recorded = self._results.get(current)
+        if recorded is not None:
+            # A repeat evaluation, or a new pass with an identical snapshot:
+            # return the recorded classification without another confirmation.
+            return recorded
         failed = set(current.failed_ids)
         declared = set(current.declared_ids)
 
@@ -182,11 +195,18 @@ class TestCampaign:
         reruns: dict[str, int] = {}
         candidates: list[str] = []
         explained = regressions | pre_existing | flaky_ids
+        memo = self._confirmations.setdefault(current, {})
         for test_id in sorted(failed - explained):
             # An id with no baseline history (new or undeclared) is the only
-            # ambiguous case: exactly one bounded classification re-run.
+            # ambiguous case: exactly one bounded classification re-run per pass
+            # snapshot. The outcome is memoised on (snapshot, id) the moment it
+            # is observed, so a repeated evaluation -- or a retry after an error
+            # path -- reuses it instead of issuing another runner call.
+            confirmation = memo.get(test_id)
+            if confirmation is None:
+                confirmation = self.runner.run(contract)
+                memo[test_id] = confirmation
             reruns[test_id] = 1
-            confirmation = self.runner.run(contract)
             if not declared <= set(confirmation.declared_ids):
                 missing = sorted(declared - set(confirmation.declared_ids))
                 raise CampaignError(
@@ -209,6 +229,7 @@ class TestCampaign:
             failed_ids=frozenset(current.failed_ids),
             declared_ids=frozenset(current.declared_ids),
         )
+        self._results[current] = result
         return result
 
 

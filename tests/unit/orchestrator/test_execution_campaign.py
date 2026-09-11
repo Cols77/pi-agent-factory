@@ -259,6 +259,9 @@ def test_registered_flaky_failure_is_never_also_a_regression(tmp_path: Path) -> 
 
 
 def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
+    """D1 (updated, third cycle): a repeat evaluation of the same pass now
+    RETURNS the recorded classification instead of raising. The bounded
+    confirmation re-run is still never repeated."""
     same_pass = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
     runner = ScriptedCampaignRunner(
         [
@@ -270,11 +273,12 @@ def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
     )
     campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
     baseline = campaign.capture_baseline(contract_fixture(tmp_path))
-    campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    first = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert first.regressions == ("ghost",)
     assert runner.calls == 3
 
-    with pytest.raises(CampaignError):
-        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    repeat = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert repeat.regressions == ("ghost",)
     # Only the pass's own suite run; the confirmation is never repeated.
     assert runner.calls == 4
 
@@ -282,7 +286,8 @@ def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
 def test_successive_passes_evaluate_but_repeating_a_pass_is_refused(tmp_path: Path) -> None:
     """D1: the kernel injects ONE campaign, captures the baseline ONCE outside
     the loop, and evaluates inside ``while True:`` -- every DEV pass (each fixer
-    revision and human retry) needs its own evaluation."""
+    revision and human retry) needs its own evaluation. Updated (third cycle):
+    repeating a pass returns its recorded classification rather than raising."""
     regressing_pass = snapshot("a", failed=("b",), declared=("a", "b"))
     runner = ScriptedCampaignRunner(
         [
@@ -303,13 +308,98 @@ def test_successive_passes_evaluate_but_repeating_a_pass_is_refused(tmp_path: Pa
     assert second.regressions == ()
     assert second.pass_rate_gate_passed is True
 
-    with pytest.raises(CampaignError):
-        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    repeat = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert repeat.regressions == ("b",)
+    assert repeat.pass_rate_gate_passed is False
+    assert runner.calls == 4  # the repeat pass run only -- no extra confirmation
+
+
+def test_identical_snapshot_passes_both_classify_without_a_second_confirmation(
+    tmp_path: Path,
+) -> None:
+    """T1 (D1): two DEV passes whose runs produce an IDENTICAL snapshot -- the
+    'fixer pass left the same tests failing' path -- must BOTH classify. The
+    second reuses the recorded confirmation and adds no runner call."""
+    pass_snapshot = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline
+            pass_snapshot,  # pass 1: "ghost" has no baseline history
+            snapshot("a", "ghost"),  # confirmation run: "ghost" passes
+            pass_snapshot,  # pass 2 with an IDENTICAL snapshot
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    first = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert first.registry_candidates == ("ghost",)
+    assert first.classification_reruns == {"ghost": 1}
+    assert runner.calls == 3
+
+    second = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert second.registry_candidates == ("ghost",)
+    assert second.classification_reruns == {"ghost": 1}
+    # Pass 2's own suite run only: the confirmation for "ghost" is reused.
+    assert runner.calls == 4
+
+
+def test_repeat_evaluation_returns_the_recorded_classification(tmp_path: Path) -> None:
+    """T2 (D1): evaluating the SAME pass twice returns the recorded result and
+    does not issue another confirmation run for the same unlisted failed id."""
+    same_pass = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline
+            same_pass,  # the pass
+            snapshot("a", "ghost"),  # confirmation run: "ghost" passes
+            same_pass,  # the same pass again
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    first = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert first.classification_reruns == {"ghost": 1}
+    assert runner.calls == 3
+
+    repeat = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert repeat == first
+    assert runner.calls == 4
+
+
+def test_a_new_pass_with_a_different_snapshot_confirms_again(tmp_path: Path) -> None:
+    """T3 (D1): the confirmation memo is keyed on the snapshot identity, not the
+    campaign lifetime: a genuinely new pass with a different snapshot gets its
+    own confirmation for the same ambiguous id."""
+    pass_one = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
+    pass_two = snapshot("a", "ok", failed=("ghost",), declared=("a", "ok", "ghost"))
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),  # baseline
+            pass_one,
+            snapshot("a", "ghost"),  # pass 1 confirmation: "ghost" passes
+            pass_two,  # a genuinely new pass: different snapshot
+            snapshot("a", "ok", "ghost"),  # pass 2 confirmation: "ghost" passes
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    first = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert first.registry_candidates == ("ghost",)
+    assert runner.calls == 3
+
+    second = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert second.registry_candidates == ("ghost",)
+    # A fresh confirmation run for the new snapshot -- exactly one per pass.
+    assert runner.calls == 5
 
 
 def test_evaluation_guard_latches_on_the_error_path(tmp_path: Path) -> None:
-    """D2: a pass whose first evaluation RAISES is still consumed, so a retry of
-    the same pass cannot re-run the bounded confirmation."""
+    """T4 (D2): a pass whose first evaluation RAISES is still consumed, so a
+    retry of the same pass cannot re-run the bounded confirmation -- it reuses
+    the recorded outcome and raises the same error."""
     pass_snapshot = snapshot("a", failed=("ghost",), declared=("a", "ghost"))
     runner = ScriptedCampaignRunner(
         [
@@ -326,7 +416,7 @@ def test_evaluation_guard_latches_on_the_error_path(tmp_path: Path) -> None:
         campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
     assert runner.calls == 3
 
-    with pytest.raises(CampaignError, match="once-only"):
+    with pytest.raises(CampaignError, match="omits declared test ids"):
         campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
     assert runner.calls == 4  # the pass run only -- never a second confirmation
 
