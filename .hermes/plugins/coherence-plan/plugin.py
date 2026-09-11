@@ -65,15 +65,19 @@ def _repo_root() -> Path | None:
 
     Resolution order: the ``COHERENCE_REPO_ROOT`` override, a deployment marker
     file beside this plugin, then this file's own location when it is installed
-    inside a checkout. An explicit override is returned unchecked so a
-    misconfiguration fails loudly at the adapter load instead of silently
-    falling back to some other checkout.
+    inside a checkout. Every candidate -- the explicit override included -- is
+    accepted only when it actually carries the shared adapter, so a
+    misconfigured override falls through to the remaining candidates and
+    finally to ``None``: the failure surfaces as this plugin's own fail-closed
+    "no checkout found" message instead of an opaque error from loading a
+    nonexistent file.
     """
+    candidates: list[Path] = []
+
     override = os.environ.get(REPO_ROOT_ENV, "").strip()
     if override:
-        return Path(override)
+        candidates.append(Path(override))
 
-    candidates: list[Path] = []
     marker = Path(__file__).resolve().parent / _MARKER_NAME
     try:
         marker_text = marker.read_text(encoding="utf-8").strip()
@@ -130,14 +134,29 @@ def _load_adapter() -> ModuleType:
 
 
 def _run(raw_args: str) -> str:
+    """Render the planning projection, or a block, never a host-level raise.
+
+    ``_load_adapter()`` executes a file this plugin does not control, so the
+    load path can surface arbitrary exception types -- a missing checkout
+    (``FileNotFoundError``), an unreadable adapter file (``OSError``), a
+    foreign or API-incompatible adapter (``ImportError``, ``AttributeError``),
+    or a source file that does not even parse (``SyntaxError``). All of those
+    are rendered as ``"planning blocked: ..."`` rather than escaping into the
+    host. The required callables are bound inside the same handler so an
+    adapter that does not expose them is caught too; ``legal_actions_report``
+    itself is then invoked *outside* it, so a genuine backend result is never
+    swallowed by this guard.
+    """
     run_id = raw_args.strip()
     try:
         adapter = _load_adapter()
-    except (OSError, ImportError, ValueError) as exc:
+        is_safe_run_id = adapter.is_safe_run_id
+        legal_actions_report = adapter.legal_actions_report
+    except Exception as exc:  # deliberately broad: see the docstring above
         return f"planning blocked: {exc}"
-    if not adapter.is_safe_run_id(run_id):
+    if not is_safe_run_id(run_id):
         return "usage: /coherence-plan <run-id>"
-    return adapter.legal_actions_report(_project_root(), run_id)
+    return legal_actions_report(_project_root(), run_id)
 
 
 def register(ctx: Any) -> None:

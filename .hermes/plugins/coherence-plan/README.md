@@ -17,8 +17,14 @@ or Kanban state.
 - `uv` on `PATH`.
 - A checkout of this repository with its Coherence environment available to
   `uv run coherence`.
-- Either run Hermes with this repository as its working directory, or point
-  `COHERENCE_PROJECT_ROOT` at it (see "Project root resolution" below).
+- Either run Hermes with this repository as its working directory, or make the
+  checkout discoverable by the plugin itself so it can load the shared adapter:
+  set `COHERENCE_REPO_ROOT`, write the checkout path into a `repo_root.txt`
+  marker beside `plugin.py`, or install the plugin inside the checkout. An
+  out-of-tree install needs one of these; setting only
+  `COHERENCE_PROJECT_ROOT` is not enough, because that variable chooses the
+  `--project-root` passed to the backend and does not make the shared adapter
+  loadable (see "Project root resolution" below).
 
 The backend command used by the adapter is an argv-only subprocess invocation:
 
@@ -62,14 +68,28 @@ order:
 
 Step 3 locates the checkout from `COHERENCE_REPO_ROOT`, else a `repo_root.txt`
 file written beside this plugin by an install that lives outside the checkout,
-else this file's own location when it is installed inside a checkout. A
-checkout that cannot be located is rendered as a planning block; it never
-raises into the host.
+else this file's own location when it is installed inside a checkout. Every
+candidate is used only if it actually carries
+`src/coherence/planning/legal_actions_adapter.py` — the override included — so a
+misconfigured override falls through to the next candidate instead of failing
+at the load.
+
+A checkout that cannot be located, and an adapter that cannot be loaded from a
+located checkout (missing, unreadable, or not even parseable source, or a file
+that does not expose the adapter's API), are both rendered as a
+`planning blocked: ...` string; neither raises into the host.
 
 | Variable | Meaning |
 |---|---|
-| `COHERENCE_REPO_ROOT` | The checkout holding `src/coherence/planning/legal_actions_adapter.py` |
+| `COHERENCE_REPO_ROOT` | The checkout holding `src/coherence/planning/legal_actions_adapter.py`; used only when that file is actually there |
 | `COHERENCE_PROJECT_ROOT` | The `--project-root` passed to the backend |
+
+`repo_root.txt` is not ordinary configuration. It selects which Python source
+file the Hermes host process *executes* when `/coherence-plan` runs, so it
+carries the same trust level as `plugin.py` itself: a file that only a trusted
+writer can modify, and that must be write-protected accordingly. This plugin
+adds no hashing or pinning of the path it reads — the file system it is read
+from is the trust boundary.
 
 ## Explicit opt-in activation
 

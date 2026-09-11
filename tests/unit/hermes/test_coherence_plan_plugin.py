@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -286,31 +287,57 @@ def fake_run_recording(calls: list[list[str]], run_id: str):
     return fake_run
 
 
-def test_adapter_module_comes_from_the_checkout_not_the_installed_package() -> None:
-    """The shared logic is executed from this repository's source, so a host
-    cannot end up running a stale copy from its own site-packages."""
-    module, _, _ = register_command()
+def test_adapter_module_is_loaded_by_file_path_not_by_package_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared logic is executed from this repository's source file directly.
+
+    ``Path(adapter.__file__)`` alone does not prove *how* the module was
+    loaded: a package import of ``coherence.planning.legal_actions_adapter``
+    resolves to this same file in a checkout with the project installed, so
+    that assertion passes either way. What distinguishes file-path loading is
+    that the loaded module is never registered in ``sys.modules`` under the
+    package name -- a package import always leaves that entry behind. The
+    assertion therefore proves the file-path load path, not the site-packages
+    question the module docstring used to claim.
+    """
+    module = load_plugin()
+
+    # Another test module in the same session may already have imported the
+    # submodule as a package; clear it so the assertion observes only what this
+    # plugin's own load path does. monkeypatch restores it afterwards.
+    monkeypatch.delitem(
+        sys.modules, "coherence.planning.legal_actions_adapter", raising=False
+    )
 
     adapter = module._load_adapter()
 
     assert Path(adapter.__file__).resolve() == ADAPTER_PATH
+    assert "coherence.planning.legal_actions_adapter" not in sys.modules
     assert adapter.is_safe_run_id("run-001")
 
 
 def test_loading_the_adapter_does_not_import_the_planning_package() -> None:
-    """The adapter is loaded by file path, so executing this plugin never runs
-    ``coherence/planning/__init__.py`` -- which would pull this project's full
+    """Loading the adapter by file path -- all the way through
+    ``_load_adapter()``, not merely importing this plugin module -- never runs
+    ``coherence/planning/__init__.py``, which would pull this project's full
     runtime (``python-frontmatter`` and the rest of the planning chain) into
     whatever interpreter is hosting Hermes.
 
-    Regression guard for a host process that does not have those dependencies
-    installed, which is the normal case for a user-level plugin install.
+    The probe runs in a fresh interpreter (so ``sys.modules`` starts empty) and
+    calls ``_load_adapter()`` for real, with the checkout supplied through
+    ``COHERENCE_REPO_ROOT`` so resolution succeeds. That is what makes this a
+    regression guard for the load path itself: a package import injected
+    anywhere inside ``_load_adapter()`` shows up as ``planning_imported=True``.
     """
     program = (
         "import importlib.util, sys\n"
+        "from pathlib import Path\n"
         "spec = importlib.util.spec_from_file_location('probe', sys.argv[1])\n"
         "module = importlib.util.module_from_spec(spec)\n"
         "spec.loader.exec_module(module)\n"
+        "adapter = module._load_adapter()\n"
+        "print('adapter_file=' + str(Path(adapter.__file__).resolve()))\n"
         "print('planning_imported=' + str('coherence.planning' in sys.modules))\n"
         "print('has_loader=' + str(hasattr(module, '_load_adapter')))\n"
     )
@@ -321,8 +348,10 @@ def test_loading_the_adapter_does_not_import_the_planning_package() -> None:
         capture_output=True,
         text=True,
         check=True,
+        env={**os.environ, "COHERENCE_REPO_ROOT": str(REPO_ROOT)},
     )
 
+    assert f"adapter_file={ADAPTER_PATH}" in result.stdout
     assert "planning_imported=False" in result.stdout
     assert "has_loader=True" in result.stdout
 
@@ -382,15 +411,30 @@ def test_deployment_marker_points_an_out_of_tree_install_at_the_checkout(
 def test_unresolvable_checkout_blocks_instead_of_raising(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A misconfigured checkout path is a planning block, never a host crash."""
-    _, _, (_, handler) = register_command()
+    """No candidate can supply the adapter, so ``_repo_root()`` returns ``None``
+    and ``_load_adapter()`` raises the plugin's own ``FileNotFoundError``, which
+    ``_run`` renders as a block.
+
+    This takes the plugin's own ``root is None`` guard: both env overrides are
+    cleared (an override that does not carry the adapter is now skipped like
+    any other candidate), and ``__file__`` points at a marker-less out-of-tree
+    install directory, so neither the ``repo_root.txt`` marker nor
+    self-location can reach a checkout. That is what makes the None branch --
+    not ``exec_module``'s errno from a bogus override path -- the branch under
+    test.
+    """
+    module, _, (_, handler) = register_command()
+    install = tmp_path / "plugins" / "coherence-plan"
+    install.mkdir(parents=True)
+    monkeypatch.setattr(module, "__file__", str(install / "plugin.py"))
     calls: list[Any] = []
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
-    monkeypatch.setenv("COHERENCE_REPO_ROOT", str(tmp_path))
-    monkeypatch.setenv("COHERENCE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.delenv("COHERENCE_REPO_ROOT", raising=False)
+    monkeypatch.delenv("COHERENCE_PROJECT_ROOT", raising=False)
 
     output = invoke(handler, "run-013")
 
     assert calls == []
     assert output.startswith("planning blocked:")
+    assert "no pi-agent-factory checkout found" in output
     assert "legal_actions_adapter" in output
