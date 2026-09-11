@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-034",
+  "artifact_ref": "artifact:requirements/SR-034.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-034",
+      "action": "accept",
+      "reason": "SR-034 accepted as the governing requirement for the FEAT-013 governed execution driver. Re-sourced to the current authority spec (docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md#1. Requirement served) before consent, because the previous source cited the superseded 2026-08-27 capture-to-spec design. Consent given by the project owner in an interactive Hermes session on 2026-09-11, after plan revision ff749854 (six plan-stage decisions recorded in the plan Status section) and independent review rounds. No implementation or adoption is claimed by this decision.",
+      "review_after": null,
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-11T03:25:49Z",
+  "decided_by": "Cols77",
+  "content_checksum": "sha256:efaf3a9ac0613ec20f8285f43cc657e6e68affdb899da2500048c892773a8796"
+}
