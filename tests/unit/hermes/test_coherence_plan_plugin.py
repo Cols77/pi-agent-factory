@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
 
-from tests.unit._legal_actions_json import completed_json
+from tests.unit._legal_actions_json import completed_json, valid_payload
 
 pytestmark = pytest.mark.unit
 
@@ -265,3 +266,131 @@ def test_rejects_malformed_projection_contract(
     output = invoke(handler, "run-006")
 
     assert output.startswith("planning blocked: invalid planning legal-actions response")
+
+
+REPO_ROOT = PLUGIN_PATH.parents[3].resolve()
+ADAPTER_PATH = REPO_ROOT / "src" / "coherence" / "planning" / "legal_actions_adapter.py"
+
+# 0-based index of the ``--project-root`` value in the backend argv.
+PROJECT_ROOT_ARG = 6
+
+
+def fake_run_recording(calls: list[list[str]], run_id: str):
+    """A `subprocess.run` replacement that records argv and returns a valid payload."""
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(command)
+        return completed_json(valid_payload(run_id=run_id))
+
+    return fake_run
+
+
+def test_adapter_module_comes_from_the_checkout_not_the_installed_package() -> None:
+    """The shared logic is executed from this repository's source, so a host
+    cannot end up running a stale copy from its own site-packages."""
+    module, _, _ = register_command()
+
+    adapter = module._load_adapter()
+
+    assert Path(adapter.__file__).resolve() == ADAPTER_PATH
+    assert adapter.is_safe_run_id("run-001")
+
+
+def test_loading_the_adapter_does_not_import_the_planning_package() -> None:
+    """The adapter is loaded by file path, so executing this plugin never runs
+    ``coherence/planning/__init__.py`` -- which would pull this project's full
+    runtime (``python-frontmatter`` and the rest of the planning chain) into
+    whatever interpreter is hosting Hermes.
+
+    Regression guard for a host process that does not have those dependencies
+    installed, which is the normal case for a user-level plugin install.
+    """
+    program = (
+        "import importlib.util, sys\n"
+        "spec = importlib.util.spec_from_file_location('probe', sys.argv[1])\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "print('planning_imported=' + str('coherence.planning' in sys.modules))\n"
+        "print('has_loader=' + str(hasattr(module, '_load_adapter')))\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", program, str(PLUGIN_PATH)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "planning_imported=False" in result.stdout
+    assert "has_loader=True" in result.stdout
+
+
+def test_project_root_override_reaches_the_backend_argv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _, _, (_, handler) = register_command()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "run", fake_run_recording(calls, "run-010"))
+    monkeypatch.setenv("COHERENCE_PROJECT_ROOT", str(tmp_path))
+
+    invoke(handler, "run-010")
+
+    assert len(calls) == 1
+    assert calls[0][PROJECT_ROOT_ARG] == str(tmp_path)
+
+
+def test_project_root_falls_back_to_the_checkout_when_cwd_is_not_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A host started outside the checkout (a user-level install) still queries
+    this project rather than failing or silently using the wrong root."""
+    _, _, (_, handler) = register_command()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "run", fake_run_recording(calls, "run-011"))
+    monkeypatch.delenv("COHERENCE_PROJECT_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    invoke(handler, "run-011")
+
+    assert len(calls) == 1
+    assert calls[0][PROJECT_ROOT_ARG] == str(REPO_ROOT)
+
+
+def test_deployment_marker_points_an_out_of_tree_install_at_the_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An install that does not live inside the checkout (a user-level Hermes
+    plugin) declares the checkout via ``repo_root.txt`` beside the plugin."""
+    module, _, (_, handler) = register_command()
+    install = tmp_path / "plugins" / "coherence-plan"
+    install.mkdir(parents=True)
+    (install / "repo_root.txt").write_text(str(REPO_ROOT), encoding="utf-8")
+    monkeypatch.setattr(module, "__file__", str(install / "plugin.py"))
+    monkeypatch.delenv("COHERENCE_REPO_ROOT", raising=False)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "run", fake_run_recording(calls, "run-012"))
+    monkeypatch.chdir(tmp_path)
+
+    invoke(handler, "run-012")
+
+    assert len(calls) == 1
+    assert calls[0][PROJECT_ROOT_ARG] == str(REPO_ROOT)
+
+
+def test_unresolvable_checkout_blocks_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A misconfigured checkout path is a planning block, never a host crash."""
+    _, _, (_, handler) = register_command()
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setenv("COHERENCE_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("COHERENCE_PROJECT_ROOT", str(tmp_path))
+
+    output = invoke(handler, "run-013")
+
+    assert calls == []
+    assert output.startswith("planning blocked:")
+    assert "legal_actions_adapter" in output
