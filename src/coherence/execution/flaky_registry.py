@@ -20,6 +20,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from coherence.deferrals import _parse_instant
@@ -129,6 +130,20 @@ def _validate_test_id(test_id: str) -> None:
         raise FlakyRegistryError(f"unsafe test id (path escape): {test_id!r}")
 
 
+def _aware_instant(value: str, field: str) -> datetime:
+    """A validated, timezone-aware ISO instant; naive or non-ISO input raises."""
+    try:
+        _parse_instant(value)
+    except ValueError as exc:
+        raise FlakyRegistryError(f"invalid {field}: {value!r}") from exc
+    normalized = value.strip()
+    if normalized[-1] in "Zz":
+        normalized = normalized[:-1] + "+00:00"
+    if datetime.fromisoformat(normalized).tzinfo is None:
+        raise FlakyRegistryError(f"{field} must carry a timezone offset: {value!r}")
+    return _parse_instant(value)
+
+
 def _validate_record(payload: object, requested_id: str) -> FlakyRecord:
     if not isinstance(payload, dict):
         raise FlakyRegistryError("flaky record must be a JSON object")
@@ -152,18 +167,16 @@ def _validate_record(payload: object, requested_id: str) -> FlakyRecord:
     decided_at = payload.get("decided_at")
     if not isinstance(decided_at, str):
         raise FlakyRegistryError("flaky record requires a string decided_at")
-    try:
-        _parse_instant(decided_at)
-    except ValueError as exc:
-        raise FlakyRegistryError(f"invalid decided_at: {decided_at!r}") from exc
+    decided_instant = _aware_instant(decided_at, "decided_at")
     review_after = payload.get("review_after")
     if review_after is not None:
         if not isinstance(review_after, str):
             raise FlakyRegistryError("review_after must be an ISO instant or null")
-        try:
-            _parse_instant(review_after)
-        except ValueError as exc:
-            raise FlakyRegistryError(f"invalid review_after: {review_after!r}") from exc
+        review_instant = _aware_instant(review_after, "review_after")
+        if review_instant <= decided_instant:
+            raise FlakyRegistryError(
+                f"review_after {review_after!r} must be after decided_at {decided_at!r}"
+            )
     return FlakyRecord(
         schema=SCHEMA,
         test_id=test_id,

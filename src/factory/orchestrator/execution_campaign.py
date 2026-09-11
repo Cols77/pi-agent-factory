@@ -99,6 +99,29 @@ class CampaignResult:
                 raise CampaignError(
                     f"{test_id!r} must get exactly one classification re-run, got {count}"
                 )
+        # Every classified id must be a declared failure; a disposition can never
+        # name a test outside the campaign's own failed/declared set.
+        for name, ids in (
+            ("regressions", self.regressions),
+            ("pre_existing_failures", self.pre_existing_failures),
+            ("flaky_ids", self.flaky_ids),
+            ("registry_candidates", self.registry_candidates),
+        ):
+            unknown = frozenset(ids) - failed
+            if unknown:
+                raise CampaignError(f"{name} escape the failed test id set: {sorted(unknown)}")
+            undeclared = frozenset(ids) - declared
+            if undeclared:
+                raise CampaignError(
+                    f"{name} escape the declared test id set: {sorted(undeclared)}"
+                )
+        overlap = frozenset(self.regressions) & frozenset(self.flaky_ids)
+        if overlap:
+            raise CampaignError(
+                f"an id cannot be both a regression and a known flake: {sorted(overlap)}"
+            )
+        if self.pass_rate_gate_passed and failed:
+            raise CampaignError("pass rate gate cannot pass while failures remain")
 
 
 @dataclass
@@ -111,6 +134,7 @@ class TestCampaign:
     runner: TestCampaignRunner
     flaky_registry: FlakyRegistry
     _baseline: TestSnapshot | None = field(default=None, init=False, repr=False)
+    _result: CampaignResult | None = field(default=None, init=False, repr=False)
 
     def capture_baseline(self, contract: ExecutionContract) -> TestSnapshot:
         """Run the required suite exactly once, before DEV."""
@@ -122,8 +146,13 @@ class TestCampaign:
         self, contract: ExecutionContract, baseline: TestSnapshot
     ) -> CampaignResult:
         """Compare against the baseline and classify every failure."""
+        if self._result is not None:
+            # One campaign, one classification: a repeat call would add a second
+            # confirmation run for the same unlisted failure.
+            raise CampaignError("campaign already evaluated; classification is once-only")
         current = self.runner.run(contract)
         failed = set(current.failed_ids)
+        declared = set(current.declared_ids)
 
         # A declared test that passed before and fails now is a regression,
         # independent of any registry entry.
@@ -132,6 +161,8 @@ class TestCampaign:
         pre_existing = set(baseline.failed_ids) & failed
         # Registered known-flaky failures run non-blocking and are recorded.
         flaky_ids = {test_id for test_id in failed if self.flaky_registry.is_registered(test_id)}
+        # Registry membership wins: a known flake is never also a blocking regression.
+        regressions -= flaky_ids
 
         reruns: dict[str, int] = {}
         candidates: list[str] = []
@@ -141,12 +172,17 @@ class TestCampaign:
             # ambiguous case: exactly one bounded classification re-run.
             reruns[test_id] = 1
             confirmation = self.runner.run(contract)
+            if not declared <= set(confirmation.declared_ids):
+                missing = sorted(declared - set(confirmation.declared_ids))
+                raise CampaignError(
+                    f"confirmation run omits declared test ids: {missing}"
+                )
             if test_id in confirmation.failed_ids:
                 regressions.add(test_id)
             else:
                 candidates.append(test_id)
 
-        return CampaignResult(
+        result = CampaignResult(
             snapshot=current,
             regressions=tuple(sorted(regressions)),
             pre_existing_failures=tuple(sorted(pre_existing)),
@@ -158,6 +194,8 @@ class TestCampaign:
             failed_ids=frozenset(current.failed_ids),
             declared_ids=frozenset(current.declared_ids),
         )
+        self._result = result
+        return result
 
 
 __all__ = [

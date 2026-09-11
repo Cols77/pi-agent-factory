@@ -63,6 +63,13 @@ class ReviewSwarmResult:
     reviews: tuple[ReviewResult, ...]
     completed_at: datetime
 
+    def __post_init__(self) -> None:
+        lanes = tuple(review.lane for review in self.reviews)
+        if sorted(lanes) != sorted(REVIEW_LANES):
+            raise ReviewProtocolError(
+                f"swarm result must carry exactly {list(REVIEW_LANES)}, got {list(lanes)}"
+            )
+
     def review_for(self, lane: Lane) -> ReviewResult:
         """Closed-lane lookup: exactly one review per declared lane, or raise."""
         if lane not in REVIEW_LANES:
@@ -119,6 +126,11 @@ def _run_one_review(
         captured.append(session_id)
 
     result = backend.run(AgentRole.REVIEW, prompt, on_session_id=_capture)
+    if not result.ok:
+        # A failed lane run is not a completed review: fail the swarm closed.
+        raise ReviewProtocolError(
+            f"{lane}: review lane interrupted (ok=False, interruption={result.interruption!r})"
+        )
     session_id = (captured[-1] if captured else None) or (result.session_id or "")
     if not session_id.strip():
         raise ReviewProtocolError(f"{lane}: review session id is missing")
@@ -151,7 +163,14 @@ def run_review_swarm(
             )
             for lane in REVIEW_LANES
         }
-        reviews = [futures[lane].result() for lane in REVIEW_LANES]
+        reviews: list[ReviewResult] = []
+        for lane in REVIEW_LANES:
+            try:
+                reviews.append(futures[lane].result())
+            except ReviewProtocolError:
+                raise
+            except Exception as exc:
+                raise ReviewProtocolError(f"{lane}: review lane raised {exc!r}") from exc
 
     session_ids = [review.session_id for review in reviews]
     if len(set(session_ids)) != len(session_ids):

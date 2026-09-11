@@ -156,16 +156,83 @@ def test_review_for_is_a_closed_lane_lookup(tmp_path: Path) -> None:
         findings=(),
         dod_met=True,
     )
-    complete = ReviewSwarmResult((review,), datetime.now(timezone.utc))
+    quality = ReviewResult(
+        lane="quality-review",
+        result=AgentResult(ok=True, output={}, session_id="t"),
+        session_id="t",
+        findings=(),
+        dod_met=True,
+    )
+    complete = ReviewSwarmResult((review, quality), datetime.now(timezone.utc))
 
-    with pytest.raises(ReviewProtocolError):
-        complete.review_for("quality-review")  # missing lane
     with pytest.raises(ReviewProtocolError):
         complete.review_for("fixer")  # unknown lane  # type: ignore[arg-type]
+    assert complete.review_for("spec-review") is review
+    assert complete.review_for("quality-review") is quality
 
-    duplicated = ReviewSwarmResult(
-        (review, ReviewResult("spec-review", review.result, "t", (), True)),
-        datetime.now(timezone.utc),
+
+class _FailedLaneBackend:
+    """Every lane run FAILS (ok=False) while still reporting dod_met=True."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._n = 0
+
+    def run(self, role, prompt, on_snippet=None, on_session_id=None):  # noqa: ANN001
+        with self._lock:
+            self._n += 1
+            session = f"failed-session-{self._n}"
+        if on_session_id is not None:
+            on_session_id(session)
+        return AgentResult(ok=False, output={"findings": [], "dod_met": True}, session_id=session)
+
+
+class _RaisingLaneBackend:
+    """Each lane raises a non-protocol error that must be wrapped."""
+
+    def run(self, role, prompt, on_snippet=None, on_session_id=None):  # noqa: ANN001
+        lane = "spec" if "SPEC-COMPLIANCE" in prompt else "quality"
+        raise ValueError(f"boom-{lane}")
+
+
+def test_failed_review_lane_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(ReviewProtocolError, match="spec-review|quality-review"):
+        run_review_swarm(
+            backend=_FailedLaneBackend(),
+            task=task_fixture(tmp_path),
+            contract=contract_fixture(tmp_path / "worktree"),
+            manifest={},
+            events=[],
+        )
+
+
+def test_swarm_result_requires_both_lanes_and_wraps_lane_errors(tmp_path: Path) -> None:
+    spec = ReviewResult(
+        lane="spec-review",
+        result=AgentResult(ok=True, output={}, session_id="s"),
+        session_id="s",
+        findings=(),
+        dod_met=True,
     )
+    quality = ReviewResult(
+        lane="quality-review",
+        result=AgentResult(ok=True, output={}, session_id="t"),
+        session_id="t",
+        findings=(),
+        dod_met=True,
+    )
+    # A one-lane (or duplicate-lane) result object is not a completed swarm.
     with pytest.raises(ReviewProtocolError):
-        duplicated.review_for("spec-review")
+        ReviewSwarmResult((spec,), datetime.now(timezone.utc))
+    with pytest.raises(ReviewProtocolError):
+        ReviewSwarmResult((spec, spec), datetime.now(timezone.utc))
+    # A non-protocol lane exception is surfaced as ReviewProtocolError.
+    with pytest.raises(ReviewProtocolError, match="boom-"):
+        run_review_swarm(
+            backend=_RaisingLaneBackend(),
+            task=task_fixture(tmp_path),
+            contract=contract_fixture(tmp_path / "worktree"),
+            manifest={},
+            events=[],
+        )
+    assert quality.lane == "quality-review"

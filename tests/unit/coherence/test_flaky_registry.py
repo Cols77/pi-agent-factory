@@ -147,3 +147,55 @@ def test_read_flaky_is_a_read_only_driver_path(tmp_path: Path) -> None:
     with pytest.raises(FlakyRegistryError):
         read_flaky(tmp_path, "tests/test_feature.py::test_never_registered")
     assert not (tmp_path / "flaky-tests").exists()
+
+
+def test_registry_rejects_expired_or_naive_instants(tmp_path: Path) -> None:
+    # An expiry at/before the decision instant can never come due.
+    with pytest.raises(FlakyRegistryError, match="review_after"):
+        register_flaky(
+            tmp_path,
+            TEST_ID,
+            reason="r",
+            decided_by="human",
+            decided_at="2026-09-11T00:00:00Z",
+            review_after="2020-01-01T00:00:00Z",
+        )
+    # Timezone-less (naive) instants are not instants.
+    with pytest.raises(FlakyRegistryError, match="decided_at"):
+        register_flaky(
+            tmp_path,
+            TEST_ID,
+            reason="r",
+            decided_by="human",
+            decided_at="2026-09-10T00:00:00",
+            review_after=None,
+        )
+    with pytest.raises(FlakyRegistryError, match="review_after"):
+        register_flaky(
+            tmp_path,
+            TEST_ID,
+            reason="r",
+            decided_by="human",
+            decided_at="2026-09-10T00:00:00Z",
+            review_after="2026-12-10T00:00:00",
+        )
+    # Nothing was written by a rejected record.
+    assert not (tmp_path / "flaky-tests").exists()
+
+    path = flaky_path(tmp_path, TEST_ID)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "test_id": TEST_ID,
+                "reason": "r",
+                "decided_by": "human",
+                "decided_at": "2026-09-11T00:00:00Z",
+                "review_after": "2020-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(FlakyRegistryError):
+        read_flaky(tmp_path, TEST_ID)

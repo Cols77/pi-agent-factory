@@ -197,3 +197,80 @@ def test_campaign_types_fail_closed_on_incomplete_or_out_of_range_results() -> N
             failed_ids=frozenset(),  # omits the declared failure
             declared_ids=frozenset({"a"}),  # omits "b"
         )
+
+
+def test_campaign_result_rejects_inconsistent_classification_sets() -> None:
+    good = snapshot("a", failed=("b",))
+
+    def result(**overrides: object) -> CampaignResult:
+        kwargs: dict[str, object] = {
+            "regressions": (),
+            "pre_existing_failures": (),
+            "flaky_ids": (),
+            "registry_candidates": (),
+            "classification_reruns": {},
+            "pass_rate_gate_passed": False,
+            "failed_ids": frozenset({"b"}),
+            "declared_ids": frozenset({"a", "b"}),
+        }
+        kwargs.update(overrides)
+        return CampaignResult(snapshot=good, **kwargs)  # type: ignore[arg-type]
+
+    # Control: a coherent result is accepted.
+    assert result(regressions=("b",)).regressions == ("b",)
+
+    for call in (
+        lambda: result(regressions=("ghost",)),  # M1a: not in failed_ids
+        lambda: result(pass_rate_gate_passed=True),  # M1b: gate with a live failure
+        lambda: result(pre_existing_failures=("ghost",)),  # M1c: not in failed_ids
+        lambda: result(registry_candidates=("ghost",)),  # M1d: not in failed_ids
+        lambda: result(regressions=("b",), flaky_ids=("b",)),  # overlapping disposition
+    ):
+        with pytest.raises(CampaignError):
+            call()
+
+
+def test_confirmation_run_must_cover_the_declared_set(tmp_path: Path) -> None:
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),
+            snapshot("a", failed=("ghost",), declared=("a", "ghost")),
+            snapshot("a"),  # confirmation drops the undeclared id entirely
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+
+    with pytest.raises(CampaignError):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+
+
+def test_registered_flaky_failure_is_never_also_a_regression(tmp_path: Path) -> None:
+    runner = ScriptedCampaignRunner(
+        [snapshot("known"), snapshot(failed=("known",), declared=("known",))]
+    )
+    campaign = TestCampaign(runner, flaky_registry=HumanFlakyRegistry({"known"}))
+
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+    outcome = campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+
+    assert outcome.regressions == ()
+    assert outcome.flaky_ids == ("known",)
+
+
+def test_repeat_confirmation_run_is_refused(tmp_path: Path) -> None:
+    runner = ScriptedCampaignRunner(
+        [
+            snapshot("a"),
+            snapshot("a", failed=("ghost",), declared=("a", "ghost")),
+            snapshot("a", failed=("ghost",), declared=("a", "ghost")),
+        ]
+    )
+    campaign = TestCampaign(runner, flaky_registry=EmptyFlakyRegistry())
+    baseline = campaign.capture_baseline(contract_fixture(tmp_path))
+    campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert runner.calls == 3
+
+    with pytest.raises(CampaignError):
+        campaign.evaluate_after_dev(contract_fixture(tmp_path), baseline)
+    assert runner.calls == 3
