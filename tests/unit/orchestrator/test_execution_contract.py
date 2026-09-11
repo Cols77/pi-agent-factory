@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError
+from pathlib import Path
+
+import pytest
+
+from factory.orchestrator.execution_contract import ExecutionContract, WorkerAssignment
+from factory.orchestrator.types import AgentRole
+
+pytestmark = pytest.mark.unit
+
+
+def test_contract_hash_is_stable_and_binds_all_execution_inputs(tmp_path: Path) -> None:
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="governed-execution/v1",
+        workspace=tmp_path / "worktree",
+        required_gates=("unit", "full"),
+        satisfies=("SR-034", "SR-049"),
+        plan_ref="docs/superpowers/plans/plan.md",
+        spec_ref="docs/superpowers/specs/spec.md",
+        max_fixer_iterations=2,
+    )
+
+    assert len(contract.contract_sha256) == 64
+    assert contract.contract_sha256 == contract.rebuild_hash()
+    assert contract.to_dict()["workspace"] == (tmp_path / "worktree").as_posix()
+
+
+def test_contract_and_worker_assignment_are_frozen(tmp_path: Path) -> None:
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="v1",
+        workspace=tmp_path,
+        required_gates=("unit",),
+        satisfies=(),
+        plan_ref=None,
+        spec_ref=None,
+        max_fixer_iterations=1,
+    )
+    assignment = WorkerAssignment("spec-review", AgentRole.REVIEW, "prompt", tmp_path)
+
+    with pytest.raises(FrozenInstanceError):
+        contract.max_fixer_iterations = 2  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        assignment.workspace = Path("other")  # type: ignore[misc]
+
+
+def test_build_rejects_blank_ids_duplicate_gates_and_relative_workspace(tmp_path: Path) -> None:
+    base = {
+        "run_id": "run-013",
+        "task_id": "T-013",
+        "workflow_version": "v1",
+        "workspace": tmp_path,
+        "required_gates": ("unit",),
+        "satisfies": ("SR-034",),
+        "plan_ref": None,
+        "spec_ref": None,
+        "max_fixer_iterations": 1,
+    }
+
+    with pytest.raises(ValueError):
+        ExecutionContract.build(**{**base, "run_id": "  "})
+    with pytest.raises(ValueError):
+        ExecutionContract.build(**{**base, "required_gates": ("unit", "unit")})
+    with pytest.raises(ValueError):
+        ExecutionContract.build(**{**base, "satisfies": ("SR-034", "SR-034")})
+    with pytest.raises(ValueError):
+        ExecutionContract.build(**{**base, "workspace": Path("relative")})
+    with pytest.raises(ValueError):
+        ExecutionContract.build(**{**base, "max_fixer_iterations": 0})
+
+
+def test_for_lane_is_the_one_lane_to_role_to_prompt_mapping(tmp_path: Path) -> None:
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="v1",
+        workspace=tmp_path,
+        required_gates=("unit",),
+        satisfies=("SR-049",),
+        plan_ref=None,
+        spec_ref=None,
+        max_fixer_iterations=1,
+    )
+    workspace = tmp_path / "worktree"
+
+    dev = WorkerAssignment.for_lane(contract, "dev", workspace)
+    fixer = WorkerAssignment.for_lane(contract, "fixer", workspace)
+    spec_review = WorkerAssignment.for_lane(contract, "spec-review", workspace)
+    quality_review = WorkerAssignment.for_lane(contract, "quality-review", workspace)
+
+    assert dev.role is AgentRole.DEV
+    assert fixer.role is AgentRole.DEV
+    assert spec_review.role is AgentRole.REVIEW
+    assert quality_review.role is AgentRole.REVIEW
+    assert {a.lane for a in (dev, fixer, spec_review, quality_review)} == {
+        "dev",
+        "fixer",
+        "spec-review",
+        "quality-review",
+    }
+    assert all(a.workspace == workspace for a in (dev, fixer, spec_review, quality_review))
+    for assignment in (dev, fixer, spec_review, quality_review):
+        assert contract.contract_sha256 in assignment.prompt
+        assert workspace.resolve().as_posix() in assignment.prompt
+    with pytest.raises(ValueError):
+        WorkerAssignment.for_lane(contract, "scheduler", workspace)  # type: ignore[arg-type]
