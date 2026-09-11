@@ -99,7 +99,7 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
     feature = root / "docs" / "features" / "FEAT-017.md"
     feature.parent.mkdir(exist_ok=True)
     feature.write_text(
-        "---\nid: FEAT-017\nrequirements: [SR-001]\n---\n",
+        "---\nid: FEAT-017\ntitle: Planning gate coverage\nrequirements: [SR-001]\n---\n",
         encoding="utf-8",
     )
     requirement = root / "requirements" / "SR-001.md"
@@ -195,6 +195,40 @@ def test_full_gate_evidence_covers_sources_decisions_and_selected_workflow(tmp_p
                  ".factory/planning/run-001/consent/SR-001.json", ".factory/planning/run-001/review-decision.json",
                  ".factory/planning/run-001/cross-artifact-review.json"):
         assert evidence[path] == _sha(tmp_path / path)
+
+
+@pytest.mark.parametrize("spec_ref", ["docs/spec.md", "spec:SPEC-1"])
+def test_full_gate_accepts_established_spec_reference_forms(tmp_path: Path, spec_ref: str) -> None:
+    _write_current_planning_evidence(tmp_path)
+    plan = tmp_path / "docs/plan.md"
+    plan.write_text(plan.read_text(encoding="utf-8").replace("spec_ref: SPEC-1", f"spec_ref: {spec_ref}"), encoding="utf-8")
+    _refresh_full_review(tmp_path)
+    write_cross_artifact_review(tmp_path, "run-001", {})
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert validate_planning_gate_result(tmp_path, "run-001", pack) == result
+
+
+@pytest.mark.parametrize("mutation", ["missing-title", "unrelated-claims", "numeric-upstream"])
+def test_full_gate_rechecks_fresh_hash_consistent_planning_sources(tmp_path: Path, mutation: str) -> None:
+    _write_current_planning_evidence(tmp_path)
+    if mutation == "missing-title":
+        spec = tmp_path / "docs/spec.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace("title: Specification\n", ""), encoding="utf-8")
+    elif mutation == "unrelated-claims":
+        for path in (tmp_path / "docs/spec.md", tmp_path / "docs/plan.md"):
+            path.write_text(path.read_text(encoding="utf-8").replace("claim:goal", "claim:unrelated"), encoding="utf-8")
+    else:
+        requirement = tmp_path / "requirements/SR-001.md"
+        requirement.write_text(requirement.read_text(encoding="utf-8").replace("upstream: []", "upstream: [123]"), encoding="utf-8")
+        write_sr_decision(tmp_path, "run-001", "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed current source.")
+    _refresh_full_review(tmp_path)
+    write_cross_artifact_review(tmp_path, "run-001", {})
+    pack = compile_planning_gate_pack("FEAT-017", "v1")
+    result = evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    assert result["executions"][-1]["status"] == "fail"
+    with pytest.raises(PlanningGateError):
+        validate_planning_gate_result(tmp_path, "run-001", pack)
 
 
 def _publish_result(root: Path, payload: dict[str, object], run_id: str = "run-001") -> None:

@@ -13,8 +13,16 @@ import yaml
 
 from coherence.planning.anchors import authority_anchor_matches
 from coherence.planning.artifacts import ArtifactError, read_artifact_manifest
+from coherence.planning.check import (
+    _CLAIM_RE,
+    _REQUIRED_SPEC_FIELDS,
+    _check_planning_references,
+    _has_token,
+    _spec_ref_matches,
+)
 from coherence.planning.consent import validate_sr_decisions
 from coherence.planning.intent import IntentError, read_intent, validate_intent
+from coherence.planning.model import PlanningFinding
 from coherence.planning.paths import safe_resolve, safe_root
 from coherence.planning.serialization import strict_frontmatter_loads, strict_json_loads
 from coherence.planning.review import GeneratedTaskReviewInput, review_cross_artifact_relations
@@ -310,12 +318,34 @@ def _required_planning_sources(
         raise PlanningGateError("captured intent is not current and valid")
     spec_metadata = _read_metadata(spec_path)
     plan_metadata = _read_metadata(plan_path)
-    if (
-        spec_metadata is None or plan_metadata is None
-        or not isinstance(spec_metadata.get("id"), str) or not spec_metadata["id"].strip()
-        or plan_metadata.get("spec_ref") != spec_metadata["id"]
+    if spec_metadata is None or plan_metadata is None:
+        raise PlanningGateError("captured intent, specification, and plan are not aligned")
+    if any(
+        not isinstance(spec_metadata.get(field), str) or not str(spec_metadata[field]).strip()
+        for field in _REQUIRED_SPEC_FIELDS
     ):
-        raise PlanningGateError("specification and plan are not aligned")
+        raise PlanningGateError("specification has incomplete required fields")
+    spec_ref = plan_metadata.get("spec_ref")
+    if not isinstance(spec_ref, str) or not _spec_ref_matches(
+        spec_ref, spec_metadata["id"], spec_path, plan_path, root,
+    ):
+        raise PlanningGateError("plan spec_ref does not resolve to the authority specification")
+    try:
+        spec_body = strict_frontmatter_loads(spec_path.read_text(encoding="utf-8")).content
+        plan_body = strict_frontmatter_loads(plan_path.read_text(encoding="utf-8")).content
+    except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError) as exc:
+        raise PlanningGateError("captured intent, specification, and plan are unreadable") from exc
+    answer_ids = {answer.id for answer in intent.answers}
+    if (
+        not answer_ids
+        or any(not _has_token(spec_body, answer_id) or not _has_token(plan_body, answer_id) for answer_id in answer_ids)
+        or any(claim_id not in answer_ids for claim_id in _CLAIM_RE.findall(spec_body))
+    ):
+        raise PlanningGateError("captured intent, specification, and plan are not aligned")
+    reference_findings: list[PlanningFinding] = []
+    _check_planning_references(root, spec_path, spec_path.read_text(encoding="utf-8"), reference_findings)
+    if reference_findings:
+        raise PlanningGateError("feature registration or requirement metadata is invalid")
     current, feature_evidence = _current_feature_requirements(root, spec_path=spec_path)
     requirement_manifest_path = by_kind["requirements"].get("path")
     if requirement_manifest_path not in {f"requirements/{requirement_id}.md" for requirement_id in current}:
