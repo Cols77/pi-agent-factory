@@ -592,6 +592,7 @@ def test_pipeline_main_usage_errors_exit_two(argv: list[str]) -> None:
 _COMMAND_FILE = Path(__file__).parents[3] / ".claude" / "commands" / "coherence-plan.md"
 
 
+@pytest.mark.sr("SR-065")
 def test_ac1_start_or_resume_dispatch_is_not_swapped() -> None:
     """A swap here (calling `start` on `ok: true` or `resume` on `ok: false`)
     would double-start every existing run and never resume one."""
@@ -625,6 +626,7 @@ def test_ac3_non_executing_boundary_is_stated() -> None:
 # what the backend actually does.
 
 
+@pytest.mark.sr("SR-065")
 def test_ac2_a_genuinely_stale_session_state_is_relayed_as_data_not_raised(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
