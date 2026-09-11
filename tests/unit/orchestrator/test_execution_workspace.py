@@ -117,3 +117,38 @@ def test_policy_carve_outs_are_absolute_and_workspace_identity_is_in_evidence(tm
     suffix = workspace_prompt_suffix(workspace, contract)
     assert contract.contract_sha256 in suffix
     assert workspace.resolve().as_posix() in suffix
+
+
+def test_binding_fails_closed_when_lease_workspace_disagrees_with_contract(tmp_path: Path) -> None:
+    # F2: the increment's title property -- workspace agreement -- must be
+    # enforced on the binding and on the factory's bind, not merely documented.
+    contract = contract_fixture(tmp_path / "contract-ws")
+    lease = WorkspaceLease(
+        execution_id="run-013",
+        path=tmp_path / "lease-ws",
+        policy=build_write_policy(tmp_path / "lease-ws"),
+    )
+
+    with pytest.raises(ValueError):
+        BoundExecution(
+            backend=_FakeBackend(),
+            contract=contract,
+            workspace=lease.path,
+            policy=lease.policy,
+        )
+
+    from factory.orchestrator.pi_backend import PiBackendFactory
+
+    with pytest.raises(ValueError):
+        PiBackendFactory(tmp_path, tmp_path / "ext.ts").bind(lease, contract)
+
+
+def test_workspace_lease_rejects_a_non_string_execution_id_with_value_error(tmp_path: Path) -> None:
+    # F3: an invalid id must raise a clean ValueError, not AttributeError.
+    from typing import Any
+
+    bad_id: Any = 5
+    with pytest.raises(ValueError):
+        WorkspaceLease(
+            execution_id=bad_id, path=tmp_path, policy=build_write_policy(tmp_path)
+        )

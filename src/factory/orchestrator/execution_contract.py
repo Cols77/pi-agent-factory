@@ -70,6 +70,37 @@ class ExecutionContract:
     max_fixer_iterations: int
     contract_sha256: str
 
+    def __post_init__(self) -> None:
+        """Fail closed on any directly-constructed value.
+
+        ``build()`` is the only other entry point, so it must not be possible
+        to bypass its invariants by calling the constructor directly, nor to
+        carry a ``contract_sha256`` that does not match the payload it claims
+        to identify. The values are canonicalized exactly as ``build()`` does,
+        then the stored digest is verified against a fresh recomputation.
+        """
+        normalized = _normalize_contract_values(
+            {
+                "run_id": self.run_id,
+                "task_id": self.task_id,
+                "workflow_version": self.workflow_version,
+                "workspace": self.workspace,
+                "required_gates": self.required_gates,
+                "satisfies": self.satisfies,
+                "plan_ref": self.plan_ref,
+                "spec_ref": self.spec_ref,
+                "max_fixer_iterations": self.max_fixer_iterations,
+            }
+        )
+        object.__setattr__(self, "required_gates", normalized["required_gates"])
+        object.__setattr__(self, "satisfies", normalized["satisfies"])
+        expected = _sha256_canonical(_payload_from_values(normalized))
+        if self.contract_sha256 != expected:
+            raise ValueError(
+                "contract_sha256 does not match the contract's own payload "
+                "(forged or stale identity)"
+            )
+
     @classmethod
     def build(cls, **values: object) -> ExecutionContract:
         normalized = _normalize_contract_values(values)
@@ -126,7 +157,8 @@ def workspace_prompt_suffix(workspace: Path, contract: ExecutionContract) -> str
 def _payload_from_values(values: dict[str, Any]) -> dict[str, Any]:
     """The canonical hashed payload from normalized values (workspace as posix str)."""
     workspace = values["workspace"]
-    assert isinstance(workspace, Path)
+    if not isinstance(workspace, Path):
+        raise ValueError("workspace must be a pathlib.Path")
     return {
         "run_id": values["run_id"],
         "task_id": values["task_id"],

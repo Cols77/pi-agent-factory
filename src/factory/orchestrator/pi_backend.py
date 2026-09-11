@@ -187,11 +187,22 @@ class PiBackendFactory:
         model: str | None = None,
     ) -> None:
         self._repo_root = repo_root
+        # Reserved: the constructor keeps ``repo_root`` because the planned
+        # PiBackendFactory(repo_root, extension_path, provider, model) interface
+        # mandates it. The binding deliberately uses the *leased* workspace
+        # (``lease.path``) as the backend's repo_root -- that is the SR-034
+        # property -- so this field is retained for the declared signature, not
+        # read here. ``bind`` enforces that the lease agrees with the contract.
         self._extension_path = extension_path
         self._provider = provider
         self._model = model
 
     def bind(self, lease: WorkspaceLease, contract: ExecutionContract) -> BoundExecution:
+        if lease.path.resolve() != contract.workspace.resolve():
+            raise ValueError(
+                "lease path does not match the contract workspace: "
+                f"{lease.path} != {contract.workspace}"
+            )
         backend = PiAgentBackend(
             lease.path,
             self._extension_path,

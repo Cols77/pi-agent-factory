@@ -87,7 +87,7 @@ class WorkspaceLease:
     policy: WritePolicy
 
     def __post_init__(self) -> None:
-        if not self.execution_id.strip():
+        if not isinstance(self.execution_id, str) or not self.execution_id.strip():
             raise ValueError("execution_id must be a non-blank string")
         if not self.path.is_absolute():
             raise ValueError(f"lease path must be absolute: {self.path}")
@@ -113,6 +113,13 @@ class BoundExecution:
     contract: ExecutionContract
     workspace: Path
     policy: WritePolicy
+
+    def __post_init__(self) -> None:
+        if self.workspace.resolve() != self.contract.workspace.resolve():
+            raise ValueError(
+                "lease workspace does not match the contract workspace: "
+                f"{self.workspace} != {self.contract.workspace}"
+            )
 
     def assignment(self, lane: Lane) -> WorkerAssignment:
         """The only way the driver and hosts build a worker assignment."""

@@ -109,3 +109,58 @@ def test_for_lane_is_the_one_lane_to_role_to_prompt_mapping(tmp_path: Path) -> N
         assert workspace.resolve().as_posix() in assignment.prompt
     with pytest.raises(ValueError):
         WorkerAssignment.for_lane(contract, "scheduler", workspace)  # type: ignore[arg-type]
+
+
+def test_direct_construction_cannot_forge_or_invalidate_contract_identity(tmp_path: Path) -> None:
+    # F1: the public constructor must enforce the same invariants as build()
+    # and reject a stored contract_sha256 that does not match its own payload.
+    bogus: dict[str, object] = {
+        "run_id": "",
+        "task_id": "",
+        "workflow_version": "",
+        "workspace": Path("rel"),
+        "required_gates": ("a", "a"),
+        "satisfies": ("b", "b"),
+        "plan_ref": 5,
+        "spec_ref": 5,
+        "max_fixer_iterations": 0,
+        "contract_sha256": "BOGUS",
+    }
+    with pytest.raises(ValueError):
+        ExecutionContract(**bogus)  # type: ignore[arg-type]
+
+    forged: dict[str, object] = {
+        "run_id": "run-013",
+        "task_id": "T-013",
+        "workflow_version": "v1",
+        "workspace": tmp_path,
+        "required_gates": ("unit",),
+        "satisfies": (),
+        "plan_ref": None,
+        "spec_ref": None,
+        "max_fixer_iterations": 1,
+        "contract_sha256": "BOGUS",
+    }
+    with pytest.raises(ValueError):
+        ExecutionContract(**forged)  # type: ignore[arg-type]
+
+
+def test_payload_builder_raises_a_real_exception_not_a_bare_assert(tmp_path: Path) -> None:
+    # F4: an assert disappears under ``python -O``; the guard must be a real
+    # exception so the behaviour is identical with and without optimisation.
+    from factory.orchestrator.execution_contract import _payload_from_values
+
+    with pytest.raises(ValueError):
+        _payload_from_values(
+            {
+                "run_id": "run-013",
+                "task_id": "T-013",
+                "workflow_version": "v1",
+                "workspace": str(tmp_path),  # deliberately not a pathlib.Path
+                "required_gates": ("unit",),
+                "satisfies": (),
+                "plan_ref": None,
+                "spec_ref": None,
+                "max_fixer_iterations": 1,
+            }
+        )
