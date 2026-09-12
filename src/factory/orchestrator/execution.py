@@ -1,3 +1,27 @@
+"""SR-049 governed run execution: journal, checkpoint and stage-cursor state.
+
+Deviation from the Task 8 brief (adversarial review, blocking): a governed stage
+record must never be able to make a resume skip DEV.
+
+``record_stage`` journals the stage evidence with the *bare* canonical stage id
+(``node=cursor.stage_id``, e.g. ``"validation"``) because Task 5's kernel
+consumes that governed identity there and in ``data["stage_cursor"]``. But the
+checkpoint it writes is *also* read by the legacy router in ``runner.py``, which
+does ``resume_at = resume.node`` and treats
+``resume_at in {"validation", "review", "human-review"}`` as "already past DEV",
+skipping the whole ``run_dev`` block. Writing the bare stage id into
+``RunCheckpoint.node`` therefore let a single ``record_stage`` call on a fresh
+run make a later resume skip DEV entirely (reproduced by the adversarial
+reviewer).
+
+The fix keeps the governed identity in the journal, and namespaces only the
+checkpoint's node with :data:`STAGE_CHECKPOINT_NODE_PREFIX` (``stage:<id>``), a
+value the legacy router vocabulary can never contain -- ``runner.py`` is not
+modified, and the legacy ``record()`` nodes are untouched. The regression test
+in ``tests/unit/orchestrator/test_execution.py`` extracts the router's skip-set
+literal from ``runner.py`` itself and proves the stage-record node is not in it.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -16,6 +40,19 @@ from factory.orchestrator.journal import RunCheckpoint, RunEvent, RunJournal
 # MemoryError; oversized payloads are written to a blob file in the run dir and
 # referenced by path instead, keeping both files bounded.
 MAX_INLINE_PAYLOAD_BYTES = 512 * 1024
+
+# A stage record's checkpoint node is namespaced so it can never collide with the
+# legacy resume vocabulary runner.py's router reads (`validation`, `review`,
+# `human-review` all mean "already past DEV" there). The bare stage id stays in
+# the journal event node and in data["stage_cursor"] for Task 5's kernel.
+STAGE_CHECKPOINT_NODE_PREFIX = "stage:"
+
+# A stage record publishes an empty checkpoint `remaining`: a governed stage owns
+# no legacy budget counters. This marker rides in the record's data so no resume
+# consumer can read that empty dict as "nothing left".
+STAGE_RECORD_BUDGET_NOTE = (
+    "governed stage record: `remaining` is empty by design, not an exhausted budget"
+)
 
 _HEX = set("0123456789abcdef")
 
@@ -215,12 +252,18 @@ class RunExecution:
         A fixer revision is exactly this: revision ``n + 1`` of the stage makes
         every *later* stage in the canonical graph stale, so its old revision
         cannot be recorded or resumed.
+
+        ``invalidated_stages`` describes the *current* revision chain: re-opening
+        a stage clears its own entry, so a consumer can tell "invalidated by the
+        latest revision" from "invalidated earlier and since re-established"
+        (the set used to only ever grow, which made the two indistinguishable).
         """
         self._require_canonical_stage(stage_id)
         previous = self.stage_cursors.get(stage_id)
         revision = 1 if previous is None else previous.revision + 1
         cursor = self._new_cursor(stage_id, revision, 1)
         self.stage_cursors[stage_id] = cursor
+        self.invalidated_stages.discard(stage_id)
         if previous is not None:
             self._invalidate_descendants(stage_id)
         return cursor
@@ -269,12 +312,22 @@ class RunExecution:
                 f"{cursor.stage_id!r}"
             )
 
-        payload = {**(data or {}), "stage_cursor": cursor.to_dict()}
+        payload = {
+            **(data or {}),
+            "stage_cursor": cursor.to_dict(),
+            "budget_note": STAGE_RECORD_BUDGET_NOTE,
+        }
         self.record(
             node=cursor.stage_id,
             state=state,
             attempt=cursor.attempt,
-            next_node=cursor.stage_id,
+            # Namespaced on purpose: the bare stage id here is what the legacy
+            # router reads as "past DEV" and skipped run_dev for. The governed
+            # identity lives in `node` (journal) and in data["stage_cursor"].
+            next_node=f"{STAGE_CHECKPOINT_NODE_PREFIX}{cursor.stage_id}",
+            # A governed stage owns no legacy budget counters, so the driver's
+            # {"dev": n, "review": n} evidence is deliberately not overwritten
+            # here; see STAGE_RECORD_BUDGET_NOTE for the marker consumers read.
             remaining={},
             data=payload,
         )
@@ -307,7 +360,12 @@ class RunExecution:
         )
 
     def _invalidate_descendants(self, stage_id: str) -> None:
-        """Every later stage in the canonical graph is stale after a revision."""
+        """Every later stage in the canonical graph is stale after a revision.
+
+        The entry is cleared again when that descendant opens a fresh revision
+        (see ``begin_revision``); the set therefore describes staleness caused by
+        the latest revision, not an ever-growing history.
+        """
         index = CANONICAL_EXECUTION_STAGES.index(stage_id)
         for descendant in CANONICAL_EXECUTION_STAGES[index + 1 :]:
             self.invalidated_stages.add(descendant)

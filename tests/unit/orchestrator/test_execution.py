@@ -1,11 +1,43 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
+from coherence.execution.gate_plan import CANONICAL_EXECUTION_STAGES as CANONICAL_STAGE_IDS
 from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import FakeGitOps
 
 pytestmark = pytest.mark.unit
+
+_RUNNER_PY = Path(__file__).resolve().parents[3] / "src" / "factory" / "orchestrator" / "runner.py"
+
+
+def legacy_resume_skip_set() -> set[str]:
+    """Extract runner.py's ``resume_at in {...}`` literal from the real source.
+
+    Read from disk, not restated here: the regression is about the *on-disk*
+    router vocabulary, so the test must fail if runner.py widens that literal
+    to a canonical stage id (e.g. ``stage:validation``).
+    """
+    tree = ast.parse(_RUNNER_PY.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        if not any(isinstance(op, ast.In) for op in node.ops):
+            continue
+        for comparator in [node.left, *node.comparators]:
+            if not isinstance(comparator, ast.Set):
+                continue
+            values = {
+                element.value
+                for element in comparator.elts
+                if isinstance(element, ast.Constant) and isinstance(element.value, str)
+            }
+            if "validation" in values or "human-review" in values:
+                return values
+    raise AssertionError(f"legacy resume skip-set literal not found in {_RUNNER_PY}")
 
 
 def test_record_journals_then_writes_patch_and_atomic_checkpoint(tmp_path):
@@ -158,3 +190,95 @@ def test_run_execution_cursor_rejects_unknown_stage_and_replay(tmp_path):
     with pytest.raises(RunCursorError):
         execution.record_stage(cursor)
     assert execution.stage_cursors["dev"].attempt == 1
+
+
+def test_a_stage_record_cannot_make_a_resume_skip_dev(tmp_path):
+    """The blocking Task 8 finding: a governed stage record must never write a
+    checkpoint node that the legacy router reads as 'past DEV'.
+
+    runner.py's router computes ``resume_at = resume.node`` and skips the whole
+    run_dev block when ``resume_at in {"validation", "review", "human-review"}``.
+    A stage record whose checkpoint node was the bare canonical stage id made a
+    resume of that checkpoint skip DEV entirely.
+    """
+    from factory.orchestrator.execution import STAGE_CHECKPOINT_NODE_PREFIX, RunExecution
+
+    skip_set = legacy_resume_skip_set()
+    # The literal is real: if it ever stops naming these nodes the probe below
+    # would be vacuous, so pin the observed vocabulary first.
+    assert skip_set == {"validation", "review", "human-review"}
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    # Nothing else recorded: this is exactly what the adversarial probe did.
+    cursor = execution.begin_revision("validation")
+    execution.record_stage(cursor, state="completed")
+    checkpoint = execution.journal.latest()  # the checkpoint as it lands on disk
+    assert checkpoint is not None
+
+    assert checkpoint.node not in skip_set
+    assert checkpoint.node == f"{STAGE_CHECKPOINT_NODE_PREFIX}validation"
+    assert checkpoint.node != "validation"
+
+    # The router predicate itself: first_dev is True on every fresh resume, so
+    # the only thing standing between this checkpoint and a skipped DEV is the
+    # node value.
+    first_dev = True
+    resume_skips_dev = first_dev and checkpoint.node in skip_set
+    assert resume_skips_dev is False
+
+    # And it holds for every canonical stage, not just 'validation'.
+    for stage_id in CANONICAL_STAGE_IDS:
+        if stage_id == "validation":
+            continue
+        other = execution.begin_revision(stage_id)
+        execution.record_stage(other, state="completed")
+        latest = execution.journal.latest()
+        assert latest is not None
+        assert latest.node not in skip_set
+
+    # The governed identity stays queryable in the journal payload.
+    event = execution.journal.events()[0]
+    assert event.data["stage_cursor"]["stage_id"] == "validation"
+    assert event.node == "validation" and event.attempt_id == "validation-1"
+
+
+def test_invalidated_stages_track_the_current_revision_not_every_revision(tmp_path):
+    """A later revision invalidates descendants; re-opening a descendant must
+    clear it, or a consumer cannot tell 'invalidated now' from 'invalidated
+    three revisions ago' (both were permanent before)."""
+    from factory.orchestrator.execution import RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    execution.record_stage(execution.begin_revision("fixer"), state="completed")
+    execution.record_stage(execution.begin_revision("canonical-gates"), state="completed")
+    execution.record_stage(execution.begin_revision("handoff"), state="completed")
+
+    execution.begin_revision("fixer")  # revision 2 invalidates everything after it
+    assert {"canonical-gates", "handoff"} <= execution.invalidated_stages
+
+    execution.begin_revision("canonical-gates")  # re-opened: live again
+    assert "canonical-gates" not in execution.invalidated_stages
+    assert "handoff" in execution.invalidated_stages  # still stale
+    # Invalidation drops the stale cursor, so a re-opened descendant restarts its
+    # revision count; what matters here is that the stage is live, not stale.
+    assert execution.open_cursor("canonical-gates").revision == 1
+
+
+def test_stage_record_marks_its_empty_remaining_as_not_exhausted_budget(tmp_path):
+    """``remaining={}`` on a stage record is 'no legacy budget counters here',
+    never 'the driver's budget is spent'."""
+    from factory.orchestrator.execution import STAGE_RECORD_BUDGET_NOTE, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    checkpoint = execution.journal.latest()
+    assert checkpoint is not None
+
+    assert checkpoint.remaining == {}
+    assert checkpoint.completed[0]["data"]["budget_note"] == STAGE_RECORD_BUDGET_NOTE
+    assert "not" in STAGE_RECORD_BUDGET_NOTE and "exhaust" in STAGE_RECORD_BUDGET_NOTE

@@ -71,6 +71,41 @@ class GatePlan:
     gate_plan_sha256: str
 
     def __post_init__(self) -> None:
+        # Structural validation, not just digest self-consistency (FIX B): a
+        # hand-forged plan with a digest matching its own bogus payload used to
+        # construct, bind via `with_gate_plan` and reach the transport, which
+        # projected cards for the forged graph. The same canonical validator that
+        # backs compile_gate_plan() runs here and raises the same GatePlanError,
+        # so a GatePlan can never hold a shape the compiler would not emit.
+        workflow, plan_version, policy, stages, gates, ref = _validated_plan_fields(
+            workflow_version=self.workflow_version,
+            version=self.version,
+            stages=self.stages,
+            required_gates=self.required_gates,
+            preflight_policy=self.preflight_policy,
+            ac8_decision_ref=self.ac8_decision_ref,
+        )
+        if (workflow, plan_version, policy, ref) != (
+            self.workflow_version,
+            self.version,
+            self.preflight_policy,
+            self.ac8_decision_ref,
+        ):
+            raise GatePlanError(
+                "plan fields are not canonical (blank, unstripped or wrongly typed)"
+            )
+        # Coerce to tuples before the digest is trusted: a list-valued field
+        # stayed mutable after verification, and an in-place append desynchronised
+        # the payload from the stored digest while the transport kept projecting.
+        object.__setattr__(self, "stages", stages)
+        object.__setattr__(self, "required_gates", gates)
+        if (
+            not isinstance(self.schema, int)
+            or isinstance(self.schema, bool)
+            or self.schema != SCHEMA
+        ):
+            raise GatePlanError(f"unknown GatePlan schema {self.schema!r}; expected {SCHEMA}")
+
         expected = gate_plan_identity_sha256(
             workflow_version=self.workflow_version,
             version=self.version,
@@ -151,6 +186,54 @@ def compile_gate_plan(
     Rejects any missing, extra, duplicated or reordered stage; any unknown or
     non-canonical gate; any unknown preflight policy; and the
     ``ac8-obligation-health`` gate unless its decision reference is current.
+
+    Validation is shared with :meth:`GatePlan.__post_init__` (FIX B): a
+    hand-constructed plan can never take a shape this compiler would not emit.
+    """
+    workflow, plan_version, policy, canonical_stages, gates, ref = _validated_plan_fields(
+        workflow_version=workflow_version,
+        version=version,
+        stages=stages,
+        required_gates=required_gates,
+        preflight_policy=preflight_policy,
+        ac8_decision_ref=ac8_decision_ref,
+    )
+
+    digest = gate_plan_identity_sha256(
+        workflow_version=workflow,
+        version=plan_version,
+        stages=canonical_stages,
+        required_gates=gates,
+        preflight_policy=policy,
+        ac8_decision_ref=ref,
+    )
+    return GatePlan(
+        schema=SCHEMA,
+        workflow_version=workflow,
+        version=plan_version,
+        stages=canonical_stages,
+        required_gates=gates,
+        preflight_policy=policy,
+        ac8_decision_ref=ref,
+        gate_plan_sha256=digest,
+    )
+
+
+def _validated_plan_fields(
+    *,
+    workflow_version: object,
+    version: object,
+    stages: object,
+    required_gates: object,
+    preflight_policy: object,
+    ac8_decision_ref: object,
+) -> tuple[str, str, str, tuple[str, ...], tuple[str, ...], str | None]:
+    """Validate a plan payload against every canonical vocabulary.
+
+    The single validator behind :func:`compile_gate_plan` and
+    :meth:`GatePlan.__post_init__`. It raises :class:`GatePlanError` for every
+    structural violation, so the compiler and the value type agree by
+    construction and digest self-consistency is never mistaken for validation.
     """
     workflow = _required_text("workflow_version", workflow_version)
     plan_version = _required_text("version", version)
@@ -178,24 +261,7 @@ def compile_gate_plan(
                 f"{CURRENT_AC8_DECISION_REF!r}; got {ref!r}"
             )
 
-    digest = gate_plan_identity_sha256(
-        workflow_version=workflow,
-        version=plan_version,
-        stages=canonical_stages,
-        required_gates=gates,
-        preflight_policy=policy,
-        ac8_decision_ref=ref,
-    )
-    return GatePlan(
-        schema=SCHEMA,
-        workflow_version=workflow,
-        version=plan_version,
-        stages=canonical_stages,
-        required_gates=gates,
-        preflight_policy=policy,
-        ac8_decision_ref=ref,
-        gate_plan_sha256=digest,
-    )
+    return workflow, plan_version, policy, canonical_stages, gates, ref
 
 
 def _required_text(name: str, value: object) -> str:

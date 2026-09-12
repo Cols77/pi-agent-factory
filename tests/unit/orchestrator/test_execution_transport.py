@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from coherence.execution.gate_plan import compile_gate_plan
+from coherence.execution.gate_plan import (
+    CANONICAL_EXECUTION_STAGES,
+    GatePlan,
+    GatePlanError,
+    compile_gate_plan,
+    gate_plan_identity_sha256,
+)
 from factory.orchestrator.execution import GovernedStageCursor, RunCursorError, RunExecution
 from factory.orchestrator.execution_contract import ExecutionContract
 from factory.orchestrator.execution_transport import (
@@ -154,16 +160,12 @@ def test_direct_and_hermes_kanban_expose_identical_canonical_stage_metadata(
         transport="hermes-kanban", contract=bound, gate_plan=gate_plan, cursor=cursor
     )
 
-    def metadata(projection) -> list[tuple[object, ...]]:
-        return [
-            (
-                card.stage_id, card.revision, card.attempt, card.run_id,
-                card.contract_sha256, card.gate_plan_sha256, card.workflow_version,
-            )
-            for card in projection.cards
-        ]
-
-    assert metadata(direct) == metadata(kanban)
+    # The production accessor is the contract between the two transports, so the
+    # comparison goes through TransportCard.metadata() rather than restating the
+    # 7-tuple inline (which could drift from the card silently).
+    assert [card.metadata() for card in direct.cards] == [
+        card.metadata() for card in kanban.cards
+    ]
     assert direct.transport == "direct"
     assert kanban.transport == "hermes-kanban"
     assert ALLOWED_TRANSPORTS == ("direct", "hermes-kanban")
@@ -238,6 +240,45 @@ def test_fixer_emits_a_new_revision_with_descendant_invalidation(tmp_path: Path)
     assert all(card.revision == 1 for card in revision_one.cards)
 
 
+def test_a_hand_forged_gate_plan_cannot_be_bound_or_projected(tmp_path: Path) -> None:
+    """The transport boundary version of FIX B: a plan whose digest matches its
+    own bogus payload must not exist at all, so there is nothing for
+    ``with_gate_plan`` to bind and nothing for ``materialize_transport`` to
+    project (parent and reviewer both reproduced the cards)."""
+    contract = contract_fixture(tmp_path)
+    forged_stages = ("bogus", "dev")
+    forged_digest = gate_plan_identity_sha256(
+        workflow_version="governed-execution/v1",
+        version="behavior-change@1",
+        stages=forged_stages,
+        required_gates=("unit", "full"),
+        preflight_policy="mandatory-only",
+        ac8_decision_ref=None,
+    )
+
+    with pytest.raises(GatePlanError):
+        GatePlan(
+            schema=1,
+            workflow_version="governed-execution/v1",
+            version="behavior-change@1",
+            stages=forged_stages,
+            required_gates=("unit", "full"),
+            preflight_policy="mandatory-only",
+            ac8_decision_ref=None,
+            gate_plan_sha256=forged_digest,
+        )
+
+    # The canonical plan is unchanged: it still binds and still projects the
+    # canonical graph (including DEV).
+    gate_plan = gate_plan_fixture(contract)
+    bound = contract.with_gate_plan(gate_plan)
+    projection = materialize_transport(
+        transport="direct", contract=bound, gate_plan=gate_plan, cursor=cursor_fixture(contract)
+    )
+    assert tuple(card.stage_id for card in projection.cards) == CANONICAL_EXECUTION_STAGES
+    assert "dev" in {card.stage_id for card in projection.cards}
+
+
 def test_contract_gate_plan_hash_mismatch_is_rejected_before_dev(tmp_path: Path) -> None:
     contract = contract_fixture(tmp_path)
     gate_plan = gate_plan_fixture(contract)
@@ -266,14 +307,25 @@ def test_contract_gate_plan_hash_mismatch_is_rejected_before_dev(tmp_path: Path)
                 transport="not-a-transport", contract=bound, gate_plan=gate_plan, cursor=cursor
             )
 
-    # The rejected projection never produced a DEV card.
-    assert not any(
-        card.stage_id == "dev"
-        for card in materialize_transport(
-            transport="direct", contract=bound, gate_plan=gate_plan, cursor=cursor
-        ).cards
-        if card.contract_sha256 != bound.contract_sha256
+    # The rejected pairing never yields a projection at all, so it never yields
+    # a card -- for DEV or for anything else. Measured by attempting it.
+    projected: list = []
+    try:
+        projected.append(
+            materialize_transport(
+                transport="direct", contract=bound, gate_plan=other_plan, cursor=cursor
+            )
+        )
+    except TransportError:
+        pass
+    assert projected == []  # no projection for the rejected pairing
+    assert not any(card.stage_id == "dev" for p in projected for card in p.cards)
+
+    # ...and the assertion is not vacuous: the valid pairing does project DEV.
+    valid = materialize_transport(
+        transport="direct", contract=bound, gate_plan=gate_plan, cursor=cursor
     )
+    assert any(card.stage_id == "dev" for card in valid.cards)
 
 
 def test_cursor_rejects_stale_replay_non_monotonic_and_parent_hash_mismatch(

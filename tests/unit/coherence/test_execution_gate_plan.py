@@ -171,3 +171,109 @@ def test_gate_plan_is_frozen_and_rejects_a_forged_digest() -> None:
 
     with pytest.raises(GatePlanError):
         plan(version=123)  # type: ignore[arg-type]
+
+
+def _hand_built_plan(**overrides: object) -> GatePlan:
+    """Construct a GatePlan directly, digest made consistent with its own payload.
+
+    This is the adversarial probe: a *self-consistent* digest is not validation,
+    so before the structural gate every one of these reached ``with_gate_plan``
+    and the transport projected cards for a bogus graph.
+    """
+    values: dict[str, object] = {
+        "schema": 1,
+        "workflow_version": "governed-execution/v1",
+        "version": "behavior-change@1",
+        "stages": CANONICAL_EXECUTION_STAGES,
+        "required_gates": ("unit", "full"),
+        "preflight_policy": "mandatory-only",
+        "ac8_decision_ref": None,
+    }
+    values.update(overrides)
+    digest = gate_plan_identity_sha256(
+        workflow_version=values["workflow_version"],  # type: ignore[arg-type]
+        version=values["version"],  # type: ignore[arg-type]
+        stages=tuple(values["stages"]),  # type: ignore[arg-type]
+        required_gates=tuple(values["required_gates"]),  # type: ignore[arg-type]
+        preflight_policy=values["preflight_policy"],  # type: ignore[arg-type]
+        ac8_decision_ref=values["ac8_decision_ref"],  # type: ignore[arg-type]
+    )
+    return GatePlan(**{**values, "gate_plan_sha256": digest})  # type: ignore[arg-type]
+
+
+def test_a_hand_forged_plan_with_a_self_consistent_digest_is_rejected_at_construction() -> None:
+    """``GatePlan`` validates its own structure, not just its own digest."""
+
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages=("bogus", "dev"))
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages=CANONICAL_EXECUTION_STAGES[:-1])
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages=CANONICAL_EXECUTION_STAGES + ("extra",))
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages=tuple(reversed(CANONICAL_EXECUTION_STAGES)))
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages=("dev", "dev"))
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(stages="dev")
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(required_gates=("unit", "bogus"))
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(required_gates=())
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(required_gates=(AC8_GATE,))  # no current decision ref
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(
+            required_gates=("unit", AC8_GATE), ac8_decision_ref="feat-018/decision-5"
+        )
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(preflight_policy="obligation-health")
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(schema=2)
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(version="   ")
+    with pytest.raises(GatePlanError):
+        _hand_built_plan(workflow_version="")
+
+    # And the forged digest itself is still rejected.
+    with pytest.raises(ValueError):
+        GatePlan(
+            schema=1,
+            workflow_version="governed-execution/v1",
+            version="behavior-change@1",
+            stages=CANONICAL_EXECUTION_STAGES,
+            required_gates=("unit", "full"),
+            preflight_policy="mandatory-only",
+            ac8_decision_ref=None,
+            gate_plan_sha256="f" * 64,
+        )
+
+
+def test_list_valued_fields_are_coerced_so_mutation_cannot_desync_the_digest() -> None:
+    """A list field was mutable after verification: appending a stage left the
+    stored digest untouched while the transport projected the mutated graph."""
+    stages = list(CANONICAL_EXECUTION_STAGES)
+    gates = ["unit", "full"]
+
+    compiled = _hand_built_plan(stages=stages, required_gates=gates)
+
+    assert isinstance(compiled.stages, tuple) and isinstance(compiled.required_gates, tuple)
+    assert compiled.stages == CANONICAL_EXECUTION_STAGES
+    assert compiled.required_gates == ("unit", "full")
+    assert compiled.rebuild_hash() == compiled.gate_plan_sha256
+
+    before = compiled.gate_plan_sha256
+    stages.append("bogus")
+    gates.append("bogus")
+    assert compiled.stages == CANONICAL_EXECUTION_STAGES
+    assert compiled.required_gates == ("unit", "full")
+    assert compiled.rebuild_hash() == before == compiled.gate_plan_sha256
+    assert "bogus" not in compiled.to_dict()["stages"]
+
+
+def test_the_canonical_plan_still_compiles_unchanged() -> None:
+    compiled = plan()
+    assert compiled.stages == CANONICAL_EXECUTION_STAGES
+    assert compiled.required_gates == ("unit", "full")
+    assert compiled.gate_plan_sha256 == compiled.rebuild_hash()
+    assert compiled == plan()
