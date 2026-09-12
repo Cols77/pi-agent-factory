@@ -221,7 +221,14 @@ def test_full_planning_artifacts_are_required_even_without_production_tasks(tmp_
             "source-anchor": ("requirements/SR-001.md", "#Goal", "#absent"),
         }[mutation]
         target = tmp_path / path
-        target.write_text(target.read_text(encoding="utf-8").replace(before, after), encoding="utf-8")
+        if mutation == "intent-mismatch":
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            payload["answers"][0]["id"] = "other"
+            target.write_text(json.dumps(payload), encoding="utf-8")
+        else:
+            original = target.read_text(encoding="utf-8")
+            assert before in original
+            target.write_text(original.replace(before, after), encoding="utf-8")
     # Replaying neither a stale review nor stale consent can make a changed
     # planning source current; the gate must reject the captured evidence.
     pack = compile_planning_gate_pack("FEAT-017", "v1")
