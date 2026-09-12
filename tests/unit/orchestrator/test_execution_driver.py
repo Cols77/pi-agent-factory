@@ -477,6 +477,45 @@ def test_retry_then_block_resolves_through_human_decisions(tmp_path: Path) -> No
     assert result.dod_met is False
 
 
+def test_pre_existing_validation_failure_records_a_failing_validation_event(
+    tmp_path: Path,
+) -> None:
+    # SR-049 evidence-integrity: when run_validation returns NodeOutcome.FAIL,
+    # the journaled validation stage and its recorded NodeEvent must reflect the
+    # real fail -- not a spurious pass -- even though the task then escalates to
+    # the human. This mirrors _dev_cycle folding d_ev.result into the dev event.
+    backend = _ScriptedBackend(review_scripts=[_finding_review()])
+    gate_plan = gate_plan_fixture()
+    contract = contract_fixture(tmp_path, gate_plan)
+    execution = execution_fixture(tmp_path)
+    campaign, _ = campaign_fixture()
+
+    driver = GovernedExecutionDriver(
+        execution=execution,
+        gate_plan=gate_plan,
+        contract_factory=lambda: contract,
+        backend_factory=lambda workspace: backend,  # noqa: ANN001
+        gates=_ValidationFailingGate(),
+        campaign=campaign,
+        transport=ExecutionTransport.for_transport("direct"),
+        manifest={"context": {"source_files": []}},
+        repo_root=tmp_path,
+        transcript_dir=tmp_path / "transcripts",
+        max_fixer_iterations=2,
+    )
+
+    result = driver.run(task_fixture(tmp_path))
+
+    assert result.outcome == "escalated"
+    validation_event = next(
+        e for e in result.events if e.node == "validation"
+    )
+    # The recorded validation event must carry the failing gate's outcome
+    # ("fail"), not the unconditional pass the stage was journaled with -- the
+    # dev-pattern fold the driver already applies to its own dev event.
+    assert validation_event.result == "fail"
+
+
 def test_pre_existing_validation_failure_is_surfaced_not_auto_fixed(
     tmp_path: Path,
 ) -> None:

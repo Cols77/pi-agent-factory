@@ -348,6 +348,12 @@ class GovernedExecutionDriver:
             satisfies=[],
             transcript_dir=self.transcript_dir,
         )
+        # Fold the node's actual outcome into the recorded validation event so
+        # the trace reflects what really happened, matching the dev fold in
+        # ``_dev_cycle``: a pre-existing validation failure must not leave a
+        # ``pass`` event on a task that escalates (SR-049 evidence integrity).
+        validation_event = events[-1]
+        validation_event.result = v_ev.result
         if v_outcome == NodeOutcome.FAIL:
             # A pre-existing validation failure (requirement/sim/integration gate
             # red with no regression to fix yet) is surfaced to the human, never
