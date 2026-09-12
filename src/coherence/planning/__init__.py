@@ -6,8 +6,11 @@ from coherence.planning.intent import (
     IntentDocument,
     IntentError,
     append_capture_event,
+    capture_lock,
     materialize_intent,
+    read_capture_events,
     read_intent,
+    replay_capture_intent,
     validate_intent,
 )
 from coherence.planning.model import PlanningFinding, PlanningInput, PlanningReport, PlanningSeverity
@@ -24,8 +27,11 @@ __all__ = [
     "PlanningSeverity",
     "bootstrap_planning",
     "append_capture_event",
+    "capture_lock",
     "check_planning_input",
     "materialize_intent",
+    "read_capture_events",
     "read_intent",
+    "replay_capture_intent",
     "validate_intent",
 ]

@@ -17,13 +17,13 @@ from coherence.planning.gates import (
     write_cross_artifact_review,
 )
 from coherence.planning.review import GeneratedTaskReviewInput
-from coherence.planning.intent import read_intent
 from coherence.planning.session import (
     SessionError,
     append_session_answer,
     finalize_session,
     legal_actions_session,
     propose_session_challenge,
+    read_session_intent,
     resume_session,
     resolve_session_challenge,
     start_session,
@@ -575,7 +575,7 @@ def _session_command(args: argparse.Namespace) -> int:
         return 1
     payload: dict[str, object] = {"schema": 1, "ok": True, **session.to_dict()}
     try:
-        intent = read_intent(args.project_root / ".intent" / "intent.json", project_root=args.project_root)
+        intent = read_session_intent(args.project_root, args.run_id)
         payload["challenges"] = [
             {"id": item.id, "kind": item.kind, "claim": item.claim, "rationale": item.rationale,
              "provenance": item.provenance, "evidence_needed": item.evidence_needed,
@@ -583,8 +583,11 @@ def _session_command(args: argparse.Namespace) -> int:
              "response_provenance": item.response_provenance}
             for item in intent.challenges
         ]
-    except (OSError, UnicodeError, ValueError, TypeError):
-        payload["challenges"] = []
+    except (OSError, UnicodeError, ValueError, TypeError, SessionError) as exc:
+        payload["ok"] = False
+        payload["error"] = str(exc)
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 1
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 

@@ -9,19 +9,6 @@ adoption, and the handoff. You supply the semantic work — questions, spec, pla
 reviews — and transport the human's decisions. You never originate a planning
 decision and never grant consent.
 
-## Host routes: compatibility and guided
-
-This Claude command is the existing explicit compatibility route. It preserves
-manual, adapter-mediated sequencing for hosts that still use the command and
-its defense-in-depth hooks. It does not claim a lifecycle-derived stage.
-
-The guided route is the separate `/plan <run-id>` entrypoint. It reads
-Coherence's canonical `legal-actions` projection and presents only the one
-currently permitted, display-only action. It owns no local workflow state and
-does not require this compatibility command's manual sequencing. Treat that
-projection as authoritative for current lifecycle position; do not infer a
-stage from this command's prose.
-
 **Division of authority, which you must not blur:**
 
 - The backend decides *structure*: durability, ordering, hashes, parity,
@@ -117,36 +104,37 @@ uv run python -m coherence.planning.guided_entrypoint resolve --run-id <run-id> 
 When the human says capture is complete, ask which terminal status applies:
 `provisional`, `needs_user`, or `cancelled`. **Never choose it yourself.**
 
+Before calling `finalize`, dispatch an intent-review subagent yourself (a normal
+subagent call from this session, not the finalize hook — the hook's own agent is
+read-only and cannot write) to review the run's capture journal
+(`.factory/planning/<run-id>/capture/events.jsonl`) and `.intent/intent.json` for
+material gaps: unstated assumptions, unsupported claims, contradictions between
+answers, unbounded scope, and absent or unmeasurable success criteria. It reports
+findings as plain text (or a single "no findings" line); it never decides whether
+they block, never chooses a resolution, and never touches planning state itself.
+
+Record every returned finding (or the single "no findings" line) yourself, from
+this session — which already has working Bash access — via one `append` call per
+finding, `--source intent-review-agent`, using `a<next_sequence>` from the most
+recent payload, **before** calling finalize:
+
+```
+uv run python -m coherence.planning.guided_entrypoint append --run-id <run-id> --project-root . --answer-id a<next_sequence> --question "Intent review finding" --text "<finding>" --source intent-review-agent
+```
+
+Only then call finalize:
+
 ```
 uv run python -m coherence.planning.guided_entrypoint finalize --run-id <run-id> --project-root . --status <their choice>
 ```
 
-A hook runs an intent-review agent here and blocks finalize until the review is
-recorded and every challenge is dispositioned. For semantic gaps, that hook
-may only transport `propose-challenge` records; it never resolves a challenge,
-writes approval or consent, or computes a lifecycle stage. If it denies,
-satisfy the stated reason and retry.
+A hook still runs a read-only agent review here and blocks finalize until a
+recorded review exists and every challenge is dispositioned — recording the
+review yourself first (above) satisfies that by construction rather than relying
+on the hook's own agent to write it. If finalize still denies, satisfy the stated
+reason and retry.
 
 ## 6. Author the spec
-
-When the backend returns `author-requirements`, author or revise the requirement
-documents within the human's requested scope. Register the explicitly selected
-artifacts through this sanctioned transport operation:
-
-```
-uv run python -m coherence.planning.guided_pipeline write-artifact-manifest --run-id <run-id> --project-root . --artifacts-json='<artifact list JSON>'
-```
-
-The JSON is a list of objects containing exactly `kind`, `path`, and `sha256`.
-For example, an authored requirement uses `kind: "requirements"`, its
-project-relative POSIX path, and the lowercase SHA-256 of its current bytes.
-The backend validates every path and hash and writes only the canonical
-`.factory/planning/<run-id>/artifacts.json`. It does not infer requirements or
-artifact kinds, grant consent, compute a lifecycle stage, or run subprocesses.
-Each call replaces the complete manifest: retain existing selected artifacts
-and register authored spec/plan artifacts as they become available. Then read
-the canonical `legal-actions` projection again. `author-requirements` remains
-the authoring action; manifest transport does not grant permission to act.
 
 No backend command writes a spec — this is your work. Write
 `docs/superpowers/specs/<date>-<slug>-design.md` from the captured intent
@@ -189,38 +177,6 @@ gate; that defeats the only structural guarantee this stage provides.
 
 ```
 uv run python -m coherence.planning.guided_pipeline review --run-id <run-id> --project-root .
-```
-
-Record the producer's explicit classification of every canonical generated task
-against the current `report.json`:
-
-```
-uv run python -m coherence.planning.guided_pipeline write-cross-artifact-review --run-id <run-id> --project-root . --tasks-json='<task mapping JSON>'
-```
-
-The mapping keys are `tasks/T-*.md` paths. Each value must supply exactly `id`,
-`artifact_paths` (nonempty relative path list), `changes_production` and
-`changes_validation` (booleans), `affected_srs` (SR list or null), and `satisfies`
-(canonical task declaration or null). Supply classifications from the reviewed
-task scope; the adapter never infers a docs-only exemption. Inspect returned
-findings and resolve them before proceeding. Regenerate this evidence after a
-report or reviewed artifact changes.
-
-Human consent remains a separate prerequisite. Present the current report and
-each SR to the human. Transport only their explicit per-SR response, using the
-current requirement digest and their decision, identity, phrase, and reason:
-
-```
-uv run python -m coherence.planning.guided_pipeline record-sr-consent --run-id <run-id> --project-root . --sr-id <SR-id> --requirement-sha256 <digest> --decision <human decision> --reviewer <human identity> --phrase='<human consent phrase>' --reason='<human reason>'
-```
-
-This records an existing human decision; it does not grant consent or supply
-approval defaults. Current `review-decision.json` and `requirement-consent.json`
-must also be supplied through the human review flow; never fabricate these
-records. Missing consent is a blocker. Once the required evidence is present:
-
-```
-uv run python -m coherence.planning.guided_pipeline run-planning-gates --run-id <run-id> --project-root .
 uv run python -m coherence.planning.guided_pipeline handoff --run-id <run-id> --project-root . --workflow standard-development
 uv run python -m coherence.planning.legal_actions_adapter <run-id>
 ```
@@ -229,9 +185,6 @@ Print the projection verbatim. The handoff's `starts_automatically` field is
 always `false`, which the projection renders as `Starts automatically: no`; that
 is a hard invariant. The action list is display-only — seeing an action never
 authorizes running it.
-
-`run-planning-gates` evaluates planning evidence only. It does not execute
-implementation gates or compute the lifecycle stage in the adapter.
 
 ## 10. Stop
 

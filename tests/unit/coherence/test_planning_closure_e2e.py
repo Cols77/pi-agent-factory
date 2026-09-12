@@ -240,6 +240,9 @@ def _review_fixture(root: Path, *, decision: dict[str, object] | None = None) ->
     req.parent.mkdir(parents=True)
     feature.parent.mkdir(parents=True)
     intent.parent.mkdir(parents=True, exist_ok=True)
+    intent.write_bytes(
+        (root / ".factory" / "planning" / run_id / "intent.json").read_bytes()
+    )
     req.write_text(
         "---\nid: SR-001\ntitle: Review Evidence\nstatement: The evidence is reviewed.\n"
         "domain: behavioral\nupstream: []\nsource: docs/spec.md#Goal\n---\nRequirement.\n",

@@ -78,7 +78,10 @@ def _capture_intent(root: Path, run_id: str) -> None:
         start_session(root, run_id, "Plan the goal")
     else:
         try:
-            document = read_intent(root / ".intent" / "intent.json", project_root=root)
+            document = read_intent(
+                root / ".factory" / "planning" / run_id / "intent.json",
+                project_root=root,
+            )
         except (IntentError, OSError, ValueError):
             document = None
         if document is not None and any(answer.id == "goal" for answer in document.answers):
@@ -93,6 +96,11 @@ def _write_current_planning_evidence(root: Path, run_id: str = "run-001") -> Non
     spec = root / "docs/spec.md"
     spec.write_text("---\nid: SPEC-1\ntitle: Specification\nstatus: draft\n---\n# Goal\nclaim:goal\n", encoding="utf-8")
     _capture_intent(root, run_id)
+    intent = root / ".intent" / "intent.json"
+    intent.parent.mkdir(parents=True, exist_ok=True)
+    intent.write_bytes(
+        (root / ".factory" / "planning" / run_id / "intent.json").read_bytes()
+    )
     run_dir = root / ".factory" / "planning" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     report = {

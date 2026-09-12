@@ -31,7 +31,7 @@ describe("buildPlanSeedPrompt", () => {
 
   test("routes planning through the deterministic intent, review, and downstream gates", () => {
     const prompt = buildPlanSeedPrompt("add battery-aware RTB", []);
-    expect(prompt).toContain(".intent/intent.json");
+    expect(prompt).toContain(".factory/planning/<run-id>/intent.json");
     expect(prompt).toContain("verbatim");
     expect(prompt).toContain("coherence plan bootstrap");
     expect(prompt).toContain("review-decision.json");

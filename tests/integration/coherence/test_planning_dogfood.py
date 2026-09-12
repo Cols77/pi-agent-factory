@@ -136,6 +136,14 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
     root, spec, plan = _consumer(tmp_path)
     start_session(root, "run-001", "Build a deterministic planner")
     append_session_answer(root, "run-001", "goal", "What is the goal?", "Build a deterministic planner")
+    (root / "docs/features/FEAT-017.md").write_text(
+        "---\nid: FEAT-017\ntitle: Planning Bootstrap\nrequirements: [SR-001]\n---\n",
+        encoding="utf-8",
+    )
+    (root / "bundles/FEAT-017.json").write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}),
+        encoding="utf-8",
+    )
     assert check_planning_input(_input(root, spec, plan)).ok
 
     artifact = root / "docs/superpowers/specs/intent-spec.md"
@@ -199,9 +207,9 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
     consent = root / ".factory/planning/run-001/sr-consent.json"
     consent.parent.mkdir(parents=True, exist_ok=True)
     consent.write_text(json.dumps({"schema": 2, "run_id": "run-001", "decision": "approve", "reviewer": "human",
-        "phrase": CONSENT_PHRASE, "candidate_srs": ["SR-001", "SR-002"], "derivation_report_sha256": "0" * 64,
+        "phrase": CONSENT_PHRASE, "candidate_srs": ["SR-001"], "derivation_report_sha256": "0" * 64,
         "artifact_hashes": {}}), encoding="utf-8")
-    assert validate_sr_consent(root, "run-001", ["SR-001", "SR-002"], "0" * 64, {})[0]
+    assert validate_sr_consent(root, "run-001", ["SR-001"], "0" * 64, {})[0]
     report = check_planning_input(_input(root, spec, plan))
     run_dir = root / ".factory/planning/run-001"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -215,14 +223,40 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
     }), encoding="utf-8")
     (run_dir / "requirement-consent.json").write_text(json.dumps({
         "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
-        "reason": "Reviewed planning requirements.", "requirements": ["SR-001", "SR-002"],
+        "reason": "Reviewed planning requirements.", "requirements": ["SR-001"],
     }), encoding="utf-8")
-    for sr_id in ("SR-001", "SR-002"):
+    for sr_id in ("SR-001",):
         requirement = root / "requirements" / f"{sr_id}.md"
         write_sr_decision(
             root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
             "approve", "human", PER_SR_CONSENT_PHRASE, "Reviewed this requirement independently.",
         )
+    from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
+
+    source_items = [
+        {"kind": "intent", "path": ".intent/intent.json"},
+        {"kind": "spec", "path": "docs/superpowers/specs/intent-spec.md"},
+        {"kind": "plan", "path": "docs/superpowers/plans/intent-plan.md"},
+        {"kind": "feature", "path": "docs/features/FEAT-017.md"},
+        {"kind": "bundle", "path": "bundles/FEAT-017.json"},
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+    ]
+    write_artifact_manifest(root, "run-001", build_artifact_manifest(root, "run-001", source_items))
+    source_paths = sorted(item["path"] for item in source_items)
+    report_paths = sorted(source_paths + [
+        "tasks/T-001-first.md", "tasks/T-002-second.md",
+    ])
+    raw_report["artifacts"] = [
+        {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
+        for path in report_paths
+    ]
+    raw_report["ok"] = True
+    (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning artifacts.", "reviewed_artifacts": report_paths,
+        "report_sha256": planning_report_digest(raw_report),
+    }), encoding="utf-8")
     def no_downstream_execution(*args: object, **kwargs: object) -> None:
         pytest.fail("planning review, gates, and handoff must not launch subprocesses")
 
@@ -235,6 +269,9 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
     })
     assert isinstance(cross_review["review"], dict) and cross_review["review"]["ok"] is True
     evaluate_planning_gate_pack(root, "run-001", compile_planning_gate_pack("FEAT-017", "v1"))
+    from coherence.planning.cli import _read_report
+
+    report = _read_report(run_dir / "report.json", "run-001")
     payload = build_handoff(root, report, workflow="standard-development")
     path, _ = write_handoff(root, payload)
     assert validate_handoff(root, path)["starts_automatically"] is False
@@ -448,7 +485,9 @@ def test_human_escalation_returns_prompt_then_next_loop_resumes_after_answer(tmp
     start_session(root, "run-answer", "request")
     append_session_answer(root, "run-answer", "owner", "Who owns the decision?", "human", source="user")
     assert resume_session(root, "run-answer").next_sequence == 3
-    assert read_intent(root / ".intent/intent.json", project_root=root).answers[-1].text == "human"
+    assert read_intent(
+        root / ".factory" / "planning" / "run-answer" / "intent.json", project_root=root
+    ).answers[-1].text == "human"
     resumed = FreshReviewLoop(project_root=root, backend=loop.backend,
                               model={"provider": "fixture", "model": "reviewer"})
     resumed_result = resumed.run(resumed.build_packet("run-human", "spec_alignment", 2, [artifact],
@@ -478,10 +517,10 @@ def test_interrupted_reviewer_fails_closed_and_stale_artifact_is_rejected(tmp_pa
 
 def test_repository_self_hosting_reports_unrelated_debt_without_claiming_clean() -> None:
     root = Path(__file__).parents[3]
-    intent = root / ".intent/intent.json"
+    intent = Path(__file__).parents[2] / "fixtures" / "planning-dogfood" / "intent.json"
     spec = root / "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md"
     plan = root / "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
-    report = check_planning_input(_input(root, spec, plan, "self-hosting"))
+    report = check_planning_input(PlanningInput(intent, spec, plan, root, "self-hosting"))
     assert report.ok is False
     assert any(item.code == "PLAN_TASK_PARITY" for item in report.findings)
     assert planning_report_digest(report) == planning_report_digest(report.to_dict())
