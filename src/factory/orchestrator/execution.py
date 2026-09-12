@@ -284,15 +284,26 @@ class RunExecution:
         data: dict | None = None,
         session_id: str | None = None,
         interruption: str | None = None,
+        sequence: int | None = None,
     ) -> RunCheckpoint:
-        self.sequence += 1
+        """Journal one record, write its patch and its atomic checkpoint.
+
+        ``sequence`` is the run sequence this record must occupy. A caller that
+        has to bound the payload *before* calling here (``record_stage`` and
+        ``_journal_cursor_open`` do, because the tamper-evident digest covers the
+        persisted -- bounded -- form) reserves it with :meth:`_reserve_sequence`
+        and passes it in, so the externalised blob is named for this record's own
+        sequence rather than the previous record's. Omitted, the sequence is
+        allocated here.
+        """
+        sequence = self._reserve_sequence() if sequence is None else sequence
         attempt_id = f"{node}-{attempt}"
-        payload = self._bounded_payload(node, data or {})
+        payload = self._bounded_payload(node, data or {}, sequence=sequence)
         if session_id:
             self.agent_sessions[node] = session_id
         self.journal.append(
             RunEvent(
-                sequence=self.sequence,
+                sequence=sequence,
                 at=_now(),
                 run_id=self.run_id,
                 task_id=self.task_id,
@@ -310,7 +321,7 @@ class RunExecution:
                     "data": payload,
                 }
             )
-        patch = self.journal.run_dir / "checkpoints" / f"{self.sequence:06d}.patch"
+        patch = self.journal.run_dir / "checkpoints" / f"{sequence:06d}.patch"
         self.git_ops.write_patch(self.repo_root, self.start_commit, patch)
         checkpoint = RunCheckpoint(
             schema_version=2,
@@ -410,6 +421,14 @@ class RunExecution:
         only, a crash between it and the first record left the journal showing
         the descendants open, and a restart silently re-opened stages the live
         process had invalidated.
+
+        ``revision`` is monotonic within a live chain, NOT across an
+        invalidation. Invalidation pops the descendant's cursor, so a stage
+        re-opened after a descendant invalidation has no previous cursor to count
+        from and restarts at revision 1. UNIQUENESS and MONOTONICITY are carried
+        by the ``attempt_key`` serial (``/v<n>``), which is minted from a
+        never-reused per-run counter and survives a restart; consumers must fence
+        and order on ``attempt_key``, never on ``revision``.
         """
         self._require_canonical_stage(stage_id)
         previous = self.stage_cursors.get(stage_id)
@@ -493,7 +512,11 @@ class RunExecution:
         }
         # Digest over the payload exactly as it is persisted (bounded first, and
         # never covering itself), so restore_cursors can recompute and verify it.
-        bounded = self._bounded_payload(cursor.stage_id, body)
+        # The sequence is reserved first so the bound blob is named for THIS
+        # record, not the previous one (a governed stage's oversized payload must
+        # never overwrite the previous record's blob).
+        sequence = self._reserve_sequence()
+        bounded = self._bounded_payload(cursor.stage_id, body, sequence=sequence)
         digest = _stage_event_sha256(cursor, state, bounded)
         payload = {**bounded, "stage_event_sha256": digest}
         self.record(
@@ -509,6 +532,7 @@ class RunExecution:
             # here; see STAGE_RECORD_BUDGET_NOTE for the marker consumers read.
             remaining={},
             data=payload,
+            sequence=sequence,
         )
         self.recorded_stage_positions.add(position)
         self.last_stage_digest[cursor.stage_id] = digest
@@ -529,7 +553,8 @@ class RunExecution:
             CURSOR_OPENED_KEY: True,
             "budget_note": STAGE_RECORD_BUDGET_NOTE,
         }
-        bounded = self._bounded_payload(cursor.stage_id, body)
+        sequence = self._reserve_sequence()
+        bounded = self._bounded_payload(cursor.stage_id, body, sequence=sequence)
         digest = _stage_event_sha256(cursor, CURSOR_OPEN_STATE, bounded)
         self.record(
             node=cursor.stage_id,
@@ -538,6 +563,7 @@ class RunExecution:
             next_node=f"{STAGE_CHECKPOINT_NODE_PREFIX}{cursor.stage_id}",
             remaining={},
             data={**bounded, "stage_event_sha256": digest},
+            sequence=sequence,
         )
         self.recorded_stage_positions.add(
             self._position_key(cursor, cursor.parent_event_sha256, CURSOR_OPEN_STATE)
@@ -1004,7 +1030,14 @@ class RunExecution:
         )
 
     def _issue_attempt_key(self, stage_id: str, revision: int, attempt: int) -> str:
-        """Mint the next unused fencing key for a position (advancing the serial)."""
+        """Mint the next unused fencing key for a position (advancing the serial).
+
+        The trailing ``/v<n>`` serial is the governed cursor's only monotonic
+        ordering: ``revision`` restarts at 1 when a stage is re-opened after a
+        descendant invalidation dropped its cursor, so two successive issuances
+        for one stage are ordered by this serial alone. Consumers must fence and
+        order on ``attempt_key``, never on ``revision``.
+        """
         while True:
             self.attempt_serial += 1
             key = (
@@ -1048,18 +1081,41 @@ class RunExecution:
             stale.add(descendant)
             live.pop(descendant, None)
 
-    def _bounded_payload(self, node: str, payload: dict) -> dict:
+    def _reserve_sequence(self) -> int:
+        """Allocate the run sequence the record about to be written will carry.
+
+        The sequence is allocated *before* the payload is bounded so an
+        externalised blob is named for its own record. Bounding a governed stage
+        record used to run while ``self.sequence`` still pointed at the previous
+        record, so a stage record whose payload exceeded
+        ``MAX_INLINE_PAYLOAD_BYTES`` was written to the previous record's blob --
+        same run dir, and the governed and legacy vocabularies collide on the
+        node names ``dev``/``validation`` -- silently destroying that payload
+        (this is the KB-0004 externalisation path).
+        """
+        self.sequence += 1
+        return self.sequence
+
+    def _bounded_payload(
+        self, node: str, payload: dict, *, sequence: int | None = None
+    ) -> dict:
         """Inline small payloads; externalise oversized ones to a blob file.
 
         The blob lives under sessions/.factory-runs/<run_id>/payloads/, which is
         factory scratch (never staged, never fingerprint-flipping). The
         checkpoint/journal entries keep a {"payload_ref": ...} stub, so a
-        resume can resolve the content back via resolve_data()."""
+        resume can resolve the content back via resolve_data().
+
+        The blob is named for the *record's own* sequence (``sequence``, default
+        ``self.sequence``), so one record owns exactly one blob and can never
+        overwrite the previous record's externalised payload.
+        """
         if len(json.dumps(payload, separators=(",", ":"))) <= MAX_INLINE_PAYLOAD_BYTES:
             return payload
         payload_dir = self.journal.run_dir / "payloads"
         payload_dir.mkdir(parents=True, exist_ok=True)
-        blob = payload_dir / f"{self.sequence:06d}-{node}.json"
+        owner = self.sequence if sequence is None else sequence
+        blob = payload_dir / f"{owner:06d}-{node}.json"
         tmp = blob.with_name(blob.name + ".tmp")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         tmp.replace(blob)

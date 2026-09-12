@@ -401,6 +401,18 @@ def test_governed_cursors_reconstruct_from_the_journal_across_a_restart(tmp_path
     assert campaign.attempt_key in resumed.prior_attempt_keys
     assert reopened.attempt_key not in {campaign.attempt_key}
 
+    def _serial(cursor) -> int:
+        return int(cursor.attempt_key.rsplit("/v", 1)[-1])
+
+    # MONOTONICITY is carried by the attempt_key serial, never by `revision`:
+    # the re-opened stage restarted at revision 1 (a previously asserted
+    # expectation read r2 here), so the only ordering between two successive
+    # issuances for one stage is the increasing '/v<n>' serial.
+    assert _serial(reopened) > _serial(campaign)
+    retried = resumed.begin_attempt("campaign-classification")
+    assert retried.revision == 1
+    assert _serial(retried) > _serial(reopened)
+
 
 def test_open_task_cursor_addresses_the_cursor_by_run_and_task_identity(tmp_path):
     from coherence.execution.gate_plan import compile_gate_plan
@@ -771,3 +783,60 @@ def test_the_human_decision_surface_documents_its_real_durability_guarantee():
     assert "plain" in consume_doc and "file" in consume_doc
     assert "deleting a decision line resurrects" in consume_doc
     assert "not stable across this change" in restore_doc
+
+
+def test_an_oversized_governed_stage_payload_does_not_overwrite_the_previous_blob(tmp_path):
+    """Finding A (HIGH, data loss, regression from 7620dae): ``record_stage``
+    bounded its payload *before* ``record()`` allocated a sequence, so an
+    oversized governed stage record was externalised to the PREVIOUS record's
+    blob name. The governed and legacy paths share one run dir and the node
+    names collide ('dev'), so the governed record's blob was
+    ``payloads/000001-dev.json`` -- the legacy record's own blob -- and the
+    legacy payload was destroyed. Both records must resolve to their own intact
+    content through distinct refs."""
+    from factory.orchestrator.execution import MAX_INLINE_PAYLOAD_BYTES
+
+    legacy_body = "L" * (MAX_INLINE_PAYLOAD_BYTES + 1)
+    governed_body = "G" * (MAX_INLINE_PAYLOAD_BYTES + 1)
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    legacy = execution.record(
+        node="dev",
+        state="completed",
+        attempt=1,
+        next_node="validation",
+        remaining={"dev": 1},
+        data={"legacy_only": legacy_body},
+    )
+    execution.record_stage(
+        execution.begin_revision("dev"),
+        state="completed",
+        data={"governed_only": governed_body},
+    )
+
+    legacy_ref_stub = legacy.completed[0]["data"]
+    stubs = [
+        event.data
+        for event in execution.journal.events()
+        if isinstance(event.data, dict) and "payload_ref" in event.data
+    ]
+    assert len(stubs) == 2, f"both records must externalise, got {stubs!r}"
+    legacy_data, governed_data = stubs
+    legacy_ref = legacy_data["payload_ref"]
+    governed_ref = governed_data["payload_ref"]
+    run_dir = execution.journal.run_dir
+
+    # One record, one blob: the refs must be distinct (the regression made them equal).
+    assert governed_ref != legacy_ref, f"both records claim {governed_ref!r}"
+    assert (run_dir / legacy_ref).exists()
+    assert (run_dir / governed_ref).exists()
+
+    # And each ref still resolves to its OWN intact content.
+    replay = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    assert replay.resolve_data(legacy_data) == {"legacy_only": legacy_body}
+    assert replay.resolve_data(legacy_ref_stub) == {"legacy_only": legacy_body}
+    governed = replay.resolve_data(governed_data)
+    assert governed["governed_only"] == governed_body
+    assert "legacy_only" not in governed
+    assert governed["stage_cursor"]["stage_id"] == "dev"
