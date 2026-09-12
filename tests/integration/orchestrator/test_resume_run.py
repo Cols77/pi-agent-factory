@@ -214,10 +214,29 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _terminate_tree(proc: subprocess.Popen[str]) -> None:
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, text=True, check=True)
+    if os.name != "nt":
+        os.killpg(proc.pid, signal.SIGKILL)
         return
-    os.killpg(proc.pid, signal.SIGKILL)
+    # Windows: `taskkill /PID <pid> /T /F` exits non-zero (255) when the target
+    # process tree has *already* terminated. That is exactly the end-state this
+    # helper exists to produce, so a "process not found" kill is a success, not
+    # a failure. Only an *unexpected* failure (the tree still alive after the
+    # attempt) is escalated -- otherwise the test flakes on a benign race where
+    # the `uv run` parent exits naturally just as the force-kill fires.
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return
+    except subprocess.CalledProcessError as exc:
+        if proc.poll() is not None:
+            # The tree already exited -- the kill succeeded by absence.
+            return
+        # Not a race: the process genuinely did not terminate. Surface the cause.
+        raise RuntimeError(f"failed to terminate process tree {proc.pid}") from exc
 
 
 def test_kill_resume_discovery_and_resume_without_conversation_history(tmp_path: Path) -> None:
