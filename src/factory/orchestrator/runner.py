@@ -8,6 +8,7 @@ from pathlib import Path
 from factory.evidence.artifacts import ArtifactStore
 from factory.evidence.finalize import finalize_run_evidence
 from factory.evidence.manifests import write_run_manifest
+from factory.config import FactoryConfig, load_config
 from factory.orchestrator.backends import AgentBackend, GateRunner
 from factory.orchestrator.execution import RunExecution
 from factory.orchestrator.git_ops import CommitAllError, GitOps, SubprocessGitOps, ensure_factory_ignores
@@ -848,3 +849,69 @@ def run_next(
 
 def _default_session_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+
+def run_governed_task(
+    task: Task,
+    backend: AgentBackend,
+    gates: GateRunner,
+    repo_root: Path,
+    *,
+    cfg: FactoryConfig | None = None,
+    session_id: str | None = None,
+    transcript_dir: Path | None = None,
+    driver_factory: Callable[..., TaskResult] | None = None,
+) -> TaskResult:
+    """Build and run the bounded governed driver for one task (SR-034/SR-049).
+
+    Purpose: the host-neutral entrypoint for governed execution. It resolves the
+    project-wide fixer budget from ``governed_execution.max_fixer_iterations``
+    (failing closed when the project never declared one), compiles the canonical
+    :class:`~coherence.execution.gate_plan.GatePlan`, and delegates the actual
+    transition kernel to a :class:`GovernedExecutionDriver` built through
+    ``driver_factory``. This keeps the driver's dependency wiring (contract
+    factory, campaign, transport, backend factory, stage cursors, \u2026) out of
+    the caller while exposing the same existing ``TaskResult`` return.
+
+    Args:
+        task: the selected task to execute.
+        backend: the ``AgentBackend`` bound to the run's worker environment.
+        gates: the ``GateRunner`` the driver runs its gates through.
+        repo_root: the repository the task executes against.
+        cfg: the parsed ``FactoryConfig``; defaults to ``load_config(repo_root)``.
+            The budget is resolved from this through
+            :func:`factory.config.require_governed_execution`.
+        session_id: a stable run/session id; defaults to a UTC timestamp.
+        transcript_dir: directory to write per-role transcripts (optional).
+        driver_factory: callable building the driver; defaults to the driver's own
+            constructor, which is not self-contained, so production callers pass
+            a wiring closure. Treated as None when omitted to avoid silently
+            constructing an unusable driver.
+
+    Returns:
+        The driver's :class:`TaskResult` (``completed``/``escalated``).
+
+    Raises:
+        ValueError: if no ``driver_factory`` is supplied \u2014 the driver needs
+            collaborators bound to this repo/run that this facade does not assume it
+            can build itself.
+    """
+    del session_id, transcript_dir  # reserved for the Task 6 host wiring
+    from factory.config import require_governed_execution
+
+    settings = require_governed_execution(cfg or load_config(repo_root), repo_root)
+    if driver_factory is None:
+        raise ValueError(
+            "run_governed_task requires a driver_factory that wires the "
+            "GovernedExecutionDriver collaborators for this repo/run"
+        )
+    # require_governed_execution has already failed closed when the project never
+    # declared a budget; the resolved integer (the single human-decided value) is
+    # available to the factory as the authorisation this run may spend.
+    return driver_factory(
+        task=task,
+        backend=backend,
+        gates=gates,
+        repo_root=repo_root,
+        max_fixer_iterations=settings.max_fixer_iterations,
+    )

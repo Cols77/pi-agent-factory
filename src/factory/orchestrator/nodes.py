@@ -536,6 +536,44 @@ def run_validation(
     return NodeOutcome.PASS, NodeEvent("validation", "pass", 1, {"requirement_warnings": warns})
 
 
+def run_canonical_gates(
+    trace_check: Callable[[], None],
+    register_check: Callable[[], None],
+) -> tuple[NodeOutcome, NodeEvent]:
+    """Run the SR-049 in-loop canonical trace/register/obligation gate.
+
+    Purpose: the bounded governed driver (``factory.orchestrator.execution_driver``)
+    may not set ``TaskResult.dod_met`` until the canonical traceability gate
+    passes. This node runs the injected ``trace_check`` and ``register_check``
+    callables and folds a canonical failure into a single ``NodeEvent``. Either
+    callable raising :class:`CanonicalGateError` fails the gate closed; anything
+    else is treated as diversity of implementation and passes.
+
+    Args:
+        trace_check: callable that raises :class:`CanonicalGateError` when the
+            trace (claim) check fails, else returns normally.
+        register_check: callable that raises :class:`CanonicalGateError` when the
+            register/obligation check fails, else returns normally.
+
+    Returns:
+        ``(NodeOutcome, NodeEvent)``: ``PASS``/``pass`` when both callables
+        return, else ``ESCALATE``/``fail``.
+
+    Raises:
+        None.
+    """
+    from factory.orchestrator.execution_driver import CanonicalGateError
+
+    try:
+        trace_check()
+        register_check()
+    except CanonicalGateError as exc:
+        return NodeOutcome.ESCALATE, NodeEvent(
+            "canonical-gates", "fail", 1, {"reason": str(exc)}
+        )
+    return NodeOutcome.PASS, NodeEvent("canonical-gates", "pass", 1)
+
+
 def run_review(
     backend: AgentBackend,
     gates: GateRunner,
