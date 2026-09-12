@@ -173,12 +173,44 @@ def test_factory_orchestrator_plan_to_tasks_warns_once_and_matches_substrate(tmp
     assert new.run(plan_path, tmp_path) == []  # already parsed -- idempotent
 
 
-def test_factory_config_load_config_and_require_gates_do_not_warn(tmp_path):
+def test_factory_config_load_config_and_require_gates_do_not_warn(tmp_path, monkeypatch):
     # factory.config is the composition adapter, not a moved module -- its
     # public behaviour is unchanged, so importing/calling it must stay silent.
+    # Unlike the whole-module shims above (which only re-export substrate's
+    # own classes, so a fresh reimport still resolves to the same object),
+    # factory.config defines its own types. Plain _import_fresh would leave
+    # the freshly reimported module in sys.modules for the rest of the test
+    # session: any test collected before this one (e.g. tests/unit/test_
+    # config.py's module-level `from factory.config import load_config`)
+    # keeps the pre-swap load_config, which builds instances of the pre-swap
+    # GovernedExecutionConfig class -- so a later inline `from factory.config
+    # import GovernedExecutionConfig` in that same test compares against a
+    # distinct (if structurally identical) class and dataclass equality
+    # fails. monkeypatch.delitem restores the original module at teardown
+    # instead of leaking the fresh one.
+    #
+    # load_config() below also triggers factory.config's own lazy
+    # `from factory.polish.config import HARNESS_TYPES, PLAYGROUND_TYPES`
+    # (factory/config.py:130, kept lazy specifically to avoid a module-level
+    # circular import). If this is the first time anything in the process
+    # imports factory.polish.config, that import runs while the swapped
+    # module above is still active and permanently caches factory.polish.
+    # config's own `from factory.config import FactoryConfig` against it --
+    # a second-order leak restoring factory.config alone does not fix, since
+    # factory.polish.config itself never gets re-evicted.
+    #
+    # This one is deliberately a plain pop, not monkeypatch.delitem:
+    # monkeypatch restores whatever value a key held AT THE MOMENT it was
+    # deleted, which here would be the very module we are trying to get rid
+    # of -- reinstating the polluted binding at teardown instead of undoing
+    # it. A plain pop leaves the module genuinely absent, so whichever test
+    # needs factory.polish.config next reimports it fresh against
+    # factory.config as monkeypatch has by then already restored it (that
+    # restore runs at this fixture's teardown, after this pop already ran).
+    monkeypatch.delitem(sys.modules, "factory.config", raising=False)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", DeprecationWarning)
-        cfg_module = _import_fresh("factory.config")
+        cfg_module = importlib.import_module("factory.config")
 
     assert caught == []
 
@@ -193,6 +225,7 @@ def test_factory_config_load_config_and_require_gates_do_not_warn(tmp_path):
         cfg_module.require_gates(cfg, tmp_path)
 
     assert caught == []
+    sys.modules.pop("factory.polish.config", None)
 
     from substrate.config import GateStep as SubstrateGateStep
 
