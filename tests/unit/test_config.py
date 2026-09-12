@@ -146,3 +146,64 @@ def test_substrate_config_never_imports_factory_polish_config():
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- SR-034 decision 3 (2026-09-11): the governed fixer budget is project-wide ---
+
+
+def test_governed_execution_budget_is_typed_project_wide_and_fail_closed(tmp_path):
+    from dataclasses import fields as dataclass_fields
+
+    from factory.config import (
+        GovernedExecutionConfig,
+        GovernedExecutionConfigError,
+        require_governed_execution,
+    )
+
+    root = _write(tmp_path, "governed_execution:\n  max_fixer_iterations: 2\n")
+    cfg = load_config(root)
+    assert cfg.governed_execution == GovernedExecutionConfig(max_fixer_iterations=2)
+    assert require_governed_execution(cfg, root).max_fixer_iterations == 2
+
+    # Project-wide, not task-local: one field, no task dimension, and a
+    # task-scoped override elsewhere in the file cannot change it.
+    assert [field.name for field in dataclass_fields(GovernedExecutionConfig)] == [
+        "max_fixer_iterations"
+    ]
+    override = _write(
+        tmp_path / "override",
+        "governed_execution:\n  max_fixer_iterations: 2\n"
+        "tasks:\n  T-001:\n    governed_execution:\n      max_fixer_iterations: 9\n",
+    )
+    assert require_governed_execution(load_config(override), override).max_fixer_iterations == 2
+
+    # The decided value does not make an unset config acceptable: a governed
+    # dispatch still fails closed with a configuration diagnostic.
+    unset = _write(tmp_path / "unset", "playgrounds: {}\n")
+    unset_cfg = load_config(unset)
+    assert unset_cfg.governed_execution.max_fixer_iterations is None
+    with pytest.raises(GovernedExecutionConfigError, match="max_fixer_iterations"):
+        require_governed_execution(unset_cfg, unset)
+
+
+@pytest.mark.parametrize("value", [0, -1, "2", 2.0, True, False, [2]])
+def test_governed_execution_budget_rejects_zero_negative_boolean_and_non_integer(tmp_path, value):
+    import json as _json
+
+    from factory.config import GovernedExecutionConfigError
+
+    root = _write(
+        tmp_path, f"governed_execution:\n  max_fixer_iterations: {_json.dumps(value)}\n"
+    )
+    with pytest.raises(GovernedExecutionConfigError, match="max_fixer_iterations"):
+        load_config(root)
+
+
+def test_the_factory_records_the_decided_governed_fixer_budget():
+    """The committed value (human decision 3, 2026-09-11) is 2, project-wide."""
+    from factory.config import require_governed_execution
+
+    repo_root = Path(__file__).resolve().parents[2]
+    cfg = load_config(repo_root)
+    assert cfg.governed_execution.max_fixer_iterations == 2
+    assert require_governed_execution(cfg, repo_root).max_fixer_iterations == 2

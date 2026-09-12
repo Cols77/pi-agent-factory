@@ -282,3 +282,145 @@ def test_stage_record_marks_its_empty_remaining_as_not_exhausted_budget(tmp_path
     assert checkpoint.remaining == {}
     assert checkpoint.completed[0]["data"]["budget_note"] == STAGE_RECORD_BUDGET_NOTE
     assert "not" in STAGE_RECORD_BUDGET_NOTE and "exhaust" in STAGE_RECORD_BUDGET_NOTE
+
+
+def test_consume_human_decision_matches_the_pending_request_append_only(tmp_path):
+    """The kernel's durable pause/resume seam: a human decision is matched
+    append-only against the pending request it recorded, and journalled."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = execution.record_stage(execution.begin_revision("dev"), state="completed")
+
+    cursor, request = execution.open_human_decision_request(
+        cursor, reason="fixer budget exhausted", finding_universe_sha256="b" * 64
+    )
+    assert request["state"] == "pending"
+    assert len(request["request_sha256"]) == 64
+    assert request["allowed_decisions"] == ("retry", "defer", "block")
+
+    advanced = execution.consume_human_decision(
+        "T-001",
+        request_sha256=request["request_sha256"],
+        decision="retry",
+        response="human decision: retry",
+        decided_by="human",
+    )
+    assert advanced.stage_id == "dev"
+    decision_record = execution.journal.events()[-1].data["human_decision"]
+    assert decision_record["decision"] == "retry"
+    assert decision_record["decided_by"] == "human"
+    assert decision_record["request_sha256"] == request["request_sha256"]
+    assert decision_record["retry_reset_iteration"] == 0
+
+    # Append-only: the same request hash can never be consumed twice.
+    with pytest.raises(RunCursorError):
+        execution.consume_human_decision(
+            "T-001",
+            request_sha256=request["request_sha256"],
+            decision="block",
+            response="again",
+            decided_by="human",
+        )
+
+
+def test_consume_human_decision_refuses_unknown_non_human_and_no_request(tmp_path):
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = execution.record_stage(execution.begin_revision("dev"), state="completed")
+    _cursor, request = execution.open_human_decision_request(cursor, reason="budget exhausted")
+    digest = request["request_sha256"]
+
+    with pytest.raises(RunCursorError):
+        execution.consume_human_decision(
+            "T-001", request_sha256=digest, decision="approve", response="?", decided_by="human"
+        )
+    with pytest.raises(RunCursorError):
+        execution.consume_human_decision(
+            "T-001", request_sha256=digest, decision="retry", response="?", decided_by="agent"
+        )
+    with pytest.raises(RunCursorError):
+        execution.consume_human_decision(
+            "T-001", request_sha256="c" * 64, decision="retry", response="?", decided_by="human"
+        )
+    with pytest.raises(RunCursorError):
+        execution.consume_human_decision(
+            "T-999", request_sha256=digest, decision="retry", response="?", decided_by="human"
+        )
+
+    fresh = RunExecution.create(tmp_path, "run-2", "T-002", "a" * 40, git)
+    with pytest.raises(RunCursorError):
+        fresh.consume_human_decision(
+            "T-002", request_sha256=digest, decision="retry", response="?", decided_by="human"
+        )
+
+
+def test_governed_cursors_reconstruct_from_the_journal_across_a_restart(tmp_path):
+    """``RunExecution.create`` rebuilds the monotonic cursor tail from the
+    journal, so a resumed process continues instead of restarting at r1/a1."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    first = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    dev = first.record_stage(first.begin_revision("dev"), state="completed", data={"outcome": "pass"})
+    first.record_stage(first.begin_revision("validation"), state="completed")
+    campaign = first.record_stage(
+        first.begin_revision("campaign-classification"), state="completed"
+    )
+    first.record_stage(first.begin_revision("fixer"), state="completed")
+    validation = first.record_stage(first.begin_revision("validation"), state="completed")
+
+    resumed = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    # The monotonic tail survives: max revision/attempt per stage, chained.
+    assert (resumed.open_cursor("dev").revision, resumed.open_cursor("dev").attempt) == (1, 1)
+    assert (resumed.open_cursor("validation").revision, resumed.open_cursor("validation").attempt) == (2, 1)
+    assert resumed.open_cursor("dev").parent_event_sha256 == dev.parent_event_sha256
+    assert resumed.open_cursor("validation").parent_event_sha256 == validation.parent_event_sha256
+    assert resumed.open_cursor("validation").attempt_key == validation.attempt_key
+
+    # Replaying the validation r2 record invalidated everything after it.
+    with pytest.raises(RunCursorError):
+        resumed.open_cursor("campaign-classification")
+    with pytest.raises(RunCursorError):
+        resumed.open_cursor("fixer")
+    assert {"campaign-classification", "fixer"} <= resumed.invalidated_stages
+
+    # A journalled attempt_key can never be reused after a restart.
+    reopened = resumed.begin_revision("campaign-classification")
+    assert reopened.revision == 2
+    assert reopened.attempt_key != campaign.attempt_key
+    assert reopened.attempt_key.endswith("/r2/a1/v1")
+
+
+def test_open_task_cursor_addresses_the_cursor_by_run_and_task_identity(tmp_path):
+    from coherence.execution.gate_plan import compile_gate_plan
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    plan = compile_gate_plan(
+        workflow_version="governed-execution/v1",
+        version="v1",
+        required_gates=("unit",),
+        preflight_policy="mandatory-only",
+    )
+
+    cursor = execution.open_task_cursor("T-001", plan)
+    assert cursor.stage_id == plan.stages[0] == "contract-compiled"
+    assert (cursor.revision, cursor.attempt) == (1, 1)
+    assert execution.open_task_cursor("T-001", plan) == cursor  # the live root, not a new one
+    assert execution.open_cursor("contract-compiled") == cursor  # 1-arg meaning unchanged
+
+    with pytest.raises(RunCursorError):
+        execution.open_task_cursor("T-999", plan)
+    with pytest.raises(RunCursorError):
+        execution.open_task_cursor("T-001", object())
+    # The additive gate_plan parameter validates membership; it never widens a cursor.
+    with pytest.raises(RunCursorError):
+        execution.open_cursor("not-a-stage", plan)
+    with pytest.raises(RunCursorError):
+        execution.open_cursor("dev", object())
