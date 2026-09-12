@@ -6,6 +6,9 @@ dod:
 - SR-049 JSON event/evidence forwarding without host-side gate or trace interpretation.
 - All steps in this task complete; tests/gates pass; committed
 id: T-044
+satisfies:
+- SR-034
+- SR-049
 source_plan: docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md
 source_task: 6
 status: todo

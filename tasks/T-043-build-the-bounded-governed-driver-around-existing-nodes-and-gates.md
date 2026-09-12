@@ -7,6 +7,9 @@ dod:
   can be true.
 - All steps in this task complete; tests/gates pass; committed
 id: T-043
+satisfies:
+- SR-034
+- SR-049
 source_plan: docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md
 source_task: 5
 status: todo
