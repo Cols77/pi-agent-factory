@@ -131,7 +131,7 @@ def challenge(**overrides: Any) -> dict[str, Any]:
 
 
 def test_session_verbs_are_exactly_the_implemented_capture_verbs() -> None:
-    assert SESSION_VERBS == ("start", "resume", "status", "append", "resolve", "finalize")
+    assert SESSION_VERBS == ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize")
 
 
 def test_start_builds_argv_only_command_with_prompt() -> None:
@@ -203,6 +203,37 @@ def test_append_joins_each_flag_and_value_as_one_argv_token() -> None:
     assert "--question=What breaks?" in command
     assert "--text=Nothing" in command
     assert "--source=intent-review-agent" in command
+
+
+def test_propose_challenge_is_a_transport_only_backend_command() -> None:
+    command = build_session_command(
+        Path("/p"), "run-001", "propose-challenge", id="semantic-1",
+        kind="unsupported_claim", claim="always safe", rationale="No evidence",
+        evidence_needed="repository inspection", provenance="host:semantic-review",
+    )
+
+    assert command == [
+        "uv", "run", "coherence", "plan", "propose-challenge", "--project-root", str(Path("/p")),
+        "--run-id", "run-001", "--id=semantic-1", "--kind=unsupported_claim",
+        "--claim=always safe", "--rationale=No evidence", "--evidence-needed=repository inspection",
+        "--provenance=host:semantic-review", "--json",
+    ]
+
+
+def test_propose_challenge_rejects_malformed_host_data_without_invoking_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    with pytest.raises(BackendError, match="non-empty text"):
+        run_session_command(
+            Path("/p"), "run-001", "propose-challenge", id="semantic-1",
+            kind="unsupported_claim", claim="", rationale="No evidence",
+            evidence_needed="repository inspection", provenance="host:semantic-review",
+        )
+
+    assert calls == []
 
 
 @pytest.mark.parametrize("hyphen_value", ["-N/A", "-none", "-1", "--looks-like-a-flag"])
@@ -374,7 +405,61 @@ def test_main_usage_errors_exit_two(argv: list[str]) -> None:
 
 
 def test_pipeline_verbs_are_the_implemented_compile_and_handoff_verbs() -> None:
-    assert PIPELINE_VERBS == ("bootstrap", "check", "review", "handoff")
+    assert PIPELINE_VERBS == (
+        "bootstrap", "check", "review", "write-artifact-manifest", "write-cross-artifact-review",
+        "record-sr-consent", "run-planning-gates", "handoff",
+    )
+
+
+@pytest.mark.parametrize("verb,fields", [
+    ("write-artifact-manifest", {"artifacts_json": '[]'}),
+    ("write-cross-artifact-review", {"tasks_json": '{"tasks/T-001.md": {}}'}),
+    ("run-planning-gates", {}),
+    ("record-sr-consent", {
+        "sr_id": "SR-001", "requirement_sha256": "a" * 64, "decision": "reject",
+        "reviewer": "human", "phrase": "-explicit human response", "reason": "Needs revision",
+    }),
+])
+def test_pipeline_closure_verbs_only_transport_explicit_fields(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    verb: str, fields: dict[str, str],
+) -> None:
+    captured: list[list[str]] = []
+
+    def backend(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert kwargs["shell"] is False
+        captured.append(command)
+        return completed_json({"ok": False, "blocked": True}, returncode=1)
+
+    monkeypatch.setattr(subprocess, "run", backend)
+    flags = [f"--{key.replace('_', '-')}={value}" for key, value in fields.items()]
+    assert pipeline_main([verb, "--run-id", "run-001", "--project-root", "/p", *flags]) == 0
+    assert captured == [[
+        "uv", "run", "coherence", "plan", verb, "--project-root", str(Path("/p")),
+        "--run-id", "run-001", *flags, "--json",
+    ]]
+    assert json.loads(capsys.readouterr().out) == {
+        "backend_exit_code": 1, "ok": False, "blocked": True,
+    }
+
+
+@pytest.mark.parametrize("verb,fields", [
+    ("write-artifact-manifest", {}),
+    ("write-artifact-manifest", {"artifacts_json": " ", "approve": "true"}),
+    ("write-cross-artifact-review", {}),
+    ("write-cross-artifact-review", {"tasks_json": " "}),
+    ("record-sr-consent", {"sr_id": "SR-001"}),
+    ("run-planning-gates", {"approve": "true"}),
+])
+def test_pipeline_rejects_missing_or_extra_transport_fields_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch, verb: str, fields: dict[str, str],
+) -> None:
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("invalid transport input must not invoke a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    with pytest.raises(BackendError, match="fields"):
+        run_pipeline_command(Path("/p"), "run-001", verb, **fields)
 
 
 def test_bootstrap_passes_all_three_artifacts_and_decompose() -> None:

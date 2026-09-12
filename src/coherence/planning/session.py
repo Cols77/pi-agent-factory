@@ -12,35 +12,27 @@ from coherence.planning.intent import (
     CaptureEvent,
     IntentError,
     IntentDocument,
+    _replay_events,
     append_capture_event,
     capture_lock,
     detect_challenges,
     materialize_intent,
+    propose_capture_challenge,
     read_capture_events,
     read_intent,
     replay_capture_intent,
     resolve_capture_challenge,
 )
 from coherence.planning.paths import safe_resolve, safe_root
+from coherence.planning.lifecycle import (
+    EvidenceStatus,
+    LifecycleEvidence,
+    action_registry,
+    project_lifecycle,
+)
 from coherence.planning.serialization import strict_json_dumps, strict_json_loads
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-_LEGAL_ACTION_IDS = (
-    "start-capture",
-    "capture-answer",
-    "resolve-challenge",
-    "finalize-capture",
-    "author-spec",
-    "author-plan",
-    "review-spec",
-    "review-plan",
-    "inspect-handoff",
-    "revalidate-handoff",
-    "select-downstream-workflow",
-    "create-downstream-session",
-    "resolve-blocking-input",
-)
-_ACTION_REGISTRY_HASH = hashlib.sha256("\n".join(_LEGAL_ACTION_IDS).encode()).hexdigest()
 
 
 class SessionError(ValueError):
@@ -106,23 +98,19 @@ def read_session_intent(root: Path, run_id: str) -> IntentDocument:
     _validate_run_id(run_id)
     with capture_lock(root, run_id):
         try:
-            path = _intent_path(root, run_id)
-            if path.is_symlink() or path.exists():
-                if not path.is_file():
-                    raise SessionError("intent is invalid")
-            else:
-                legacy_path = _legacy_intent_path(root)
-                if not legacy_path.is_file():
-                    raise SessionError("intent could not be read")
-                path = legacy_path
+            canonical_path = _intent_path(root, run_id)
+            legacy_path = _legacy_intent_path(root)
+            path = canonical_path if canonical_path.is_file() else legacy_path
             intent = read_intent(path, project_root=root)
             canonical = replay_capture_intent(root, run_id)
-        except (SessionError, IntentError) as exc:
+            if canonical_path.is_file() and legacy_path.is_file():
+                legacy = read_intent(legacy_path, project_root=root)
+                if legacy != intent:
+                    raise SessionError("legacy intent mirror is stale")
+        except (OSError, IntentError, ValueError, TypeError) as exc:
             raise SessionError("intent is invalid") from exc
-        if intent.run_id != run_id:
-            raise SessionError("intent run_id does not match session run_id")
-        if intent != canonical:
-            raise SessionError("intent does not match capture journal")
+        if intent.run_id != run_id or intent != canonical:
+            raise SessionError("intent is stale or invalid")
         return intent
 
 
@@ -130,6 +118,7 @@ def _materialize(root: Path, run_id: str) -> None:
     """Materialize the journal without replacing the last good snapshot on failure."""
     try:
         materialize_intent(root, run_id, _intent_path(root, run_id))
+        materialize_intent(root, run_id, _legacy_intent_path(root))
     except IntentError as exc:
         raise SessionError(str(exc)) from exc
 
@@ -214,151 +203,179 @@ def resume_session(project_root: Path, run_id: str) -> PlanningSession:
 def status_session(project_root: Path, run_id: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
-    expected = _project(root, run_id, _events(root, run_id))
-    path = _state_path(root, run_id)
+    with capture_lock(root, run_id):
+        expected = _project(root, run_id, _events(root, run_id))
+        path = _state_path(root, run_id)
+        try:
+            payload = strict_json_loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise SessionError("state is stale or missing") from exc
+        if not isinstance(payload, dict) or payload != expected.to_dict():
+            raise SessionError("state is stale or contradictory")
+        return expected
+
+
+def _lifecycle_evidence(root: Path, session: PlanningSession) -> LifecycleEvidence:
+    """Load current durable evidence without deriving lifecycle actions."""
+    manifest_status: EvidenceStatus = "missing"
+    artifact_kinds: frozenset[str] = frozenset()
+    manifest_path = _inside(root, ".factory", "planning", session.run_id, "artifacts.json")
+    if manifest_path.exists():
+        try:
+            from coherence.planning.artifacts import read_artifact_manifest
+
+            manifest = read_artifact_manifest(root, session.run_id)
+            artifacts = manifest["artifacts"]
+            if not isinstance(artifacts, list):
+                raise ValueError("artifact manifest entries must be a list")
+            artifact_kinds = frozenset(
+                item["kind"] for item in artifacts
+                if isinstance(item, dict) and isinstance(item.get("kind"), str)
+            )
+            manifest_status = "valid"
+        except (OSError, ValueError, TypeError):
+            manifest_status = "invalid"
+
+    unresolved_challenges = False
+    intent_status: EvidenceStatus = "valid"
     try:
-        payload = strict_json_loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise SessionError("state is stale or missing") from exc
-    if not isinstance(payload, dict) or payload != expected.to_dict():
-        raise SessionError("state is stale or contradictory")
-    return expected
+        intent = read_session_intent(root, session.run_id)
+        expected_intent = _replay_events(
+            _events(root, session.run_id), session.run_id
+        )
+        if intent != expected_intent:
+            intent_status = "stale"
+        unresolved_challenges = any(
+            challenge.status == "unresolved" for challenge in expected_intent.challenges
+        )
+    except (IntentError, SessionError):
+        intent_status = "invalid"
 
+    consent_status: EvidenceStatus = "missing"
+    if "requirements" in artifact_kinds:
+        try:
+            from coherence.planning.gates import _current_feature_requirements
+            from coherence.planning.consent import validate_sr_decisions
 
-def _run_identity(session: PlanningSession) -> dict[str, object]:
-    return {
-        "run_id": session.run_id,
-        "next_sequence": session.next_sequence,
-        "journal_sha256": session.journal_sha256,
-    }
+            current, _ = _current_feature_requirements(root)
+            valid, detail = validate_sr_decisions(root, session.run_id, current)
+            if valid:
+                consent_status = "valid"
+            elif detail.startswith("missing human consent:"):
+                consent_status = "missing"
+            elif detail.startswith("stale human consent:"):
+                consent_status = "stale"
+            else:
+                consent_status = "invalid"
+        except (OSError, TypeError, ValueError, RuntimeError):
+            consent_status = "invalid"
+
+    spec_review_status: EvidenceStatus = "missing"
+    plan_review_status: EvidenceStatus = "missing"
+    gate_status: EvidenceStatus = "missing"
+    run_dir = _inside(root, ".factory", "planning", session.run_id)
+    spec_review = run_dir / "spec-review.json"
+    plan_review = run_dir / "plan-review.json"
+
+    def review_marker(path: Path) -> EvidenceStatus:
+        if not path.exists():
+            return "missing"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return "valid" if isinstance(payload, dict) and payload.get("status") == "pass" else "invalid"
+        except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+            return "invalid"
+
+    spec_review_status = review_marker(spec_review)
+    if spec_review_status == "valid":
+        plan_review_status = review_marker(plan_review)
+    try:
+        from coherence.planning.gates import (
+            _resolve_human_review,
+            compile_planning_gate_pack,
+            validate_planning_gate_result,
+        )
+
+        review_status, _ = _resolve_human_review(root, session.run_id)
+        if review_status != "pass":
+            decision_path = run_dir / "review-decision.json"
+            if decision_path.exists():
+                spec_review_status = "stale"
+                plan_review_status = "stale"
+            else:
+                spec_review_status = "missing"
+                plan_review_status = "missing"
+        elif spec_review_status == "missing":
+            # The reviewed decision is current, but the stage-specific record
+            # has not yet been published.
+            plan_review_status = "missing"
+        result_path = run_dir / "planning-gate-result.json"
+        if result_path.exists():
+            validate_planning_gate_result(root, session.run_id, compile_planning_gate_pack("FEAT-017", "v1"))
+            gate_status = "valid"
+    except (OSError, TypeError, ValueError, RuntimeError):
+        gate_status = "invalid"
+
+    handoff_status: EvidenceStatus = "missing"
+    handoff = _inside(root, ".factory", "planning", session.run_id, "handoff.json")
+    if handoff.exists():
+        if not handoff.is_file():
+            handoff_status = "invalid"
+        else:
+            try:
+                from coherence.planning.handoff import validate_handoff
+
+                validate_handoff(root, handoff)
+                handoff_status = "valid"
+            except (OSError, ValueError, TypeError, RuntimeError):
+                handoff_status = "invalid"
+    if handoff_status == "valid" and spec_review_status == "missing":
+        # A legacy handoff is itself the durable attestation for both review
+        # stages; newer runs persist the explicit stage markers above.
+        spec_review_status = "valid"
+        plan_review_status = "valid"
+    if handoff_status == "valid" and gate_status == "missing":
+        gate_status = "valid"
+
+    return LifecycleEvidence(
+        run_id=session.run_id,
+        state=session.state,
+        run_identity={
+            "run_id": session.run_id,
+            "next_sequence": session.next_sequence,
+            "journal_sha256": session.journal_sha256,
+        },
+        manifest_status=manifest_status,
+        artifact_kinds=artifact_kinds,
+        consent_status=consent_status,
+        spec_review_status=spec_review_status,
+        plan_review_status=plan_review_status,
+        gate_status=gate_status,
+        handoff_status=handoff_status,
+        unresolved_challenges=unresolved_challenges,
+        intent_status=intent_status,
+    )
 
 
 def legal_actions_session(project_root: Path, run_id: str) -> dict[str, object]:
-    """Return the closed, fail-closed host action projection for a run.
-
-    The persisted session snapshot is the only source of run identity.  This
-    function never accepts caller-provided actions and never invokes a menu
-    action or starts downstream work.
-    """
+    """Load run evidence and delegate action selection to the pure projector."""
     root = _root(project_root)
     _validate_run_id(run_id)
     base: dict[str, object] = {
-        "schema": 1,
+        "schema": 2,
         "run_id": run_id,
+        "state": "unknown",
         "legal_next_actions": [],
-        "selected_downstream_workflow": None,
         "starts_automatically": False,
-        "action_registry": {
-            "schema": 1,
-            "legal_ids": list(_LEGAL_ACTION_IDS),
-            "registry_hash": _ACTION_REGISTRY_HASH,
-        },
+        "run_identity": None,
+        "action_registry": dict(action_registry()),
     }
-
-    try:
-        journal = _journal(root, run_id)
-        state_path = _state_path(root, run_id)
-        intent_path = _intent_path(root, run_id)
-        handoff_path = _inside(root, ".factory", "planning", run_id, "handoff.json")
-        legacy_intent_path = _legacy_intent_path(root)
-        lock_path = journal.parent.parent / ".capture.lock"
-    except SessionError:
-        base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
-        return base
-    if not journal.exists():
-        if any(path.exists() for path in (
-            state_path, intent_path, handoff_path, legacy_intent_path, lock_path,
-        )):
-            base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
-            return base
-        base.update({
-            "blocked": False,
-            "reason": None,
-            "state": "not_started",
-            "legal_next_actions": ["start-capture"],
-        })
-        return base
-
     try:
         session = status_session(root, run_id)
     except SessionError:
         base.update({"blocked": True, "reason": "STALE_SESSION_STATE"})
         return base
-
-    if session.state == "blocked":
-        base.update({
-            "blocked": True,
-            "reason": "CAPTURE_CANCELLED",
-            "state": session.state,
-            "run_identity": _run_identity(session),
-        })
-        return base
-
-    if session.state == "capture":
-        try:
-            intent = read_session_intent(root, run_id)
-            unresolved = any(challenge.status == "unresolved" for challenge in intent.challenges)
-        except SessionError:
-            base.update({
-                "blocked": True,
-                "reason": "INTENT_INVALID",
-                "state": session.state,
-                "run_identity": _run_identity(session),
-            })
-            return base
-        legal = ["resolve-challenge"] if unresolved else ["capture-answer", "finalize-capture"]
-        base.update({
-            "blocked": False,
-            "reason": None,
-            "state": session.state,
-            "run_identity": _run_identity(session),
-            "legal_next_actions": legal,
-        })
-        return base
-
-    # session.state == "intent_provisional"
-    try:
-        read_session_intent(root, run_id)
-    except SessionError:
-        base.update({
-            "blocked": True,
-            "reason": "INTENT_INVALID",
-            "state": session.state,
-            "run_identity": _run_identity(session),
-        })
-        return base
-
-    try:
-        handoff = _inside(root, ".factory", "planning", run_id, "handoff.json")
-    except SessionError:
-        base.update({"blocked": True, "reason": "HANDOFF_INVALID", "state": session.state})
-        return base
-    if not handoff.is_file():
-        base.update({
-            "blocked": False,
-            "reason": None,
-            "state": session.state,
-            "run_identity": _run_identity(session),
-            "legal_next_actions": ["author-spec", "author-plan", "review-spec", "review-plan"],
-        })
-        return base
-    try:
-        # Import lazily to keep session persistence independent of handoff code.
-        from coherence.planning.handoff import validate_handoff
-
-        handoff_payload = validate_handoff(root, handoff)
-    except (OSError, ValueError, TypeError, RuntimeError):
-        base.update({"blocked": True, "reason": "HANDOFF_INVALID", "state": session.state})
-        return base
-    base.update({
-        "blocked": False,
-        "reason": None,
-        "state": session.state,
-        "run_identity": _run_identity(session),
-        "selected_downstream_workflow": handoff_payload.get("selected_workflow"),
-        "legal_next_actions": ["inspect-handoff", "revalidate-handoff"],
-    })
-    return base
+    return project_lifecycle(_lifecycle_evidence(root, session)).to_dict()
 
 
 def append_session_answer(
@@ -381,40 +398,29 @@ def append_session_answer(
         events = _events(root, run_id)
         if not events:
             raise SessionError("planning session has not started")
-        try:
-            append_capture_event(
-                root,
+        append_capture_event(
+            root,
+            run_id,
+            CaptureEvent(
                 run_id,
-                CaptureEvent(
-                    run_id,
-                    len(events) + 1,
-                    "answer_captured",
-                    {"id": answer_id, "question": question, "text": text, "source": source},
-                ),
-                _lock_held=True,
-            )
-        except IntentError as exc:
-            raise SessionError(str(exc)) from exc
+                len(events) + 1,
+                "answer_captured",
+                {"id": answer_id, "question": question, "text": text, "source": source},
+            ),
+            _lock_held=True,
+        )
         _materialize(root, run_id)
         document = read_session_intent(root, run_id)
         known = {challenge.id for challenge in document.challenges}
         for challenge in detect_challenges(document.answers):
             if challenge.id not in known:
                 current_events = _events(root, run_id)
-                try:
-                    append_capture_event(
-                        root,
-                        run_id,
-                        CaptureEvent(
-                            run_id, len(current_events) + 1, "challenge_raised",
-                            {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
-                             "rationale": challenge.rationale, "provenance": challenge.provenance,
-                             "evidence_needed": challenge.evidence_needed},
-                        ),
-                        _lock_held=True,
-                    )
-                except IntentError as exc:
-                    raise SessionError(str(exc)) from exc
+                append_capture_event(root, run_id, CaptureEvent(
+                    run_id, len(current_events) + 1, "challenge_raised",
+                    {"id": challenge.id, "kind": challenge.kind, "claim": challenge.claim,
+                     "rationale": challenge.rationale, "provenance": challenge.provenance,
+                     "evidence_needed": challenge.evidence_needed},
+                ), _lock_held=True)
         _materialize(root, run_id)
         session = _project(root, run_id, _events(root, run_id))
         _write_state(root, session)
@@ -442,6 +448,33 @@ def resolve_session_challenge(
         return session
 
 
+def propose_session_challenge(
+    project_root: Path, run_id: str, challenge_id: str, kind: str, claim: str,
+    rationale: str, evidence_needed: str, provenance: str,
+) -> PlanningSession:
+    """Persist a host challenge proposal without resolving or approving anything."""
+    root = _root(project_root)
+    _validate_run_id(run_id)
+    if not all(
+        isinstance(value, str) and value
+        for value in (challenge_id, kind, claim, rationale, evidence_needed, provenance)
+    ):
+        raise SessionError("semantic challenge proposal fields must be non-empty text")
+    if not provenance.startswith("host:"):
+        raise SessionError("semantic challenge proposal requires host provenance")
+    with capture_lock(root, run_id):
+        try:
+            propose_capture_challenge(
+                root, run_id, challenge_id, kind, claim, rationale, evidence_needed, provenance,
+            )
+            _materialize(root, run_id)
+        except IntentError as exc:
+            raise SessionError(str(exc)) from exc
+        session = _project(root, run_id, _events(root, run_id))
+        _write_state(root, session)
+        return session
+
+
 def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSession:
     root = _root(project_root)
     _validate_run_id(run_id)
@@ -451,15 +484,12 @@ def finalize_session(project_root: Path, run_id: str, status: str) -> PlanningSe
         events = _events(root, run_id)
         if not events:
             raise SessionError("planning session has not started")
-        try:
-            append_capture_event(
-                root,
-                run_id,
-                CaptureEvent(run_id, len(events) + 1, "capture_status", {"status": status}),
-                _lock_held=True,
-            )
-        except IntentError as exc:
-            raise SessionError(str(exc)) from exc
+        append_capture_event(
+            root,
+            run_id,
+            CaptureEvent(run_id, len(events) + 1, "capture_status", {"status": status}),
+            _lock_held=True,
+        )
         _materialize(root, run_id)
         session = _project(root, run_id, _events(root, run_id))
         _write_state(root, session)
@@ -472,6 +502,7 @@ __all__ = [
     "append_session_answer",
     "finalize_session",
     "legal_actions_session",
+    "propose_session_challenge",
     "read_session_intent",
     "resume_session",
     "resolve_session_challenge",

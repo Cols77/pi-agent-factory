@@ -20,7 +20,13 @@ _SECRET_RE = re.compile(
 _BRIEF_FIELDS = ("goal", "scope", "constraints", "non_goals", "done_when", "open_questions")
 _STATUSES = {"provisional", "needs_user", "cancelled"}
 _CHALLENGE_STATUSES = {"unresolved", "resolved", "revised", "deferred", "accepted"}
-_EVENT_KINDS = {"capture_started", "answer_captured", "capture_status", "question_deferred", "challenge_raised", "challenge_resolved"}
+_EVENT_KINDS = {
+    "capture_started", "answer_captured", "capture_status", "question_deferred",
+    "challenge_raised", "semantic_challenge_proposed", "challenge_resolved",
+}
+_SEMANTIC_CHALLENGE_FIELDS = (
+    "id", "kind", "claim", "rationale", "evidence_needed", "provenance",
+)
 _LOCK_REGISTRY_GUARD = RLock()
 _LOCK_REGISTRY: dict[Path, RLock] = {}
 _LOCK_STATE = local()
@@ -248,6 +254,27 @@ def _challenge(value: object, index: int) -> PlanningChallenge:
     )
 
 
+def _semantic_challenge_proposal(value: object) -> PlanningChallenge:
+    """Validate a host proposal as data, never as a decision or resolution."""
+    if not isinstance(value, dict) or set(value) != set(_SEMANTIC_CHALLENGE_FIELDS):
+        raise IntentError("semantic challenge proposal must contain exactly its proposal fields")
+    if any(not isinstance(value[field], str) or not value[field] for field in _SEMANTIC_CHALLENGE_FIELDS):
+        raise IntentError("semantic challenge proposal fields must be non-empty text")
+    if not value["provenance"].startswith("host:"):
+        raise IntentError("semantic challenge proposal requires host provenance")
+    return PlanningChallenge(
+        id=value["id"], kind=value["kind"], claim=value["claim"],
+        rationale=value["rationale"], provenance=value["provenance"],
+        evidence_needed=value["evidence_needed"],
+    )
+
+
+def _human_provenance(value: object) -> bool:
+    return isinstance(value, str) and (
+        value in {"user", "human"} or value.startswith(("user:", "human:"))
+    )
+
+
 def detect_challenges(answers: tuple[IntentAnswer, ...]) -> tuple[PlanningChallenge, ...]:
     """Find deterministic, evidence-seeking challenges in captured user claims."""
     challenges: list[PlanningChallenge] = []
@@ -405,6 +432,8 @@ def append_capture_event(
     root: Path, run_id: str, event: CaptureEvent, *, _lock_held: bool = False
 ) -> Path:
     """Append one validated event while serializing same-run writers."""
+    if isinstance(event, CaptureEvent) and event.kind == "challenge_resolved":
+        raise IntentError("challenge_resolved may only be recorded through resolve_capture_challenge")
     if _lock_held:
         return _append_capture_event(root, run_id, event)
     with capture_lock(root, run_id):
@@ -477,6 +506,11 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
             if any(item.id == challenge.id for item in challenges):
                 raise IntentError("duplicate challenge id in capture journal")
             challenges.append(challenge)
+        elif event.kind == "semantic_challenge_proposed":
+            challenge = _semantic_challenge_proposal(payload)
+            if any(item.id == challenge.id for item in challenges):
+                raise IntentError("duplicate challenge id in capture journal")
+            challenges.append(challenge)
         elif event.kind == "challenge_resolved":
             challenge_id = _as_text(payload.get("id"), "challenge_resolved.id")
             for index, challenge in enumerate(challenges):
@@ -485,10 +519,13 @@ def _replay_events(events: list[CaptureEvent], run_id: str) -> IntentDocument:
                     resolution = _as_text(payload.get("resolution"), "challenge_resolved.resolution")
                     if resolution not in {"resolve", "revise", "defer", "accept"}:
                         raise IntentError("challenge resolution is invalid")
+                    provenance = _as_text(payload.get("provenance"), "challenge_resolved.provenance")
+                    if not _human_provenance(provenance):
+                        raise IntentError("challenge resolution requires human provenance")
                     status = {"resolve": "resolved", "revise": "revised", "defer": "deferred", "accept": "accepted"}[resolution]
                     challenges[index] = PlanningChallenge(
                         challenge.id, challenge.kind, challenge.claim, challenge.rationale,
-                        challenge.provenance, challenge.evidence_needed, status, response, _as_text(payload.get("provenance"), "challenge_resolved.provenance"),
+                        challenge.provenance, challenge.evidence_needed, status, response, provenance,
                     )
                     break
             else:
@@ -531,6 +568,25 @@ def resolve_capture_challenge(
     if _lock_held:
         return _append_capture_event(project_root, run_id, event)
     return append_capture_event(project_root, run_id, event)
+
+
+def propose_capture_challenge(
+    root: Path, run_id: str, challenge_id: str, kind: str, claim: str,
+    rationale: str, evidence_needed: str, provenance: str,
+) -> Path:
+    """Persist a host-supplied semantic challenge without assigning it authority."""
+    project_root = _safe_project_root(root)
+    journal = _journal_path(project_root, run_id)
+    events = _read_events(journal, run_id)
+    payload: dict[str, object] = {
+        "id": challenge_id, "kind": kind, "claim": claim, "rationale": rationale,
+        "evidence_needed": evidence_needed, "provenance": provenance,
+    }
+    _semantic_challenge_proposal(payload)
+    return append_capture_event(
+        project_root, run_id,
+        CaptureEvent(run_id, len(events) + 1, "semantic_challenge_proposed", payload),
+    )
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -612,6 +668,7 @@ __all__ = [
     "read_capture_events",
     "replay_capture_intent",
     "detect_challenges",
+    "propose_capture_challenge",
     "resolve_capture_challenge",
     "read_intent",
     "validate_intent",

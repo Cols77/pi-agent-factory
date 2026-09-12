@@ -147,7 +147,12 @@ def _resolve_test(index: CodeIndex, rel_path: str, test: str) -> str | None:
     return None
 
 
-def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
+def resolve_sr_relations(
+    root: Path,
+    meta: dict,
+    *,
+    index: CodeIndex | None = None,
+) -> RelationResolution:
     """Resolve every ``implemented_by``/``verified_by`` structured-relation
     entry an SR's raw frontmatter declares (SR-050/AC-1). A non-dict entry
     (the legacy plain-string ``verified_by: [T-001]`` graph edge) is not
@@ -178,8 +183,14 @@ def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
             if not isinstance(entry, dict):
                 continue  # legacy string-list shape (or malformed scalar) -- not ours
             raw_path = entry.get("path")
+            if not isinstance(raw_path, str):
+                issues.append(ReferenceIssue(field, i, f"{field}[{i}] path must be a string"))
+                continue
             if not raw_path or not str(raw_path).strip():
                 issues.append(ReferenceIssue(field, i, f"{field}[{i}] missing required 'path'"))
+                continue
+            if "\\" in raw_path or raw_path != Path(raw_path).as_posix():
+                issues.append(ReferenceIssue(field, i, f"{field}[{i}] path must be normalized project-relative text"))
                 continue
             rel_path = _confined_path(root, str(raw_path))
             if rel_path is None:
@@ -230,7 +241,12 @@ def resolve_sr_relations(root: Path, meta: dict) -> RelationResolution:
     if not pending:
         return RelationResolution(issues=tuple(issues))
 
-    index = ensure_fresh(root, files=sorted(needed_files))
+    # ``index`` lets a read-only caller provide an in-memory code map built
+    # from the exact same declared files.  The normal register path preserves
+    # its established fresh-and-persisted cache behaviour; only callers that
+    # explicitly provide an index opt out of that cache write.
+    if index is None:
+        index = ensure_fresh(root, files=sorted(needed_files))
     for field, i, entry, rel_str in pending:
         if field == "implemented_by":
             detail = _resolve_symbol(index, rel_str, str(entry["symbol"]))

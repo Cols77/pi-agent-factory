@@ -5,14 +5,25 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from coherence.planning.artifacts import write_artifact_manifest
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
+from coherence.planning.consent import write_sr_decision
+from coherence.planning.gates import (
+    PlanningGateError,
+    compile_planning_gate_pack,
+    evaluate_planning_gate_pack,
+    validate_planning_gate_result,
+    write_cross_artifact_review,
+)
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.session import (
     SessionError,
-    read_session_intent,
     append_session_answer,
     finalize_session,
     legal_actions_session,
+    propose_session_challenge,
+    read_session_intent,
     resume_session,
     resolve_session_challenge,
     start_session,
@@ -421,6 +432,111 @@ def _review(args: argparse.Namespace) -> int:
     return 1 if not report.ok or report.findings else 0
 
 
+def _record_sr_consent(args: argparse.Namespace) -> int:
+    """Record one explicit, independently reviewed SR decision."""
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
+    try:
+        path = write_sr_decision(
+            root,
+            args.run_id,
+            args.sr_id,
+            args.requirement_sha256,
+            args.decision,
+            args.reviewer,
+            args.phrase,
+            args.reason,
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "SR_CONSENT_INVALID", str(exc)), indent=2))
+        return 1
+    print(
+        json.dumps(
+            {
+                "schema": 1,
+                "ok": True,
+                "action": "record-sr-consent",
+                "consent": path.relative_to(root).as_posix(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def _write_artifact_manifest(args: argparse.Namespace) -> int:
+    """Persist only explicitly supplied artifact kinds, paths, and current hashes."""
+    root = _safe_root(args.project_root)
+    if root is None:
+        print(json.dumps(_blocked(args.run_id, "INVALID_PROJECT_ROOT", "project_root is invalid"), indent=2))
+        return 1
+    try:
+        artifacts = strict_json_loads(args.artifacts_json)
+        path = write_artifact_manifest(
+            root, args.run_id, {"schema": 1, "run_id": args.run_id, "artifacts": artifacts},
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "ARTIFACT_MANIFEST_INVALID", str(exc)), indent=2))
+        return 1
+    print(json.dumps({"schema": 1, "ok": True, "action": "write-artifact-manifest",
+                      "manifest": path.relative_to(root).as_posix()}, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _write_cross_artifact_review(args: argparse.Namespace) -> int:
+    """Carry explicit producer classifications to the canonical evidence writer."""
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    try:
+        raw = strict_json_loads(args.tasks_json)
+        fields = {"id", "artifact_paths", "changes_production", "changes_validation", "affected_srs", "satisfies"}
+        if not isinstance(raw, dict) or any(
+            not isinstance(item, dict) or set(item) != fields for item in raw.values()
+        ):
+            raise PlanningGateError("cross-artifact task input schema is invalid")
+        tasks = {path: GeneratedTaskReviewInput(**item) for path, item in raw.items()}
+        record = write_cross_artifact_review(
+            root, args.run_id, tasks, selected_workflow=args.workflow,
+        )
+    except (PlanningGateError, OSError, ValueError, TypeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "CROSS_ARTIFACT_REVIEW_INVALID", str(exc)), indent=2))
+        return 1
+    review = record["review"]
+    assert isinstance(review, dict)
+    print(json.dumps({"schema": 1, "ok": review["ok"],
+                      "action": "write-cross-artifact-review", **record}, indent=2, ensure_ascii=False))
+    return 0 if review["ok"] else 1
+
+
+def _run_planning_gates(args: argparse.Namespace) -> int:
+    """Compile and evaluate planning evidence gates without running factory gates."""
+    root = _safe_root(args.project_root)
+    if root is None or not _valid_run_id(args.run_id):
+        print(json.dumps(_blocked(args.run_id, "INVALID_ARGUMENT", "project root or run id is invalid"), indent=2))
+        return 1
+    try:
+        pack = compile_planning_gate_pack("FEAT-017", "v1")
+        result = evaluate_planning_gate_pack(root, args.run_id, pack)
+        validate_planning_gate_result(root, args.run_id, pack)
+    except (PlanningGateError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(json.dumps(_blocked(args.run_id, "PLANNING_GATES_BLOCKED", str(exc)), indent=2))
+        return 1
+    print(json.dumps({
+        "schema": 1,
+        "ok": True,
+        "action": "run-planning-gates",
+        "planning_gate_pack_sha256": pack["sha256"],
+        "planning_gate_result_sha256": result["result_sha256"],
+        "executions": result["executions"],
+    }, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _session_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "legal-actions":
@@ -441,6 +557,11 @@ def _session_command(args: argparse.Namespace) -> int:
                 args.question,
                 args.text,
                 source=args.source,
+            )
+        elif args.command == "propose-challenge":
+            session = propose_session_challenge(
+                args.project_root, args.run_id, args.id, args.kind, args.claim,
+                args.rationale, args.evidence_needed, args.provenance,
             )
         elif args.command == "resolve":
             session = resolve_session_challenge(
@@ -499,6 +620,24 @@ def _parser() -> argparse.ArgumentParser:
     handoff.add_argument("--workflow", default="standard-development")
     handoff.add_argument("--json", action="store_true")
 
+    planning_gates = sub.add_parser("run-planning-gates")
+    planning_gates.add_argument("--run-id", required=True)
+    planning_gates.add_argument("--project-root", required=True, type=Path)
+    planning_gates.add_argument("--json", action="store_true")
+
+    manifest = sub.add_parser("write-artifact-manifest")
+    manifest.add_argument("--run-id", required=True)
+    manifest.add_argument("--project-root", required=True, type=Path)
+    manifest.add_argument("--artifacts-json", required=True)
+    manifest.add_argument("--json", action="store_true")
+
+    cross_review = sub.add_parser("write-cross-artifact-review")
+    cross_review.add_argument("--run-id", required=True)
+    cross_review.add_argument("--project-root", required=True, type=Path)
+    cross_review.add_argument("--tasks-json", required=True)
+    cross_review.add_argument("--workflow", default="standard-development")
+    cross_review.add_argument("--json", action="store_true")
+
     bootstrap = sub.add_parser("bootstrap")
     bootstrap.add_argument("--intent", required=True, type=Path)
     bootstrap.add_argument("--spec", required=True, type=Path)
@@ -508,7 +647,18 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
 
-    for name in ("start", "resume", "status", "append", "resolve", "finalize", "legal-actions"):
+    consent = sub.add_parser("record-sr-consent")
+    consent.add_argument("--run-id", required=True)
+    consent.add_argument("--project-root", required=True, type=Path)
+    consent.add_argument("--sr-id", required=True)
+    consent.add_argument("--requirement-sha256", required=True)
+    consent.add_argument("--decision", required=True)
+    consent.add_argument("--reviewer", required=True)
+    consent.add_argument("--phrase", required=True)
+    consent.add_argument("--reason", required=True)
+    consent.add_argument("--json", action="store_true")
+
+    for name in ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"):
         command = sub.add_parser(name)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=Path("."), type=Path)
@@ -527,6 +677,13 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--resolution", choices=("resolve", "revise", "defer", "accept"), required=True)
             command.add_argument("--response", required=True)
             command.add_argument("--provenance", default="user")
+        elif name == "propose-challenge":
+            command.add_argument("--id", required=True)
+            command.add_argument("--kind", required=True)
+            command.add_argument("--claim", required=True)
+            command.add_argument("--rationale", required=True)
+            command.add_argument("--evidence-needed", required=True)
+            command.add_argument("--provenance", required=True)
     return parser
 
 
@@ -540,7 +697,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review(args)
     if args.command == "handoff":
         return _handoff(args)
-    if args.command in {"start", "resume", "status", "append", "resolve", "finalize", "legal-actions"}:
+    if args.command == "run-planning-gates":
+        return _run_planning_gates(args)
+    if args.command == "write-cross-artifact-review":
+        return _write_cross_artifact_review(args)
+    if args.command == "write-artifact-manifest":
+        return _write_artifact_manifest(args)
+    if args.command == "record-sr-consent":
+        return _record_sr_consent(args)
+    if args.command in {"start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"}:
         return _session_command(args)
     return _suggest(args)
 

@@ -13,6 +13,30 @@ vi.mock("node:child_process", async () => {
   return { ...actual, spawnSync: vi.fn() };
 });
 
+const ACTION_REGISTRY = {
+  schema: 1,
+  legal_ids: [
+    "author-requirements", "record-sr-consent", "author-spec", "author-plan",
+    "review-spec", "review-plan", "run-planning-gates", "create-handoff", "inspect-handoff",
+  ],
+  registry_hash: "26c27865bc893be61f58fd985aa1663e8bce964047f90fa3f0a2226c368dd135",
+};
+
+function schemaTwoProjection(overrides: Record<string, unknown> = {}) {
+  return {
+    schema: 2,
+    run_id: "run-1",
+    blocked: false,
+    reason: null,
+    state: "capture",
+    legal_next_actions: ["author-requirements"],
+    starts_automatically: false,
+    run_identity: { run_id: "run-1", next_sequence: 2, journal_sha256: "a".repeat(64) },
+    action_registry: ACTION_REGISTRY,
+    ...overrides,
+  };
+}
+
 describe("guided /plan adapter", () => {
   beforeEach(() => vi.mocked(spawnSync).mockReset());
 
@@ -54,6 +78,82 @@ describe("guided /plan adapter", () => {
     }))).toEqual({ ok: false, error: "invalid planning legal-actions response" });
   });
 
+  test("accepts a backend-shaped schema-2 ready projection", () => {
+    const payload = schemaTwoProjection();
+    expect(parsePlanLegalActionsResponse(JSON.stringify(payload))).toEqual({
+      ok: true, value: payload,
+    });
+  });
+
+  test.each([
+    { reason: "STALE_SESSION_STATE", state: "unknown", run_identity: null },
+    { reason: "UNRESOLVED_CHALLENGE" },
+  ])("accepts a backend-shaped schema-2 blocked projection: $reason", (overrides) => {
+    const payload = schemaTwoProjection({
+      ...overrides, blocked: true, legal_next_actions: [],
+    });
+    expect(parsePlanLegalActionsResponse(JSON.stringify(payload))).toEqual({
+      ok: true, value: payload,
+    });
+  });
+
+  test.each([1, 2])("rejects multiple legal actions in schema %s", (schema) => {
+    expect(parsePlanLegalActionsResponse(JSON.stringify(schemaTwoProjection({
+      schema, legal_next_actions: ["author-spec", "author-plan"],
+    })))).toEqual({ ok: false, error: "invalid planning legal-actions response" });
+  });
+
+  test.each([
+    ["missing identity", { run_identity: undefined }],
+    ["null ready identity", { run_identity: null }],
+    ["array identity", { run_identity: [] }],
+    ["mismatched identity", { run_identity: { ...schemaTwoProjection().run_identity, run_id: "other" } }],
+    ["invalid sequence", { run_identity: { ...schemaTwoProjection().run_identity, next_sequence: true } }],
+    ["zero sequence", { run_identity: { ...schemaTwoProjection().run_identity, next_sequence: 0 } }],
+    ["fractional sequence", { run_identity: { ...schemaTwoProjection().run_identity, next_sequence: 1.5 } }],
+    ["invalid journal hash", { run_identity: { ...schemaTwoProjection().run_identity, journal_sha256: "bad" } }],
+    ["missing state", { state: undefined }],
+    ["missing registry", { action_registry: undefined }],
+    ["invalid registry schema", { action_registry: { ...ACTION_REGISTRY, schema: 2 } }],
+    ["invalid registry hash", { action_registry: { ...ACTION_REGISTRY, registry_hash: "0".repeat(64) } }],
+    ["duplicate registry IDs", { action_registry: { ...ACTION_REGISTRY, legal_ids: ["author-spec", "author-spec"] } }],
+    ["unregistered action", { legal_next_actions: ["execute"] }],
+    ["ready with no action", { legal_next_actions: [] }],
+    ["ready with reason", { reason: "BLOCKED" }],
+    ["blocked with action", { blocked: true, reason: "BLOCKED" }],
+    ["blocked with no reason", { blocked: true, legal_next_actions: [] }],
+    ["automatic start", { starts_automatically: true }],
+  ])("rejects invalid schema-2 contract: %s", (_label, overrides) => {
+    expect(parsePlanLegalActionsResponse(JSON.stringify(schemaTwoProjection(
+      overrides as Record<string, unknown>,
+    )))).toEqual({ ok: false, error: "invalid planning legal-actions response" });
+  });
+
+  test("reports a schema-2 ready projection without starting work", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify(schemaTwoProjection()), stderr: "",
+    } as never);
+    const ctx = makeContext(makeUi());
+    await runPlan(ctx, "run-1");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Planning ready\nLegal actions: author-requirements\nStarts automatically: no", "info",
+    );
+    expect(ctx.newSession).not.toHaveBeenCalled();
+    expect(ctx.ui.select).not.toHaveBeenCalled();
+  });
+
+  test("rejects a schema-2 backend response for another requested run", async () => {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0, stdout: JSON.stringify(schemaTwoProjection()), stderr: "",
+    } as never);
+    const ctx = makeContext(makeUi());
+    await runPlan(ctx, "run-2");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "planning blocked: planning backend returned a mismatched run id", "error",
+    );
+    expect(ctx.newSession).not.toHaveBeenCalled();
+  });
+
   test("renders a backend block reason and never invents actions", () => {
     expect(renderPlanLegalActions({
       schema: 1, run_id: "run-1", blocked: true, reason: "SESSION_NOT_READY",
@@ -80,12 +180,13 @@ describe("guided /plan adapter", () => {
     expect(notify).toHaveBeenCalledWith("usage: /plan <run-id>", "error");
   });
 
-  test("does not launch a session for inspection or downstream actions", async () => {
+  test.each(["inspect-handoff", "create-downstream-session"])(
+    "does not launch a session for %s", async (action) => {
     vi.mocked(spawnSync).mockReturnValue({
       status: 0,
       stdout: JSON.stringify({
         schema: 1, run_id: "run-1", blocked: false, reason: null,
-        legal_next_actions: ["inspect-handoff", "create-downstream-session"],
+        legal_next_actions: [action],
         starts_automatically: false,
       }),
       stderr: "",

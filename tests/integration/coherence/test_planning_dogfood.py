@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from coherence.planning.check import check_planning_input
-from coherence.planning.gates import validate_sr_consent
+from coherence.planning.consent import CONSENT_PHRASE as PER_SR_CONSENT_PHRASE, write_sr_decision
+from coherence.planning.gates import (
+    compile_planning_gate_pack,
+    evaluate_planning_gate_pack,
+    validate_sr_consent,
+    write_cross_artifact_review,
+)
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.handoff import build_downstream_menu, build_handoff, validate_handoff, write_handoff
 from coherence.planning.intent import read_intent
 from coherence.planning.loop import FreshReviewLoop, LoopStatus
@@ -25,6 +34,34 @@ from substrate.agents.model import AgentResult, InterruptionReason
 pytestmark = pytest.mark.integration
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "planning-dogfood"
 CONSENT_PHRASE = "I explicitly consent to adopt exactly these candidate SRs."
+
+
+def test_guided_manifest_transport_reaches_requirement_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coherence.planning.guided_pipeline import run_pipeline_command
+    from coherence.planning.session import legal_actions_session
+
+    # Use the installed project backend while its cwd is the consumer repository.
+    monkeypatch.setenv("UV_PROJECT", str(Path(__file__).parents[3]))
+    start_session(tmp_path, "transport-proof", "Register authored requirements")
+    assert legal_actions_session(tmp_path, "transport-proof")["legal_next_actions"] == ["author-requirements"]
+    requirement = tmp_path / "requirements/SR-001.md"
+    requirement.parent.mkdir()
+    requirement.write_text("---\nid: SR-001\n---\nAuthored requirement.\n", encoding="utf-8")
+    feature = tmp_path / "docs/features/FEAT-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text("---\nid: FEAT-017\nrequirements: [SR-001]\n---\n", encoding="utf-8")
+    artifacts = [{"kind": "requirements", "path": "requirements/SR-001.md",
+                  "sha256": hashlib.sha256(requirement.read_bytes()).hexdigest()}]
+    code, payload = run_pipeline_command(
+        tmp_path, "transport-proof", "write-artifact-manifest", artifacts_json=json.dumps(artifacts),
+    )
+    assert code == 0
+    assert payload["ok"] is True
+    projection = legal_actions_session(tmp_path, "transport-proof")
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
 
 
 def _fixture_json(name: str) -> dict:
@@ -45,15 +82,25 @@ def _consumer(tmp_path: Path) -> tuple[Path, Path, Path]:
     tasks.mkdir()
     for number, title in ((1, "first"), (2, "second")):
         (tasks / f"T-{number:03d}-{title}.md").write_text(
-            f"---\nid: T-{number:03d}\ntitle: {title.title()} Task\nstatus: todo\n"
+            f"---\nid: T-{number:03d}\ntitle: {title.title()} Task\nstatus: todo\ndod: []\n"
             "source_plan: docs/superpowers/plans/intent-plan.md\n"
             f"source_task: {number}\n---\n", encoding="utf-8")
     requirements = root / "requirements"
     requirements.mkdir()
-    for req_id in ("SR-001", "SR-002"):
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "tests/test_planner.py").write_text(
+        "from first import behavior as first\nfrom second import behavior as second\n"
+        "\ndef test_planner():\n    assert first() == second() == 1\n",
+        encoding="utf-8",
+    )
+    for req_id, name in zip(("SR-001", "SR-002"), ("first", "second"), strict=True):
+        (root / f"src/{name}.py").write_text("def behavior():\n    return 1\n", encoding="utf-8")
         (requirements / f"{req_id}.md").write_text(
             f"---\nid: {req_id}\ntitle: {req_id} requirement\nstatement: {req_id} statement\n"
-            "domain: behavioral\nupstream: []\nsource: docs/superpowers/specs/intent-spec.md#goal\n---\n",
+            "domain: behavioral\nupstream: []\nsource: docs/superpowers/specs/intent-spec.md#goal\n"
+            f"implemented_by:\n  - path: src/{name}.py\n    symbol: {name}:behavior\n"
+            "verified_by:\n  - path: tests/test_planner.py\n    test: tests/test_planner.py::test_planner\n---\n",
             encoding="utf-8")
     feature = root / "docs/features/FEAT-017.md"
     feature.parent.mkdir(parents=True)
@@ -83,10 +130,20 @@ def _packet_from_prompt(root: Path, prompt: str):
         reviewer_role=payload["reviewer_role"], reviewer_session_id=None)
 
 
-def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path) -> None:
+def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root, spec, plan = _consumer(tmp_path)
     start_session(root, "run-001", "Build a deterministic planner")
     append_session_answer(root, "run-001", "goal", "What is the goal?", "Build a deterministic planner")
+    (root / "docs/features/FEAT-017.md").write_text(
+        "---\nid: FEAT-017\ntitle: Planning Bootstrap\nrequirements: [SR-001]\n---\n",
+        encoding="utf-8",
+    )
+    (root / "bundles/FEAT-017.json").write_text(
+        json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001"]}),
+        encoding="utf-8",
+    )
     assert check_planning_input(_input(root, spec, plan)).ok
 
     artifact = root / "docs/superpowers/specs/intent-spec.md"
@@ -150,11 +207,72 @@ def test_clean_consumer_dogfood_captures_fix_consent_and_handoff(tmp_path: Path)
     consent = root / ".factory/planning/run-001/sr-consent.json"
     consent.parent.mkdir(parents=True, exist_ok=True)
     consent.write_text(json.dumps({"schema": 2, "run_id": "run-001", "decision": "approve", "reviewer": "human",
-        "phrase": CONSENT_PHRASE, "candidate_srs": ["SR-001", "SR-002"], "derivation_report_sha256": "0" * 64,
+        "phrase": CONSENT_PHRASE, "candidate_srs": ["SR-001"], "derivation_report_sha256": "0" * 64,
         "artifact_hashes": {}}), encoding="utf-8")
-    assert validate_sr_consent(root, "run-001", ["SR-001", "SR-002"], "0" * 64, {})[0]
+    assert validate_sr_consent(root, "run-001", ["SR-001"], "0" * 64, {})[0]
     report = check_planning_input(_input(root, spec, plan))
-    payload = build_handoff(root, report, workflow="standard-development", gate_summary={"status": "pass"})
+    run_dir = root / ".factory/planning/run-001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_report = report.to_dict()
+    (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning artifacts.",
+        "reviewed_artifacts": [entry["path"] for entry in raw_report["artifacts"]],
+        "report_sha256": planning_report_digest(raw_report),
+    }), encoding="utf-8")
+    (run_dir / "requirement-consent.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning requirements.", "requirements": ["SR-001"],
+    }), encoding="utf-8")
+    for sr_id in ("SR-001",):
+        requirement = root / "requirements" / f"{sr_id}.md"
+        write_sr_decision(
+            root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
+            "approve", "human", PER_SR_CONSENT_PHRASE, "Reviewed this requirement independently.",
+        )
+    from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
+
+    source_items = [
+        {"kind": "intent", "path": ".intent/intent.json"},
+        {"kind": "spec", "path": "docs/superpowers/specs/intent-spec.md"},
+        {"kind": "plan", "path": "docs/superpowers/plans/intent-plan.md"},
+        {"kind": "feature", "path": "docs/features/FEAT-017.md"},
+        {"kind": "bundle", "path": "bundles/FEAT-017.json"},
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+    ]
+    write_artifact_manifest(root, "run-001", build_artifact_manifest(root, "run-001", source_items))
+    source_paths = sorted(item["path"] for item in source_items)
+    report_paths = sorted(source_paths + [
+        "tasks/T-001-first.md", "tasks/T-002-second.md",
+    ])
+    raw_report["artifacts"] = [
+        {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
+        for path in report_paths
+    ]
+    raw_report["ok"] = True
+    (run_dir / "report.json").write_text(json.dumps(raw_report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps({
+        "schema": 1, "run_id": "run-001", "decision": "approve", "reviewer": "human",
+        "reason": "Reviewed planning artifacts.", "reviewed_artifacts": report_paths,
+        "report_sha256": planning_report_digest(raw_report),
+    }), encoding="utf-8")
+    def no_downstream_execution(*args: object, **kwargs: object) -> None:
+        pytest.fail("planning review, gates, and handoff must not launch subprocesses")
+
+    monkeypatch.setattr(subprocess, "run", no_downstream_execution)
+    cross_review = write_cross_artifact_review(root, "run-001", {
+        f"tasks/T-{number:03d}-{name}.md": GeneratedTaskReviewInput(
+            f"T-{number:03d}", (f"src/{name}.py",), True, False, (f"SR-{number:03d}",),
+        )
+        for number, name in ((1, "first"), (2, "second"))
+    })
+    assert isinstance(cross_review["review"], dict) and cross_review["review"]["ok"] is True
+    evaluate_planning_gate_pack(root, "run-001", compile_planning_gate_pack("FEAT-017", "v1"))
+    from coherence.planning.cli import _read_report
+
+    report = _read_report(run_dir / "report.json", "run-001")
+    payload = build_handoff(root, report, workflow="standard-development")
     path, _ = write_handoff(root, payload)
     assert validate_handoff(root, path)["starts_automatically"] is False
     assert json.loads(consent.read_text(encoding="utf-8"))["phrase"] == CONSENT_PHRASE
@@ -399,10 +517,10 @@ def test_interrupted_reviewer_fails_closed_and_stale_artifact_is_rejected(tmp_pa
 
 def test_repository_self_hosting_reports_unrelated_debt_without_claiming_clean() -> None:
     root = Path(__file__).parents[3]
-    intent = root / ".intent/intent.json"
+    intent = Path(__file__).parents[2] / "fixtures" / "planning-dogfood" / "intent.json"
     spec = root / "docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md"
     plan = root / "docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md"
-    report = check_planning_input(_input(root, spec, plan, "self-hosting"))
+    report = check_planning_input(PlanningInput(intent, spec, plan, root, "self-hosting"))
     assert report.ok is False
     assert any(item.code == "PLAN_TASK_PARITY" for item in report.findings)
     assert planning_report_digest(report) == planning_report_digest(report.to_dict())

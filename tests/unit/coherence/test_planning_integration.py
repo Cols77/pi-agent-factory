@@ -10,6 +10,7 @@ from tests.unit.coherence.test_planning_cli import (
     _approval,
     _check_args,
     _suggest_args,
+    _run_planning_gates,
     _write_fixture,
 )
 
@@ -39,7 +40,8 @@ def test_public_check_to_handoff_emits_summary_menu_and_artifacts(
 ) -> None:
     intent, spec, plan = _write_fixture(tmp_path, complete=True)
     assert main(_check_args(tmp_path, intent, spec, plan)) == 0
-    capsys.readouterr()
+    report = json.loads(capsys.readouterr().out)
+    _run_planning_gates(tmp_path, report, capsys)
 
     assert main([
         "plan", "handoff", "--project-root", str(tmp_path), "--run-id", "run-001",

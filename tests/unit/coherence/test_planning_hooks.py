@@ -52,7 +52,8 @@ def test_guard_allows_unrelated_commands(guard: ModuleType, command: str) -> Non
 
 
 @pytest.mark.parametrize(
-    "verb", ["start", "resume", "append", "resolve", "finalize", "bootstrap", "check", "handoff"]
+    "verb", ["start", "resume", "append", "resolve", "finalize", "bootstrap", "check", "handoff",
+             "write-artifact-manifest", "write-cross-artifact-review", "record-sr-consent", "run-planning-gates"]
 )
 def test_guard_denies_direct_backend_planning_calls(guard: ModuleType, verb: str) -> None:
     reason = guard.decide(f"uv run coherence plan {verb} --run-id r --project-root .")
@@ -67,6 +68,14 @@ def test_guard_denies_direct_backend_planning_calls(guard: ModuleType, verb: str
         "uv run python -m coherence.planning.guided_entrypoint start --run-id r --prompt p",
         "uv run python -m coherence.planning.guided_pipeline check --run-id r --intent i "
         "--spec s --plan p",
+        "uv run python -m coherence.planning.guided_pipeline write-artifact-manifest "
+        "--run-id r --artifacts-json='[]'",
+        "uv run python -m coherence.planning.guided_pipeline write-cross-artifact-review "
+        "--run-id r --tasks-json='{}'",
+        "uv run python -m coherence.planning.guided_pipeline run-planning-gates --run-id r",
+        "uv run python -m coherence.planning.guided_pipeline record-sr-consent --run-id r "
+        "--sr-id SR-001 --requirement-sha256 abc --decision reject --reviewer human "
+        "--phrase explicit --reason revise",
         "uv run python -m coherence.planning.legal_actions_adapter r",
         "uv run python -m coherence.planning.artifact_navigator FEAT-018",
     ],
@@ -591,3 +600,14 @@ def test_finalize_review_agent_is_advisory_not_a_content_veto() -> None:
     assert '"ok": false' not in prompt
     assert '"ok": true' in prompt
     assert "never" in prompt and ("veto" in prompt or "withhold" in prompt or "delay" in prompt)
+
+
+def test_semantic_review_hook_only_transports_proposed_challenges() -> None:
+    prompt = _finalize_review_agent_hook()["prompt"].lower()
+    assert "propose-challenge" in prompt
+    assert "guided_entrypoint append" in prompt
+    assert "--source intent-review-agent" in prompt
+    assert "--resolution" not in prompt
+    assert "approval" in prompt and "consent" in prompt
+    assert "lifecycle stage" in prompt
+    assert "--status" not in prompt

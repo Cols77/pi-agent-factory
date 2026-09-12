@@ -29,6 +29,13 @@ def test_command_never_calls_the_backend_directly(text: str) -> None:
     assert "uv run coherence plan" not in text
 
 
+def test_author_requirements_has_explicit_manifest_transport(text: str) -> None:
+    assert "author-requirements" in text
+    assert "coherence.planning.guided_pipeline write-artifact-manifest" in text
+    assert "--artifacts-json" in text
+    assert "sha256" in text
+
+
 def test_human_decisions_are_marked_as_never_the_models(text: str) -> None:
     lowered = text.lower()
     assert "never choose" in lowered
@@ -72,3 +79,13 @@ def test_start_or_resume_dispatch_is_not_swapped(text: str) -> None:
     assert "resume" in true_branch
     assert "start" not in true_branch
     assert "start" in false_branch
+
+
+def test_claude_command_labels_manual_compatibility_route_separately_from_guided_route(
+    text: str,
+) -> None:
+    lowered = text.lower()
+    assert "compatibility route" in lowered
+    assert "guided route" in lowered
+    assert "does not claim a lifecycle-derived stage" in lowered
+    assert "legal-actions" in lowered

@@ -25,13 +25,14 @@ from coherence.planning.adapter_backend import (
     require_safe_run_id,
 )
 
-SESSION_VERBS = ("start", "resume", "status", "append", "resolve", "finalize")
+SESSION_VERBS = ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize")
 
 _VERB_FIELDS: dict[str, tuple[str, ...]] = {
     "start": ("prompt",),
     "resume": (),
     "status": (),
     "append": ("answer_id", "question", "text", "source"),
+    "propose-challenge": ("id", "kind", "claim", "rationale", "evidence_needed", "provenance"),
     "resolve": ("challenge_id", "resolution", "response", "provenance"),
     "finalize": ("status",),
 }
@@ -58,6 +59,14 @@ def build_session_command(project_root: Path, run_id: str, verb: str, **fields: 
     """Build the argv-only backend invocation for one session verb."""
     if verb not in _VERB_FIELDS:
         raise ValueError(f"unsupported planning session verb: {verb}")
+    if verb == "propose-challenge":
+        required = set(_VERB_FIELDS[verb])
+        if set(fields) != required:
+            raise ValueError("semantic challenge proposal must contain exactly its proposal fields")
+        if any(not isinstance(fields[name], str) or not fields[name] for name in required):
+            raise ValueError("semantic challenge proposal fields must be non-empty text")
+        if not fields["provenance"].startswith("host:"):
+            raise ValueError("semantic challenge proposal requires host provenance")
     command = [
         "uv",
         "run",
@@ -124,9 +133,11 @@ def run_session_command(
 ) -> dict[str, Any]:
     """Invoke one session verb and return its validated payload."""
     require_safe_run_id(run_id)
-    _, stdout, stderr = invoke_backend(
-        build_session_command(project_root, run_id, verb, **fields), project_root
-    )
+    try:
+        command = build_session_command(project_root, run_id, verb, **fields)
+    except ValueError as exc:
+        raise BackendError(str(exc)) from exc
+    _, stdout, stderr = invoke_backend(command, project_root)
     try:
         return parse_session_response(stdout, run_id)
     except ValueError as exc:
@@ -150,6 +161,13 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--question", required=True)
             command.add_argument("--text", required=True)
             command.add_argument("--source", default="user")
+        elif verb == "propose-challenge":
+            command.add_argument("--id", required=True)
+            command.add_argument("--kind", required=True)
+            command.add_argument("--claim", required=True)
+            command.add_argument("--rationale", required=True)
+            command.add_argument("--evidence-needed", required=True)
+            command.add_argument("--provenance", required=True)
         elif verb == "resolve":
             command.add_argument("--challenge-id", required=True)
             command.add_argument(

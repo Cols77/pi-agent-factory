@@ -3,8 +3,9 @@
 Where ``guided_entrypoint`` drives intent capture, this module drives what
 happens to authored artifacts afterwards: ``bootstrap`` (validate the
 intent/spec/plan triple and, with ``--decompose``, generate ``tasks/T-NNN.md``
-from the plan), ``check`` (structural parity and task metadata), ``review``, and
-``handoff``.
+from the plan), ``check`` (structural parity and task metadata), ``review``,
+explicit artifact manifest, cross-artifact evidence and human consent transport, planning gates,
+and ``handoff``.
 
 The division of labour matters. Authoring the spec and the plan is model work --
 no backend command writes them, and none can. Deciding whether the decomposition
@@ -30,12 +31,21 @@ from coherence.planning.adapter_backend import (
     require_safe_run_id,
 )
 
-PIPELINE_VERBS = ("bootstrap", "check", "review", "handoff")
+PIPELINE_VERBS = (
+    "bootstrap", "check", "review", "write-artifact-manifest", "write-cross-artifact-review",
+    "record-sr-consent", "run-planning-gates", "handoff",
+)
 
 _VERB_FIELDS: dict[str, tuple[str, ...]] = {
     "bootstrap": ("intent", "spec", "plan"),
     "check": ("intent", "spec", "plan"),
     "review": (),
+    "write-artifact-manifest": ("artifacts_json",),
+    "write-cross-artifact-review": ("tasks_json",),
+    "record-sr-consent": (
+        "sr_id", "requirement_sha256", "decision", "reviewer", "phrase", "reason",
+    ),
+    "run-planning-gates": (),
     "handoff": ("workflow",),
 }
 
@@ -44,6 +54,11 @@ def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields:
     """Build the argv-only backend invocation for one pipeline verb."""
     if verb not in _VERB_FIELDS:
         raise ValueError(f"unsupported planning pipeline verb: {verb}")
+    required = set(_VERB_FIELDS[verb])
+    allowed = required | ({"decompose"} if verb == "bootstrap" else set())
+    if (set(fields) - allowed or required - set(fields)
+            or any(not isinstance(value, str) or not value.strip() for value in fields.values())):
+        raise BackendError("planning pipeline fields must be explicit non-empty text")
     command = [
         "uv",
         "run",
@@ -56,7 +71,7 @@ def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields:
         run_id,
     ]
     for name in _VERB_FIELDS[verb]:
-        command.append(f"--{name}={fields[name]}")
+        command.append(f"--{name.replace('_', '-')}={fields[name]}")
     if verb == "bootstrap" and fields.get("decompose") == "true":
         command.append("--decompose")
     command.append("--json")
@@ -106,6 +121,9 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--decompose", action="store_true")
         if verb == "handoff":
             command.add_argument("--workflow", default="standard-development")
+        if verb in ("write-artifact-manifest", "write-cross-artifact-review", "record-sr-consent"):
+            for name in _VERB_FIELDS[verb]:
+                command.add_argument(f"--{name.replace('_', '-')}", required=True)
     return parser
 
 

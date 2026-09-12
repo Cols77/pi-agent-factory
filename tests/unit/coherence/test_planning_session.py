@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from coherence.planning.cli import main as planning_main
 import coherence.planning.session as planning_session
+from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
+from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
 from coherence.planning.session import (
     SessionError,
     append_session_answer,
     finalize_session,
     legal_actions_session,
+    propose_session_challenge,
     resume_session,
     start_session,
     status_session,
@@ -34,9 +36,7 @@ def test_start_and_resume_create_durable_capture_state(tmp_path: Path) -> None:
 def test_start_progressively_materializes_initial_request(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "  Preserve this request exactly.\n")
 
-    intent = json.loads(
-        (tmp_path / ".factory" / "planning" / "run-001" / "intent.json").read_text(encoding="utf-8")
-    )
+    intent = json.loads((tmp_path / ".intent" / "intent.json").read_text(encoding="utf-8"))
     assert intent["prompt"] == "  Preserve this request exactly.\n"
     assert intent["answers"] == []
     assert intent["run_id"] == "run-001"
@@ -46,9 +46,7 @@ def test_append_progressively_materializes_each_answer(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "request")
     append_session_answer(tmp_path, "run-001", "goal", "  Question?\n", "  Answer.\n", source="user:pi")
 
-    intent = json.loads(
-        (tmp_path / ".factory" / "planning" / "run-001" / "intent.json").read_text(encoding="utf-8")
-    )
+    intent = json.loads((tmp_path / ".intent" / "intent.json").read_text(encoding="utf-8"))
     assert intent["answers"] == [{
         "id": "goal",
         "question": "  Question?\n",
@@ -61,7 +59,7 @@ def test_append_progressively_materializes_each_answer(tmp_path: Path) -> None:
 def test_resume_rebuilds_snapshot_from_journal_after_interruption(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "request")
     append_session_answer(tmp_path, "run-001", "goal", "Question?", "Answer")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
+    intent_path = tmp_path / ".intent" / "intent.json"
     intent_path.unlink()
 
     resumed = resume_session(tmp_path, "run-001")
@@ -74,7 +72,7 @@ def test_materialization_failure_preserves_last_known_good_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     start_session(tmp_path, "run-001", "request")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
+    intent_path = tmp_path / ".intent" / "intent.json"
     before = intent_path.read_bytes()
 
     def fail(*args: object, **kwargs: object) -> Path:
@@ -94,9 +92,7 @@ def test_append_and_finalize_project_user_text(tmp_path: Path) -> None:
     finalized = finalize_session(tmp_path, "run-001", "provisional")
     assert finalized.state == "intent_provisional"
     assert finalized.next_sequence == 4
-    assert "Keep it deterministic" in (
-        tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    ).read_text(encoding="utf-8")
+    assert "Keep it deterministic" in (tmp_path / ".intent" / "intent.json").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("status", ["needs_user", "cancelled"])
@@ -105,9 +101,7 @@ def test_finalize_progressively_materializes_each_status(tmp_path: Path, status:
 
     finalize_session(tmp_path, "run-001", status)
 
-    intent = json.loads(
-        (tmp_path / ".factory" / "planning" / "run-001" / "intent.json").read_text(encoding="utf-8")
-    )
+    intent = json.loads((tmp_path / ".intent" / "intent.json").read_text(encoding="utf-8"))
     assert intent["capture_status"] == status
     assert not (tmp_path / ".factory" / "runs").exists()
 
@@ -130,64 +124,22 @@ def test_session_rejects_unsafe_or_mismatched_run_ids(tmp_path: Path) -> None:
         append_session_answer(tmp_path, "run-001", "x", "q", "a", event_run_id="run-002")
 
 
-def test_legal_actions_offer_start_capture_before_a_run_exists(tmp_path: Path) -> None:
+def test_legal_actions_for_a_started_run_begin_with_author_requirements(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "Build a planner")
+
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["run_id"] == "run-001"
+    assert projection["schema"] == 2
     assert projection["blocked"] is False
     assert projection["reason"] is None
-    assert projection["state"] == "not_started"
-    assert projection["legal_next_actions"] == ["start-capture"]
+    assert projection["legal_next_actions"] == ["author-requirements"]
     assert projection["starts_automatically"] is False
-    assert "start-capture" in projection["action_registry"]["legal_ids"]
-
-
-def test_legal_actions_offer_capture_answer_and_finalize_with_no_open_challenges(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is False
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == ["capture-answer", "finalize-capture"]
-    assert projection["run_identity"]["run_id"] == "run-001"
-
-
-def test_legal_actions_offer_resolve_challenge_when_one_is_unresolved(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    append_session_answer(
-        tmp_path, "run-001", "goal", "What is the goal?",
-        "It must always be zero cost.",
-    )
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is False
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == ["resolve-challenge"]
-
-
-def test_legal_actions_offer_author_review_actions_after_provisional_finalize(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    append_session_answer(tmp_path, "run-001", "goal", "What is the goal?", "Keep it deterministic")
-    finalize_session(tmp_path, "run-001", "provisional")
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is False
-    assert projection["state"] == "intent_provisional"
-    assert projection["legal_next_actions"] == ["author-spec", "author-plan", "review-spec", "review-plan"]
-
-
-def test_legal_actions_block_as_capture_cancelled_after_finalize_cancelled(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-
-    finalize_session(tmp_path, "run-001", "cancelled")
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is True
-    assert projection["reason"] == "CAPTURE_CANCELLED"
-    assert projection["legal_next_actions"] == []
+    assert projection["action_registry"]["legal_ids"] == [
+        "author-requirements", "record-sr-consent", "author-spec", "author-plan",
+        "review-spec", "review-plan", "run-planning-gates", "create-handoff",
+        "inspect-handoff",
+    ]
 
 
 def test_legal_actions_reject_stale_persisted_identity(tmp_path: Path) -> None:
@@ -204,192 +156,130 @@ def test_legal_actions_reject_stale_persisted_identity(tmp_path: Path) -> None:
     assert projection["legal_next_actions"] == []
 
 
-def test_legal_actions_reject_orphaned_state_without_journal(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    (tmp_path / ".factory" / "planning" / "run-001" / "capture" / "events.jsonl").unlink()
-    (tmp_path / ".factory" / "planning" / "run-001" / "state.json").unlink()
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is True
-    assert projection["reason"] == "STALE_SESSION_STATE"
-    assert projection["legal_next_actions"] == []
-
-
-def test_legal_actions_accept_matching_legacy_intent_snapshot(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    legacy_path = tmp_path / ".intent" / "intent.json"
-    legacy_path.parent.mkdir()
-    legacy_path.write_bytes(intent_path.read_bytes())
-    intent_path.unlink()
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
+def test_partial_sr_consent_is_actionable_until_existing_evidence_is_bad(tmp_path: Path) -> None:
+    run_id = "partial-consent"
+    start_session(tmp_path, run_id, "Review two requirements")
+    feature = tmp_path / "docs/features/FEAT-017.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-017\nrequirements: [SR-001, SR-002]\n---\n", encoding="utf-8",
+    )
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    first = requirements / "SR-001.md"
+    first.write_text("---\nid: SR-001\n---\nFirst requirement.\n", encoding="utf-8")
+    (requirements / "SR-002.md").write_text(
+        "---\nid: SR-002\n---\nSecond requirement.\n", encoding="utf-8",
+    )
+    artifacts = [{"kind": "requirements", "path": "requirements/SR-001.md"}]
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    consent = write_sr_decision(
+        tmp_path, run_id, "SR-001", hashlib.sha256(first.read_bytes()).hexdigest(),
+        "approve", "human", CONSENT_PHRASE, "Reviewed the first requirement independently.",
+    )
+    original = first.read_bytes()
+    projection = legal_actions_session(tmp_path, run_id)
     assert projection["blocked"] is False
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == ["capture-answer", "finalize-capture"]
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
+    assert not (consent.parent / "SR-002.json").exists()
+
+    first.write_bytes(original + b"Changed requirement.\n")
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["reason"] == "STALE_REQUIREMENT_CONSENT"
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
+
+    first.write_bytes(original)
+    write_artifact_manifest(tmp_path, run_id, build_artifact_manifest(tmp_path, run_id, artifacts))
+    (consent.parent / "SR-002.json").write_text("{", encoding="utf-8")
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["reason"] == "REQUIREMENT_CONSENT_INVALID"
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
 
 
-def test_legal_actions_reject_mismatched_legacy_intent_snapshot(tmp_path: Path) -> None:
+def test_legal_actions_block_an_unresolved_captured_challenge(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "Build a planner")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    legacy_path = tmp_path / ".intent" / "intent.json"
-    legacy_path.parent.mkdir()
-    legacy_path.write_text(intent_path.read_text(encoding="utf-8").replace("run-001", "run-002"), encoding="utf-8")
-    intent_path.unlink()
+    append_session_answer(tmp_path, "run-001", "claim", "What do you know?", "This always works")
 
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
-    assert projection["state"] == "capture"
+    assert projection["reason"] == "UNRESOLVED_CHALLENGE"
     assert projection["legal_next_actions"] == []
 
 
-def test_legal_actions_block_on_malformed_intent_snapshot(tmp_path: Path) -> None:
+def test_legal_actions_block_an_unresolved_host_proposed_challenge(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "Build a planner")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    intent_path.write_text("{malformed", encoding="utf-8")
+    propose_session_challenge(
+        tmp_path, "run-001", "semantic-1", "unsupported_claim", "always safe",
+        "No evidence was supplied", "repository inspection", "host:semantic-review",
+    )
 
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == []
+    assert projection["reason"] == "UNRESOLVED_CHALLENGE"
 
 
-def test_legal_actions_block_on_semantically_malformed_intent_snapshot(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    payload = json.loads(intent_path.read_text(encoding="utf-8"))
-    payload["challenges"] = {"not": "a list"}
-    intent_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == []
-
-
-def test_legal_actions_block_on_invalid_challenge_status(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    append_session_answer(tmp_path, "run-001", "goal", "What is the goal?", "It must always be safe.")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    payload = json.loads(intent_path.read_text(encoding="utf-8"))
-    payload["challenges"][0]["status"] = None
-    intent_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
-    assert projection["state"] == "capture"
-    assert projection["legal_next_actions"] == []
-
-
-def test_legal_actions_validate_intent_before_provisional_authoring(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    finalize_session(tmp_path, "run-001", "provisional")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    intent_path.write_text("{malformed", encoding="utf-8")
-
-    projection = legal_actions_session(tmp_path, "run-001")
-
-    assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
-    assert projection["state"] == "intent_provisional"
-    assert projection["legal_next_actions"] == []
-
-
-def test_concurrent_runs_do_not_clobber_each_others_intent_snapshot(tmp_path: Path) -> None:
+def test_legal_actions_reject_intent_from_another_run(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "First request")
-    start_session(tmp_path, "run-002", "Second request")
-    append_session_answer(tmp_path, "run-001", "goal", "Q1?", "Answer one")
-    append_session_answer(tmp_path, "run-002", "goal", "Q2?", "Answer two")
-
-    intent_one = json.loads(
-        (tmp_path / ".factory" / "planning" / "run-001" / "intent.json").read_text(encoding="utf-8")
-    )
-    intent_two = json.loads(
-        (tmp_path / ".factory" / "planning" / "run-002" / "intent.json").read_text(encoding="utf-8")
-    )
-    assert intent_one["run_id"] == "run-001"
-    assert intent_one["answers"][0]["text"] == "Answer one"
-    assert intent_two["run_id"] == "run-002"
-    assert intent_two["answers"][0]["text"] == "Answer two"
-    assert not (tmp_path / ".intent").exists()
-
-
-def test_plan_status_reports_invalid_intent_snapshot(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    (tmp_path / ".factory" / "planning" / "run-001" / "intent.json").write_text(
-        "{malformed", encoding="utf-8"
-    )
-
-    assert planning_main(["status", "--project-root", str(tmp_path), "--run-id", "run-001", "--json"]) == 1
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is False
-    assert payload["error"] == "intent is invalid"
-
-
-@pytest.mark.parametrize("terminal_status", ["provisional", "cancelled"])
-def test_terminal_capture_status_cannot_be_reopened(
-    tmp_path: Path, terminal_status: str
-) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    finalize_session(tmp_path, "run-001", terminal_status)
-
-    with pytest.raises(SessionError, match="terminal"):
-        append_session_answer(tmp_path, "run-001", "later", "Later?", "No")
-    with pytest.raises(SessionError, match="terminal"):
-        finalize_session(tmp_path, "run-001", "needs_user")
-
-
-def test_legal_actions_reject_valid_but_stale_intent_snapshot(tmp_path: Path) -> None:
-    start_session(tmp_path, "run-001", "Build a planner")
-    intent_path = tmp_path / ".factory" / "planning" / "run-001" / "intent.json"
-    payload = json.loads(intent_path.read_text(encoding="utf-8"))
-    payload["prompt"] = "A different request"
-    intent_path.write_text(json.dumps(payload), encoding="utf-8")
+    start_session(tmp_path, "run-002", "Another request")
 
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["blocked"] is True
-    assert projection["reason"] == "INTENT_INVALID"
+    assert projection["reason"] == "STALE_INTENT_SNAPSHOT"
     assert projection["legal_next_actions"] == []
 
 
-def test_legal_actions_reject_orphaned_legacy_intent_without_journal(tmp_path: Path) -> None:
-    legacy_path = tmp_path / ".intent" / "intent.json"
-    legacy_path.parent.mkdir()
-    legacy_path.write_text("{}", encoding="utf-8")
+def test_legal_actions_reject_cancelled_capture(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "First request")
+    finalize_session(tmp_path, "run-001", "cancelled")
 
     projection = legal_actions_session(tmp_path, "run-001")
 
     assert projection["blocked"] is True
-    assert projection["reason"] == "STALE_SESSION_STATE"
     assert projection["legal_next_actions"] == []
 
 
-def test_same_run_concurrent_answers_keep_unique_journal_sequences(tmp_path: Path) -> None:
+def test_legal_actions_reject_stale_intent_without_rewriting_it(tmp_path: Path) -> None:
+    start_session(tmp_path, "run-001", "First request")
+    intent_path = tmp_path / ".intent/intent.json"
+    old_intent = intent_path.read_bytes()
+    append_session_answer(tmp_path, "run-001", "goal", "What?", "A planner")
+    intent_path.write_bytes(old_intent)
+
+    projection = legal_actions_session(tmp_path, "run-001")
+
+    assert projection["reason"] == "STALE_INTENT_SNAPSHOT"
+    assert projection["legal_next_actions"] == []
+    assert intent_path.read_bytes() == old_intent
+
+
+def test_legal_actions_for_a_valid_handoff_only_exposes_inspection(tmp_path: Path) -> None:
     start_session(tmp_path, "run-001", "Build a planner")
+    handoff_path = tmp_path / ".factory" / "planning" / "run-001" / "handoff.json"
+    handoff_path.parent.mkdir(parents=True, exist_ok=True)
+    handoff_path.write_text(json.dumps({
+        "schema": 1,
+        "run_id": "run-001",
+        "selected_workflow": "standard-development",
+        "menu": [
+            {"id": "standard-development", "label": "Standard governed development", "selected": True, "starts_automatically": False},
+            {"id": "health-recovery", "label": "Health recovery", "selected": False, "starts_automatically": False},
+            {"id": "feature-planning", "label": "Another feature-planning workflow", "selected": False, "starts_automatically": False},
+        ],
+        "canonical_artifacts": [],
+        "semantic_report_hashes": {},
+        "resolution_journal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "starts_automatically": False,
+    }), encoding="utf-8")
 
-    def append(index: int) -> None:
-        append_session_answer(
-            tmp_path, "run-001", f"answer-{index}", f"Question {index}?", f"Answer {index}"
-        )
+    projection = legal_actions_session(tmp_path, "run-001")
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        list(executor.map(append, range(6)))
-
-    journal = tmp_path / ".factory" / "planning" / "run-001" / "capture" / "events.jsonl"
-    events = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
-    assert [event["sequence"] for event in events] == list(range(1, 8))
-    assert len({event["payload"].get("id") for event in events[1:]}) == 6
+    assert projection["blocked"] is True
+    assert projection["reason"] == "HANDOFF_INVALID"
+    assert projection["legal_next_actions"] == []

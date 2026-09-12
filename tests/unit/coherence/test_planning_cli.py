@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from coherence.cli import main
+from coherence.planning.artifacts import build_artifact_manifest, write_artifact_manifest
+from coherence.planning.consent import CONSENT_PHRASE, write_sr_decision
+from coherence.planning.gates import write_cross_artifact_review
+from coherence.planning.review import GeneratedTaskReviewInput
 from coherence.planning.run import planning_report_digest
 
 pytestmark = pytest.mark.unit
@@ -77,6 +82,7 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
                 f"id: T-{number:03d}\n"
                 f"title: {title} Task\n"
                 "status: todo\n"
+                "dod: []\n"
                 "source_plan: docs/superpowers/plans/intent-plan.md\n"
                 f"source_task: {number}\n"
                 "---\n",
@@ -85,7 +91,11 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
         requirement_ids = ("SR-001", "SR-002")
         requirements_dir = root / "requirements"
         requirements_dir.mkdir()
-        for req_id in requirement_ids:
+        (root / "src").mkdir()
+        (root / "tests").mkdir()
+        (root / "tests/test_planner.py").write_text("def test_planner():\n    assert 1 == 1\n", encoding="utf-8")
+        for req_id, name in zip(requirement_ids, ("first", "second"), strict=True):
+            (root / f"src/{name}.py").write_text("def behavior():\n    return 1\n", encoding="utf-8")
             (requirements_dir / f"{req_id}.md").write_text(
                 "---\n"
                 f"id: {req_id}\n"
@@ -94,6 +104,8 @@ def _write_fixture(root: Path, *, complete: bool) -> tuple[Path, Path, Path]:
                 "domain: behavioral\n"
                 "upstream: []\n"
                 "source: docs/superpowers/specs/intent-spec.md#goal\n"
+                f"implemented_by:\n  - path: src/{name}.py\n    symbol: {name}:behavior\n"
+                "verified_by:\n  - path: tests/test_planner.py\n    test: tests/test_planner.py::test_planner\n"
                 "---\n",
                 encoding="utf-8",
             )
@@ -294,10 +306,104 @@ def _handoff_args(root: Path, workflow: str = "standard-development") -> list[st
     ]
 
 
+def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.CaptureFixture[str]) -> None:
+    """Bind the complete planning source set, then run the planning gates.
+
+    The planning gate requires the artifact manifest to cover every planning source and
+    the report to hash exactly those current bytes, so the fixture must publish the
+    manifest and re-hash the report before the gates can pass.
+    """
+    run_dir = root / ".factory" / "planning" / "run-001"
+    entries = [
+        {"kind": "intent", "path": ".intent/intent.json"},
+        {"kind": "spec", "path": "docs/superpowers/specs/intent-spec.md"},
+        {"kind": "plan", "path": "docs/superpowers/plans/intent-plan.md"},
+        {"kind": "feature", "path": "docs/features/FEAT-017.md"},
+        {"kind": "bundle", "path": "bundles/FEAT-017.json"},
+        {"kind": "requirements", "path": "requirements/SR-001.md"},
+    ]
+    write_artifact_manifest(root, "run-001", build_artifact_manifest(root, "run-001", entries))
+    covered = {item["path"] for item in entries} | {"requirements/SR-002.md"} | {
+        item["path"] for item in report["artifacts"]
+    }
+    report["artifacts"] = [
+        {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
+        for path in sorted(covered)
+    ]
+    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (run_dir / "review-decision.json").write_text(json.dumps(_approval(report)), encoding="utf-8")
+    for sr_id in ("SR-001", "SR-002"):
+        requirement = root / "requirements" / f"{sr_id}.md"
+        write_sr_decision(
+            root, "run-001", sr_id, hashlib.sha256(requirement.read_bytes()).hexdigest(),
+            "approve", "human", CONSENT_PHRASE, "Reviewed this requirement independently.",
+        )
+    write_cross_artifact_review(root, "run-001", {
+        f"tasks/T-{number:03d}-{name}.md": GeneratedTaskReviewInput(
+            f"T-{number:03d}", (f"src/{name}.py",), True, False, (f"SR-{number:03d}",),
+        )
+        for number, name in ((1, "first"), (2, "second"))
+    })
+    assert main([
+        "plan", "run-planning-gates", "--project-root", str(root), "--run-id", "run-001", "--json",
+    ]) == 0
+    capsys.readouterr()
+
+
+def test_cross_artifact_cli_records_explicit_tasks_without_execution_or_consent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+
+    _write_checked_report(tmp_path, capsys)
+    run_dir = tmp_path / ".factory/planning/run-001"
+    before = {path.name: path.read_bytes() for path in run_dir.glob("*consent*.json")}
+    tasks = {
+        f"tasks/T-{number:03d}-{name}.md": {
+            "id": f"T-{number:03d}", "artifact_paths": [f"src/{name}.py"],
+            "changes_production": True, "changes_validation": False,
+            "affected_srs": [f"SR-{number:03d}"], "satisfies": None,
+        }
+        for number, name in ((1, "first"), (2, "second"))
+    }
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("cross-artifact recording must not launch a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    assert main([
+        "plan", "write-cross-artifact-review", "--project-root", str(tmp_path),
+        "--run-id", "run-001", "--tasks-json", json.dumps(tasks), "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    record = json.loads((run_dir / "cross-artifact-review.json").read_text(encoding="utf-8"))
+    assert record["tasks"] == tasks
+    assert record["review"]["ok"] is True
+    assert {path.name: path.read_bytes() for path in run_dir.glob("*consent*.json")} == before
+    assert not (run_dir / "planning-gate-result.json").exists()
+    assert not (run_dir / "handoff.json").exists()
+
+
+@pytest.mark.parametrize("raw", ["[]", "{}", '{"tasks/T-001-first.md": {}}',
+                                  '{"x": {}, "x": {}}', "not json"])
+def test_cross_artifact_cli_rejects_invalid_or_incomplete_classifications(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], raw: str,
+) -> None:
+    _write_checked_report(tmp_path, capsys)
+    assert main([
+        "plan", "write-cross-artifact-review", "--project-root", str(tmp_path),
+        "--run-id", "run-001", "--tasks-json", raw, "--json",
+    ]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "CROSS_ARTIFACT_REVIEW_INVALID"
+    assert not (tmp_path / ".factory/planning/run-001/cross-artifact-review.json").exists()
+
+
 def test_plan_handoff_emits_summary_menu_and_revalidates_existing_handoff(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _write_checked_report(tmp_path, capsys)
+    report = _write_checked_report(tmp_path, capsys)
+    _run_planning_gates(tmp_path, report, capsys)
 
     assert main(_handoff_args(tmp_path)) == 0
     output = json.loads(capsys.readouterr().out)
