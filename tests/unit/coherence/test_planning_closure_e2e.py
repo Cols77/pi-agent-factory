@@ -68,6 +68,7 @@ def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, 
     assert record["artifact_hashes"]["123"] == _sha(numeric_target)
 
     requirement.write_text(valid_metadata.replace("path: '123'", "path: 123"), encoding="utf-8")
+    _refresh_full_review(tmp_path)
     write_sr_decision(tmp_path, "run-001", "SR-001", _sha(requirement), "approve", "human", CONSENT_PHRASE, "Reviewed current requirement.")
     with pytest.raises(PlanningGateError):
         write_cross_artifact_review(tmp_path, "run-001", tasks)
@@ -92,6 +93,7 @@ def test_non_string_relation_paths_cannot_escape_gate_freshness(tmp_path: Path, 
     _refresh_full_review(tmp_path)
     write_cross_artifact_review(tmp_path, "run-001", tasks)
     evaluate_planning_gate_pack(tmp_path, "run-001", pack)
+    report = _read_report(run_dir / "report.json", "run-001")
     build_handoff(tmp_path, report)
     numeric_target.write_text("another mutation", encoding="utf-8")
     with pytest.raises(HandoffError):
