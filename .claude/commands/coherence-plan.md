@@ -18,6 +18,19 @@ decision and never grant consent.
 - Hooks will block you if you skip a required record. That is expected. Read the
   reason and satisfy it — never work around it.
 
+## Host routes: compatibility and guided
+
+This Claude command is the existing explicit compatibility route. It preserves
+manual, adapter-mediated sequencing for hosts that still use the command and
+its defense-in-depth hooks. It does not claim a lifecycle-derived stage.
+
+The guided route is the separate `/plan <run-id>` entrypoint. It reads
+Coherence's canonical `legal-actions` projection and presents only the one
+currently permitted, display-only action. It owns no local workflow state and
+does not require this compatibility command's manual sequencing. Treat that
+projection as authoritative for current lifecycle position; do not infer a
+stage from this command's prose.
+
 Only `capture`, `intent_provisional`, and `blocked` exist as backend states.
 Never narrate progress into any other state.
 
@@ -135,6 +148,20 @@ on the hook's own agent to write it. If finalize still denies, satisfy the state
 reason and retry.
 
 ## 6. Author the spec
+
+When the backend returns `author-requirements`, author or revise the requirement
+documents within the human's requested scope. Register the explicitly selected
+artifacts through this sanctioned transport operation:
+
+```
+uv run python -m coherence.planning.guided_pipeline write-artifact-manifest --run-id <run-id> --project-root . --artifacts-json='<artifact list JSON>'
+```
+
+The JSON is a list of objects containing exactly `kind`, `path`, and `sha256`.
+Each call replaces the complete manifest: retain existing selected artifacts
+and register authored spec/plan artifacts as they become available. Then read
+the canonical `legal-actions` projection again. `author-requirements` remains
+the authoring action; manifest transport does not grant permission to act.
 
 No backend command writes a spec — this is your work. Write
 `docs/superpowers/specs/<date>-<slug>-design.md` from the captured intent
