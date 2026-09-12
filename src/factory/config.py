@@ -170,15 +170,34 @@ def require_governed_execution(
     change the answer -- the budget is project-wide by decision 3
     (2026-09-11). It is ignored on purpose, so a caller cannot turn this into
     a task-local lookup.
+
+    The value is re-validated here rather than trusted. ``load_config`` already
+    rejects a malformed budget at parse time, but a config that reached this
+    function by another route -- a duck-typed stand-in, ``dataclasses.replace``
+    on the parent config, ``object.__setattr__`` -- must not be able to hand a
+    governed dispatch ``-5``, ``"9"`` or ``True``. Production ``load_config``
+    behaviour is unchanged.
     """
     del task_id  # project-wide by design: no task-local override exists.
     context = str(project_root / ".factory" / "factory.yaml")
     settings = cfg.governed_execution
-    if settings.max_fixer_iterations is None:
+    if not isinstance(settings, GovernedExecutionConfig):
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution is not a GovernedExecutionConfig "
+            f"(got {type(settings).__name__}); a governed dispatch fails closed "
+            "on a config it cannot validate"
+        )
+    value = settings.max_fixer_iterations
+    if value is None:
         raise GovernedExecutionConfigError(
             f"{context}: governed_execution.max_fixer_iterations is unset; "
             "a governed dispatch fails closed without a project-wide fixer budget "
             "(SR-034 decision 3, 2026-09-11, recorded 2)"
+        )
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution.max_fixer_iterations must be an "
+            f"integer >= 1, got {value!r} ({type(value).__name__})"
         )
     return settings
 

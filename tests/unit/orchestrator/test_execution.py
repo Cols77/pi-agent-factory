@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
@@ -389,11 +390,16 @@ def test_governed_cursors_reconstruct_from_the_journal_across_a_restart(tmp_path
         resumed.open_cursor("fixer")
     assert {"campaign-classification", "fixer"} <= resumed.invalidated_stages
 
-    # A journalled attempt_key can never be reused after a restart.
+    # A journalled attempt_key can never be reused after a restart: the
+    # re-opened stage restarts its own revision counter (its cursor was dropped
+    # by the invalidation) but is issued a fresh key, so the earlier r1/a1
+    # record's key is not inherited.
     reopened = resumed.begin_revision("campaign-classification")
-    assert reopened.revision == 2
+    assert reopened.revision == 1
     assert reopened.attempt_key != campaign.attempt_key
-    assert reopened.attempt_key.endswith("/r2/a1/v1")
+    assert reopened.attempt_key.startswith("run-1/T-001/campaign-classification/r1/a1/v")
+    assert campaign.attempt_key in resumed.prior_attempt_keys
+    assert reopened.attempt_key not in {campaign.attempt_key}
 
 
 def test_open_task_cursor_addresses_the_cursor_by_run_and_task_identity(tmp_path):
@@ -424,3 +430,344 @@ def test_open_task_cursor_addresses_the_cursor_by_run_and_task_identity(tmp_path
         execution.open_cursor("not-a-stage", plan)
     with pytest.raises(RunCursorError):
         execution.open_cursor("dev", object())
+
+
+# --- FEAT-013 increment 4 (SR-034 Task 5): the fail-closed defects the
+# --- adversarial review reproduced. Each test below is a RED probe for one of
+# --- them; the docstring names the defect and the observable it pins.
+
+_RUN_DIR = Path("sessions") / ".factory-runs" / "by-session" / "run-1"
+
+
+def _rewrite_journal(run_dir: Path, mutate) -> None:
+    """Hand-edit the journal the way a tamperer would: mutate and write back."""
+    path = run_dir / "journal.jsonl"
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        event = json.loads(line)
+        mutate(event)
+        out.append(json.dumps(event, separators=(",", ":")))
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def _reseal(event: dict) -> None:
+    """Recompute a record's digest after editing it, so only the edit is left to catch."""
+    from factory.orchestrator.execution import GovernedStageCursor, _stage_event_sha256
+
+    data = event["data"]
+    cursor = GovernedStageCursor(
+        stage_id=data["stage_cursor"]["stage_id"],
+        revision=data["stage_cursor"]["revision"],
+        attempt=data["stage_cursor"]["attempt"],
+        parent_event_sha256=data["stage_cursor"].get("parent_event_sha256"),
+        attempt_key=data["stage_cursor"]["attempt_key"],
+    )
+    body = {key: value for key, value in data.items() if key != "stage_event_sha256"}
+    data["stage_event_sha256"] = _stage_event_sha256(cursor, event["state"], body)
+
+
+def test_a_reissued_request_after_a_consumed_decision_is_a_new_request(tmp_path):
+    """F1 (wedged run): request identity had no nonce, so a re-issue at the same
+    live cursor after a consumed decision inherited the consumed digest; the
+    re-open was accepted, `pending_human_decision_request()` returned None while
+    the live request sat in the journal, and every consume was then refused as
+    'already consumed' -- the durable needs_input path deadlocked."""
+    from factory.orchestrator.execution import RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    first = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = first.record_stage(first.begin_revision("dev"), state="completed")
+    cursor, request = first.open_human_decision_request(cursor, reason="budget exhausted")
+    first.consume_human_decision(
+        "T-001",
+        request_sha256=request["request_sha256"],
+        decision="defer",
+        response="human: defer",
+        decided_by="human",
+    )
+
+    # Crash before begin_attempt, restart, re-issue at the same live cursor.
+    resumed = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    assert resumed.pending_human_decision_request() is None
+    live, again = resumed.open_human_decision_request(
+        resumed.open_cursor("dev"), reason="budget exhausted"
+    )
+    assert again["request_sha256"] != request["request_sha256"]
+    assert again["issuance_serial"] == request["issuance_serial"] + 1
+
+    pending = resumed.pending_human_decision_request()
+    assert pending is not None, "a live request must never read as absent"
+    assert pending["request_sha256"] == again["request_sha256"]
+
+    advanced = resumed.consume_human_decision(
+        "T-001",
+        request_sha256=again["request_sha256"],
+        decision="retry",
+        response="human: retry",
+        decided_by="human",
+    )
+    assert advanced.stage_id == "dev"
+    assert advanced.revision == 1
+
+
+def test_an_exact_decision_replay_is_an_idempotent_read(tmp_path):
+    """F1: an identical decision-id/request/hash replay is an idempotent read
+    (plan lines 181-182); a conflicting replay still raises."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = execution.record_stage(execution.begin_revision("dev"), state="completed")
+    cursor, request = execution.open_human_decision_request(cursor, reason="budget exhausted")
+    advanced = execution.consume_human_decision(
+        "T-001",
+        request_sha256=request["request_sha256"],
+        decision="retry",
+        response="human: retry",
+        decided_by="human",
+    )
+    journal_lines = len(execution.journal.events())
+
+    replayed = execution.consume_human_decision(
+        "T-001",
+        request_sha256=request["request_sha256"],
+        decision="retry",
+        response="human: retry",
+        decided_by="human",
+    )
+    assert replayed == advanced
+    assert len(execution.journal.events()) == journal_lines, "an idempotent replay writes nothing"
+
+    with pytest.raises(RunCursorError, match="conflicting replay"):
+        execution.consume_human_decision(
+            "T-001",
+            request_sha256=request["request_sha256"],
+            decision="block",
+            response="human: retry",
+            decided_by="human",
+        )
+
+
+def test_a_reopened_stage_fences_out_a_cursor_held_before_the_invalidation(tmp_path):
+    """F2 (fencing key reuse in-process): after a descendant invalidation popped
+    a stage, begin_revision re-opened it at revision 1 with the *same*
+    attempt_key the earlier record already used, and prior_attempt_keys was only
+    filled by restore_cursors -- so in-process the guard was empty and a cursor
+    held from before the invalidation was accepted afterwards."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    stale = execution.record_stage(execution.begin_revision("validation"), state="completed")
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    # A *second* dev revision invalidates every later stage, validation included.
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+
+    fresh = execution.begin_revision("validation")
+    assert (fresh.stage_id, fresh.revision, fresh.attempt) == ("validation", 1, 1)
+    assert fresh.attempt_key != stale.attempt_key
+    assert stale.attempt_key in execution.prior_attempt_keys
+    execution.record_stage(fresh, state="completed")
+
+    with pytest.raises(RunCursorError):
+        execution.record_stage(stale)
+
+
+def test_a_replayed_stage_position_is_refused_on_restore(tmp_path):
+    """F2: a position (stage, revision, attempt, key, parent, state) that the run
+    already recorded must be refused rather than journalled twice -- the replay
+    of a journal line was silently accepted (and chained) before."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    execution.record_stage(execution.begin_revision("validation"), state="completed")
+    execution.begin_revision("dev")  # dev r2: a genuine bump, so it IS journalled
+    run_dir = tmp_path / _RUN_DIR
+
+    # Duplicate that bump record in place, so the replay is chain-consistent and
+    # the only thing that can catch it is the position it duplicates.
+    path = run_dir / "journal.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    target = None
+    for index, line in enumerate(lines):
+        data = (json.loads(line).get("data") or {})
+        if data.get("cursor_opened") and (data.get("stage_cursor") or {}).get("stage_id") == "dev":
+            target = index
+    assert target is not None
+    lines.insert(target + 1, lines[target])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RunCursorError, match="recorded twice"):
+        RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+
+def test_a_revision_bump_survives_a_restart_and_keeps_descendants_invalidated(tmp_path):
+    """F3 (restored invalidation not faithful): begin_revision journalled
+    nothing, so a bump that had invalidated descendants in memory was invisible
+    after a restart -- the restored invalidated set was empty, the descendants
+    were open again, and a cursor the live process had invalidated was accepted
+    post-resume."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    first = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    first.record_stage(first.begin_revision("dev"), state="completed")
+    first.record_stage(first.begin_revision("validation"), state="completed")
+    first.record_stage(first.begin_revision("fixer"), state="completed")
+
+    bumped = first.begin_revision("dev")  # crash before any record at the new revision
+    assert bumped.revision == 2
+    assert {"validation", "fixer"} <= first.invalidated_stages
+
+    resumed = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    assert resumed.open_cursor("dev").revision == 2
+    assert {"validation", "fixer"} <= resumed.invalidated_stages
+    with pytest.raises(RunCursorError):
+        resumed.open_cursor("validation")
+    with pytest.raises(RunCursorError):
+        resumed.open_cursor("fixer")
+
+
+def test_a_decision_cannot_be_consumed_after_begin_attempt_supersedes_it(tmp_path):
+    """F4 (decision applied to a superseded position): consume matched by request
+    hash only and journalled the decision against whatever cursor was live
+    *now*, so a request opened at dev r1 a1 was consumed as dev-2 while its
+    payload still said revision 1 / attempt 1."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = execution.record_stage(execution.begin_revision("dev"), state="completed")
+    cursor, request = execution.open_human_decision_request(cursor, reason="budget exhausted")
+    execution.begin_attempt("dev")  # the position the request named is gone
+
+    with pytest.raises(RunCursorError, match="superseded"):
+        execution.consume_human_decision(
+            "T-001",
+            request_sha256=request["request_sha256"],
+            decision="defer",
+            response="human: defer",
+            decided_by="human",
+        )
+    assert execution.consumed_request_sha256s() == set()
+
+
+def test_a_decision_cannot_be_consumed_after_a_same_stage_revision_supersedes_it(tmp_path):
+    """F4: the same refusal for a same-stage begin_revision (open at dev r1,
+    consumed against r2)."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    cursor = execution.record_stage(execution.begin_revision("dev"), state="completed")
+    cursor, request = execution.open_human_decision_request(cursor, reason="budget exhausted")
+    assert execution.begin_revision("dev").revision == 2
+
+    with pytest.raises(RunCursorError, match="superseded"):
+        execution.consume_human_decision(
+            "T-001",
+            request_sha256=request["request_sha256"],
+            decision="block",
+            response="human: block",
+            decided_by="human",
+        )
+
+
+def test_a_forged_or_non_canonical_digest_fails_closed_on_restore(tmp_path):
+    """F5 (tamper-evidence was live-only): restore trusted any 64-hex
+    `stage_event_sha256` it found and silently degraded to the stored parent
+    otherwise, and never recomputed anything. A forged digest must fail closed."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    run_dir = tmp_path / _RUN_DIR
+
+    # (a) a forged digest that does not recompute from the persisted payload
+    _rewrite_journal(
+        run_dir,
+        lambda event: event["data"].update({"stage_event_sha256": "f" * 64})
+        if "stage_cursor" in event["data"]
+        else None,
+    )
+    with pytest.raises(RunCursorError, match="tamper-evidence"):
+        RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+    # (b) a non-canonical digest (previously degraded to the stored parent)
+    _rewrite_journal(
+        run_dir,
+        lambda event: event["data"].update({"stage_event_sha256": "not-a-digest"})
+        if "stage_cursor" in event["data"]
+        else None,
+    )
+    with pytest.raises(RunCursorError, match="stage_event_sha256"):
+        RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+
+def test_a_dangling_parent_link_fails_closed_on_restore(tmp_path):
+    """F5: restore never checked that a record's stored parent equals the
+    previous record's digest, so a hand-edited (but self-consistent) dangling
+    parent was accepted and chained."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    execution.record_stage(execution.begin_revision("validation"), state="completed")
+    run_dir = tmp_path / _RUN_DIR
+
+    seen: list[int] = []
+
+    def _dangle(event: dict) -> None:
+        data = event.get("data")
+        if not isinstance(data, dict) or "stage_cursor" not in data:
+            return
+        seen.append(1)
+        if len(seen) == 2:  # the validation evidence record: valid digest, wrong parent
+            data["stage_cursor"]["parent_event_sha256"] = "e" * 64
+            _reseal(event)
+
+    _rewrite_journal(run_dir, _dangle)
+    with pytest.raises(RunCursorError, match="chain is broken"):
+        RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+
+def test_restore_rejects_a_stage_outside_the_canonical_graph(tmp_path):
+    """F6a: a journal whose stage id is outside the canonical graph made restore
+    raise a bare `ValueError: tuple.index(x): x not in tuple` from
+    _invalidate_descendants instead of the module's RunCursorError."""
+    from factory.orchestrator.execution import RunCursorError, RunExecution
+
+    git = FakeGitOps(head="a" * 40)
+    execution = RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    execution.record_stage(execution.begin_revision("dev"), state="completed")
+    run_dir = tmp_path / _RUN_DIR
+
+    def _bogus(event: dict) -> None:
+        data = event.get("data")
+        if isinstance(data, dict) and "stage_cursor" in data:
+            data["stage_cursor"]["stage_id"] = "not-a-canonical-stage"
+            _reseal(event)
+
+    _rewrite_journal(run_dir, _bogus)
+    with pytest.raises(RunCursorError, match="unknown execution stage"):
+        RunExecution.create(tmp_path, "run-1", "T-001", "a" * 40, git)
+
+
+def test_the_human_decision_surface_documents_its_real_durability_guarantee():
+    """F6c: the journal is rewritten in place, so the docstrings must not imply
+    a cryptographic append-only log -- deleting a decision line resurrects its
+    request as pending."""
+    from factory.orchestrator.execution import RunExecution
+
+    request_doc = RunExecution.open_human_decision_request.__doc__ or ""
+    consume_doc = RunExecution.consume_human_decision.__doc__ or ""
+    restore_doc = RunExecution.restore_cursors.__doc__ or ""
+    assert "not a cryptographic append-only" in request_doc
+    assert "plain" in consume_doc and "file" in consume_doc
+    assert "deleting a decision line resurrects" in consume_doc
+    assert "not stable across this change" in restore_doc

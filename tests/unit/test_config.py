@@ -207,3 +207,34 @@ def test_the_factory_records_the_decided_governed_fixer_budget():
     cfg = load_config(repo_root)
     assert cfg.governed_execution.max_fixer_iterations == 2
     assert require_governed_execution(cfg, repo_root).max_fixer_iterations == 2
+
+
+def test_require_governed_execution_revalidates_a_patched_config(tmp_path):
+    """F6b: require_governed_execution only checked `is None`, so a duck-typed or
+    patched config handed a governed dispatch -5 / '9' / True. The value is
+    re-validated here; the production load_config path is unchanged."""
+    from dataclasses import replace as dc_replace
+    from types import SimpleNamespace
+
+    from factory.config import (
+        GovernedExecutionConfigError,
+        require_governed_execution,
+    )
+
+    root = _write(tmp_path, "governed_execution:\n  max_fixer_iterations: 2\n")
+    cfg = load_config(root)
+    assert require_governed_execution(cfg, root).max_fixer_iterations == 2
+
+    # A duck-typed stand-in is refused outright, by type.
+    duck = dc_replace(cfg, governed_execution=SimpleNamespace(max_fixer_iterations=2))
+    assert not isinstance(duck.governed_execution, type(cfg.governed_execution))
+    with pytest.raises(GovernedExecutionConfigError, match="GovernedExecutionConfig"):
+        require_governed_execution(duck, root)
+
+    # A patched real instance (object.__setattr__ bypasses the frozen __post_init__)
+    # is refused for each out-of-range/ill-typed value.
+    for value in (-5, 0, "9", True, False, 2.0, None):
+        patched = load_config(root)
+        object.__setattr__(patched.governed_execution, "max_fixer_iterations", value)
+        with pytest.raises(GovernedExecutionConfigError, match="max_fixer_iterations"):
+            require_governed_execution(patched, root)
