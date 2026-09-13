@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from coherence.planning.legal_actions_adapter import parse_legal_actions_projection
+
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -34,30 +36,8 @@ def build_legal_actions_command(project_root: Path, run_id: str) -> list[str]:
 
 
 def parse_projection(raw: str, run_id: str) -> dict[str, Any]:
-    """Parse and validate a schema-1 legal-actions projection."""
-    try:
-        payload = json.loads(raw)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise ValueError("invalid planning legal-actions response") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError("invalid planning legal-actions response")
-    if (
-        type(payload.get("schema")) is not int
-        or payload["schema"] != 1
-        or not isinstance(payload.get("run_id"), str)
-        or payload["run_id"] != run_id
-        or type(payload.get("blocked")) is not bool
-        or "reason" not in payload
-        or not (payload["reason"] is None or isinstance(payload["reason"], str))
-        or not isinstance(payload.get("legal_next_actions"), list)
-        or not all(
-            isinstance(action, str) for action in payload["legal_next_actions"]
-        )
-        or payload.get("starts_automatically") is not False
-    ):
-        raise ValueError("invalid planning legal-actions response")
-    return payload
+    """Validate the shared schema-2 legal-actions projection."""
+    return parse_legal_actions_projection(raw, run_id)
 
 
 def query_legal_actions(project_root: Path, run_id: str) -> dict[str, Any]:
@@ -92,7 +72,7 @@ def query_legal_actions(project_root: Path, run_id: str) -> dict[str, Any]:
 def _backend_invalid_projection(run_id: str, error: BaseException) -> dict[str, Any]:
     detail = str(error).strip()[:200] or type(error).__name__
     return {
-        "schema": 1,
+        "schema": 2,
         "run_id": run_id,
         "blocked": True,
         "reason": "BACKEND_INVALID",

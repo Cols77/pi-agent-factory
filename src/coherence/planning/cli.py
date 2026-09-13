@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from coherence.planning.artifacts import write_artifact_manifest
+from coherence.planning.adapter_backend import PLANNING_TRANSPORT_SCHEMA
 from coherence.planning.bootstrap import BootstrapPrerequisiteError, bootstrap_planning
 from coherence.planning.check import check_planning_input
 from coherence.planning.consent import write_sr_decision
@@ -92,11 +93,13 @@ def _source_path(value: Path, root: Path) -> Path:
 
 
 def _json_report(report: PlanningReport) -> str:
-    return json.dumps(report.to_dict(), indent=2, ensure_ascii=False, allow_nan=False)
+    payload = report.to_dict()
+    payload["schema"] = PLANNING_TRANSPORT_SCHEMA
+    return json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False)
 
 
 def _error_report(run_id: str, code: str, detail: str) -> dict[str, object]:
-    return PlanningReport(
+    payload = PlanningReport(
         schema=1,
         run_id=run_id,
         ok=False,
@@ -113,11 +116,13 @@ def _error_report(run_id: str, code: str, detail: str) -> dict[str, object]:
         review_required=True,
         suggestion=None,
     ).to_dict()
+    payload["schema"] = PLANNING_TRANSPORT_SCHEMA
+    return payload
 
 
 def _blocked(run_id: str, reason: str, detail: str) -> dict[str, object]:
     return {
-        "schema": 1,
+        "schema": PLANNING_TRANSPORT_SCHEMA,
         "run_id": run_id,
         "action": "blocked",
         "ok": False,
@@ -228,7 +233,9 @@ def _check(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 1
 
-    print(_json_report(report))
+    payload = report.to_dict()
+    payload["schema"] = PLANNING_TRANSPORT_SCHEMA
+    print(json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False))
     return 1 if any(finding.severity == "error" for finding in report.findings) else 0
 
 
@@ -263,6 +270,7 @@ def _bootstrap(args: argparse.Namespace) -> int:
         return 1
 
     payload = report.to_dict()
+    payload["schema"] = PLANNING_TRANSPORT_SCHEMA
     payload["created_task_ids"] = list(created)
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 1 if any(finding.severity == "error" for finding in report.findings) else 0
@@ -395,7 +403,7 @@ def _handoff(args: argparse.Namespace) -> int:
         if isinstance(menu, list)
         else []
     )
-    print(json.dumps({"schema": 1, "run_id": args.run_id, "action": "handoff",
+    print(json.dumps({"schema": PLANNING_TRANSPORT_SCHEMA, "run_id": args.run_id, "action": "handoff",
                       "handoff": json_path.relative_to(root).as_posix(),
                       "prompt": md_path.relative_to(root).as_posix(),
                       "summary": payload["summary"],
@@ -456,7 +464,7 @@ def _record_sr_consent(args: argparse.Namespace) -> int:
     print(
         json.dumps(
             {
-                "schema": 1,
+                "schema": PLANNING_TRANSPORT_SCHEMA,
                 "run_id": args.run_id,
                 "ok": True,
                 "action": "record-sr-consent",
@@ -483,7 +491,7 @@ def _write_artifact_manifest(args: argparse.Namespace) -> int:
     except (OSError, UnicodeError, ValueError, TypeError) as exc:
         print(json.dumps(_blocked(args.run_id, "ARTIFACT_MANIFEST_INVALID", str(exc)), indent=2))
         return 1
-    print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": True,
+    print(json.dumps({"schema": PLANNING_TRANSPORT_SCHEMA, "run_id": args.run_id, "ok": True,
                       "action": "write-artifact-manifest",
                       "manifest": path.relative_to(root).as_posix()}, indent=2, ensure_ascii=False))
     return 0
@@ -511,7 +519,7 @@ def _write_cross_artifact_review(args: argparse.Namespace) -> int:
         return 1
     review = record["review"]
     assert isinstance(review, dict)
-    print(json.dumps({"schema": 1, "ok": review["ok"],
+    print(json.dumps({"schema": PLANNING_TRANSPORT_SCHEMA, "run_id": args.run_id, "ok": review["ok"],
                       "action": "write-cross-artifact-review", **record}, indent=2, ensure_ascii=False))
     return 0 if review["ok"] else 1
 
@@ -530,7 +538,7 @@ def _run_planning_gates(args: argparse.Namespace) -> int:
         print(json.dumps(_blocked(args.run_id, "PLANNING_GATES_BLOCKED", str(exc)), indent=2))
         return 1
     print(json.dumps({
-        "schema": 1,
+        "schema": PLANNING_TRANSPORT_SCHEMA,
         "run_id": args.run_id,
         "ok": True,
         "action": "run-planning-gates",
@@ -575,9 +583,14 @@ def _session_command(args: argparse.Namespace) -> int:
         else:
             session = finalize_session(args.project_root, args.run_id, args.status)
     except SessionError as exc:
-        print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
+        print(json.dumps({"schema": PLANNING_TRANSPORT_SCHEMA, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
         return 1
-    payload: dict[str, object] = {"schema": 1, "ok": True, **session.to_dict()}
+    payload: dict[str, object] = {
+        "schema": PLANNING_TRANSPORT_SCHEMA,
+        "ok": True,
+        **session.to_dict(),
+    }
+    payload["schema"] = PLANNING_TRANSPORT_SCHEMA
     try:
         intent = read_session_intent(args.project_root, args.run_id)
         payload["challenges"] = [

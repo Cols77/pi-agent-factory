@@ -87,6 +87,20 @@ def test_parse_accepts_valid_blocked_projection() -> None:
     assert parsed == payload
 
 
+def test_parse_rejects_legacy_schema_one_projection() -> None:
+    payload = {
+        "schema": 1,
+        "run_id": "run-001",
+        "blocked": False,
+        "reason": None,
+        "legal_next_actions": ["author-spec"],
+        "starts_automatically": False,
+    }
+
+    with pytest.raises(ValueError, match="invalid planning legal-actions response"):
+        parse_legal_actions_projection(json.dumps(payload), "run-001")
+
+
 def _schema_two_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema": 2,
@@ -142,7 +156,7 @@ def test_parse_rejects_unblocked_projection_without_matching_identity(identity: 
         parse_legal_actions_projection(json.dumps(payload), "run-001")
 
 
-def test_parse_rejects_multiple_actions_in_legacy_schema() -> None:
+def test_parse_rejects_multiple_actions_in_schema_two_payload() -> None:
     payload = valid_payload(legal_next_actions=["author-spec", "author-plan"])
 
     with pytest.raises(ValueError):
@@ -255,13 +269,13 @@ def test_report_exit_1_with_valid_blocked_payload_surfaces_reason(monkeypatch: p
     "planning is blocked" signal, not a backend failure. The structured
     payload's reason must still be parsed and rendered, not replaced by a
     generic failure message."""
-    payload = valid_payload(blocked=True, reason="STALE_SESSION_STATE", legal_next_actions=["resolve-blocking-input"])
+    payload = valid_payload(blocked=True, reason="STALE_SESSION_STATE", legal_next_actions=[])
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed_json(payload, returncode=1))
 
     output = legal_actions_report(Path.cwd(), "run-001")
 
     assert "STALE_SESSION_STATE" in output
-    assert "resolve-blocking-input" in output
+    assert "Legal actions: none" in output
     assert "backend exited unsuccessfully" not in output
 
 

@@ -27,7 +27,7 @@ def test_manifest_transport_writes_only_canonical_manifest(
     assert main(["write-artifact-manifest", "--project-root", str(tmp_path),
                  "--run-id", "run-001", "--artifacts-json", json.dumps(artifacts), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"schema": 1, "run_id": "run-001", "ok": True,
+    assert payload == {"schema": 2, "run_id": "run-001", "ok": True,
                        "action": "write-artifact-manifest",
                        "manifest": ".factory/planning/run-001/artifacts.json"}
     target = tmp_path / payload["manifest"]

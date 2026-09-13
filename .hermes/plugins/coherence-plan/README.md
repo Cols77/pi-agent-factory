@@ -200,27 +200,39 @@ accepts the response only when all authority fields below are valid:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "run_id": "run-001",
   "blocked": true,
   "reason": "SESSION_NOT_READY",
+  "state": "capture",
   "legal_next_actions": [],
-  "starts_automatically": false
+  "starts_automatically": false,
+  "run_identity": null,
+  "action_registry": {
+    "schema": 1,
+    "legal_ids": ["author-requirements", "record-sr-consent", "author-spec"],
+    "registry_hash": "<sha256 of legal_ids>"
+  }
 }
 ```
 
-The `schema` is the integer `1`; `run_id` must exactly equal the requested
+The outer `schema` is exactly `2`; `run_id` must exactly equal the requested
 named run; `blocked` is a boolean; `reason` is either a string or `null`;
-`legal_next_actions` is an array of strings; and `starts_automatically` must
-be exactly `false`. The backend may include additional projection fields such
-as `state`, `run_identity`, `selected_downstream_workflow`, and its action
-registry; the adapter renders only the backend-declared action list and block
-reason.
+`state` is the backend lifecycle state; `legal_next_actions` contains at most
+one backend-declared action; and `starts_automatically` must be exactly
+`false`. A ready response carries a matching `run_identity` with the next
+sequence and journal digest. A blocked response carries `run_identity: null`,
+a reason, and no legal action. The nested `action_registry.schema` is the
+registry's independent version field, not a second accepted planning transport
+schema.
 
-A missing, malformed, stale, contradictory, or automatically-starting
-projection is blocked rather than guessed. A failed subprocess or invalid
-JSON response is rendered as a planning block and cannot cause a workflow to
-start.
+Schema-1 planning responses are rejected. Missing, malformed, stale,
+contradictory, or automatically-starting projections are blocked rather than
+guessed. The same schema-2 outer envelope is required for guided session and
+pipeline transport responses, with each verb's existing fields preserved.
+
+A failed subprocess or invalid JSON response is rendered as a planning block
+and cannot cause a workflow to start.
 
 Typical output is:
 

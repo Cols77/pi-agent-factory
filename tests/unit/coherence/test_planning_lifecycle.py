@@ -7,7 +7,7 @@ import pytest
 from coherence.planning.lifecycle import LifecycleEvidence, project_lifecycle
 
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sr("SR-071")]
 
 
 def _evidence(**changes: object) -> LifecycleEvidence:
