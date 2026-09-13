@@ -8,6 +8,7 @@ from pathlib import Path
 from coherence.audit.cli import main as audit_main
 from coherence.course.cli import main as course_main
 from coherence.doctor.cli import main as doctor_main
+from coherence.execution.cli import main as execution_main
 from coherence.explain import main as explain_main
 from coherence.focus import main as focus_main
 from coherence.goals.cli import main as goals_main
@@ -73,6 +74,7 @@ GROUPS = {
     "measurement": measurement_main,
     "mirrors": mirrors_main,
     "plan": planning_main,
+    "execution": execution_main,
     "status": status_main,
     "route": route_main,
     "focus": focus_main,

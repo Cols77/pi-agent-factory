@@ -1,0 +1,10 @@
+name: governed-execution
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: Hermes presentation adapter that drives one governed execution run through the Python-owned Coherence execution commands
+license: MIT
+tags:
+  - coherence
+  - execution
+  - governed-execution

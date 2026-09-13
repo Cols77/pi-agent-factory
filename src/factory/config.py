@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +24,12 @@ __all__ = [
     "GateConfigError",
     "GateDeclarations",
     "GateStep",
+    "GovernedExecutionConfig",
+    "GovernedExecutionConfigError",
     "UnknownTypeError",
     "load_config",
     "require_gates",
+    "require_governed_execution",
 ]
 
 
@@ -34,11 +37,76 @@ class UnknownTypeError(ValueError):
     pass
 
 
+class GovernedExecutionConfigError(ValueError):
+    """``governed_execution`` is absent, malformed, or unusable for a dispatch."""
+
+
+@dataclass(frozen=True)
+class GovernedExecutionConfig:
+    """SR-034's project-wide governed-execution settings.
+
+    ``max_fixer_iterations`` is the single fixer budget for *every* governed
+    task in this project. It is deliberately project-wide rather than
+    task-local: decision 3 (2026-09-11) recorded one human-decided budget
+    (``2``) for the whole execution graph, so there is exactly one field here
+    and no task dimension a task could override.
+
+    ``None`` means "the project did not declare a budget"; a governed dispatch
+    must fail closed on that (see :func:`require_governed_execution`) rather
+    than guess one.
+    """
+
+    max_fixer_iterations: int | None = None
+
+    def __post_init__(self) -> None:
+        value = self.max_fixer_iterations
+        if value is None:
+            return
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise GovernedExecutionConfigError(
+                "governed_execution.max_fixer_iterations must be an integer, "
+                f"not {type(value).__name__} ({value!r})"
+            )
+        if value < 1:
+            raise GovernedExecutionConfigError(
+                f"governed_execution.max_fixer_iterations must be >= 1, got {value!r}"
+            )
+
+
 @dataclass
 class FactoryConfig:
     playgrounds: dict[str, Any]
     harnesses: dict[str, Any]
     gates: GateDeclarations
+    governed_execution: GovernedExecutionConfig = field(
+        default_factory=GovernedExecutionConfig
+    )
+
+
+def load_governed_execution(data: dict, context: str) -> GovernedExecutionConfig:
+    """Parse ``governed_execution`` from a factory.yaml mapping.
+
+    An absent section or key is an *unset* budget (``None``), not a parse
+    error: only a governed dispatch needs the value, and it fails closed on
+    ``None`` via :func:`require_governed_execution`. A present but malformed
+    value is rejected here, where the file and key are still known.
+    """
+    section = data.get("governed_execution")
+    if section is None:
+        return GovernedExecutionConfig()
+    if not isinstance(section, dict):
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution must be a mapping, not {type(section).__name__}"
+        )
+    if "max_fixer_iterations" not in section:
+        return GovernedExecutionConfig()
+    try:
+        return GovernedExecutionConfig(
+            max_fixer_iterations=section["max_fixer_iterations"]
+        )
+    except GovernedExecutionConfigError as exc:
+        raise GovernedExecutionConfigError(f"{context}: {exc}") from exc
+
 
 
 def _build(types: dict, name: str, spec: dict, project_root: Path):
@@ -55,6 +123,7 @@ def load_config(project_root: Path) -> FactoryConfig:
     if not path.exists():
         return FactoryConfig({}, {}, {})
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    context = str(path)
     # Imported here, not at module level: the orchestrator imports this module,
     # and a module-level import of factory.polish would point the core package
     # back at a consumer -- the inversion this move exists to remove.
@@ -68,7 +137,12 @@ def load_config(project_root: Path) -> FactoryConfig:
         n: _build(HARNESS_TYPES, n, s, project_root)
         for n, s in (data.get("harnesses") or {}).items()
     }
-    return FactoryConfig(playgrounds, harnesses, load_gate_declarations(data))
+    return FactoryConfig(
+        playgrounds,
+        harnesses,
+        load_gate_declarations(data),
+        load_governed_execution(data, context),
+    )
 
 
 def require_gates(cfg: FactoryConfig, project_root: Path) -> GateDeclarations:
@@ -80,3 +154,50 @@ def require_gates(cfg: FactoryConfig, project_root: Path) -> GateDeclarations:
     """
     context = str(project_root / ".factory" / "factory.yaml")
     return _require_gate_declarations(cfg.gates, context)
+
+
+def require_governed_execution(
+    cfg: FactoryConfig, project_root: Path, *, task_id: str | None = None
+) -> GovernedExecutionConfig:
+    """The governed-execution settings a dispatch needs, else raise.
+
+    A governed dispatch must fail closed when the project never declared a
+    fixer budget: "the human decided 2 for this project" and "this project
+    never said" are different statements, and a driver that invented a budget
+    would spend human-decided iterations nobody authorised.
+
+    ``task_id`` is accepted only to make the intent explicit and can never
+    change the answer -- the budget is project-wide by decision 3
+    (2026-09-11). It is ignored on purpose, so a caller cannot turn this into
+    a task-local lookup.
+
+    The value is re-validated here rather than trusted. ``load_config`` already
+    rejects a malformed budget at parse time, but a config that reached this
+    function by another route -- a duck-typed stand-in, ``dataclasses.replace``
+    on the parent config, ``object.__setattr__`` -- must not be able to hand a
+    governed dispatch ``-5``, ``"9"`` or ``True``. Production ``load_config``
+    behaviour is unchanged.
+    """
+    del task_id  # project-wide by design: no task-local override exists.
+    context = str(project_root / ".factory" / "factory.yaml")
+    settings = cfg.governed_execution
+    if not isinstance(settings, GovernedExecutionConfig):
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution is not a GovernedExecutionConfig "
+            f"(got {type(settings).__name__}); a governed dispatch fails closed "
+            "on a config it cannot validate"
+        )
+    value = settings.max_fixer_iterations
+    if value is None:
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution.max_fixer_iterations is unset; "
+            "a governed dispatch fails closed without a project-wide fixer budget "
+            "(SR-034 decision 3, 2026-09-11, recorded 2)"
+        )
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise GovernedExecutionConfigError(
+            f"{context}: governed_execution.max_fixer_iterations must be an "
+            f"integer >= 1, got {value!r} ({type(value).__name__})"
+        )
+    return settings
+

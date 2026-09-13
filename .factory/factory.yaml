@@ -29,3 +29,11 @@ gates:
     - { cmd: "{python} -m coherence register review --check-claims" }
     - { cmd: "{python} scripts/gates/ext.py" }
     - { cmd: "{python} scripts/gates/watch_ext.py" }
+
+# SR-034 decision 3 (2026-09-11): the project-wide governed fixer budget.
+# The human recorded `2` as the single budget for every governed task; there
+# is no task-local override (see factory.config.require_governed_execution,
+# which fails closed while this key is absent). A governed dispatch reads it
+# through that helper, never from an ad-hoc path or a task manifest.
+governed_execution:
+  max_fixer_iterations: 2

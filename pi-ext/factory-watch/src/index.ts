@@ -29,6 +29,7 @@ import { runPlanGate, runPlanHandoff } from "./plan-gate-command.js";
 import { runPlanReview } from "./plan-review-command.js";
 import { runPlanBrainstorm } from "./plan-brainstorm-command.js";
 import { registerTraceTools } from "./trace-tools.js";
+import { registerExecutionTools } from "./execution-tools.js";
 import { registerSystemContextTools } from "./system-context-tools.js";
 import { registerEngContextTools } from "./eng-context-tools.js";
 import { buildCliTaskReads, buildTaskPreamble } from "./task-preamble.js";
@@ -589,6 +590,10 @@ export default function factoryWatch(pi: PiApi): void {
   // The deterministic half of /trace-fix: the model reasons, these tools do the
   // enumerating, validating and writing.
   registerTraceTools(pi);
+  // The SR-034 governed-execution transport: four read/forward tools over the
+  // Python-owned `coherence execution` commands. No second server, no host-local
+  // lifecycle; `resolve-human` stays a human-invoked Python command.
+  registerExecutionTools(pi);
   registerSystemContextTools(pi);
   registerEngContextTools(pi);
   registerSessionReviewSuggestTools(pi);

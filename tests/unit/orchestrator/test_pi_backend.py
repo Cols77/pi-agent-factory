@@ -142,3 +142,63 @@ def test_run_launches_child_as_group_leader_on_posix(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(subprocess, "Popen", _fake_popen)
     PiAgentBackend(tmp_path, tmp_path / "ext.ts").run(AgentRole.DEV, "hi")
     assert captured.get("start_new_session") is True
+
+
+def test_pi_backend_factory_binds_the_leased_workspace_and_write_policy(monkeypatch, tmp_path):
+    # Task 2 (SR-034/SR-049): the factory is the only place a backend is bound
+    # to a leased workspace. The leased workspace is passed to PiAgentBackend as
+    # its repo_root; the lease's WritePolicy travels into the BoundExecution
+    # untouched, and the session id stays the backend's own on_session_id value.
+    from factory.orchestrator import pi_backend as backend_module
+    from factory.orchestrator.execution_contract import ExecutionContract
+    from factory.orchestrator.execution_workspace import WorkspaceLease, build_write_policy
+
+    captured: dict = {}
+
+    class _FakePiAgentBackend:
+        def __init__(self, repo_root, extension_path, provider=None, model=None):
+            captured.update(
+                repo_root=repo_root,
+                extension_path=extension_path,
+                provider=provider,
+                model=model,
+            )
+
+        def run(self, role, prompt, on_snippet=None, on_session_id=None):
+            if on_session_id is not None:
+                on_session_id("sess-1")
+            return AgentResult(output="hi", ok=True, session_id="sess-1")
+
+    monkeypatch.setattr(backend_module, "PiAgentBackend", _FakePiAgentBackend)
+
+    workspace = tmp_path / "execution-worktree"
+    contract = ExecutionContract.build(
+        run_id="run-013",
+        task_id="T-013",
+        workflow_version="governed-execution/v1",
+        workspace=workspace,
+        required_gates=("unit",),
+        satisfies=("SR-034", "SR-049"),
+        plan_ref=None,
+        spec_ref=None,
+        max_fixer_iterations=1,
+    )
+    lease = WorkspaceLease(
+        execution_id="run-013", path=workspace, policy=build_write_policy(workspace)
+    )
+
+    bound = backend_module.PiBackendFactory(
+        tmp_path, tmp_path / "ext.ts", provider="prov", model="mod"
+    ).bind(lease, contract)
+
+    assert captured["repo_root"] == workspace
+    assert captured["extension_path"] == tmp_path / "ext.ts"
+    assert captured["provider"] == "prov"
+    assert captured["model"] == "mod"
+    assert bound.workspace == workspace
+    assert bound.policy == lease.policy
+    assert bound.assignment("dev").workspace == workspace
+
+    delivered: list[str] = []
+    bound.backend.run(AgentRole.DEV, "hi", on_session_id=delivered.append)
+    assert delivered == ["sess-1"]  # no host-generated session id

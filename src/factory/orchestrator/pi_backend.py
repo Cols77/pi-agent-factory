@@ -4,6 +4,8 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from factory.orchestrator.execution_contract import ExecutionContract
+from factory.orchestrator.execution_workspace import BoundExecution, WorkspaceLease
 from factory.orchestrator.roles import ROLE_SCOPE
 from factory.orchestrator.types import AgentRole
 from substrate.agents.backend import (
@@ -69,6 +71,7 @@ warnings.warn(
 
 __all__ = [
     "PiAgentBackend",
+    "PiBackendFactory",
     "AgentResult",
     "InterruptionReason",
     "SUBAGENT_DEPTH_ENV",
@@ -162,4 +165,53 @@ class PiAgentBackend:
             prompt,
             on_snippet=on_snippet,
             on_session_id=on_session_id,
+        )
+
+
+class PiBackendFactory:
+    """The concrete ``BackendFactory`` for Pi: one backend, one leased workspace.
+
+    It constructs the existing :class:`PiAgentBackend` with the leased workspace
+    as its ``repo_root`` (the child's cwd) and returns the frozen
+    :class:`BoundExecution` carrying the lease's write policy. It adds no
+    allocation, scheduling or retry behavior, and no method is added to the
+    ``AgentBackend`` protocol. Session identity remains the backend's own
+    ``on_session_id`` callback -- no host-generated session id exists.
+    """
+
+    def __init__(
+        self,
+        repo_root: Path,
+        extension_path: Path,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        self._repo_root = repo_root
+        # Reserved: the constructor keeps ``repo_root`` because the planned
+        # PiBackendFactory(repo_root, extension_path, provider, model) interface
+        # mandates it. The binding deliberately uses the *leased* workspace
+        # (``lease.path``) as the backend's repo_root -- that is the SR-034
+        # property -- so this field is retained for the declared signature, not
+        # read here. ``bind`` enforces that the lease agrees with the contract.
+        self._extension_path = extension_path
+        self._provider = provider
+        self._model = model
+
+    def bind(self, lease: WorkspaceLease, contract: ExecutionContract) -> BoundExecution:
+        if lease.path.resolve() != contract.workspace.resolve():
+            raise ValueError(
+                "lease path does not match the contract workspace: "
+                f"{lease.path} != {contract.workspace}"
+            )
+        backend = PiAgentBackend(
+            lease.path,
+            self._extension_path,
+            provider=self._provider,
+            model=self._model,
+        )
+        return BoundExecution(
+            backend=backend,
+            contract=contract,
+            workspace=lease.path,
+            policy=lease.policy,
         )

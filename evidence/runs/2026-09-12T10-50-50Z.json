@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "run_id": "2026-09-12T10-50-50Z",
+  "task_id": "T-043",
+  "started_at": "2026-09-12T10:50:50Z",
+  "ended_at": "2026-09-12T11:24:52Z",
+  "start_commit": "66677f0c663e7c6088d063e0afcfcd68bc48f27b",
+  "result_commit": "66677f0c663e7c6088d063e0afcfcd68bc48f27b",
+  "outcome": "rejected",
+  "inputs": {
+    "task": {
+      "path": "tasks/T-043-build-the-bounded-governed-driver-around-existing-nodes-and-gates.md",
+      "sha256": "a5dd492d780976ce94283d1772a1e841f3cb05448fe6962354dbb4257f860497"
+    },
+    "requirements": [
+      {
+        "id": "SR-034",
+        "path": "requirements/SR-034.md",
+        "sha256": "efaf3a9ac0613ec20f8285f43cc657e6e68affdb899da2500048c892773a8796"
+      },
+      {
+        "id": "SR-049",
+        "path": "requirements/SR-049.md",
+        "sha256": "1e1ecb07671beb83a73ee768fb51d02d9a0388cf305de7f5539c8dae4bb0e43a"
+      }
+    ],
+    "factory_config_sha256": "d18b02f44e56608c11052fed8a99661cffeb41a81113d343dcc2694a129e7b88"
+  },
+  "dependencies": [
+    {
+      "name": "candidate-tree",
+      "kind": "git-tree",
+      "digest": "git-tree:3817a1d04d1a34b54af2313722222d0cd0997f42",
+      "source": "66677f0c663e7c6088d063e0afcfcd68bc48f27b"
+    },
+    {
+      "name": "evidence-schema",
+      "kind": "tool",
+      "digest": "sha256:fb04dcb6970e4c3d1873de51fd5a50d7bb46b3383113602665c350ec40b5f990",
+      "source": "v2"
+    },
+    {
+      "name": "factory-config",
+      "kind": "file",
+      "digest": "sha256:d18b02f44e56608c11052fed8a99661cffeb41a81113d343dcc2694a129e7b88",
+      "source": ".factory/factory.yaml"
+    },
+    {
+      "name": "requirement:SR-034",
+      "kind": "file",
+      "digest": "sha256:efaf3a9ac0613ec20f8285f43cc657e6e68affdb899da2500048c892773a8796",
+      "source": "requirements/SR-034.md"
+    },
+    {
+      "name": "requirement:SR-049",
+      "kind": "file",
+      "digest": "sha256:1e1ecb07671beb83a73ee768fb51d02d9a0388cf305de7f5539c8dae4bb0e43a",
+      "source": "requirements/SR-049.md"
+    },
+    {
+      "name": "source-plan:plan:2026-09-10-feat013-governed-execution-driver-plan.md",
+      "kind": "file",
+      "digest": "sha256:df23e2b014be3834c8d796af74d744e331b2aa492cb148987061860eb53a844c",
+      "source": "docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md"
+    },
+    {
+      "name": "source-spec:spec:SPEC-FEAT-013-GOVERNED-EXECUTION-DRIVER",
+      "kind": "file",
+      "digest": "sha256:d256f8723cb377b59540a38bef8fe46e56e5718569370c573792482002ae25e0",
+      "source": "docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md"
+    },
+    {
+      "name": "task:T-043",
+      "kind": "file",
+      "digest": "sha256:a5dd492d780976ce94283d1772a1e841f3cb05448fe6962354dbb4257f860497",
+      "source": "tasks/T-043-build-the-bounded-governed-driver-around-existing-nodes-and-gates.md"
+    }
+  ],
+  "implementation": {
+    "changed_files": [
+      ".gitignore"
+    ],
+    "patch": {
+      "sha256": "8ffe9ecf888490d387090a9620dc810aa93ccc11f306720718031a496cfc7b7a",
+      "size": 434,
+      "media_type": "text/x-diff",
+      "local": true,
+      "publication": "local",
+      "uri": null
+    }
+  },
+  "validation": [],
+  "reviews": [],
+  "decisions": [],
+  "publication": {
+    "state": "local",
+    "errors": []
+  }
+}
