@@ -13,12 +13,14 @@
 //   - system     : the read-only system navigator surface
 //   - engineering: the read-only + action engineering-context tools
 //   - session-review: post-run session-review suggestions
+//   - governed-execution: the Python-owned governed execution verbs
 //
 // The /factory-init command passes this into runFactoryInit, which weaves a
 // "Factory tools:" line into the AGENTS.md managed block so the agent's system
 // prompt reflects the project's current tool surface.
 
 import { buildEngContextTools } from "./eng-context-tools.js";
+import { buildExecutionTools } from "./execution-tools.js";
 import { buildSystemContextTools } from "./system-context-tools.js";
 import { buildSessionReviewSuggestTools } from "./session-review-suggest.js";
 import {
@@ -42,6 +44,7 @@ export const FACTORY_TOOL_FAMILIES = {
   system: "system-navigator",
   engineering: "engineering-context",
   review: "session-review",
+  execution: "governed-execution",
 } as const;
 
 /** Derive the full catalog from what the extension actually registers. */
@@ -61,8 +64,12 @@ export function factoryToolsCatalog(): FactoryToolEntry[] {
     name: t.name,
     family: FACTORY_TOOL_FAMILIES.review,
   }));
+  const execution = buildExecutionTools().map((t) => ({
+    name: t.name,
+    family: FACTORY_TOOL_FAMILIES.execution,
+  }));
   const delegation = [{ name: subagentTool.name, family: FACTORY_TOOL_FAMILIES.delegation }];
-  return [...delegation, ...trace, ...sys, ...eng, ...review];
+  return [...delegation, ...trace, ...sys, ...eng, ...review, ...execution];
 }
 
 /** Render the catalog as a compact, grouped "family: one, two" line set. */

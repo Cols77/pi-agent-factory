@@ -881,8 +881,13 @@ def run_governed_task(
         cfg: the parsed ``FactoryConfig``; defaults to ``load_config(repo_root)``.
             The budget is resolved from this through
             :func:`factory.config.require_governed_execution`.
-        session_id: a stable run/session id; defaults to a UTC timestamp.
-        transcript_dir: directory to write per-role transcripts (optional).
+        session_id: a stable run/session id; defaults to a UTC timestamp. Forwarded
+            to ``driver_factory`` (Task 6): the host names the run on the command
+            line, and the factory cannot bind ``RunExecution`` to that run id, nor
+            resolve its journal, without it.
+        transcript_dir: directory to write per-role transcripts (optional). Also
+            forwarded to ``driver_factory``, which the driver requires to bind its
+            own ``transcript_dir`` collaborator.
         driver_factory: callable building the driver; defaults to the driver's own
             constructor, which is not self-contained, so production callers pass
             a wiring closure. Treated as None when omitted to avoid silently
@@ -896,7 +901,6 @@ def run_governed_task(
             collaborators bound to this repo/run that this facade does not assume it
             can build itself.
     """
-    del session_id, transcript_dir  # reserved for the Task 6 host wiring
     from factory.config import require_governed_execution
 
     settings = require_governed_execution(cfg or load_config(repo_root), repo_root)
@@ -914,4 +918,80 @@ def run_governed_task(
         gates=gates,
         repo_root=repo_root,
         max_fixer_iterations=settings.max_fixer_iterations,
+        session_id=session_id or _default_session_id(),
+        transcript_dir=transcript_dir,
+    )
+
+
+def resume_governed_task(
+    task: Task,
+    backend: AgentBackend,
+    gates: GateRunner,
+    repo_root: Path,
+    *,
+    request_sha256: str,
+    decision: str,
+    response: str,
+    decided_by: str,
+    cfg: FactoryConfig | None = None,
+    session_id: str | None = None,
+    transcript_dir: Path | None = None,
+    driver_factory: Callable[..., TaskResult] | None = None,
+) -> TaskResult:
+    """Resolve one durable ``needs_input`` request with a human decision (SR-034).
+
+    Purpose: the resume half of :func:`run_governed_task`, and the only entrypoint
+    ``coherence execution resolve-human`` calls. It owns exactly what the run
+    facade owns -- resolving the project-wide fixer budget (failing closed when the
+    project never declared one) and requiring a wiring closure -- and it owns
+    nothing else. It never chooses, validates or records the decision itself:
+    :meth:`GovernedExecutionDriver.resume` does that through
+    ``RunExecution.consume_human_decision``, which is where the closed
+    ``retry|defer|block`` vocabulary, the ``decided_by="human"`` rule, and the
+    replay/superseded rules live.
+
+    Args:
+        task: the paused task the decision resolves.
+        backend: the ``AgentBackend`` bound to the run's worker environment.
+        gates: the ``GateRunner`` the driver runs its gates through.
+        repo_root: the repository the task executes against.
+        request_sha256: the exact pending request hash the decision answers.
+        decision: one of ``retry``/``defer``/``block``; the driver validates it.
+        response: the human's written response, recorded with the decision.
+        decided_by: the decision's author; only ``"human"`` is ever accepted.
+        cfg: the parsed ``FactoryConfig``; defaults to ``load_config(repo_root)``.
+        session_id: the run/session id whose pending request is being resolved;
+            defaults to a UTC timestamp.
+        transcript_dir: directory to write per-role transcripts (optional).
+        driver_factory: callable building the driver and calling ``.resume(...)``
+            on it. Required, for the same reason the run facade requires one.
+
+    Returns:
+        The driver's :class:`TaskResult`: a ``retry`` re-drives the attempt, while
+        ``defer``/``block`` return a non-completed result carrying the decision.
+
+    Raises:
+        ValueError: if no ``driver_factory`` is supplied.
+    """
+    from factory.config import require_governed_execution
+
+    settings = require_governed_execution(cfg or load_config(repo_root), repo_root)
+    if driver_factory is None:
+        raise ValueError(
+            "resume_governed_task requires a driver_factory that wires the "
+            "GovernedExecutionDriver collaborators for this repo/run and calls "
+            "resume() on it"
+        )
+    return driver_factory(
+        task=task,
+        backend=backend,
+        gates=gates,
+        repo_root=repo_root,
+        max_fixer_iterations=settings.max_fixer_iterations,
+        session_id=session_id or _default_session_id(),
+        transcript_dir=transcript_dir,
+        request_sha256=request_sha256,
+        decision=decision,
+        response=response,
+        decided_by=decided_by,
     )

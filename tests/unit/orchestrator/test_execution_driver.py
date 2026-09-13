@@ -625,3 +625,105 @@ def test_run_governed_task_invokes_the_wired_driver(tmp_path: Path) -> None:
     assert budget_used == [2]
     assert result.outcome == "completed"
     assert result.dod_met is True
+
+
+def test_resume_governed_task_resolves_budget_and_fails_closed_without_factory(
+    tmp_path: Path,
+) -> None:
+    from factory.config import FactoryConfig, GovernedExecutionConfig
+    from factory.orchestrator.runner import resume_governed_task
+
+    cfg = FactoryConfig(playgrounds={}, harnesses={}, gates={})
+    cfg.governed_execution = GovernedExecutionConfig(max_fixer_iterations=2)
+
+    # No resume-side driver factory -> fail closed, exactly like the run facade.
+    with pytest.raises(ValueError, match="driver_factory"):
+        resume_governed_task(
+            task_fixture(tmp_path),
+            _ScriptedBackend(review_scripts=[_clean_review()]),  # type: ignore[arg-type]
+            _NoopGate(),
+            tmp_path,
+            cfg=cfg,
+            request_sha256="a" * 64,
+            decision="block",
+            response="human block",
+            decided_by="human",
+        )
+
+
+def test_resume_governed_task_invokes_the_wired_driver(tmp_path: Path) -> None:
+    from factory.config import FactoryConfig, GovernedExecutionConfig
+    from factory.orchestrator.runner import resume_governed_task
+
+    cfg = FactoryConfig(playgrounds={}, harnesses={}, gates={})
+    cfg.governed_execution = GovernedExecutionConfig(max_fixer_iterations=2)
+
+    backend = _ScriptedBackend(review_scripts=[_finding_review()])
+    driver = driver_fixture(tmp_path, backend=backend, max_fixer_iterations=1)
+    paused = driver.run(task_fixture(tmp_path))
+    request_sha256 = paused.events[-1].extra["governed_execution"]["request_sha256"]
+
+    seen: list[dict[str, Any]] = []
+
+    def _factory(**kw):  # noqa: ANN001
+        seen.append(kw)
+        return driver.resume(
+            kw["task"],
+            request_sha256=kw["request_sha256"],
+            decision=kw["decision"],
+            response=kw["response"],
+            decided_by=kw["decided_by"],
+        )
+
+    result = resume_governed_task(
+        task_fixture(tmp_path),
+        backend,
+        _NoopGate(),
+        tmp_path,
+        cfg=cfg,
+        request_sha256=request_sha256,
+        decision="block",
+        response="human block",
+        decided_by="human",
+        session_id="run-013",
+        transcript_dir=tmp_path / "transcripts",
+        driver_factory=_factory,
+    )
+
+    assert [kw["max_fixer_iterations"] for kw in seen] == [2]
+    assert seen[0]["request_sha256"] == request_sha256
+    assert seen[0]["decision"] == "block"
+    assert seen[0]["decided_by"] == "human"
+    assert seen[0]["session_id"] == "run-013"
+    assert seen[0]["transcript_dir"] == tmp_path / "transcripts"
+    assert seen[0]["repo_root"] == tmp_path
+    assert result.outcome == "escalated"
+    assert result.dod_met is False
+
+
+def test_run_governed_task_forwards_the_session_and_transcript_wiring(tmp_path: Path) -> None:
+    """The host CLI names the run; the factory cannot bind it without these."""
+    from factory.config import FactoryConfig, GovernedExecutionConfig
+    from factory.orchestrator.runner import run_governed_task
+
+    cfg = FactoryConfig(playgrounds={}, harnesses={}, gates={})
+    cfg.governed_execution = GovernedExecutionConfig(max_fixer_iterations=2)
+    seen: list[dict[str, Any]] = []
+
+    def _factory(**kw):  # noqa: ANN001
+        seen.append(kw)
+        return driver_fixture(tmp_path, backend=kw["backend"]).run(kw["task"])
+
+    run_governed_task(
+        task_fixture(tmp_path),
+        _ScriptedBackend(review_scripts=[_clean_review()]),
+        _NoopGate(),
+        tmp_path,
+        cfg=cfg,
+        session_id="run-013",
+        transcript_dir=tmp_path / "transcripts",
+        driver_factory=_factory,
+    )
+
+    assert seen[0]["session_id"] == "run-013"
+    assert seen[0]["transcript_dir"] == tmp_path / "transcripts"
