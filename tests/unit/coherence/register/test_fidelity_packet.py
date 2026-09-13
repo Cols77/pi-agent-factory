@@ -315,7 +315,6 @@ def test_outcome_stays_never_validated_when_neither_source_has_it(tmp_path: Path
 
 def _fp_packet(**overrides):
     from coherence.register.fidelity_packet import (
-        AcceptanceCriterionRef,
         FidelityPacket,
         IndexSignatureView,
         ResolvedProductionRef,

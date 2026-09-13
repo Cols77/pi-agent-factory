@@ -29,7 +29,6 @@ no retry is automatic -- every iteration past the budget is human-issued.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -100,22 +99,6 @@ def _review_feedback(swarm: ReviewSwarmResult) -> str:
 def _swarm_clean(swarm: ReviewSwarmResult) -> bool:
     """True only when every lane reported no findings and met its own dod."""
     return all(not review.findings and review.dod_met for review in swarm.reviews)
-
-
-@dataclass(frozen=True)
-class GovernedDriverConfig:
-    """Driver-local resolution knobs for one governed dispatch.
-
-    Kept distinct from the project-wide fixer budget recorded in
-    ``.factory/factory.yaml``: this is the *already-resolved* budget passed into
-    the driver, while :func:`factory.config.require_governed_execution` resolves
-    the file's ``governed_execution.max_fixer_iterations``. The driver never
-    reads config itself -- it receives the resolved value so no alternate code
-    path can hand it an unauthorised budget.
-    """
-
-    max_fixer_iterations: int = 2
-    transport: str = "direct"
 
 
 class GovernedExecutionDriver:
@@ -494,6 +477,5 @@ __all__ = [
     "CanonicalGateError",
     "ContractFactory",
     "DeferralWriter",
-    "GovernedDriverConfig",
     "GovernedExecutionDriver",
 ]
