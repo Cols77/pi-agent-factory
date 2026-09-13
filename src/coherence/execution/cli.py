@@ -569,7 +569,7 @@ def _cmd_resolve_human(args: argparse.Namespace, driver_factory, git_ops) -> int
     if state.task_ids and task_id not in state.task_ids:
         return _fail(args, _blocked(run_id, task_id, "TASK_MISMATCH", "run holds another task"))
 
-    replay = _identical_replay(state, request_sha256, decision, response, decided_by)
+    replay = _identical_replay(state, request_sha256, decision_id, decision, response, decided_by)
     if replay is not None:
         projection = project(run_id, task_id, state)
         payload = {
@@ -887,14 +887,20 @@ def _current_position(root: Path, run_id: str) -> tuple[str, dict[str, int]]:
 
 
 def _identical_replay(
-    state: _RunState, request_sha256: str, decision: str, response: str, decided_by: str
+    state: _RunState,
+    request_sha256: str,
+    decision_id: str,
+    decision: str,
+    response: str,
+    decided_by: str,
 ) -> dict[str, Any] | None:
     """The already-journalled decision when this call repeats it exactly."""
     for record in state.decisions:
         if record.get("request_sha256") != request_sha256:
             continue
         if (
-            record.get("decision") == decision
+            record.get("decision_id") == decision_id
+            and record.get("decision") == decision
             and record.get("response") == response
             and record.get("decided_by") == decided_by
         ):

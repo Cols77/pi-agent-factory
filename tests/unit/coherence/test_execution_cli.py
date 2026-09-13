@@ -529,6 +529,31 @@ def test_a_stale_request_hash_is_rejected(
     assert payload["reason"] == "DECISION_REJECTED"
 
 
+def test_a_replay_with_the_wrong_decision_id_is_rejected_not_replayed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    request_sha256 = paused_run(tmp_path)
+    assert execution_main(
+        _resolve_argv(tmp_path, request_sha256, "block"), git_ops=FakeGitOps(head="a" * 40)
+    ) == 1
+    journal = tmp_path / "sessions" / ".factory-runs" / "by-session" / RUN_ID / "journal.jsonl"
+    after_first = journal.read_bytes()
+    capsys.readouterr()
+
+    # Same request_sha256/decision/response/decided_by as the recorded decision,
+    # but a decision_id that does not match the one that was actually recorded.
+    assert execution_main(
+        _resolve_argv(tmp_path, request_sha256, "block", decision_id="someone-elses-decision"),
+        git_ops=FakeGitOps(head="a" * 40),
+    ) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["blocked"] is True
+    assert payload["reason"] == "DECISION_REJECTED"
+    assert "replayed" not in payload
+    assert journal.read_bytes() == after_first
+
+
 def test_a_mismatched_decision_id_is_rejected_before_anything_is_written(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
