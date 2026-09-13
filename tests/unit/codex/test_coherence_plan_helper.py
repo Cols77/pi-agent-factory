@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -32,13 +33,35 @@ def helper() -> ModuleType:
 
 
 def projection(*, run_id: str = "run-001", blocked: bool = False) -> dict[str, Any]:
+    legal_ids = [
+        "author-requirements",
+        "record-sr-consent",
+        "author-spec",
+        "author-plan",
+        "review-spec",
+        "review-plan",
+        "run-planning-gates",
+        "create-handoff",
+        "inspect-handoff",
+    ]
     return {
-        "schema": 1,
+        "schema": 2,
         "run_id": run_id,
         "blocked": blocked,
         "reason": "NEEDS_REVIEW" if blocked else None,
-        "legal_next_actions": ["review-plan"] if blocked else ["author-spec"],
+        "legal_next_actions": [] if blocked else ["author-spec"],
         "starts_automatically": False,
+        "state": "intent_provisional",
+        "run_identity": None if blocked else {
+            "run_id": run_id,
+            "next_sequence": 2,
+            "journal_sha256": "a" * 64,
+        },
+        "action_registry": {
+            "schema": 1,
+            "legal_ids": legal_ids,
+            "registry_hash": hashlib.sha256("\n".join(legal_ids).encode()).hexdigest(),
+        },
     }
 
 
@@ -219,6 +242,7 @@ def test_relative_project_root_is_resolved_once_for_command_and_cwd(
     [
         "not json",
         json.dumps({"schema": "1"}),
+        json.dumps({**projection(), "schema": 1}),
         json.dumps({**projection(), "schema": True}),
         json.dumps({**projection(), "run_id": "run-002"}),
         json.dumps({**projection(), "blocked": "false"}),
@@ -294,7 +318,7 @@ def test_main_emits_backend_invalid_projection_for_missing_run_id(
 
     assert result == 1
     assert output == {
-        "schema": 1,
+        "schema": 2,
         "run_id": "",
         "blocked": True,
         "reason": "BACKEND_INVALID",
@@ -326,7 +350,7 @@ def test_main_emits_backend_invalid_projection_for_helper_errors(
 
     assert result == 1
     assert output == {
-        "schema": 1,
+        "schema": 2,
         "run_id": "run-001",
         "blocked": True,
         "reason": "BACKEND_INVALID",

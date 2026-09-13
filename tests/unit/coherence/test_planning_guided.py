@@ -23,7 +23,7 @@ from coherence.planning.guided_pipeline import (
 from coherence.planning.guided_pipeline import main as pipeline_main
 from tests.unit._legal_actions_json import completed_json
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.sr("SR-065")]
 
 
 def test_require_safe_run_id_accepts_the_shared_grammar() -> None:
@@ -102,7 +102,7 @@ def test_invocation_never_uses_a_shell(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def session_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "schema": 1,
+        "schema": 2,
         "ok": True,
         "run_id": "run-001",
         "state": "capture",
@@ -262,7 +262,7 @@ def test_parse_accepts_ok_payload_with_challenges() -> None:
 
 
 def test_parse_returns_operation_failure_without_raising() -> None:
-    payload = {"schema": 1, "run_id": "run-001", "ok": False, "error": "session already exists"}
+    payload = {"schema": 2, "run_id": "run-001", "ok": False, "error": "session already exists"}
 
     assert parse_session_response(json.dumps(payload), "run-001")["ok"] is False
 
@@ -270,7 +270,7 @@ def test_parse_returns_operation_failure_without_raising() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        session_payload(schema=2),
+        session_payload(schema=1),
         session_payload(run_id="other"),
         session_payload(ok="yes"),
         session_payload(state="handoff_ready"),
@@ -279,7 +279,7 @@ def test_parse_returns_operation_failure_without_raising() -> None:
         session_payload(journal_sha256=""),
         session_payload(challenges="none"),
         session_payload(challenges=[{"id": "c1"}]),
-        {"schema": 1, "run_id": "run-001", "ok": False, "error": ""},
+        {"schema": 2, "run_id": "run-001", "ok": False, "error": ""},
     ],
 )
 def test_parse_rejects_off_contract_payloads(payload: dict[str, Any]) -> None:
@@ -359,7 +359,7 @@ def test_main_prints_payload_and_exits_zero(
 def test_main_exits_zero_for_operation_error_so_the_host_can_react(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    payload = {"schema": 1, "run_id": "run-001", "ok": False, "error": "state is stale or missing"}
+    payload = {"schema": 2, "run_id": "run-001", "ok": False, "error": "state is stale or missing"}
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=1))
 
     assert main(["status", "--run-id", "run-001"]) == 0
@@ -431,7 +431,7 @@ def test_pipeline_closure_verbs_only_transport_explicit_fields(
     def backend(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         assert kwargs["shell"] is False
         captured.append(command)
-        return completed_json({"schema": 1, "run_id": "run-001", "ok": False, "blocked": True}, returncode=1)
+        return completed_json({"schema": 2, "run_id": "run-001", "ok": False, "blocked": True}, returncode=1)
 
     monkeypatch.setattr(subprocess, "run", backend)
     flags = [f"--{key.replace('_', '-')}={value}" for key, value in fields.items()]
@@ -441,7 +441,7 @@ def test_pipeline_closure_verbs_only_transport_explicit_fields(
         "--run-id", "run-001", *flags, "--json",
     ]]
     assert json.loads(capsys.readouterr().out) == {
-        "backend_exit_code": 1, "schema": 1, "run_id": "run-001", "ok": False, "blocked": True,
+        "backend_exit_code": 1, "schema": 2, "run_id": "run-001", "ok": False, "blocked": True,
     }
 
 
@@ -517,7 +517,7 @@ def test_unsupported_pipeline_verb_is_rejected() -> None:
 
 
 def test_pipeline_exit_one_is_findings_data_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    report = {"schema": 1, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "PLAN_TASK_PARITY"}]}
+    report = {"schema": 2, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "PLAN_TASK_PARITY"}]}
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(report, returncode=1))
 
     code, payload = run_pipeline_command(
@@ -561,11 +561,11 @@ def test_pipeline_rejects_non_json_output(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.parametrize("payload", [
-    {"schema": 2, "run_id": "FEAT-018", "ok": True},
-    {"schema": 1, "run_id": "other", "ok": True},
-    {"schema": 1, "ok": True},
+    {"schema": 1, "run_id": "FEAT-018", "ok": True},
+    {"schema": 2, "run_id": "other", "ok": True},
+    {"schema": 2, "ok": True},
 ])
-def test_pipeline_rejects_schema_one_identity_mismatches(
+def test_pipeline_rejects_schema_one_or_identity_mismatches(
     monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any],
 ) -> None:
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload))
@@ -606,7 +606,7 @@ def test_pipeline_main_decompose_flag_reaches_the_backend_command(
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         captured.append(command)
-        return completed_json({"schema": 1, "run_id": "FEAT-018", "ok": True}, returncode=0)
+        return completed_json({"schema": 2, "run_id": "FEAT-018", "ok": True}, returncode=0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
@@ -640,7 +640,7 @@ def test_pipeline_main_omits_decompose_flag_when_not_passed(
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         captured.append(command)
-        return completed_json({"schema": 1, "run_id": "FEAT-018", "ok": True}, returncode=0)
+        return completed_json({"schema": 2, "run_id": "FEAT-018", "ok": True}, returncode=0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
@@ -655,7 +655,7 @@ def test_pipeline_main_omits_decompose_flag_when_not_passed(
 def test_pipeline_main_prints_backend_exit_code_alongside_the_payload(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    payload = {"schema": 1, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "X"}]}
+    payload = {"schema": 2, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "X"}]}
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload, returncode=1))
 
     exit_code = pipeline_main(

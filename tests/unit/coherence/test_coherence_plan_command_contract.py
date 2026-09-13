@@ -75,6 +75,13 @@ def test_non_executing_boundary_is_stated(text: str) -> None:
     assert "downstream" in lowered
 
 
+def test_command_requires_schema_two_transport(text: str) -> None:
+    lowered = text.lower()
+    assert "schema-2" in lowered
+    assert "schema-1 responses" in lowered
+    assert "run_identity" in text
+
+
 def test_run_id_grammar_and_usage_message_are_present(text: str) -> None:
     assert "^[A-Za-z0-9][A-Za-z0-9._-]*$" in text
     assert "usage: /coherence-plan <run-id-or-FEAT-NNN>" in text

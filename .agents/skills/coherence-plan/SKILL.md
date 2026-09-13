@@ -51,6 +51,15 @@ invalid projection is blocked; do not repair it by guessing. When `blocked` is
 true, stop state-changing work, report the reason and legal actions, and wait
 for an explicit resolution.
 
+The helper accepts only the schema-2 planning projection. A valid response also
+contains the current lifecycle `state`, the hash-bound `run_identity` when the
+run is ready (or `null` while blocked), and the `action_registry` with its
+registry hash. Schema-1
+responses, missing identity or registry data, stale hashes, multiple actions,
+and ready/blocked contradictions are invalid and must fail closed. The nested
+`action_registry.schema` is its own registry version and is not the planning
+transport schema.
+
 The helper is a read-only projection. It does not grant permission to invoke
 an action, and an action name in a projection is not evidence that the action
 was completed.

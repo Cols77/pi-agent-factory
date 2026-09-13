@@ -295,6 +295,12 @@ def planning_report_digest(report: PlanningReport | Mapping[str, object]) -> str
         payload = report.to_dict()
     elif isinstance(report, Mapping):
         payload = {key: report[key] for key in _REPORT_DIGEST_KEYS if key in report}
+        # Guided hosts expose the same canonical report with the schema-2
+        # transport envelope. Review decisions bind the persisted report, so
+        # normalize only that outer transport marker before hashing; the
+        # persisted report contract remains schema 1 in this migration.
+        if payload.get("schema") == 2:
+            payload["schema"] = 1
     else:
         raise TypeError("report must be a PlanningReport or report mapping")
     canonical = json.dumps(

@@ -173,7 +173,8 @@ def test_plan_check_reports_structural_findings_and_persists_report(
     assert "findings" in payload
     assert any(finding["code"] == "PLAN_TASK_PARITY" for finding in payload["findings"])
     report = tmp_path / ".factory" / "planning" / "run-001" / "report.json"
-    assert json.loads(report.read_text(encoding="utf-8")) == payload
+    persisted = json.loads(report.read_text(encoding="utf-8"))
+    assert persisted == {**payload, "schema": 1}
 
 
 def _suggest_args(root: Path) -> list[str]:
@@ -330,7 +331,9 @@ def _run_planning_gates(root: Path, report: dict[str, object], capsys: pytest.Ca
         {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
         for path in sorted(covered)
     ]
-    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (run_dir / "report.json").write_text(
+        json.dumps({**report, "schema": 1}), encoding="utf-8"
+    )
     (run_dir / "review-decision.json").write_text(json.dumps(_approval(report)), encoding="utf-8")
     for sr_id in ("SR-001", "SR-002"):
         requirement = root / "requirements" / f"{sr_id}.md"

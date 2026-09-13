@@ -243,7 +243,7 @@ def _run_workflow(tokens: list[str]) -> str:
     run_id = _extract_run_id(tokens[1:])
     if (
         type(payload.get("schema")) is not int
-        or payload["schema"] != 1
+        or payload["schema"] != 2
         or not isinstance(payload.get("run_id"), str)
         or payload["run_id"] != run_id
     ):

@@ -11,13 +11,11 @@ module so the safety-critical rules exist once here:
   present", which is *data* the host must relay, not a crash. Any other exit
   code means stdout is untrustworthy and is refused even when it parses.
 
-`legal_actions_adapter.py` predates this module and intentionally keeps its
-own, independently-maintained copy of the same fail-closed shape (its
-docstring documents that contract for itself) rather than importing this one
--- it is Hermes/Codex-shared, host-neutral code that this feature's plan
-treats as out of scope for modification, so a change here is never assumed to
-reach it. Any future change to `TRUSTED_EXIT_CODES` or this module's contract
-must be checked against `legal_actions_adapter.py` by hand.
+`legal_actions_adapter.py` owns the shared host-neutral projection contract
+used by Hermes and Codex. This backend imports its transport schema and safe
+run-id grammar from that module; changes to the subprocess exit contract still
+need to be checked against the legal-actions parser because this module owns
+invocation safety while the parser owns payload safety.
 
 This module holds no planning authority: it starts nothing, decides nothing, and
 knows nothing about what the payloads mean.
@@ -28,7 +26,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from coherence.planning.legal_actions_adapter import is_safe_run_id
+from coherence.planning.legal_actions_adapter import (
+    PLANNING_TRANSPORT_SCHEMA,
+    is_safe_run_id,
+)
 
 #: Exit codes whose stdout the backend guarantees is a structured payload.
 TRUSTED_EXIT_CODES = (0, 1)
@@ -71,4 +72,10 @@ def invoke_backend(command: list[str], project_root: Path) -> tuple[int, str, st
     return result.returncode, result.stdout or "", result.stderr or ""
 
 
-__all__ = ["TRUSTED_EXIT_CODES", "BackendError", "invoke_backend", "require_safe_run_id"]
+__all__ = [
+    "PLANNING_TRANSPORT_SCHEMA",
+    "TRUSTED_EXIT_CODES",
+    "BackendError",
+    "invoke_backend",
+    "require_safe_run_id",
+]

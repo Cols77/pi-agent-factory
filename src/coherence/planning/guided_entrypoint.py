@@ -21,6 +21,7 @@ from typing import Any
 
 from coherence.planning.adapter_backend import (
     BackendError,
+    PLANNING_TRANSPORT_SCHEMA,
     invoke_backend,
     require_safe_run_id,
 )
@@ -99,7 +100,7 @@ def parse_session_response(raw: str, run_id: str) -> dict[str, Any]:
     if (
         not isinstance(payload, dict)
         or type(payload.get("schema")) is not int
-        or payload["schema"] != 1
+        or payload["schema"] != PLANNING_TRANSPORT_SCHEMA
         or payload.get("run_id") != run_id
         or not isinstance(payload.get("ok"), bool)
     ):
@@ -195,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = run_session_command(Path(args.project_root), args.run_id, args.verb, **fields)
     except BackendError as exc:
-        print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
+        print(json.dumps({"schema": PLANNING_TRANSPORT_SCHEMA, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
         return 1
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0

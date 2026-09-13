@@ -96,6 +96,10 @@ def test_skill_has_required_frontmatter_and_workflow_contract() -> None:
         "fresh sha-256",
         "stale hashes are not evidence",
         "never hand-edit",
+        "schema-2",
+        "schema-1",
+        "action_registry",
+        "run_identity",
     )
     missing = [term for term in required_terms if term not in normalized]
     assert not missing, f"skill contract terms missing: {missing}"
