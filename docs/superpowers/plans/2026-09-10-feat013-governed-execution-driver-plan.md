@@ -1251,8 +1251,10 @@ first; runs after it in execution order, not folded into it.
   assertion (Task 6, Step 3) to include the Hermes plugin's rendered output as a fourth surface.
 
 **Interfaces:**
-- Produces: SR-034 AC-10 Hermes host exposure — a read-only Hermes plugin invoking the same
-  Python-owned execution command surface as the Codex skill and Claude Code command.
+- Produces: SR-034 AC-10 Hermes host exposure — a Hermes plugin invoking the same
+  Python-owned execution command surface as the Codex skill and Claude Code command, with
+  the same dispatch/resolve-human capability (not the purely-read-only shape of
+  `.hermes/plugins/coherence-plan/` — see the corrected Step 2 note below).
 - Produces: one shared host contract extended to four surfaces (direct CLI, Pi, Codex, Claude
   Code, Hermes) all consuming the same `ExecutionProjection`/handoff JSON.
 
@@ -1281,8 +1283,10 @@ earns via its file-path trick. Resolve the project root the same way `coherence-
 does (`COHERENCE_PROJECT_ROOT`/cwd/deployment-marker fallback) so a Hermes install outside the
 checkout still targets the right project. Register one namespaced command
 (`governed-execution`) via `ctx.register_command`, following `coherence-plan`'s
-`register(ctx)` shape exactly. `plugin.yaml`'s `tags` should include `read-only`, matching
-`coherence-plan`'s.
+`register(ctx)` shape exactly. Unlike `coherence-plan`'s plugin (purely read-only — it only
+ever calls a read projection), this plugin has dispatch/resolve-human parity with the Codex
+skill and Claude Code command, so `plugin.yaml`'s `tags` must not carry `read-only`; pick
+tags that reflect what it actually does (e.g. `execution`, `governed-execution`).
 
 - [ ] **Step 3: Extend the cross-host parity test**
 
@@ -1301,7 +1305,7 @@ other three host surfaces for the same fixture input.
 
 ```bash
 git add .hermes/plugins/governed-execution/ tests/unit/hermes/test_governed_execution_plugin.py tests/unit/codex/test_governed_execution_surface.py
-git commit -m "feat(hermes): add the read-only governed-execution plugin (AC-10)"
+git commit -m "feat(hermes): add the governed-execution plugin (AC-10)"
 ```
 
 ## Self-review against the reviewed spec
@@ -1319,6 +1323,6 @@ git commit -m "feat(hermes): add the read-only governed-execution plugin (AC-10)
 - Proposed AC-8: not implemented by this plan — SR-034 ships `mandatory-only` preflight, and the obligation/health variant waits on the FEAT-018 supply confirmed by decision 5; the plan does not silently adopt AC-8.
 - Known-flaky registry: accepted by decision 1 — Task 4 implements the human-only registry with the quarantine discipline (owner + `review_after`, fix-or-delete at expiry), and nondeterministic-by-design tests move out of the blocking suite rather than being registered.
 - Out-of-worktree policy and subroles: decided (decisions 2 and 4) — the harness denies out-of-root writes and records the denial as evidence (never a task failure), and the two reviews stay prompt-distinguished with stage-id/lane evidence; no new `AgentRole` is added.
-- AC-10 Hermes host exposure (added 2026-09-13): Task 9 extends Task 6's host-adapter pattern to a fourth surface, a read-only Hermes plugin, without changing AC-1's original text or reopening the already-recorded SR-034 consent.
+- AC-10 Hermes host exposure (added 2026-09-13): Task 9 extends Task 6's host-adapter pattern to a fourth surface, a Hermes plugin with the same dispatch/resolve-human parity as the Codex skill and Claude Code command, without changing AC-1's original text or reopening the already-recorded SR-034 consent.
 
 The placeholder scan is clean: the plan contains no `TBD`, `TODO`, or deferred implementation placeholder. The budget value is the recorded decision `2`, and the two items that gate implementation — confirmation of the reviewed spec and consent for `SR-034` — have both been recorded (spec `status: accepted`; `gate-decisions/sr-SR-034.json`), so nothing in this plan is waiting on an unstated assumption.
