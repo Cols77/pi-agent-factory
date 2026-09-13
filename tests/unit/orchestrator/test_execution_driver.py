@@ -11,6 +11,7 @@ and the explicit retry/defer/block human resolution.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -357,6 +358,44 @@ def test_trace_gate_failure_escalates_without_dod_met(tmp_path: Path) -> None:
     stages = [event.extra["governed_execution"]["stage_id"] for event in result.events]
     assert "handoff" not in stages
     assert "canonical-gates" in stages
+
+
+def test_unresolved_must_fix_review_annotation_blocks_completion(tmp_path: Path) -> None:
+    """SR-034 finding 1: the canonical-gates stage must also run
+    ``run_completion_preflight`` -- an otherwise-clean run with a persisted
+    must-fix human-review annotation must escalate without ``dod_met``, the
+    same way the legacy ``run_task`` path already blocks on it (runner.py).
+    """
+    backend = _ScriptedBackend(review_scripts=[_clean_review()])
+    driver = driver_fixture(tmp_path, backend=backend)
+    reviews_dir = (tmp_path / "transcripts") / "reviews"
+    reviews_dir.mkdir(parents=True)
+    (reviews_dir / "review-001.json").write_text(
+        json.dumps(
+            {
+                "decision": "approve",
+                "annotations": [
+                    {"severity": "must-fix", "body": "fix this before completion"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = driver.run(task_fixture(tmp_path))
+
+    assert result.outcome == "escalated"
+    assert result.dod_met is False
+    stages = [event.extra["governed_execution"]["stage_id"] for event in result.events]
+    assert "canonical-gates" in stages
+    assert "handoff" not in stages
+    canonical_event = next(
+        event
+        for event in result.events
+        if event.extra["governed_execution"]["stage_id"] == "canonical-gates"
+    )
+    assert canonical_event.result == "fail"
+    assert "must_fix_unresolved" in canonical_event.extra["reason"]
 
 
 def test_campaign_regression_feedback_reaches_the_fixer(tmp_path: Path) -> None:

@@ -478,8 +478,17 @@ def _stage_ids(result) -> list[str]:
 
 def test_governed_tracer_bullet_preserves_authority_and_task_result(tmp_path: Path) -> None:
     driver, backend, gates, trace_check, workspace_owner = governed_fixture(tmp_path)
-
-    result = driver.run(task_fixture(tmp_path, satisfies=("SR-049",)))
+    # SR-034 finding 1: the canonical-gates stage now also runs the real
+    # ``run_completion_preflight`` (see execution_driver._canonical_gates).
+    # This tracer bullet is a general smoke test with no scripted per-
+    # requirement validation evidence, so -- like every other test in this
+    # module -- it uses the default no-satisfies task: `_validate_and_review`
+    # runs the validation node with a hardcoded `satisfies=[]` (a pre-existing,
+    # separate gap this finding does not touch), so a task that *did* declare
+    # a real `satisfies` here would have that node overwrite any pre-seeded
+    # validation-report.json with an empty one and (correctly) block on
+    # `validation_missing` before ever reaching this smoke assertion.
+    result = driver.run(task_fixture(tmp_path))
 
     assert result.outcome == "completed"
     assert result.dod_met is True

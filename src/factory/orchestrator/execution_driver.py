@@ -41,11 +41,18 @@ from factory.orchestrator.execution_transport import ExecutionTransport, validat
 from factory.orchestrator.nodes import run_dev, run_validation
 from factory.orchestrator.review_swarm import ReviewSwarmResult, run_review_swarm
 from factory.orchestrator.types import NodeEvent, NodeOutcome, TaskResult
+from factory.preflight.checks import run_completion_preflight
 from substrate.ledger.tasks import Task
 
 
-class BackendFactory(Protocol):
-    """Produces one ``AgentBackend`` bound to a shared absolute workspace path."""
+class DriverBackendFactory(Protocol):
+    """Produces one ``AgentBackend`` bound to a shared absolute workspace path.
+
+    Distinct from, and NOT interchangeable with, ``execution_workspace.BackendFactory``
+    (which ``.bind(lease, contract) -> BoundExecution``s a workspace-owned backend);
+    the two protocols share no contract despite the historical name collision --
+    see SR-034's final-review Finding 2/3. Reconciling them is out of scope here.
+    """
 
     def __call__(self, workspace: Path) -> AgentBackend: ...
 
@@ -116,7 +123,7 @@ class GovernedExecutionDriver:
         execution: RunExecution,
         gate_plan: GatePlan,
         contract_factory: ContractFactory,
-        backend_factory: BackendFactory,
+        backend_factory: DriverBackendFactory,
         gates: GateRunner,
         campaign: TestCampaign,
         transport: ExecutionTransport,
@@ -373,13 +380,35 @@ class GovernedExecutionDriver:
         return "clean", swarm, ""
 
     def _canonical_gates(self, events: list[NodeEvent], task: Task) -> bool:
-        """Run the SR-049 in-loop canonical trace/register/obligation gates."""
+        """Run the SR-049 canonical trace/register gates, then the SR-050/
+        completion-evidence preflight (per-requirement validation freshness,
+        unresolved must-fix human-review annotations, and the relation-
+        maintenance obligation) inside the same ``canonical-gates`` stage
+        envelope. Neither check may be skipped before ``dod_met`` is True --
+        this is the same completion evidence the legacy ``run_task`` path
+        enforces via ``run_completion_preflight`` (runner.py).
+        """
         from factory.orchestrator.nodes import run_canonical_gates
 
         outcome, ev = run_canonical_gates(self.trace_check, self.register_check)
         if outcome == NodeOutcome.ESCALATE:
             self._record(events, "canonical-gates", state="failed", result="fail")
             events[-1].extra["reason"] = ev.extra.get("reason", "SR-049 gate failed")
+            return False
+        # The governed driver has no interactive HumanReviewGate/artifact_store
+        # (that concept belongs to the legacy interactive path); its own
+        # human-in-the-loop surface is the retry/defer/block decision request,
+        # so completion never *requires* a persisted human review here --
+        # require_review=False. A must-fix annotation left over from a real
+        # persisted review is still blocking below, same as the legacy path.
+        completion = run_completion_preflight(
+            self.repo_root, task, self.transcript_dir, require_review=False
+        )
+        if not completion.ok:
+            self._record(events, "canonical-gates", state="failed", result="fail")
+            events[-1].extra["reason"] = "; ".join(
+                f"{issue.code}: {issue.detail}" for issue in completion.issues
+            )
             return False
         self._record(events, "canonical-gates")
         return True
@@ -473,9 +502,9 @@ class GovernedExecutionDriver:
 
 __all__ = [
     "ALLOWED_DECISIONS",
-    "BackendFactory",
     "CanonicalGateError",
     "ContractFactory",
     "DeferralWriter",
+    "DriverBackendFactory",
     "GovernedExecutionDriver",
 ]
