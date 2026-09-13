@@ -236,3 +236,32 @@ record, not a synthetic one.
    supplied by FEAT-18's validated `ExecutionProposal`, was not decided during capture.
 6. Whether an out-of-worktree write is a hard failure (`NodeOutcome.REJECT`) or a soft flag
    was not decided during capture.
+
+## 11. Addendum (2026-09-13): Hermes host entrypoint
+
+Raised during implementation: §2 and AC-1 gave Codex and Claude Code thin command/skill
+entrypoints onto the Python-owned execution command surface, but named no equivalent for
+Hermes — despite Hermes already being in scope as a worker backend (§1, §2) and as the
+`hermes-kanban` transport (Task 8). Those two roles cover Hermes *running* dispatched work
+and *displaying* stage state on a board; neither gives a human working from a Hermes session
+a way to ask "what's the status of T-013" or issue a `retry`/`defer`/`block` decision without
+switching hosts. This addendum closes that gap the same way AC-1 closed it for Codex and
+Claude Code, extending — not replacing — the original boundary.
+
+**In scope, added to §2:** A project-local Hermes plugin (`.hermes/plugins/governed-execution/`,
+mirroring the existing `.hermes/plugins/coherence-plan/` pattern) that invokes the same
+Python-owned execution command surface as the Codex skill and Claude Code command. It is a
+host adapter only: no local execution state, no lifecycle interpretation, no second journal.
+
+**AC-10 — Hermes host exposure.** The Hermes plugin calls `coherence execution legal-actions`
+before `dispatch-task`, exactly as AC-1 requires of the Codex skill and Claude Code command; it
+renders `needs_input` unchanged and calls `coherence execution resolve-human` only after a human
+selects `retry`/`defer`/`block`; it never infers a transition from Hermes's own Kanban `done`
+card or a model response. For one fixture run, the Hermes plugin, Codex skill, Claude Code
+command, Pi tools, and direct CLI produce equivalent legal-action and event projections
+(extending Task 7's existing cross-host parity assertion to include this fourth surface).
+`starts_automatically: false` applies here exactly as it does everywhere else in this spec.
+
+This does not change AC-1's original text or the already-recorded SR-034 consent
+(`gate-decisions/sr-SR-034.json`); it is new scope added after that consent, carried forward
+into the plan as a new task (Task 9) rather than folded into the already-implemented Task 6.

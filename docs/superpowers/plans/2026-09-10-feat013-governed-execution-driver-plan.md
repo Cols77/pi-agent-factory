@@ -1231,6 +1231,79 @@ git add src/coherence/execution/gate_plan.py src/factory/orchestrator/execution_
 git commit -m "feat(orchestrator): preserve gate plans through transports"
 ```
 
+### Task 9: Add a Hermes-side governed-execution skill
+
+Added by the spec addendum of 2026-09-13 (`docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md`
+§11, AC-10) after implementation was already in progress. Closes the gap the addendum
+describes: Hermes was in scope as a worker backend (§1/§2) and as the `hermes-kanban`
+transport (Task 8), but had no equivalent to Codex's skill or Claude Code's command for a
+human working from a Hermes session to inspect state or issue a `retry`/`defer`/`block`
+decision. Depends on Task 6 (the Python CLI this plugin calls) being landed and committed
+first; runs after it in execution order, not folded into it.
+
+**Files:**
+- Create: `.hermes/plugins/governed-execution/plugin.yaml`
+- Create: `.hermes/plugins/governed-execution/plugin.py`
+- Create: `.hermes/plugins/governed-execution/__init__.py`
+- Create: `.hermes/plugins/governed-execution/README.md`
+- Create: `tests/unit/hermes/test_governed_execution_plugin.py`
+- Modify: `tests/unit/codex/test_governed_execution_surface.py` — extend the cross-host parity
+  assertion (Task 6, Step 3) to include the Hermes plugin's rendered output as a fourth surface.
+
+**Interfaces:**
+- Produces: SR-034 AC-10 Hermes host exposure — a read-only Hermes plugin invoking the same
+  Python-owned execution command surface as the Codex skill and Claude Code command.
+- Produces: one shared host contract extended to four surfaces (direct CLI, Pi, Codex, Claude
+  Code, Hermes) all consuming the same `ExecutionProjection`/handoff JSON.
+
+- [ ] **Step 1: Write RED tests for the Hermes plugin**
+
+Follow `.hermes/plugins/coherence-plan/`'s existing test pattern (find its test file under
+`tests/unit/hermes/` or wherever the coherence-plan plugin's own tests live — mirror that
+location for `test_governed_execution_plugin.py`). Cover: a safe run-id/task-id is required
+before any command runs; the plugin calls `coherence execution legal-actions` before
+`dispatch-task`; `needs_input` is rendered unchanged, never answered; `resolve-human` is only
+invoked after an explicit decision is supplied to the plugin's own entrypoint (never inferred
+from a Hermes Kanban `done` card or a model response); and a missing checkout, an unreadable
+CLI, or a non-zero CLI exit renders as a blocked message rather than raising into the Hermes
+host.
+
+- [ ] **Step 2: Implement the plugin**
+
+Unlike `.hermes/plugins/coherence-plan/plugin.py` (which loads a stdlib-only adapter module by
+file path to avoid a heavy package-level import chain in `coherence.planning`), this plugin
+invokes the Python CLI by subprocess (`uv run coherence execution legal-actions|dispatch-task|
+resolve-human|stream-progress ...`, matching how Task 6's Pi/TypeScript adapter already calls
+it) — `coherence.execution`'s package `__init__.py` carries no heavy import chain to route
+around, and subprocessing through `uv run` gets the right interpreter/dependencies for a Hermes
+install that lives outside this checkout for free, the same guarantee `coherence-plan`'s plugin
+earns via its file-path trick. Resolve the project root the same way `coherence-plan`'s plugin
+does (`COHERENCE_PROJECT_ROOT`/cwd/deployment-marker fallback) so a Hermes install outside the
+checkout still targets the right project. Register one namespaced command
+(`governed-execution`) via `ctx.register_command`, following `coherence-plan`'s
+`register(ctx)` shape exactly. `plugin.yaml`'s `tags` should include `read-only`, matching
+`coherence-plan`'s.
+
+- [ ] **Step 3: Extend the cross-host parity test**
+
+Add the Hermes plugin's rendered `legal-actions` output to the existing fixture-run comparison
+in `tests/unit/codex/test_governed_execution_surface.py` (Task 6, Step 3) so all four surfaces
+— direct CLI, Pi tools, Codex skill, Claude Code command, Hermes plugin — are asserted
+byte-equivalent (after key sorting) for the same fixture run, not just the three Task 6 built.
+
+- [ ] **Step 4: Verify**
+
+Run: `rtk uv run pytest tests/unit/hermes/test_governed_execution_plugin.py tests/unit/codex/test_governed_execution_surface.py -q -o addopts=''`
+
+Expected: the plugin rejects unsafe identifiers, forwards canonical JSON unchanged, never
+answers `needs_input` itself, and produces a legal-action projection byte-equivalent to the
+other three host surfaces for the same fixture input.
+
+```bash
+git add .hermes/plugins/governed-execution/ tests/unit/hermes/test_governed_execution_plugin.py tests/unit/codex/test_governed_execution_surface.py
+git commit -m "feat(hermes): add the read-only governed-execution plugin (AC-10)"
+```
+
 ## Self-review against the reviewed spec
 
 - Boundary and backend seam: Tasks 2, 5, and 6 use existing backend/node/gate surfaces and explicitly exclude scheduler, supervisor, retry engine, allocator, and second MCP server.
@@ -1246,5 +1319,6 @@ git commit -m "feat(orchestrator): preserve gate plans through transports"
 - Proposed AC-8: not implemented by this plan — SR-034 ships `mandatory-only` preflight, and the obligation/health variant waits on the FEAT-018 supply confirmed by decision 5; the plan does not silently adopt AC-8.
 - Known-flaky registry: accepted by decision 1 — Task 4 implements the human-only registry with the quarantine discipline (owner + `review_after`, fix-or-delete at expiry), and nondeterministic-by-design tests move out of the blocking suite rather than being registered.
 - Out-of-worktree policy and subroles: decided (decisions 2 and 4) — the harness denies out-of-root writes and records the denial as evidence (never a task failure), and the two reviews stay prompt-distinguished with stage-id/lane evidence; no new `AgentRole` is added.
+- AC-10 Hermes host exposure (added 2026-09-13): Task 9 extends Task 6's host-adapter pattern to a fourth surface, a read-only Hermes plugin, without changing AC-1's original text or reopening the already-recorded SR-034 consent.
 
 The placeholder scan is clean: the plan contains no `TBD`, `TODO`, or deferred implementation placeholder. The budget value is the recorded decision `2`, and the two items that gate implementation — confirmation of the reviewed spec and consent for `SR-034` — have both been recorded (spec `status: accepted`; `gate-decisions/sr-SR-034.json`), so nothing in this plan is waiting on an unstated assumption.
