@@ -395,7 +395,8 @@ def _handoff(args: argparse.Namespace) -> int:
         if isinstance(menu, list)
         else []
     )
-    print(json.dumps({"action": "handoff", "handoff": json_path.relative_to(root).as_posix(),
+    print(json.dumps({"schema": 1, "run_id": args.run_id, "action": "handoff",
+                      "handoff": json_path.relative_to(root).as_posix(),
                       "prompt": md_path.relative_to(root).as_posix(),
                       "summary": payload["summary"],
                       "menu": menu_ids,
@@ -456,6 +457,7 @@ def _record_sr_consent(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "schema": 1,
+                "run_id": args.run_id,
                 "ok": True,
                 "action": "record-sr-consent",
                 "consent": path.relative_to(root).as_posix(),
@@ -481,7 +483,8 @@ def _write_artifact_manifest(args: argparse.Namespace) -> int:
     except (OSError, UnicodeError, ValueError, TypeError) as exc:
         print(json.dumps(_blocked(args.run_id, "ARTIFACT_MANIFEST_INVALID", str(exc)), indent=2))
         return 1
-    print(json.dumps({"schema": 1, "ok": True, "action": "write-artifact-manifest",
+    print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": True,
+                      "action": "write-artifact-manifest",
                       "manifest": path.relative_to(root).as_posix()}, indent=2, ensure_ascii=False))
     return 0
 
@@ -528,6 +531,7 @@ def _run_planning_gates(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps({
         "schema": 1,
+        "run_id": args.run_id,
         "ok": True,
         "action": "run-planning-gates",
         "planning_gate_pack_sha256": pack["sha256"],
@@ -593,10 +597,10 @@ def _session_command(args: argparse.Namespace) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coherence plan")
+    parser = argparse.ArgumentParser(prog="coherence plan", allow_abbrev=False)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    check = sub.add_parser("check")
+    check = sub.add_parser("check", allow_abbrev=False)
     check.add_argument("--intent", required=True, type=Path)
     check.add_argument("--spec", required=True, type=Path)
     check.add_argument("--plan", required=True, type=Path)
@@ -604,41 +608,41 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--project-root", default=Path("."), type=Path)
     check.add_argument("--json", action="store_true")
 
-    review = sub.add_parser("review")
+    review = sub.add_parser("review", allow_abbrev=False)
     review.add_argument("--run-id", required=True)
     review.add_argument("--project-root", required=True, type=Path)
     review.add_argument("--json", action="store_true")
 
-    suggest = sub.add_parser("suggest")
+    suggest = sub.add_parser("suggest", allow_abbrev=False)
     suggest.add_argument("--run-id", required=True)
     suggest.add_argument("--project-root", required=True, type=Path)
     suggest.add_argument("--json", action="store_true")
 
-    handoff = sub.add_parser("handoff")
+    handoff = sub.add_parser("handoff", allow_abbrev=False)
     handoff.add_argument("--run-id", required=True)
     handoff.add_argument("--project-root", required=True, type=Path)
     handoff.add_argument("--workflow", default="standard-development")
     handoff.add_argument("--json", action="store_true")
 
-    planning_gates = sub.add_parser("run-planning-gates")
+    planning_gates = sub.add_parser("run-planning-gates", allow_abbrev=False)
     planning_gates.add_argument("--run-id", required=True)
     planning_gates.add_argument("--project-root", required=True, type=Path)
     planning_gates.add_argument("--json", action="store_true")
 
-    manifest = sub.add_parser("write-artifact-manifest")
+    manifest = sub.add_parser("write-artifact-manifest", allow_abbrev=False)
     manifest.add_argument("--run-id", required=True)
     manifest.add_argument("--project-root", required=True, type=Path)
     manifest.add_argument("--artifacts-json", required=True)
     manifest.add_argument("--json", action="store_true")
 
-    cross_review = sub.add_parser("write-cross-artifact-review")
+    cross_review = sub.add_parser("write-cross-artifact-review", allow_abbrev=False)
     cross_review.add_argument("--run-id", required=True)
     cross_review.add_argument("--project-root", required=True, type=Path)
     cross_review.add_argument("--tasks-json", required=True)
     cross_review.add_argument("--workflow", default="standard-development")
     cross_review.add_argument("--json", action="store_true")
 
-    bootstrap = sub.add_parser("bootstrap")
+    bootstrap = sub.add_parser("bootstrap", allow_abbrev=False)
     bootstrap.add_argument("--intent", required=True, type=Path)
     bootstrap.add_argument("--spec", required=True, type=Path)
     bootstrap.add_argument("--plan", required=True, type=Path)
@@ -647,7 +651,7 @@ def _parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--decompose", action="store_true")
     bootstrap.add_argument("--json", action="store_true")
 
-    consent = sub.add_parser("record-sr-consent")
+    consent = sub.add_parser("record-sr-consent", allow_abbrev=False)
     consent.add_argument("--run-id", required=True)
     consent.add_argument("--project-root", required=True, type=Path)
     consent.add_argument("--sr-id", required=True)
@@ -659,7 +663,7 @@ def _parser() -> argparse.ArgumentParser:
     consent.add_argument("--json", action="store_true")
 
     for name in ("start", "resume", "status", "append", "propose-challenge", "resolve", "finalize", "legal-actions"):
-        command = sub.add_parser(name)
+        command = sub.add_parser(name, allow_abbrev=False)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=Path("."), type=Path)
         command.add_argument("--json", action="store_true")

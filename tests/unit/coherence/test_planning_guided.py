@@ -374,7 +374,9 @@ def test_main_exits_one_when_nothing_is_trustworthy(
     )
 
     assert main(["status", "--run-id", "run-001"]) == 1
-    assert "boom" in json.loads(capsys.readouterr().out)["error"]
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["run_id"] == "run-001"
+    assert "boom" in printed["error"]
 
 
 @pytest.mark.parametrize(
@@ -429,7 +431,7 @@ def test_pipeline_closure_verbs_only_transport_explicit_fields(
     def backend(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         assert kwargs["shell"] is False
         captured.append(command)
-        return completed_json({"ok": False, "blocked": True}, returncode=1)
+        return completed_json({"schema": 1, "run_id": "run-001", "ok": False, "blocked": True}, returncode=1)
 
     monkeypatch.setattr(subprocess, "run", backend)
     flags = [f"--{key.replace('_', '-')}={value}" for key, value in fields.items()]
@@ -439,7 +441,7 @@ def test_pipeline_closure_verbs_only_transport_explicit_fields(
         "--run-id", "run-001", *flags, "--json",
     ]]
     assert json.loads(capsys.readouterr().out) == {
-        "backend_exit_code": 1, "ok": False, "blocked": True,
+        "backend_exit_code": 1, "schema": 1, "run_id": "run-001", "ok": False, "blocked": True,
     }
 
 
@@ -496,13 +498,26 @@ def test_handoff_carries_the_workflow_selection() -> None:
     assert "--workflow=standard-development" in command
 
 
+def test_cross_artifact_review_carries_the_selected_workflow() -> None:
+    command = build_pipeline_command(
+        Path("/p"),
+        "FEAT-017",
+        "write-cross-artifact-review",
+        tasks_json="{}",
+        workflow="feature-planning",
+    )
+
+    assert "--tasks-json={}" in command
+    assert "--workflow=feature-planning" in command
+
+
 def test_unsupported_pipeline_verb_is_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported planning pipeline verb"):
         build_pipeline_command(Path("/p"), "FEAT-018", "adopt")
 
 
 def test_pipeline_exit_one_is_findings_data_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    report = {"ok": False, "findings": [{"code": "PLAN_TASK_PARITY"}]}
+    report = {"schema": 1, "run_id": "FEAT-018", "ok": False, "findings": [{"code": "PLAN_TASK_PARITY"}]}
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(report, returncode=1))
 
     code, payload = run_pipeline_command(
@@ -540,6 +555,20 @@ def test_pipeline_rejects_non_json_output(monkeypatch: pytest.MonkeyPatch) -> No
         "run",
         lambda *a, **k: subprocess.CompletedProcess([], returncode=0, stdout="not json", stderr=""),
     )
+
+    with pytest.raises(BackendError, match="invalid planning pipeline response"):
+        run_pipeline_command(Path("/p"), "FEAT-018", "review")
+
+
+@pytest.mark.parametrize("payload", [
+    {"schema": 2, "run_id": "FEAT-018", "ok": True},
+    {"schema": 1, "run_id": "other", "ok": True},
+    {"schema": 1, "ok": True},
+])
+def test_pipeline_rejects_schema_one_identity_mismatches(
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any],
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed_json(payload))
 
     with pytest.raises(BackendError, match="invalid planning pipeline response"):
         run_pipeline_command(Path("/p"), "FEAT-018", "review")
@@ -647,7 +676,9 @@ def test_pipeline_main_exits_one_when_the_backend_is_untrustworthy(
     )
 
     assert pipeline_main(["review", "--run-id", "FEAT-018"]) == 1
-    assert "boom" in json.loads(capsys.readouterr().out)["error"]
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["run_id"] == "FEAT-018"
+    assert "boom" in printed["error"]
 
 
 @pytest.mark.parametrize(

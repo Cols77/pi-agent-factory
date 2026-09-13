@@ -1,14 +1,18 @@
 # Coherence planning plugin for Hermes
 
-This directory is a project-local, read-only Hermes adapter for the Coherence
+This directory is a project-local Hermes transport adapter for the Coherence
 planning workflow. It presents the backend's current legal actions and block
-reason for a named planning run. Coherence remains the authority for planning
-state, hashes, gates, DecisionFiles, consent, adoption, and the handoff.
+reason for a named planning run and transports explicit session/pipeline verbs
+to the governed `coherence plan` CLI. Coherence remains the authority for
+planning state, hashes, gates, DecisionFiles, consent, adoption, and the
+handoff.
 
-The adapter does not perform adoption, accept warnings, run gates, materialize
-Kanban work, or start implementation or any other downstream workflow. It does
-not infer actions from conversation history, model output, Hermes session state,
-or Kanban state.
+The adapter does not infer actions from conversation history, model output,
+Hermes session state, or Kanban state. A verb is executed only when the Hermes
+conversation explicitly supplies it; the backend remains fail-closed and the
+host must present human-only decisions rather than inventing them. The adapter
+does not adopt requirements, materialize Kanban work, start implementation, or
+launch any downstream workflow.
 
 ## Prerequisites
 
@@ -122,8 +126,36 @@ is:
 
 The namespace is intentional. This package does not claim the bare `/plan`
 name and does not replace another host's `/plan` command. If a host presents a
-guided `/plan` entrypoint, it must still use a named run and the backend legal-
-actions projection; this plugin itself only exposes `/coherence-plan`.
+guided `/plan` entrypoint, it must still use a named run and the backend legal-actions
+projection; this plugin itself only exposes `/coherence-plan`.
+
+The same command also transports explicit workflow verbs. A run ID is
+required for every verb, the adapter injects the resolved project root and
+`--json`, and all values remain separate argv entries:
+
+```text
+/coherence-plan start --run-id run-001 --prompt "Describe the planning request"
+/coherence-plan resume --run-id run-001
+/coherence-plan status --run-id run-001
+/coherence-plan append --run-id run-001 --answer-id a1 --question "What is the boundary?" --text "The answer" --source user
+/coherence-plan resolve --run-id run-001 --challenge-id challenge-a1 --resolution revise --response "Revise the claim" --provenance user
+/coherence-plan finalize --run-id run-001 --status provisional
+
+/coherence-plan bootstrap --run-id run-001 --intent .intent/intent.json --spec <spec> --plan <plan> --decompose
+/coherence-plan check --run-id run-001 --intent .intent/intent.json --spec <spec> --plan <plan>
+/coherence-plan review --run-id run-001
+/coherence-plan write-artifact-manifest --run-id run-001 --artifacts-json '<complete manifest>'
+/coherence-plan write-cross-artifact-review --run-id run-001 --tasks-json '<complete task mapping>' --workflow feature-planning
+/coherence-plan record-sr-consent --run-id run-001 --sr-id <sr-id> --requirement-sha256 <sha256> --decision <decision> --reviewer <reviewer> --phrase '<approved phrase>' --reason '<reason>'
+/coherence-plan run-planning-gates --run-id run-001
+/coherence-plan handoff --run-id run-001 --workflow standard-development
+```
+
+The CLI's `--help` output is authoritative for required fields and payload
+schemas. Run `legal-actions` after every mutating operation and before handoff.
+The adapter never accepts a caller-supplied `--project-root` or `--json`; those
+are controlled by the host so the command cannot silently target another
+checkout or suppress structured output.
 
 ## Named run lifecycle
 
@@ -153,10 +185,13 @@ with the same run ID rather than inventing a new ID:
 /coherence-plan run-001
 ```
 
-The adapter does not call `start`, `resume`, `append`, `resolve`, `finalize`,
-or any other mutating planning operation. Use the Coherence CLI or the
-approved host workflow for those operations, and re-check legal actions after
-any state-changing operation.
+The adapter transports `start`, `resume`, `append`, `propose-challenge`,
+`resolve`, and `finalize`, plus the pipeline verbs used by the FEAT-017 closure
+workflow. It does not choose semantic questions, challenge dispositions,
+terminal status, SR consent, or downstream authorization. The Hermes model must
+obtain human input for those decisions and pass that input as explicit command
+arguments; then it must re-check legal actions after every state-changing
+operation.
 
 ## Legal-actions JSON contract
 
@@ -206,6 +241,25 @@ Starts automatically: no
 The action list is display-only. Seeing an action such as
 `create-downstream-session` never authorizes this adapter to execute it.
 
+## FEAT-017 execution sequence
+
+For a FEAT-017 run, drive the same fail-closed sequence used by the Claude and
+Codex hosts:
+
+1. Start or resume the named session and capture intent through `append`.
+2. Transport semantic challenges with `propose-challenge`; ask the human for
+   every `resolve` disposition and terminal `finalize` status.
+3. Author the six canonical source kinds: `intent`, `spec`, `plan`, `feature`,
+   `bundle`, and `requirements`.
+4. Publish a complete artifact manifest with fresh SHA-256 values.
+5. Run `check` and `review`, then refresh SR consent, cross-artifact review,
+   planning gates, and handoff evidence through their producers.
+6. After any source mutation, recompute all dependent hashes and rerun the
+   affected evidence producers. Never edit `.factory/planning/<run-id>/` derived
+   JSON directly, and never use stale hashes as negative-test evidence.
+7. Present the non-executing handoff. `starts_automatically` is always false;
+   Hermes does not launch downstream work, merge, or push.
+
 ## Authority and boundaries
 
 - Coherence owns the legal-action projection and all planning truth.
@@ -213,11 +267,12 @@ The action list is display-only. Seeing an action such as
   reinterpret, or replace it with a host-local status.
 - Hermes provides presentation and the surrounding conversation only.
 - The adapter never grants consent, adopts candidate SRs, changes canonical
-  FEAT/SR/bundle files, runs gates, creates a downstream session, or launches
-  implementation.
+  FEAT/SR/bundle files, creates a downstream session, or launches
+  implementation. It only transports an explicitly supplied gate or evidence
+  operation to the governed backend.
 - Hermes configuration is not changed or automatically enabled by this
   project-local package.
 
 For a clean handoff, `starts_automatically: false` remains mandatory. A human
-must choose any next action through an appropriate authorized workflow, and
-that workflow must revalidate the current Coherence state before acting.
+must choose semantic decisions and any authorization boundary; every explicit
+Hermes operation must revalidate the current Coherence state before acting.

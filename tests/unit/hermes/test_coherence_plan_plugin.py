@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -101,6 +102,136 @@ def test_forwards_only_argv_safe_legal_actions_call(monkeypatch: pytest.MonkeyPa
     ]
     assert all(isinstance(argument, str) for argument in command)
     assert "SESSION_NOT_READY" in output
+
+
+def test_transports_capture_command_with_controlled_root_and_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, (_, handler) = register_command()
+    payload = {
+        "schema": 1,
+        "ok": True,
+        "run_id": "run-010",
+        "state": "capture",
+        "next_sequence": 1,
+        "journal_sha256": "a" * 64,
+        "challenges": [],
+    }
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((command, kwargs))
+        return completed_json(payload)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    output = invoke(handler, 'start --run-id run-010 --prompt "Plan it"')
+
+    assert json.loads(output) == payload
+    assert calls == [
+        (
+            [
+                "uv",
+                "run",
+                "coherence",
+                "plan",
+                "start",
+                "--project-root",
+                str(Path.cwd()),
+                "--run-id",
+                "run-010",
+                "--prompt",
+                "Plan it",
+                "--json",
+            ],
+            {
+                "cwd": Path.cwd(),
+                "capture_output": True,
+                "text": True,
+                "check": False,
+                "shell": False,
+            },
+        )
+    ]
+
+
+def test_transports_feat017_gate_command_and_preserves_block_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, (_, handler) = register_command()
+    payload = {
+        "schema": 1,
+        "run_id": "FEAT-017",
+        "ok": False,
+        "error": "PLANNING_GATE_BLOCKED",
+    }
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return completed_json(payload, returncode=1)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    output = invoke(handler, "run-planning-gates --run-id FEAT-017")
+
+    assert json.loads(output) == payload
+    assert calls == [
+        [
+            "uv",
+            "run",
+            "coherence",
+            "plan",
+            "run-planning-gates",
+            "--project-root",
+            str(Path.cwd()),
+            "--run-id",
+            "FEAT-017",
+            "--json",
+        ]
+    ]
+
+
+def test_rejects_unknown_workflow_verb_without_invoking_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, (_, handler) = register_command()
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    output = invoke(handler, "exec --run-id run-011")
+
+    assert "unsupported planning verb" in output
+    assert calls == []
+
+
+def test_rejects_caller_controlled_project_root_and_json_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, (_, handler) = register_command()
+    calls: list[Any] = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    project_output = invoke(handler, "status --run-id run-012 --project-root C:/other")
+    json_output = invoke(handler, "status --run-id run-012 --json=true")
+
+    assert "controlled by the Hermes adapter" in project_output
+    assert "controlled by the Hermes adapter" in json_output
+    assert calls == []
+
+
+def test_rejects_non_schema_one_or_mismatched_workflow_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, (_, handler) = register_command()
+    invalid_payload = {"schema": 2, "run_id": "run-013", "ok": True}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: completed_json(invalid_payload),
+    )
+
+    output = invoke(handler, "status --run-id run-013")
+
+    assert output == "planning blocked: invalid planning response"
 
 
 def test_rejects_unsafe_run_id_without_invoking_backend(monkeypatch: pytest.MonkeyPatch) -> None:

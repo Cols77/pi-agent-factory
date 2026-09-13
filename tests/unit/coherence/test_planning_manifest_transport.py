@@ -27,7 +27,8 @@ def test_manifest_transport_writes_only_canonical_manifest(
     assert main(["write-artifact-manifest", "--project-root", str(tmp_path),
                  "--run-id", "run-001", "--artifacts-json", json.dumps(artifacts), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"schema": 1, "ok": True, "action": "write-artifact-manifest",
+    assert payload == {"schema": 1, "run_id": "run-001", "ok": True,
+                       "action": "write-artifact-manifest",
                        "manifest": ".factory/planning/run-001/artifacts.json"}
     target = tmp_path / payload["manifest"]
     assert json.loads(target.read_text(encoding="utf-8")) == {
@@ -53,3 +54,10 @@ def test_manifest_transport_rejects_invalid_input_without_writing(
                  "--run-id", run_id, "--artifacts-json", artifacts_json, "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["blocked"] is True
     assert not (tmp_path / ".factory").exists()
+
+
+def test_planning_cli_rejects_abbreviated_project_root_option() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["status", "--run-id", "run-001", "--project=/override"])
+
+    assert exc_info.value.code == 2

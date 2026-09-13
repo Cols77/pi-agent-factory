@@ -200,7 +200,33 @@ Findings such as `PLAN_TASK_PARITY` mean the plan and generated tasks disagree.
 Fix the **plan** and re-run — never hand-edit a generated task to silence the
 gate; that defeats the only structural guarantee this stage provides.
 
-## 9. Review and hand off
+## 9. FEAT-017 closure evidence
+
+When this is a FEAT-017 planning run, keep the complete current source set in
+the manifest: `intent`, `spec`, `plan`, `feature`, `bundle`, and `requirements`.
+After authoring or mutating any source, refresh every dependent record through
+the governed pipeline rather than editing derived JSON:
+
+```
+uv run python -m coherence.planning.guided_pipeline write-artifact-manifest --run-id <run-id> --project-root . --artifacts-json '<complete manifest with fresh sha256 values>'
+uv run python -m coherence.planning.guided_pipeline record-sr-consent --run-id <run-id> --project-root . --sr-id <sr-id> --requirement-sha256 <sha256> --decision <decision> --reviewer <reviewer> --phrase '<approved phrase>' --reason '<reason>'
+uv run python -m coherence.planning.guided_pipeline write-cross-artifact-review --run-id <run-id> --project-root . --tasks-json '<complete task mapping>' --workflow feature-planning
+uv run python -m coherence.planning.guided_pipeline run-planning-gates --run-id <run-id> --project-root .
+```
+
+Refresh the manifest, planning report, review decision, SR consent,
+cross-artifact review, gate result, and dependent hashes after each source
+mutation. Never hand-edit `.factory/planning/<run-id>/report.json`,
+`state.json`, `capture/events.jsonl`, or a published gate result. A stale hash
+is not valid negative-test evidence; recompute the dependent hash and prove the
+gate fails for the changed source.
+
+Read the legal-actions projection after every state-changing operation and
+before handoff. The workflow remains non-executing: it never invents semantic
+answers, challenge dispositions, SR consent, adoption, downstream work, merge,
+or push authorization.
+
+## 10. Review and hand off
 
 ```
 uv run python -m coherence.planning.guided_pipeline review --run-id <run-id> --project-root .
@@ -213,7 +239,7 @@ always `false`, which the projection renders as `Starts automatically: no`; that
 is a hard invariant. The action list is display-only — seeing an action never
 authorizes running it.
 
-## 10. Stop
+## 11. Stop
 
 Report what exists now: the captured intent, the spec, the plan, the generated
 task ids, and the handoff. Then stop.

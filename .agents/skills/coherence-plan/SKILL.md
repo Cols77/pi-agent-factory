@@ -94,6 +94,46 @@ state, run the exact helper command above before continuing. A reviewer pass
 is not completion by itself: claim completion only with the relevant changed
 files and evidence or test results.
 
+## FEAT-017 full planning closure
+
+When the named run is a FEAT-017 planning run, the legal-actions projection is
+necessary but not sufficient for handoff. The run must carry a current,
+fail-closed planning evidence set. Keep the six canonical source kinds together:
+`intent`, `spec`, `plan`, `feature`, `bundle`, and `requirements`.
+
+Use the governed command surface, not hand-written derived JSON:
+
+```text
+uv run coherence plan bootstrap --run-id <id> --project-root <root> --intent <intent> --spec <spec> --plan <plan> --decompose --json
+uv run coherence plan check --run-id <id> --project-root <root> --intent <intent> --spec <spec> --plan <plan> --json
+uv run coherence plan review --run-id <id> --project-root <root> --json
+uv run coherence plan write-artifact-manifest --run-id <id> --project-root <root> --artifacts-json '<complete manifest>'
+uv run coherence plan record-sr-consent --run-id <id> --project-root <root> --sr-id <sr-id> --requirement-sha256 <sha256> --decision <decision> --reviewer <reviewer> --phrase '<approved phrase>' --reason '<reason>' --json
+uv run coherence plan write-cross-artifact-review --run-id <id> --project-root <root> --tasks-json '<complete task mapping>' --workflow feature-planning --json
+uv run coherence plan run-planning-gates --run-id <id> --project-root <root> --json
+uv run coherence plan handoff --run-id <id> --project-root <root> --workflow standard-development --json
+```
+
+The exact flags and payload schema are authoritative in `--help`; never invent
+missing values. The artifact manifest must name the complete current source set
+with fresh SHA-256 values. A source mutation invalidates transitive evidence:
+refresh the manifest, planning report, review decision, SR consent, cross-artifact
+review, gate result, and dependent hashes through their producers. Never hand-edit
+`.factory/planning/<run-id>/report.json`, `state.json`, `capture/events.jsonl`,
+or a published gate result to make a check pass.
+
+Create intent through the session API (`start`/`resume` plus `append`, and
+`propose-challenge`/`resolve` where applicable). A hand-written intent snapshot
+is not equivalent to journal-replayed evidence. For negative tests, mutate a
+source with a freshly recomputed dependent hash and prove the gate fails; stale
+hashes are not evidence. Treat `plan check` as live-file validation and
+`plan review` as recorded-run evidence—both must be current before handoff.
+
+Handoff is a report, not authorization; starts_automatically remains false.
+Present blockers, changed files, evidence, tests, and the next legal action to
+the human. Never grant SR consent, adopt requirements, launch downstream work,
+merge, or push from this skill.
+
 ## Boundaries
 
 This skill is a thin host adapter. It never owns planning state or grants

@@ -48,6 +48,9 @@ _VERB_FIELDS: dict[str, tuple[str, ...]] = {
     "run-planning-gates": (),
     "handoff": ("workflow",),
 }
+_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "write-cross-artifact-review": ("workflow",),
+}
 
 
 def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields: str) -> list[str]:
@@ -55,7 +58,7 @@ def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields:
     if verb not in _VERB_FIELDS:
         raise ValueError(f"unsupported planning pipeline verb: {verb}")
     required = set(_VERB_FIELDS[verb])
-    allowed = required | ({"decompose"} if verb == "bootstrap" else set())
+    allowed = required | set(_OPTIONAL_FIELDS.get(verb, ())) | ({"decompose"} if verb == "bootstrap" else set())
     if (set(fields) - allowed or required - set(fields)
             or any(not isinstance(value, str) or not value.strip() for value in fields.values())):
         raise BackendError("planning pipeline fields must be explicit non-empty text")
@@ -72,6 +75,9 @@ def build_pipeline_command(project_root: Path, run_id: str, verb: str, **fields:
     ]
     for name in _VERB_FIELDS[verb]:
         command.append(f"--{name.replace('_', '-')}={fields[name]}")
+    for name in _OPTIONAL_FIELDS.get(verb, ()):
+        if name in fields:
+            command.append(f"--{name.replace('_', '-')}={fields[name]}")
     if verb == "bootstrap" and fields.get("decompose") == "true":
         command.append("--decompose")
     command.append("--json")
@@ -101,16 +107,21 @@ def run_pipeline_command(
         payload = json.loads(stdout)
     except (json.JSONDecodeError, TypeError) as exc:
         raise _malformed() from exc
-    if not isinstance(payload, dict):
+    if (
+        not isinstance(payload, dict)
+        or type(payload.get("schema")) is not int
+        or payload["schema"] != 1
+        or payload.get("run_id") != run_id
+    ):
         raise _malformed()
     return code, payload
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coherence-plan-pipeline")
+    parser = argparse.ArgumentParser(prog="coherence-plan-pipeline", allow_abbrev=False)
     sub = parser.add_subparsers(dest="verb", required=True)
     for verb in PIPELINE_VERBS:
-        command = sub.add_parser(verb)
+        command = sub.add_parser(verb, allow_abbrev=False)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=".", type=Path)
         if verb in ("bootstrap", "check"):
@@ -121,6 +132,8 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--decompose", action="store_true")
         if verb == "handoff":
             command.add_argument("--workflow", default="standard-development")
+        if verb == "write-cross-artifact-review":
+            command.add_argument("--workflow")
         if verb in ("write-artifact-manifest", "write-cross-artifact-review", "record-sr-consent"):
             for name in _VERB_FIELDS[verb]:
                 command.add_argument(f"--{name.replace('_', '-')}", required=True)
@@ -137,6 +150,10 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit:
         return 2
     fields = {name: getattr(args, name) for name in _VERB_FIELDS[args.verb]}
+    for name in _OPTIONAL_FIELDS.get(args.verb, ()):
+        value = getattr(args, name)
+        if value is not None:
+            fields[name] = value
     if args.verb == "bootstrap":
         fields["decompose"] = "true" if args.decompose else "false"
     try:
@@ -144,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.project_root), args.run_id, args.verb, **fields
         )
     except BackendError as exc:
-        print(json.dumps({"schema": 1, "ok": False, "error": str(exc)}, indent=2))
+        print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
         return 1
     print(json.dumps({"backend_exit_code": code, **payload}, indent=2, ensure_ascii=False))
     return 0

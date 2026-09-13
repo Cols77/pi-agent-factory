@@ -2,9 +2,9 @@ name: coherence-plan
 version: 0.1.0
 manifest_version: 2
 api_version: 1
-description: Read-only Hermes presentation adapter for Coherence planning actions
+description: Hermes transport adapter for governed Coherence planning actions
 license: MIT
 tags:
   - coherence
   - planning
-  - read-only
+  - governed

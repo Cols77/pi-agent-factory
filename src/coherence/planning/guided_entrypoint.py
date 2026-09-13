@@ -148,10 +148,10 @@ def run_session_command(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="coherence-plan-guided")
+    parser = argparse.ArgumentParser(prog="coherence-plan-guided", allow_abbrev=False)
     sub = parser.add_subparsers(dest="verb", required=True)
     for verb in SESSION_VERBS:
-        command = sub.add_parser(verb)
+        command = sub.add_parser(verb, allow_abbrev=False)
         command.add_argument("--run-id", required=True)
         command.add_argument("--project-root", default=".", type=Path)
         if verb == "start":
@@ -195,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = run_session_command(Path(args.project_root), args.run_id, args.verb, **fields)
     except BackendError as exc:
-        print(json.dumps({"schema": 1, "ok": False, "error": str(exc)}, indent=2))
+        print(json.dumps({"schema": 1, "run_id": args.run_id, "ok": False, "error": str(exc)}, indent=2))
         return 1
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0

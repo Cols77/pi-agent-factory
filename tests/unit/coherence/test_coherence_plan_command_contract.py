@@ -55,6 +55,20 @@ def test_decomposition_and_parity_gate_are_present(text: str) -> None:
     assert "PLAN_TASK_PARITY" in text
 
 
+def test_feat017_closure_evidence_contract_is_present(text: str) -> None:
+    lowered = text.lower()
+    for source_kind in ("intent", "spec", "plan", "feature", "bundle", "requirements"):
+        assert f"`{source_kind}`" in text
+    for operation in (
+        "record-sr-consent",
+        "write-cross-artifact-review",
+        "run-planning-gates",
+        "fresh sha256",
+        "never hand-edit",
+    ):
+        assert operation in lowered
+
+
 def test_non_executing_boundary_is_stated(text: str) -> None:
     lowered = text.lower()
     assert "starts_automatically" in lowered
