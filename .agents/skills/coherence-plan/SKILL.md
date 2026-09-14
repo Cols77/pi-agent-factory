@@ -37,8 +37,8 @@ Do not substitute a guessed run ID, request, project root, or state.
 Coherence remains the authority for planning state, legal actions, and
 blocking reasons. Never infer state or actions from prose, files, prior chat,
 or a host menu. Do not infer state or actions from a host adapter. After every
-state-changing operation—including start and
-resume—invoke exactly this project helper:
+state-changing operation—including start, resume, requirement authoring, and
+manifest writing—the exact legal-actions helper must be invoked:
 
 ```text
 uv run python .agents/skills/coherence-plan/scripts/coherence_plan.py legal-actions --project-root <root> --run-id <id>
@@ -68,13 +68,29 @@ was completed.
 
 Only these backend-declared actions may enter the bounded loop:
 
+- `author-requirements`
 - `author-spec`
 - `author-plan`
 - `review-spec`
 - `review-plan`
 
+When the projection declares `author-requirements`, author only provisional requirement candidates or explicitly identified revisions supported by the user's concrete planning request, the bounded repository context, and the named feature scope. The host must not author plausible but unrequested requirements.
+
+- Inspect the feature dossier and bounded repository context before drafting.
+- If context does not support a concrete requirement, stop and ask for clarification rather than inventing one.
+- Requirement files are candidates, not adopted canonical requirements.
+- Preserve unrelated dirty worktree changes.
+- Do not modify the feature dossier, spec, plan, bundle, intent journal, consent records, gates, handoff, or downstream execution state while drafting.
+- Make existing-SR revisions visible as revisions, keep them hash-bound, and present the complete changed content or an unambiguous diff to the human before consent.
+- After authoring, validate requirement artifacts and write the complete artifact manifest for the current source set through the governed producer with fresh SHA-256 values.
+- When projection declares `record-sr-consent`, stop before consent and present candidates and hashes for separate human decisions.
+- Never grant consent.
+- Never adopt requirements on the user's behalf.
+- Never invoke consent or adoption automatically.
+
 Present every backend action exactly as returned in the latest projection.
-The current registry may return `inspect-handoff`, `revalidate-handoff`,
+The current registry may return `record-sr-consent`, `run-planning-gates`,
+`create-handoff`, `inspect-handoff`, `revalidate-handoff`,
 `select-downstream-workflow`, `create-downstream-session`, or
 `resolve-blocking-input`. These and any other non-allowlisted action are
 display-only and must never be translated, renamed, or auto-selected into the
@@ -82,14 +98,14 @@ loop. Before each permitted operation, use the latest projection and the
 user's explicit planning request.
 
 Enter the loop only when the latest backend projection itself declares one of
-the exact four allowlisted IDs above. If no allowlisted action is declared,
+the exact five allowlisted IDs above. If no allowlisted action is declared,
 report the projection or handoff and stop for human decision; do not claim the
 loop was performed.
 
 The loop is sequential and evidence-first:
 
 1. Inspect the bounded context and the current projection.
-2. Author the smallest requested spec or plan change when the projection and
+2. Author the smallest requested requirement, spec, or plan artifact change when the projection and
    request permit it.
 3. Run the focused tests or gates required by the current planning evidence.
 4. Perform a fresh requirement review.
@@ -98,10 +114,9 @@ The loop is sequential and evidence-first:
 6. Repeat this fix-review-fix sequence until the review passes, Coherence
    reports a block, or a human decision boundary is reached.
 
-After every authoring, fixing, reviewing, or other operation that changes
-state, run the exact helper command above before continuing. A reviewer pass
-is not completion by itself: claim completion only with the relevant changed
-files and evidence or test results.
+Continue only from the latest helper projection. A reviewer pass is not
+completion by itself: claim completion only with the relevant changed files and
+evidence or test results.
 
 ## FEAT-017 full planning closure
 
