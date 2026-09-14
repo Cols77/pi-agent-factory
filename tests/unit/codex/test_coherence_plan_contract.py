@@ -212,10 +212,11 @@ def test_downstream_work_requires_consented_measured_feature_sr_coverage() -> No
     normalized = " ".join(body.lower().replace("`", "").split())
 
     ordered_phrases = (
-        "before author-spec/author-plan are treated as execution preparation",
+        "before every post-requirements preparation action, including author-spec, author-plan, review-spec, and review-plan",
         "require a non-empty feature-scoped sr set",
         "explicit human consent",
         "honestly measured/passing bindings",
+        "pre-existing spec/plan artifacts do not bypass this prerequisite",
         "before run-planning-gates, create-handoff, or any downstream execution",
         "stop with a named coverage blocker",
     )

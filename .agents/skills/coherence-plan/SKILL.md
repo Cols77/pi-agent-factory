@@ -77,12 +77,14 @@ A feature ID alone is not captured intent. Never treat an
 author: that contradictory projection is a fail-closed blocker.
 `author-requirements` is only the first post-capture authoring stage.
 
-Before `author-spec`/`author-plan` are treated as execution preparation,
-require a non-empty feature-scoped SR set with explicit human consent and
-honestly measured/passing bindings. An empty coverage scope or a generic
-coverage PASS with zero declared/linked SRs is not evidence; before
-`run-planning-gates`, `create-handoff`, or any downstream execution, stop with
-a named coverage blocker. Use the canonical audit/measurement workflow:
+Before every post-requirements preparation action, including `author-spec`,
+`author-plan`, `review-spec`, and `review-plan`, require a non-empty
+feature-scoped SR set with explicit human consent and honestly measured/passing
+bindings. Pre-existing spec/plan artifacts do not bypass this prerequisite. An
+empty coverage scope or a generic coverage PASS with zero declared/linked SRs
+is not evidence; before `run-planning-gates`, `create-handoff`, or any
+downstream execution, stop with a named coverage blocker. Use the canonical
+audit/measurement workflow:
 `uv run coherence audit run <feature> --project-root .` followed by
 `uv run coherence measurement run --satisfies SR-###`; consult each command's
 `--help` for authoritative payload and environment details.
