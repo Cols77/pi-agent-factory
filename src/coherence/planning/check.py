@@ -314,10 +314,14 @@ def _check_tasks(
         if metadata is None:
             continue
         source_plan = metadata.get("source_plan")
-        if isinstance(source_plan, str) and source_plan.strip() and source_plan != expected_plan:
-            # Generated task belongs to a different plan's already-checked decomposition;
-            # the shared tasks/ directory holds every plan's tasks, so a file that
-            # names another plan is not this check's business (NC-0005).
+        has_source_plan = isinstance(source_plan, str) and bool(source_plan.strip())
+        if not has_source_plan or source_plan != expected_plan:
+            # Generated task declares no relationship to the plan under review:
+            # either it names a different plan's already-checked decomposition
+            # (NC-0005), or it has no source_plan at all - missing, None, or
+            # empty/whitespace-only (NC-0007). The shared tasks/ directory holds
+            # every plan's tasks plus any standalone task files, so a file that
+            # doesn't claim this plan is not this check's business.
             continue
         matched_paths.append(task_path)
         task_id = metadata.get("id")
@@ -335,15 +339,6 @@ def _check_tasks(
             )
         else:
             task_ids[task_id] = str(task_path)
-        if source_plan != expected_plan:
-            findings.append(
-                _finding(
-                    "PLAN_TASK_PARITY",
-                    _subject(task_path, root),
-                    "generated task source_plan does not match the selected plan",
-                )
-            )
-            continue
         source_task = metadata.get("source_task")
         if type(source_task) is not int or source_task < 1:
             findings.append(_finding("PLAN_TASK_PARITY", _subject(task_path, root), "source_task must be a positive integer"))

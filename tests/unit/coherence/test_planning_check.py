@@ -147,6 +147,34 @@ def test_foreign_generated_task_is_ignored_by_parity_gate(tmp_path: Path) -> Non
     assert not any(finding.code == "PLAN_TASK_PARITY" for finding in report.findings)
 
 
+def test_orphaned_task_without_source_plan_is_ignored_by_parity_gate(tmp_path: Path) -> None:
+    # NC-0007: a standalone task file that declares no source_plan at all (the
+    # real T-029 shape: trace_exempt: true, no source_plan field) declares no
+    # relationship to any plan and is equally "not this check's business" as
+    # the foreign-plan case NC-0005 already fixed. It must not be flagged,
+    # while a genuine parity gap in the plan under review's own tasks (its
+    # declared Task 2 has no generated file at all) must still be caught.
+    input_data = _write_fixture(tmp_path, complete_tasks=False)
+    (tmp_path / "tasks" / "T-029-standalone.md").write_text(
+        "---\n"
+        "id: T-029\n"
+        "title: Standalone Task\n"
+        "status: done\n"
+        "trace_exempt: true\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    report = check_planning_input(input_data)
+
+    assert report.ok is False
+    parity_findings = [finding for finding in report.findings if finding.code == "PLAN_TASK_PARITY"]
+    assert parity_findings, "plan's own missing generated task (task 2) must still be flagged"
+    assert all(
+        "T-029" not in finding.subject for finding in parity_findings
+    ), "the orphaned, source_plan-less task must not be referenced by any parity finding"
+
+
 _SPEC_B = """---
 id: plan-b-spec
 title: Plan B Specification
