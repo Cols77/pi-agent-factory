@@ -123,6 +123,7 @@ def test_safe_loop_preserves_exact_allowlist_and_current_backend_actions() -> No
     normalized = " ".join(section.lower().replace("`", "").split())
 
     assert _safe_loop_allowlist(body) == [
+        "author-requirements",
         "author-spec",
         "author-plan",
         "review-spec",
@@ -142,6 +143,26 @@ def test_safe_loop_preserves_exact_allowlist_and_current_backend_actions() -> No
     assert "if no allowlisted action is declared" in normalized
     assert "stop for human decision" in normalized
     assert "do not claim the loop was performed" in normalized
+
+
+def test_requirement_authoring_is_provisional_and_stops_before_consent() -> None:
+    _, body = _frontmatter_and_body(SKILL_PATH)
+    section = _section(body, "Safe fix-review-fix loop")
+    normalized = " ".join(section.lower().replace("`", "").split())
+
+    required_terms = (
+        "author-requirements",
+        "provisional",
+        "requirement artifacts",
+        "complete artifact manifest",
+        "fresh sha-256",
+        "record-sr-consent",
+        "stop before consent",
+        "never grant consent",
+        "never adopt requirements",
+    )
+    missing = [term for term in required_terms if term not in normalized]
+    assert not missing, f"requirement authoring safeguards missing: {missing}"
 
 
 def test_metadata_exposes_safe_codex_invocation() -> None:
