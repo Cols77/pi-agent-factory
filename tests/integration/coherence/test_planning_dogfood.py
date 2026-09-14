@@ -64,6 +64,111 @@ def test_guided_manifest_transport_reaches_requirement_consent(
     assert projection["starts_automatically"] is False
 
 
+def test_provisional_requirement_authoring_stops_before_consent_and_refreshes_revisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from coherence.planning import gates
+    from coherence.planning.artifacts import build_artifact_manifest, read_artifact_manifest
+    from coherence.planning.guided_pipeline import run_pipeline_command
+    from coherence.planning.session import legal_actions_session
+
+    monkeypatch.setenv("UV_PROJECT", str(Path(__file__).parents[3]))
+    monkeypatch.setattr(gates, "_PLANNING_GATE_FEATURE", "FEAT-019")
+
+    run_id = "provisional-requirement-boundary"
+    start_session(
+        tmp_path,
+        run_id,
+        "Draft a provisional requirement for FEAT-019's deterministic planning boundary.",
+    )
+    run_dir = tmp_path / ".factory" / "planning" / run_id
+    manifest_path = run_dir / "artifacts.json"
+    per_sr_consent = run_dir / "consent" / "SR-001.json"
+
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["legal_next_actions"] == ["author-requirements"]
+    assert not manifest_path.exists()
+    assert not per_sr_consent.exists()
+
+    requirement = tmp_path / "requirements" / "SR-001.md"
+    requirement.parent.mkdir(parents=True)
+    requirement.write_text(
+        "---\nid: SR-001\n---\n\n# Provisional requirement\n\n"
+        "The planning boundary must remain deterministic.\n",
+        encoding="utf-8",
+    )
+    feature = tmp_path / "docs" / "features" / "FEAT-019.md"
+    feature.parent.mkdir(parents=True)
+    feature.write_text(
+        "---\nid: FEAT-019\nrequirements: [SR-001]\n---\n\n"
+        "# Feature dossier\n",
+        encoding="utf-8",
+    )
+
+    def write_complete_manifest() -> dict[str, object]:
+        manifest = build_artifact_manifest(
+            tmp_path,
+            run_id,
+            [
+                {"kind": "feature", "path": "docs/features/FEAT-019.md"},
+                {"kind": "requirements", "path": "requirements/SR-001.md"},
+            ],
+        )
+        code, payload = run_pipeline_command(
+            tmp_path,
+            run_id,
+            "write-artifact-manifest",
+            artifacts_json=json.dumps(manifest["artifacts"]),
+        )
+        assert code == 0
+        assert payload["ok"] is True
+        return manifest
+
+    manifest = write_complete_manifest()
+    assert {
+        item["path"] for item in manifest["artifacts"] if isinstance(item, dict)
+    } == {"docs/features/FEAT-019.md", "requirements/SR-001.md"}
+    read_back = read_artifact_manifest(tmp_path, run_id)
+    assert read_back == manifest
+    assert {
+        item["path"]: item["sha256"]
+        for item in read_back["artifacts"]
+        if isinstance(item, dict)
+    } == {
+        "docs/features/FEAT-019.md": hashlib.sha256(feature.read_bytes()).hexdigest(),
+        "requirements/SR-001.md": hashlib.sha256(requirement.read_bytes()).hexdigest(),
+    }
+
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
+    assert not per_sr_consent.exists()
+
+    requirement.write_text(
+        "---\nid: SR-001\n---\n\n# Provisional requirement revision\n\n"
+        "The planning boundary must remain deterministic and hash-bound.\n",
+        encoding="utf-8",
+    )
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["blocked"] is True
+    assert projection["reason"] == "ARTIFACT_MANIFEST_INVALID"
+    assert not per_sr_consent.exists()
+
+    revised_manifest = write_complete_manifest()
+    assert revised_manifest != manifest
+    revised_read_back = read_artifact_manifest(tmp_path, run_id)
+    assert revised_read_back == revised_manifest
+    assert {
+        item["path"]: item["sha256"]
+        for item in revised_read_back["artifacts"]
+        if isinstance(item, dict)
+    }["requirements/SR-001.md"] == hashlib.sha256(requirement.read_bytes()).hexdigest()
+    projection = legal_actions_session(tmp_path, run_id)
+    assert projection["legal_next_actions"] == ["record-sr-consent"]
+    assert projection["starts_automatically"] is False
+    assert not per_sr_consent.exists()
+
+
 def _fixture_json(name: str) -> dict:
     return json.loads((FIXTURE / "clean" / name).read_text(encoding="utf-8"))
 

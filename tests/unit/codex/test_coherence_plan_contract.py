@@ -165,6 +165,22 @@ def test_requirement_authoring_is_provisional_and_stops_before_consent() -> None
     assert not missing, f"requirement authoring safeguards missing: {missing}"
 
 
+def test_requirement_authoring_contract_preserves_semantic_order() -> None:
+    _, body = _frontmatter_and_body(SKILL_PATH)
+    section = _section(body, "Safe fix-review-fix loop")
+    normalized = " ".join(section.lower().replace("`", "").split())
+
+    ordered_phrases = (
+        "the user's concrete planning request and bounded repository context are prerequisites for authoring within the named feature scope",
+        "if context does not support a concrete requirement, stop and ask for clarification rather than inventing one",
+        "present the complete changed content or an unambiguous diff to the human before consent",
+        "when projection declares record-sr-consent, stop before consent",
+    )
+    indexes = [normalized.index(phrase) for phrase in ordered_phrases]
+    assert indexes == sorted(indexes)
+    assert len(set(indexes)) == len(indexes)
+
+
 def test_metadata_exposes_safe_codex_invocation() -> None:
     metadata = yaml.safe_load(METADATA_PATH.read_text(encoding="utf-8"))
 

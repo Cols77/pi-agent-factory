@@ -74,7 +74,7 @@ Only these backend-declared actions may enter the bounded loop:
 - `review-spec`
 - `review-plan`
 
-When the projection declares `author-requirements`, author only provisional requirement candidates or explicitly identified revisions supported by the user's concrete planning request, the bounded repository context, and the named feature scope. The host must not author plausible but unrequested requirements.
+When the projection declares `author-requirements`, the user's concrete planning request and bounded repository context are prerequisites for authoring within the named feature scope; author only provisional requirement candidates or explicitly identified revisions supported by those prerequisites. The host must not author plausible but unrequested requirements.
 
 - Inspect the feature dossier and bounded repository context before drafting.
 - If context does not support a concrete requirement, stop and ask for clarification rather than inventing one.
