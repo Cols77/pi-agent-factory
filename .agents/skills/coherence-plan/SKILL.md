@@ -64,6 +64,29 @@ The helper is a read-only projection. It does not grant permission to invoke
 an action, and an action name in a projection is not evidence that the action
 was completed.
 
+## Capture and coverage gates
+
+Intent capture is always the first workflow stage. `start/resume` only
+records/refreshes the run; this operation does not capture intent. While backend
+projection state is `capture`, the host must capture intent via `append`;
+deterministic challenge detection runs after each answer.
+The host must explicitly propose semantic challenges with `propose-challenge`
+when needed, resolve all human challenges, and finalize to `intent_provisional`.
+A feature ID alone is not captured intent. Never treat an
+`author-requirements` projection during state `capture` as permission to
+author: that contradictory projection is a fail-closed blocker.
+`author-requirements` is only the first post-capture authoring stage.
+
+Before `author-spec`/`author-plan` are treated as execution preparation,
+require a non-empty feature-scoped SR set with explicit human consent and
+honestly measured/passing bindings. An empty coverage scope or a generic
+coverage PASS with zero declared/linked SRs is not evidence; before
+`run-planning-gates`, `create-handoff`, or any downstream execution, stop with
+a named coverage blocker. Use the canonical audit/measurement workflow:
+`uv run coherence audit run <feature> --project-root .` followed by
+`uv run coherence measurement run --satisfies SR-###`; consult each command's
+`--help` for authoritative payload and environment details.
+
 ## Safe fix-review-fix loop
 
 Only these backend-declared actions may enter the bounded loop:

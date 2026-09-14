@@ -181,6 +181,53 @@ def test_requirement_authoring_contract_preserves_semantic_order() -> None:
     assert len(set(indexes)) == len(indexes)
 
 
+def test_intent_capture_and_challenges_precede_requirement_authoring() -> None:
+    _, body = _frontmatter_and_body(SKILL_PATH)
+    normalized = " ".join(body.lower().replace("`", "").split())
+
+    ordered_phrases = (
+        "intent capture is always the first workflow stage",
+        "start/resume only records/refreshes the run",
+        "while backend projection state is capture",
+        "capture intent via append",
+        "deterministic challenge detection runs after each answer",
+        "explicitly propose semantic challenges with propose-challenge when needed",
+        "resolve all human challenges",
+        "finalize to intent_provisional",
+        "author-requirements is only the first post-capture authoring stage",
+    )
+    indexes = [normalized.index(phrase) for phrase in ordered_phrases]
+    assert indexes == sorted(indexes)
+    assert len(set(indexes)) == len(indexes)
+    assert "a feature id alone is not captured intent" in normalized
+    assert (
+        "never treat an author-requirements projection during state capture as permission to author"
+        in normalized
+    )
+    assert "contradictory projection is a fail-closed blocker" in normalized
+
+
+def test_downstream_work_requires_consented_measured_feature_sr_coverage() -> None:
+    _, body = _frontmatter_and_body(SKILL_PATH)
+    normalized = " ".join(body.lower().replace("`", "").split())
+
+    ordered_phrases = (
+        "before author-spec/author-plan are treated as execution preparation",
+        "require a non-empty feature-scoped sr set",
+        "explicit human consent",
+        "honestly measured/passing bindings",
+        "before run-planning-gates, create-handoff, or any downstream execution",
+        "stop with a named coverage blocker",
+    )
+    indexes = [normalized.index(phrase) for phrase in ordered_phrases]
+    assert indexes == sorted(indexes)
+    assert len(set(indexes)) == len(indexes)
+    assert "empty coverage scope" in normalized
+    assert "generic coverage pass with zero declared/linked srs is not evidence" in normalized
+    assert "uv run coherence audit run <feature> --project-root ." in normalized
+    assert "uv run coherence measurement run --satisfies sr-###" in normalized
+
+
 def test_metadata_exposes_safe_codex_invocation() -> None:
     metadata = yaml.safe_load(METADATA_PATH.read_text(encoding="utf-8"))
 
