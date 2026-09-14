@@ -1,0 +1,478 @@
+{
+  "schema": 1,
+  "run_id": "FEAT-013",
+  "ok": false,
+  "artifacts": [
+    {
+      "path": ".factory/planning/FEAT-013/capture/events.jsonl",
+      "sha256": "f6af9e543b4edea3f09a868ba6983a81e74483b0e3bd2b08a6d4231ed20a8ef2"
+    },
+    {
+      "path": ".factory/planning/FEAT-013/intent.json",
+      "sha256": "2a57ce56c19e4a49eb7cb9a58b912c75f4180149fda7d7f432b0dd40e88832d5"
+    },
+    {
+      "path": "bundles/FEAT-017.json",
+      "sha256": "9274e08308a31f68568a02412b70138e4f776b65e6bd17cfb137c68eaa711b4d"
+    },
+    {
+      "path": "docs/features/FEAT-017.md",
+      "sha256": "efd9e5bfd99d7d5a7f7c3f465e0704f40bcfdb487057bd247c01e151b77d753f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md",
+      "sha256": "df23e2b014be3834c8d796af74d744e331b2aa492cb148987061860eb53a844c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md",
+      "sha256": "d256f8723cb377b59540a38bef8fe46e56e5718569370c573792482002ae25e0"
+    },
+    {
+      "path": "requirements/SR-043.md",
+      "sha256": "44434ea55206e2b02b77615f26da06dba4a525016b1116e2d03db20be40567a1"
+    },
+    {
+      "path": "requirements/SR-044.md",
+      "sha256": "820a51e2997cb0cae08cd6d30ba651e8055f490808d1d83435d3d51b8733988f"
+    },
+    {
+      "path": "requirements/SR-051.md",
+      "sha256": "2201d4907d5c434f936ee99a162a4d2357ba2c67fccdded1bb567864c7038049"
+    },
+    {
+      "path": "requirements/SR-052.md",
+      "sha256": "61f9a15267d327c6535e7fa39ffedae77eb95c878abed5d0bb200aece66f55e3"
+    },
+    {
+      "path": "requirements/SR-053.md",
+      "sha256": "9ec2d608c0102d1b800a462e9a8154d08fcac03c9a129e4e16bc58c6cd6ecce0"
+    },
+    {
+      "path": "requirements/SR-054.md",
+      "sha256": "0c1963f01876b5fadf692989166f081c0bcf93c7b8c045d65fe32efed6f6c339"
+    },
+    {
+      "path": "requirements/SR-055.md",
+      "sha256": "7929e517c6383a5c247a0526a74d1542e5b8cf4545c75bf26314b975f3af69a8"
+    },
+    {
+      "path": "requirements/SR-065.md",
+      "sha256": "9aa227160a3dbdeb4e6efa2a2840a1b83ce5141d9f5f267aae121ea68e8ae6bb"
+    },
+    {
+      "path": "requirements/SR-071.md",
+      "sha256": "944aab8287796f4c93e63e7afb6db68fe6a5152eb8a61a54f3b8d082c24a7d1a"
+    },
+    {
+      "path": "requirements/SR-072.md",
+      "sha256": "683e991963336838078c9d1ab9e54b37d9ae71d2872620d5b46761cea29e8abc"
+    },
+    {
+      "path": "tasks/T-001-load-skill-block-pure-hard-skill-loading-python.md",
+      "sha256": "923c0514c2d6c483bf8831d3b86c546ab8230318957ee64a7c0ef837d4f6d443"
+    },
+    {
+      "path": "tasks/T-002-wire-hard-skill-loading-into-every-sub-agent-role-s-prompt.md",
+      "sha256": "95a5bbf8924b80e057dfff3ab623240d06429ddf7d2236dbfe5b95efa9cde88c"
+    },
+    {
+      "path": "tasks/T-003-vendor-brainstorming-writing-plans-lock-all-10-skills-to-hard-loading-only.md",
+      "sha256": "6a67be7ff4fc0ba46276dab68426d4d51ce606dd1ea8be108c77f349ea3e8222"
+    },
+    {
+      "path": "tasks/T-004-ledger-py-get-task-tasknotfounderror-tasknottodoerror.md",
+      "sha256": "3d5843336c1599916c0059818e9079148953699cb6bc6d64073935391cff73ea"
+    },
+    {
+      "path": "tasks/T-005-run-next-task-id-target-one-specific-task.md",
+      "sha256": "8bfa99b17c9e2e483d6717fb30f72370f51be44db9b57e87e7592651573e850e"
+    },
+    {
+      "path": "tasks/T-006-main-py-task-on-run-json-on-list.md",
+      "sha256": "1ff21414ef92d163e92441ab1a50290aec394cfcff45ff4466136ce311711270"
+    },
+    {
+      "path": "tasks/T-007-plan-to-tasks-pure-plan-md-parser.md",
+      "sha256": "a61521f3e77422801b723e941ac21ae2a86b56a3f6db610c222c604872dcec57"
+    },
+    {
+      "path": "tasks/T-011-plan-to-tasks-cli-wrapper-id-assignment-idempotency-file-writing.md",
+      "sha256": "c2045db7dac5cf06e300a223b3b044c99a1006b4e893536ec8c0e4e33465f512"
+    },
+    {
+      "path": "tasks/T-012-ts-pi-types-ts-gains-select-newsession-process-control-ts-gains-task-targeting.md",
+      "sha256": "8f5f4810e15ef5df50af2a6dade66c4f450c03173b56d0613e49244de7539321"
+    },
+    {
+      "path": "tasks/T-013-ts-task-picker-ts-pure.md",
+      "sha256": "104caec829592353211df44376f8fe5dd58eac5c1be3b600896ff4d3f7d2ba84"
+    },
+    {
+      "path": "tasks/T-014-ts-skill-prompt-ts-pure.md",
+      "sha256": "a3026aba082f95c50ea761dde97d7f05be2c7eb512b7027dbb2511649d3415fd"
+    },
+    {
+      "path": "tasks/T-015-ts-refactor-index-ts-to-share-lock-check-launch-logic-between-factory-and-factory-run.md",
+      "sha256": "7208fcd4983178a810b70ffc8c426c916149f87923fd2e1c9086df3bc97d909e"
+    },
+    {
+      "path": "tasks/T-016-ts-plan-command-wiring.md",
+      "sha256": "bfc2e876d00dbbd7d07c004d04e4f8e8ed8a0cdcca5b722be8538c1287bc6deb"
+    },
+    {
+      "path": "tasks/T-017-ts-factory-run-command-wiring.md",
+      "sha256": "9fb8d704b7aea8dbf01e3d4847efb33d48511cb25b6f7f6391a5a5bebd878060"
+    },
+    {
+      "path": "tasks/T-018-docs-and-gate.md",
+      "sha256": "fa101985de67651c0f912924b6870f00eb262ceb318ea4bf03b6ddb5acbd0466"
+    },
+    {
+      "path": "tasks/T-019-required-manual-verification.md",
+      "sha256": "c43ae346ed3895f4ee3e93c988c2a52fdecadd9d24cb1eb09681ff6ac424614f"
+    },
+    {
+      "path": "tasks/T-020-strip-fenced-code-blocks-in-plan-to-tasks-py.md",
+      "sha256": "ce610a93b6dee38721ef536d76945233895a153fe2d6f17423804ed588b6f259"
+    },
+    {
+      "path": "tasks/T-025-set-status-cli-subcommand-in-main-py.md",
+      "sha256": "f7f089a7c56f0012092ebd1bc1a713af3e0797e282157f17cc65ce5a7183eb8e"
+    },
+    {
+      "path": "tasks/T-026-new-command-builders-in-process-control-ts.md",
+      "sha256": "104e86d4cf2c0c2579710ca3ea8a42e92876580d4902e9c471b2685e72ad1d2e"
+    },
+    {
+      "path": "tasks/T-027-update-seed-prompt-drop-soft-plan-to-tasks-instruction.md",
+      "sha256": "161adb2fdb636bf72bcf3e70697f1db5397c6d83e60e9a450f91bda6fd39cd1a"
+    },
+    {
+      "path": "tasks/T-028-post-session-auto-export-mark-done-loop-in-plan-handler.md",
+      "sha256": "60e5b44533f6a19c214c37d8432b70f2e5f18ad62c8475898908e96c3728beb8"
+    },
+    {
+      "path": "tasks/T-029-make-subagent-spawn-liveness-aware-so-the-long-plan-authoring-runs-are-not-killed.md",
+      "sha256": "c41e078b3d0203a60ba3e468f244888772cd3c77958f2f02948c156ce769e15b"
+    },
+    {
+      "path": "tasks/T-030-sim-live-playground-in-the-factory.md",
+      "sha256": "310040b8219e3af39ef134df3fec1ca0595706914d80c821313bc22d01d6bf78"
+    },
+    {
+      "path": "tasks/T-031-catchup-tab-orientation-metadata.md",
+      "sha256": "3d1f34135a897fe6d5e007ed08380f6a26c11366598b5b13a54e42af4250ec5d"
+    },
+    {
+      "path": "tasks/T-032-feat17-planning-workflow.md",
+      "sha256": "cfa39ae15448ddc0b4485e7c1dbb44b135501ae0508a4b390ef2941261b9adb6"
+    },
+    {
+      "path": "tasks/T-033-add-planning-run-evidence-review-seam-and-downstream-suggestion.md",
+      "sha256": "411911cd93afa39c6ff3b4f8caee68a19d9977d43edbb62a544f4644e1f365e4"
+    },
+    {
+      "path": "tasks/T-034-expose-the-deterministic-planning-gate-through-coherence-plan.md",
+      "sha256": "b974a3599e73e5668e5b295c492e22635d4c3d193017db05b282b04c2d7438ab"
+    },
+    {
+      "path": "tasks/T-035-wire-the-existing-plan-authoring-host-to-the-backend-gate.md",
+      "sha256": "9f0139278c006c549d753a2c7d1a8ea05d0c160161b4066390c790cfd664bfb7"
+    },
+    {
+      "path": "tasks/T-036-add-the-bootstrap-composition-and-available-deterministic-gates.md",
+      "sha256": "ae892b382c7f592da7ef4c89c79e8bed236f5844b0853906f3eb06fa2cc096a0"
+    },
+    {
+      "path": "tasks/T-037-register-feat-17-trace-links-and-prove-the-feature-against-the-live-register.md",
+      "sha256": "52cb912af0859bbef58e1bd5d31c6278564cad03d364bfd32a43968505ff3ab0"
+    },
+    {
+      "path": "tasks/T-038-holistic-integration-review-and-available-gate-deployment.md",
+      "sha256": "2547b001c7dd9dc86ee2004a7148ce3bfb133635273a850de3de3f6afe872c91"
+    },
+    {
+      "path": "tasks/T-039-define-the-immutable-execution-contract-and-worker-assignment.md",
+      "sha256": "9a3d39f75e5ac7ea4cc0e3658be7379bef15c55b5cfa044b828e3c424889ebb3"
+    },
+    {
+      "path": "tasks/T-040-bind-every-worker-to-one-injected-execution-workspace.md",
+      "sha256": "c27c8a212a3c696990e755270d96846c613e4ccfc2014949cf786f73954904a8"
+    },
+    {
+      "path": "tasks/T-041-add-the-fresh-context-parallel-review-swarm.md",
+      "sha256": "87ed2819133123c626ac3a889eec2b243f3dd32f495bdf7568bc0278141fff93"
+    },
+    {
+      "path": "tasks/T-042-implement-baseline-campaign-and-flaky-regression-classification.md",
+      "sha256": "c012e7e7d276b449249e04b5a169156453eecbaefc3d8338f1cf244ea790b57e"
+    },
+    {
+      "path": "tasks/T-043-build-the-bounded-governed-driver-around-existing-nodes-and-gates.md",
+      "sha256": "0e90d49c7949e86abd5f7c3dc8bd712185204028d0ac5befceec3a2fb14eceb5"
+    },
+    {
+      "path": "tasks/T-044-expose-python-owned-execution-verbs-through-the-existing-host-adapter.md",
+      "sha256": "00b2c02356de898d60052f4ed0e84b2096c39fe66ed7186efb4f10375fcbf7ea"
+    },
+    {
+      "path": "tasks/T-045-prove-the-tracer-bullet-and-run-the-coherence-gates.md",
+      "sha256": "3c9bf4cd04b9eabde64b69c815e8fb78c0ef8445468d014a60af4517108699a6"
+    },
+    {
+      "path": "tasks/T-046-preserve-the-compiled-gateplan-through-direct-and-kanban-transports.md",
+      "sha256": "b15f2b1fdf050df55bfb5a64b835a5d76809c9711e0496e030ce147ca8625fc2"
+    }
+  ],
+  "findings": [
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-043.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-044.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-051.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-052.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-053.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-054.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-055.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-065.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-071.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLANNING_REFERENCE_INVALID",
+      "severity": "error",
+      "subject": "requirements/SR-072.md",
+      "detail": "requirement source does not resolve to the authority spec"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-001-load-skill-block-pure-hard-skill-loading-python.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-002-wire-hard-skill-loading-into-every-sub-agent-role-s-prompt.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-003-vendor-brainstorming-writing-plans-lock-all-10-skills-to-hard-loading-only.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-004-ledger-py-get-task-tasknotfounderror-tasknottodoerror.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-005-run-next-task-id-target-one-specific-task.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-006-main-py-task-on-run-json-on-list.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-007-plan-to-tasks-pure-plan-md-parser.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-011-plan-to-tasks-cli-wrapper-id-assignment-idempotency-file-writing.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-012-ts-pi-types-ts-gains-select-newsession-process-control-ts-gains-task-targeting.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-013-ts-task-picker-ts-pure.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-014-ts-skill-prompt-ts-pure.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-015-ts-refactor-index-ts-to-share-lock-check-launch-logic-between-factory-and-factory-run.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-016-ts-plan-command-wiring.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-017-ts-factory-run-command-wiring.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-018-docs-and-gate.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-019-required-manual-verification.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-020-strip-fenced-code-blocks-in-plan-to-tasks-py.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-025-set-status-cli-subcommand-in-main-py.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-026-new-command-builders-in-process-control-ts.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-027-update-seed-prompt-drop-soft-plan-to-tasks-instruction.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-028-post-session-auto-export-mark-done-loop-in-plan-handler.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-029-make-subagent-spawn-liveness-aware-so-the-long-plan-authoring-runs-are-not-killed.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-030-sim-live-playground-in-the-factory.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-031-catchup-tab-orientation-metadata.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-032-feat17-planning-workflow.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-033-add-planning-run-evidence-review-seam-and-downstream-suggestion.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-034-expose-the-deterministic-planning-gate-through-coherence-plan.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-035-wire-the-existing-plan-authoring-host-to-the-backend-gate.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-036-add-the-bootstrap-composition-and-available-deterministic-gates.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-037-register-feat-17-trace-links-and-prove-the-feature-against-the-live-register.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    },
+    {
+      "code": "PLAN_TASK_PARITY",
+      "severity": "error",
+      "subject": "tasks/T-038-holistic-integration-review-and-available-gate-deployment.md",
+      "detail": "generated task source_plan does not match the selected plan"
+    }
+  ],
+  "next_actions": [],
+  "review_required": true,
+  "suggestion": null
+}
