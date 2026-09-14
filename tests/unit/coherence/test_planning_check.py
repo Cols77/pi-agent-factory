@@ -125,7 +125,10 @@ def test_duplicate_generated_task_ids_fail_closed(tmp_path: Path) -> None:
     assert any(finding.code == "PLAN_TASK_PARITY" for finding in report.findings)
 
 
-def test_foreign_generated_task_fails_closed_in_parity_gate(tmp_path: Path) -> None:
+def test_foreign_generated_task_is_ignored_by_parity_gate(tmp_path: Path) -> None:
+    # NC-0005: a generated task file whose source_plan names a different plan
+    # (e.g. an already-merged, unrelated plan's task sharing the same tasks/
+    # directory) is not this check's business and must not be flagged.
     input_data = _write_fixture(tmp_path, complete_tasks=True)
     (tmp_path / "tasks" / "T-999-foreign.md").write_text(
         "---\n"
@@ -140,11 +143,81 @@ def test_foreign_generated_task_fails_closed_in_parity_gate(tmp_path: Path) -> N
 
     report = check_planning_input(input_data)
 
-    assert report.ok is False
-    assert any(
-        finding.code == "PLAN_TASK_PARITY" and "source_plan" in finding.detail
-        for finding in report.findings
+    assert report.ok is True
+    assert not any(finding.code == "PLAN_TASK_PARITY" for finding in report.findings)
+
+
+_SPEC_B = """---
+id: plan-b-spec
+title: Plan B Specification
+status: draft
+---
+# Plan B Specification
+
+Plan B covers an unrelated feature.
+"""
+
+_PLAN_B = """---
+spec_ref: plan-b-spec.md
+---
+# Plan B
+
+### Task 1: Only Task
+
+**Files:**
+- Create: `src/plan_b.py`
+
+**Interfaces:**
+- Produces: `plan-b` support.
+"""
+
+
+def test_unrelated_plan_tasks_do_not_pollute_parity_gate(tmp_path: Path) -> None:
+    # NC-0005: two different plans' tasks coexist in the same shared tasks/
+    # directory. Checking the second plan must raise no finding against the
+    # first plan's own (complete, valid) tasks, while a genuine parity gap in
+    # the second plan's own tasks (no generated file for its declared task)
+    # is still caught.
+    _write_fixture(tmp_path, complete_tasks=True)
+
+    intent_path = tmp_path / ".intent" / "intent-b.json"
+    spec_path = tmp_path / "docs" / "superpowers" / "specs" / "plan-b-spec.md"
+    plan_path = tmp_path / "docs" / "superpowers" / "plans" / "plan-b.md"
+    for path in (intent_path, spec_path, plan_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    intent_path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "prompt": "Build plan B",
+                "answers": [{"id": "goal", "text": "plan-b covers an unrelated feature"}],
+            }
+        ),
+        encoding="utf-8",
     )
+    spec_path.write_text(_SPEC_B, encoding="utf-8")
+    plan_path.write_text(_PLAN_B, encoding="utf-8")
+    # Deliberately omit a generated task file for plan B's own Task 1: a
+    # genuine parity gap that must still be caught.
+
+    plan_b_input = PlanningInput(
+        intent_path=intent_path,
+        spec_path=spec_path,
+        plan_path=plan_path,
+        project_root=tmp_path,
+        run_id="run-002",
+    )
+
+    report = check_planning_input(plan_b_input)
+
+    assert report.ok is False
+    parity_findings = [finding for finding in report.findings if finding.code == "PLAN_TASK_PARITY"]
+    assert parity_findings, "plan B's own missing generated task must still be flagged"
+    assert all(
+        "T-001" not in finding.subject and "T-002" not in finding.subject and "intent-plan.md" not in finding.subject
+        for finding in parity_findings
+    ), "plan A's own tasks must not be referenced by plan B's parity findings"
+    assert any("plan-b.md" in finding.subject for finding in parity_findings)
 
 
 def test_noncanonical_generated_task_id_fails_closed(tmp_path: Path) -> None:
@@ -196,8 +269,7 @@ def test_duplicate_plan_task_numbers_fail_closed(tmp_path: Path) -> None:
     )
 
 
-def test_fenced_heading_does_not_satisfy_authority_anchor(tmp_path: Path) -> None:
-    input_data = _write_fixture(tmp_path, complete_tasks=True)
+def _write_feat017_closure_fixture(tmp_path: Path, input_data: PlanningInput) -> None:
     input_data.spec_path.write_text(
         _SPEC.replace(
             "# Intent Specification",
@@ -228,10 +300,34 @@ def test_fenced_heading_does_not_satisfy_authority_anchor(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
+
+def test_fenced_heading_does_not_satisfy_authority_anchor(tmp_path: Path) -> None:
+    # This exercises FEAT-017's own closure validation, so the run under
+    # review must actually be FEAT-017's own run (NC-0004 scopes this check
+    # to run_id == "FEAT-017"); it still correctly fails on a genuine defect
+    # in FEAT-017's own closure metadata.
+    input_data = replace(_write_fixture(tmp_path, complete_tasks=True), run_id="FEAT-017")
+    _write_feat017_closure_fixture(tmp_path, input_data)
+
     report = check_planning_input(input_data)
 
     assert report.ok is False
     assert any(finding.code == "PLANNING_REFERENCE_INVALID" for finding in report.findings)
+
+
+def test_feat017_closure_metadata_is_not_validated_for_unrelated_run(tmp_path: Path) -> None:
+    # NC-0004: a run whose run_id is not FEAT-017 and whose --spec is not
+    # FEAT-017's own closure spec must produce zero PLANNING_REFERENCE_INVALID
+    # findings caused by FEAT-017's dossier/bundle/requirements, even though
+    # those files exist in the repo (here, with an intentionally invalid
+    # closure that would otherwise trip the check).
+    input_data = _write_fixture(tmp_path, complete_tasks=True)
+    assert input_data.run_id != "FEAT-017"
+    _write_feat017_closure_fixture(tmp_path, input_data)
+
+    report = check_planning_input(input_data)
+
+    assert not any(finding.code == "PLANNING_REFERENCE_INVALID" for finding in report.findings)
 
 
 def test_boolean_intent_schema_is_not_an_integer_schema(tmp_path: Path) -> None:

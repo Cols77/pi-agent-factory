@@ -343,7 +343,11 @@ def _required_planning_sources(
     ):
         raise PlanningGateError("captured intent, specification, and plan are not aligned")
     reference_findings: list[PlanningFinding] = []
-    _check_planning_references(root, spec_path, spec_path.read_text(encoding="utf-8"), reference_findings)
+    # This boundary always validates against the canonical FEAT-017
+    # registration (see docstring above), independent of the run_id under
+    # review, so it always checks FEAT-017's own closure metadata (NC-0004
+    # scopes _check_planning_references to run_id == "FEAT-017").
+    _check_planning_references(root, spec_path, spec_path.read_text(encoding="utf-8"), reference_findings, "FEAT-017")
     if reference_findings:
         raise PlanningGateError("feature registration or requirement metadata is invalid")
     current, feature_evidence = _current_feature_requirements(root, spec_path=spec_path)

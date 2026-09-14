@@ -313,6 +313,12 @@ def _check_tasks(
         metadata = _metadata(text, task_path, root, findings)
         if metadata is None:
             continue
+        source_plan = metadata.get("source_plan")
+        if isinstance(source_plan, str) and source_plan.strip() and source_plan != expected_plan:
+            # Generated task belongs to a different plan's already-checked decomposition;
+            # the shared tasks/ directory holds every plan's tasks, so a file that
+            # names another plan is not this check's business (NC-0005).
+            continue
         matched_paths.append(task_path)
         task_id = metadata.get("id")
         if not isinstance(task_id, str) or _TASK_ID_RE.fullmatch(task_id) is None:
@@ -329,7 +335,7 @@ def _check_tasks(
             )
         else:
             task_ids[task_id] = str(task_path)
-        if metadata.get("source_plan") != expected_plan:
+        if source_plan != expected_plan:
             findings.append(
                 _finding(
                     "PLAN_TASK_PARITY",
@@ -374,26 +380,31 @@ def _check_tasks(
 
 
 def _planning_reference_paths(root: Path, run_id: str) -> tuple[Path, ...]:
-    """Collect optional FEAT-017 closure inputs into the review evidence."""
-    feature_path = root / "docs" / "features" / "FEAT-017.md"
-    bundle_path = root / "bundles" / "FEAT-017.json"
+    """Collect optional FEAT-017 closure inputs into the review evidence.
+
+    The FEAT-017 dossier/bundle/requirements only belong to FEAT-017's own
+    planning run; collecting them for every other run's evidence was NC-0004.
+    """
     paths: list[Path] = []
-    for path in (feature_path, bundle_path):
-        safe_path = safe_resolve(root, path)
-        if safe_path is not None and safe_path.is_file():
-            paths.append(path)
-    if safe_resolve(root, feature_path) is not None and feature_path.is_file():
-        try:
-            metadata = strict_frontmatter_loads(feature_path.read_text(encoding="utf-8")).metadata
-        except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
-            metadata = {}
-        requirement_ids = metadata.get("requirements", [])
-        if isinstance(requirement_ids, list):
-            paths.extend(
-                root / "requirements" / f"{item}.md"
-                for item in requirement_ids
-                if isinstance(item, str) and _REQUIREMENT_ID_RE.fullmatch(item) is not None
-            )
+    if run_id == "FEAT-017":
+        feature_path = root / "docs" / "features" / "FEAT-017.md"
+        bundle_path = root / "bundles" / "FEAT-017.json"
+        for path in (feature_path, bundle_path):
+            safe_path = safe_resolve(root, path)
+            if safe_path is not None and safe_path.is_file():
+                paths.append(path)
+        if safe_resolve(root, feature_path) is not None and feature_path.is_file():
+            try:
+                metadata = strict_frontmatter_loads(feature_path.read_text(encoding="utf-8")).metadata
+            except (OSError, UnicodeError, TypeError, ValueError, yaml.YAMLError):
+                metadata = {}
+            requirement_ids = metadata.get("requirements", [])
+            if isinstance(requirement_ids, list):
+                paths.extend(
+                    root / "requirements" / f"{item}.md"
+                    for item in requirement_ids
+                    if isinstance(item, str) and _REQUIREMENT_ID_RE.fullmatch(item) is not None
+                )
     consent_path = root / ".factory" / "planning" / run_id / "requirement-consent.json"
     if safe_resolve(root, consent_path) is not None and consent_path.is_file():
         paths.append(consent_path)
@@ -408,8 +419,18 @@ def _check_planning_references(
     spec_path: Path,
     spec_text: str | None,
     findings: list[PlanningFinding],
+    run_id: str,
 ) -> None:
-    """Validate FEAT-017 closure inputs when a feature dossier is present."""
+    """Validate FEAT-017 closure inputs when checking FEAT-017's own planning run.
+
+    This validation is specific to FEAT-017's own closure metadata (it compares
+    each requirement's `source` against the CURRENT run's `--spec`, and its
+    error text names FEAT-017 explicitly) so it must only fire for the run that
+    is actually FEAT-017's own; otherwise every other run's `--spec` spuriously
+    fails to match FEAT-017's requirement sources (NC-0004).
+    """
+    if run_id != "FEAT-017":
+        return
     feature_candidate = root / "docs" / "features" / "FEAT-017.md"
     feature_path = safe_resolve(root, feature_candidate)
     if feature_path is None:
@@ -530,7 +551,7 @@ def check_planning_input(input: PlanningInput) -> PlanningReport:
     for reference_path in _planning_reference_paths(root, input.run_id):
         record = _record_artifact(reference_path, root)
         artifacts[str(record["path"])] = record
-    _check_planning_references(root, input.spec_path, spec_text, findings)
+    _check_planning_references(root, input.spec_path, spec_text, findings, input.run_id)
     spec_body = _body(spec_text) if spec_text is not None else None
     plan_body = _body(plan_text) if plan_text is not None else None
     if answer_ids and spec_body is not None and plan_body is not None:
