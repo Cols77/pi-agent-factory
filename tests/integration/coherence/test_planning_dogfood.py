@@ -71,6 +71,7 @@ def test_provisional_requirement_authoring_stops_before_consent_and_refreshes_re
     from coherence.planning.artifacts import build_artifact_manifest, read_artifact_manifest
     from coherence.planning.guided_pipeline import run_pipeline_command
     from coherence.planning.session import legal_actions_session
+    from coherence.register.register import is_checksum_current, parse_requirement
 
     monkeypatch.setenv("UV_PROJECT", str(Path(__file__).parents[3]))
     monkeypatch.setattr(gates, "_PLANNING_GATE_FEATURE", "FEAT-019")
@@ -84,19 +85,31 @@ def test_provisional_requirement_authoring_stops_before_consent_and_refreshes_re
     run_dir = tmp_path / ".factory" / "planning" / run_id
     manifest_path = run_dir / "artifacts.json"
     per_sr_consent = run_dir / "consent" / "SR-001.json"
+    requirement = tmp_path / "requirements" / "SR-001.md"
 
     projection = legal_actions_session(tmp_path, run_id)
     assert projection["legal_next_actions"] == ["author-requirements"]
+    assert not requirement.exists()
     assert not manifest_path.exists()
     assert not per_sr_consent.exists()
 
-    requirement = tmp_path / "requirements" / "SR-001.md"
     requirement.parent.mkdir(parents=True)
     requirement.write_text(
-        "---\nid: SR-001\n---\n\n# Provisional requirement\n\n"
-        "The planning boundary must remain deterministic.\n",
+        "---\n"
+        "id: SR-001\n"
+        "title: Deterministic planning boundary\n"
+        "statement: The planning boundary shall remain deterministic.\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "---\n\n"
+        "Provisional candidate.\n",
         encoding="utf-8",
     )
+    candidate = parse_requirement(requirement)
+    assert candidate.id == "SR-001"
+    assert candidate.binding is None
+    assert is_checksum_current(candidate) is True
+
     feature = tmp_path / "docs" / "features" / "FEAT-019.md"
     feature.parent.mkdir(parents=True)
     feature.write_text(
@@ -144,15 +157,39 @@ def test_provisional_requirement_authoring_stops_before_consent_and_refreshes_re
     assert projection["starts_automatically"] is False
     assert not per_sr_consent.exists()
 
+    old_hash = hashlib.sha256(requirement.read_bytes()).hexdigest()
+    write_sr_decision(
+        tmp_path,
+        run_id,
+        "SR-001",
+        old_hash,
+        "approve",
+        "human",
+        PER_SR_CONSENT_PHRASE,
+        "Reviewed this provisional requirement independently.",
+    )
+    old_consent_bytes = per_sr_consent.read_bytes()
+    old_consent = json.loads(old_consent_bytes)
+    assert old_consent["requirement_sha256"] == old_hash
+    assert old_consent["phrase"] == PER_SR_CONSENT_PHRASE
+
     requirement.write_text(
-        "---\nid: SR-001\n---\n\n# Provisional requirement revision\n\n"
-        "The planning boundary must remain deterministic and hash-bound.\n",
+        "---\n"
+        "id: SR-001\n"
+        "title: Hash-bound deterministic planning boundary\n"
+        "statement: The planning boundary shall remain deterministic and hash-bound.\n"
+        "domain: behavioral\n"
+        "upstream: []\n"
+        "---\n\n"
+        "Provisional revision.\n",
         encoding="utf-8",
     )
+    new_hash = hashlib.sha256(requirement.read_bytes()).hexdigest()
+    assert new_hash != old_hash
     projection = legal_actions_session(tmp_path, run_id)
     assert projection["blocked"] is True
     assert projection["reason"] == "ARTIFACT_MANIFEST_INVALID"
-    assert not per_sr_consent.exists()
+    assert per_sr_consent.read_bytes() == old_consent_bytes
 
     revised_manifest = write_complete_manifest()
     assert revised_manifest != manifest
@@ -162,11 +199,20 @@ def test_provisional_requirement_authoring_stops_before_consent_and_refreshes_re
         item["path"]: item["sha256"]
         for item in revised_read_back["artifacts"]
         if isinstance(item, dict)
-    }["requirements/SR-001.md"] == hashlib.sha256(requirement.read_bytes()).hexdigest()
+    } == {
+        "docs/features/FEAT-019.md": hashlib.sha256(feature.read_bytes()).hexdigest(),
+        "requirements/SR-001.md": new_hash,
+    }
+    assert {
+        item["path"]: item["sha256"]
+        for item in revised_read_back["artifacts"]
+        if isinstance(item, dict)
+    }["requirements/SR-001.md"] != old_hash
     projection = legal_actions_session(tmp_path, run_id)
-    assert projection["legal_next_actions"] == ["record-sr-consent"]
-    assert projection["starts_automatically"] is False
-    assert not per_sr_consent.exists()
+    assert projection["blocked"] is True
+    assert projection["legal_next_actions"] == []
+    assert projection["reason"] == "STALE_REQUIREMENT_CONSENT"
+    assert per_sr_consent.read_bytes() == old_consent_bytes
 
 
 def _fixture_json(name: str) -> dict:
