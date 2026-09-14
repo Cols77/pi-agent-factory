@@ -64,7 +64,7 @@ spec_ref: intent-spec.md
 """
 
 
-def _write_fixture(root: Path) -> PlanningInput:
+def _write_fixture(root: Path, *, run_id: str = "run-001") -> PlanningInput:
     intent_path = root / ".intent" / "intent.json"
     spec_path = root / "docs" / "superpowers" / "specs" / "intent-spec.md"
     plan_path = root / "docs" / "superpowers" / "plans" / "intent-plan.md"
@@ -118,13 +118,13 @@ def _write_fixture(root: Path) -> PlanningInput:
         json.dumps({"id": "FEAT-017", "members": ["feat:FEAT-017", "sr:SR-001", "sr:SR-002"]}),
         encoding="utf-8",
     )
-    consent_path = root / ".factory" / "planning" / "run-001" / "requirement-consent.json"
+    consent_path = root / ".factory" / "planning" / run_id / "requirement-consent.json"
     consent_path.parent.mkdir(parents=True, exist_ok=True)
     consent_path.write_text(
         json.dumps(
             {
                 "schema": 1,
-                "run_id": "run-001",
+                "run_id": run_id,
                 "decision": "approve",
                 "reviewer": "human",
                 "reason": "Reviewed the derived requirements.",
@@ -138,7 +138,7 @@ def _write_fixture(root: Path) -> PlanningInput:
         spec_path=spec_path,
         plan_path=plan_path,
         project_root=root,
-        run_id="run-001",
+        run_id=run_id,
     )
 
 
@@ -148,7 +148,7 @@ def _approval(report: object) -> dict[str, object]:
     artifacts = getattr(report, "artifacts")
     return {
         "schema": 1,
-        "run_id": "run-001",
+        "run_id": report.run_id,
         "decision": "approve",
         "reviewer": "human",
         "reason": "Reviewed the generated planning artifacts.",
@@ -337,10 +337,13 @@ def test_malformed_decision_never_suggests(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_changed_requirement_hash_blocks_approved_suggestion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    input_data = _write_fixture(tmp_path)
+    # FEAT-017's own closure metadata (its requirements) is only validated
+    # when reviewing FEAT-017's own run (NC-0004), so this must review run_id
+    # "FEAT-017" for the changed SR-001 hash to be caught here.
+    input_data = _write_fixture(tmp_path, run_id="FEAT-017")
     report = check_planning_input(input_data)
     write_planning_run(tmp_path, report)
-    decision_path = tmp_path / ".factory" / "planning" / "run-001" / "review-decision.json"
+    decision_path = tmp_path / ".factory" / "planning" / "FEAT-017" / "review-decision.json"
     decision_path.write_text(json.dumps(_approval(report)), encoding="utf-8")
     requirement_path = tmp_path / "requirements" / "SR-001.md"
     requirement_path.write_text(requirement_path.read_text(encoding="utf-8") + "\nChanged after review.\n", encoding="utf-8")
@@ -437,7 +440,9 @@ def test_extra_bundle_member_blocks_approved_suggestion(tmp_path: Path, monkeypa
 
 
 def test_missing_declared_requirement_blocks_the_primary_check(tmp_path: Path) -> None:
-    input_data = _write_fixture(tmp_path)
+    # FEAT-017's own declared requirements are only validated when reviewing
+    # FEAT-017's own run (NC-0004).
+    input_data = _write_fixture(tmp_path, run_id="FEAT-017")
     (tmp_path / "requirements" / "SR-001.md").unlink()
 
     report = check_planning_input(input_data)
@@ -447,7 +452,9 @@ def test_missing_declared_requirement_blocks_the_primary_check(tmp_path: Path) -
 
 
 def test_malformed_declared_bundle_blocks_the_primary_check(tmp_path: Path) -> None:
-    input_data = _write_fixture(tmp_path)
+    # FEAT-017's own bundle is only validated when reviewing FEAT-017's own
+    # run (NC-0004).
+    input_data = _write_fixture(tmp_path, run_id="FEAT-017")
     (tmp_path / "bundles" / "FEAT-017.json").write_text("{not-json", encoding="utf-8")
 
     report = check_planning_input(input_data)
@@ -457,7 +464,9 @@ def test_malformed_declared_bundle_blocks_the_primary_check(tmp_path: Path) -> N
 
 
 def test_incomplete_requirement_blocks_the_primary_check(tmp_path: Path) -> None:
-    input_data = _write_fixture(tmp_path)
+    # FEAT-017's own requirements are only validated when reviewing FEAT-017's
+    # own run (NC-0004).
+    input_data = _write_fixture(tmp_path, run_id="FEAT-017")
     requirement_path = tmp_path / "requirements" / "SR-001.md"
     requirement_path.write_text(
         requirement_path.read_text(encoding="utf-8").replace("statement: SR-001 statement\n", ""),
@@ -469,7 +478,9 @@ def test_incomplete_requirement_blocks_the_primary_check(tmp_path: Path) -> None
     assert report.ok is False
     assert any(finding.code == "PLANNING_REFERENCE_INVALID" for finding in report.findings)
 def test_requirement_with_unknown_authority_anchor_blocks_primary_check(tmp_path: Path) -> None:
-    input_data = _write_fixture(tmp_path)
+    # FEAT-017's own requirements are only validated when reviewing FEAT-017's
+    # own run (NC-0004).
+    input_data = _write_fixture(tmp_path, run_id="FEAT-017")
     requirement_path = tmp_path / "requirements" / "SR-001.md"
     requirement_path.write_text(
         requirement_path.read_text(encoding="utf-8").replace("#goal", "#missing-anchor"),
