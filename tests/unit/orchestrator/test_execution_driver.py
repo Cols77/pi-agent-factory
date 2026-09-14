@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable
 
 import pytest
@@ -157,6 +158,8 @@ class _ScriptedBackend(AgentBackend):
         self.session_ids: list[str] = []
         self.dev_prompts: list[str] = []
         self.review_cycle = 0
+        self._review_lanes_seen: set[str] = set()
+        self._review_lock = Lock()
         self._dev_count = 0
 
     def run(
@@ -180,16 +183,24 @@ class _ScriptedBackend(AgentBackend):
                 session_id=session,
             )
         # REVIEW lane
-        script = self._review_scripts[self.review_cycle % max(1, len(self._review_scripts))]
         lane = "spec-review" if "SPEC-COMPLIANCE" in prompt else "quality-review"
-        session = f"{lane}-session-{self.review_cycle + 1}"
+        # The production swarm starts both lanes concurrently. Assign both
+        # lanes in a pair to the same scripted cycle regardless of which lane
+        # reaches this fake first; otherwise the fake itself races and can
+        # silently consume the next cycle's script.
+        with self._review_lock:
+            cycle = self.review_cycle
+            script = self._review_scripts[cycle % max(1, len(self._review_scripts))]
+            self._review_lanes_seen.add(lane)
+            if self._review_lanes_seen == {"spec-review", "quality-review"}:
+                self._review_lanes_seen.clear()
+                self.review_cycle += 1
+        session = f"{lane}-session-{cycle + 1}"
         self.session_ids.append(session)
         if on_session_id is not None:
             on_session_id(session)
         findings = script.spec_findings if lane == "spec-review" else script.quality_findings
         dod_met = script.spec_dod if lane == "spec-review" else script.quality_dod
-        if lane == "quality-review":
-            self.review_cycle += 1
         return AgentResult(
             ok=True, output={"findings": list(findings), "dod_met": dod_met}, session_id=session
         )
