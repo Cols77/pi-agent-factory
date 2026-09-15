@@ -597,4 +597,107 @@ def test_plan_suggest_rejects_approved_report_after_spec_changes(
     assert blocked["suggestion"] is None
 
 
+# --- NC-0010: refuse capture mutation from the shared main checkout ------
+#
+# `_materialize` (session.py) writes the single, unnamespaced legacy mirror
+# `.intent/intent.json` on every capture mutation, for every run, with no
+# per-run namespacing. Two concurrent captures in the same *shared* checkout
+# (not isolated git worktrees) can silently clobber each other's mirror. The
+# guard lives in this CLI layer (not session.py itself) precisely so that
+# session.py's own unit tests -- which drive `start_session`/etc. directly
+# against a bare, non-git `tmp_path` -- are unaffected and stay fast.
+
+
+def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True,
+    )
+
+
+def test_capture_start_is_refused_from_a_real_git_main_checkout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A real git repo with no worktree IS the shared main checkout NC-0010
+    describes -- refuse the mutation outright instead of silently writing
+    `.intent/intent.json`, which a second concurrent capture could clobber."""
+    _run_git("init", cwd=tmp_path)
+
+    exit_code = main([
+        "plan", "start", "--project-root", str(tmp_path), "--run-id", "run-001",
+        "--prompt", "Build a planner", "--json",
+    ])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "NC-0010" in payload["error"]
+    assert "worktree" in payload["error"]
+    assert not (tmp_path / ".intent" / "intent.json").exists()
+    assert not (tmp_path / ".factory" / "planning" / "run-001").exists()
+
+
+def test_capture_append_is_also_refused_from_the_shared_main_checkout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every capture-mutating verb materializes the shared legacy mirror
+    (session.py::_materialize), not just `start` -- the guard must cover
+    each of them, not only the first."""
+    _run_git("init", cwd=tmp_path)
+
+    exit_code = main([
+        "plan", "append", "--project-root", str(tmp_path), "--run-id", "run-001",
+        "--answer-id", "goal", "--question", "What?", "--text", "A planner", "--json",
+    ])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "NC-0010" in payload["error"]
+
+
+def test_capture_start_succeeds_from_an_isolated_worktree_of_that_repo(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same call against an isolated worktree of the same repo (git-dir
+    != git-common-dir) is unaffected -- worktrees do not share a working
+    directory, so there is nothing for a concurrent capture to clobber."""
+    main_repo = tmp_path / "main-repo"
+    main_repo.mkdir()
+    _run_git("init", cwd=main_repo)
+    _run_git(
+        "-c", "user.email=test@example.com", "-c", "user.name=Test",
+        "commit", "--allow-empty", "-m", "root", cwd=main_repo,
+    )
+    worktree = tmp_path / "worktree"
+    _run_git("worktree", "add", str(worktree), "HEAD", cwd=main_repo)
+
+    exit_code = main([
+        "plan", "start", "--project-root", str(worktree), "--run-id", "run-001",
+        "--prompt", "Build a planner", "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert (worktree / ".intent" / "intent.json").exists()
+
+
+def test_capture_start_is_unaffected_against_a_non_git_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare `tmp_path` (no `.git` anywhere in its ancestry) is what most
+    of this repo's existing unit tests use -- "not a git repo" must be
+    detected by `git rev-parse` itself failing and treated as "guard not
+    applicable," never as a block."""
+    exit_code = main([
+        "plan", "start", "--project-root", str(tmp_path), "--run-id", "run-001",
+        "--prompt", "Build a planner", "--json",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert (tmp_path / ".intent" / "intent.json").exists()
+
+
 __all__ = []
