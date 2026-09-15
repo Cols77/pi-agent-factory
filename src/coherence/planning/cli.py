@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -550,12 +551,55 @@ def _run_planning_gates(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Every session verb that reaches ``session.py::_materialize`` and so writes
+#: the single, unnamespaced legacy mirror ``.intent/intent.json`` -- "status"
+#: and "legal-actions" only read state and are excluded (see NC-0010).
+_MUTATING_SESSION_COMMANDS = frozenset(
+    {"start", "resume", "append", "propose-challenge", "resolve", "finalize"}
+)
+
+
+def _refuse_shared_main_checkout(project_root: Path) -> None:
+    """NC-0010 fail-closed guard.
+
+    ``session.py::_materialize`` writes the shared, unnamespaced legacy mirror
+    ``.intent/intent.json`` on every capture mutation, for every run, with no
+    per-run namespacing or locking. Two concurrent captures in the same
+    *shared* checkout can silently clobber each other's mirror. Refuse the
+    unsafe precondition outright when ``project_root`` is a git repository
+    and is the *main* checkout (``git rev-parse --git-dir`` ==
+    ``git rev-parse --git-common-dir``) -- an isolated worktree (the two
+    differ) does not share a working directory with any other capture and is
+    left alone, and a non-git root (most existing unit tests, via a bare
+    ``tmp_path``) is left alone too: "not a git repo" is detected by the
+    ``git rev-parse`` invocation itself failing, never treated as a block.
+    """
+    try:
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=project_root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        common_dir = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=project_root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return
+    if Path(project_root, git_dir).resolve() == Path(project_root, common_dir).resolve():
+        raise SessionError(
+            "NC-0010: refusing to mutate capture state from the shared main "
+            "checkout -- run captures from an isolated git worktree instead"
+        )
+
+
 def _session_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "legal-actions":
             payload = legal_actions_session(args.project_root, args.run_id)
             print(json.dumps(payload, indent=2, ensure_ascii=False))
             return 1 if payload["blocked"] else 0
+        if args.command in _MUTATING_SESSION_COMMANDS:
+            _refuse_shared_main_checkout(args.project_root)
         if args.command == "start":
             session = start_session(args.project_root, args.run_id, args.prompt)
         elif args.command == "resume":
