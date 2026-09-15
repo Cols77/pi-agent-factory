@@ -437,6 +437,7 @@ def _review(args: argparse.Namespace) -> int:
     )
     escalation["hashes"] = {str(item["path"]): str(item["sha256"]) for item in report.artifacts}
     escalation["ok"] = report.ok
+    escalation["schema"] = PLANNING_TRANSPORT_SCHEMA
     print(json.dumps(escalation, indent=2, ensure_ascii=False))
     return 1 if not report.ok or report.findings else 0
 
