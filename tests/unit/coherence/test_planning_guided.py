@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from coherence.planning.adapter_backend import BackendError, invoke_backend, require_safe_run_id
+from coherence.planning.adapter_backend import (
+    BackendError,
+    PLANNING_TRANSPORT_SCHEMA,
+    invoke_backend,
+    require_safe_run_id,
+)
 from coherence.planning.guided_entrypoint import (
     SESSION_VERBS,
     build_session_command,
@@ -775,3 +780,70 @@ def test_ac2_a_genuinely_stale_session_state_is_relayed_as_data_not_raised(
 
     assert payload["ok"] is False
     assert "stale" in payload["error"]
+
+
+# --- NC-0008: review's transport payload must pass run_pipeline_command's own
+# schema/run_id check, not just build_escalation's isolated return value
+#
+# `_review` used to print `build_escalation(...)`'s dict, which hardcodes
+# `schema: 1`, while every sibling handler in `cli.py` explicitly sets
+# `payload["schema"] = PLANNING_TRANSPORT_SCHEMA` (2) before printing. That
+# meant `guided_pipeline.run_pipeline_command` -- the sanctioned adapter every
+# host must use instead of calling `coherence plan` directly -- rejected the
+# real `review` payload as untrustworthy on every run, unconditionally. These
+# tests drive the real `_review` handler in-process against a persisted
+# report.json and feed its actual stdout through `run_pipeline_command`'s own
+# parsing/validation path (never a hand-authored fixture payload), for both a
+# clean report and one carrying findings.
+
+
+def _persisted_review_report(run_id: str, *, findings: list[dict[str, str]] | None = None) -> dict[str, object]:
+    return {
+        "schema": 1,
+        "run_id": run_id,
+        "ok": not findings,
+        "artifacts": [],
+        "findings": findings or [],
+        "next_actions": [],
+        "review_required": True,
+        "suggestion": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "findings",
+    [
+        None,
+        [{"code": "PLAN_TASK_PARITY", "severity": "error",
+          "subject": "tasks/T-001.md", "detail": "missing task"}],
+    ],
+    ids=["clean", "with_findings"],
+)
+def test_review_verb_payload_survives_run_pipeline_commands_own_schema_check(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    findings: list[dict[str, str]] | None,
+) -> None:
+    from coherence.planning.cli import main as backend_main
+
+    run_id = "run-001"
+    run_dir = tmp_path / ".factory" / "planning" / run_id
+    run_dir.mkdir(parents=True)
+    report = _persisted_review_report(run_id, findings=findings)
+    (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        exit_code = backend_main(
+            ["review", "--project-root", str(tmp_path), "--run-id", run_id, "--json"]
+        )
+        real_stdout = capsys.readouterr().out
+        return subprocess.CompletedProcess(command, exit_code, stdout=real_stdout, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    code, payload = run_pipeline_command(tmp_path, run_id, "review")
+
+    assert payload["schema"] == PLANNING_TRANSPORT_SCHEMA
+    assert payload["run_id"] == run_id
+    assert code == (1 if findings else 0)
