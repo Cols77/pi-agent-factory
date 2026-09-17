@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "code:src/load_mountain.py",
+      "detail": "declared consumer code:src/load_mountain.py has no recorded validation evidence for contract 'MOUNTAIN'"
+    },
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "test:tests/wire_test.py",
+      "detail": "declared consumer test:tests/wire_test.py has no recorded validation evidence for contract 'WIRE'"
+    }
+  ]
+}

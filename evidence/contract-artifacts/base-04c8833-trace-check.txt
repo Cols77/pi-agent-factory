@@ -1,0 +1,350 @@
+traceability health: 52%
+283 pending, 61 deferred, 10 exempt
+
+undiscussed gaps (the gate fails on these):
+  ! T-001                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-002                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-003                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-004                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-005                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-006                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-007                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-011                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-012                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-013                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-014                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-015                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-016                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-017                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-018                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-019                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-020                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-025                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-026                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-027                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-028                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-030                    task_no_sr         task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)
+  ! T-031                    task_no_plan       task declares no source_plan
+  ! plan:2026-07-16-factory-orchestrator.md plan_no_spec       plan references no spec
+  ! plan:2026-07-16-scope-guard-pi-extension.md plan_no_spec       plan references no spec
+  ! plan:2026-07-24-already-done-task-routing.md plan_no_spec       plan references no spec
+  ! plan:2026-07-27-in-session-mission-control.md plan_no_spec       plan references no spec
+  ! plan:2026-07-27-review-focus-guide.md plan_no_spec       plan references no spec
+  ! plan:2026-07-28-dev-escalation-pairing-handoff.md plan_no_spec       plan references no spec
+  ! plan:2026-07-28-factory-state-visibility.md plan_no_spec       plan references no spec
+  ! plan:2026-07-29-coherence-evidence-connectors.md plan_no_spec       plan references no spec
+  ! plan:2026-07-29-review-ux-plan-a-model-tui-python.md plan_no_spec       plan references no spec
+  ! plan:2026-07-29-review-ux-plan-b-web-server.md plan_no_spec       plan references no spec
+  ! plan:2026-07-30-system-requirement-validation-inc1a.md plan_no_spec       plan references no spec
+  ! plan:2026-07-31-polish-workflow-p1.md plan_no_spec       plan references no spec
+  ! plan:2026-07-31-polish-workflow-p2.md plan_no_spec       plan references no spec
+  ! plan:2026-07-31-req-validation-1b.md plan_no_spec       plan references no spec
+  ! plan:2026-08-01-req-validation-inc2-faceA-playwright-harness.md plan_no_spec       plan references no spec
+  ! plan:2026-08-01-req-validation-inc2-faceB-polish-orchestrator.md plan_no_spec       plan references no spec
+  ! plan:2026-08-01-req-validation-inc2-faceB2-polish-ui-bridge.md plan_no_spec       plan references no spec
+  ! plan:2026-08-05-project-configurable-gates.md plan_no_spec       plan references no spec
+  ! plan:2026-08-07-evidence-store-and-manifests.md plan_no_spec       plan references no spec
+  ! plan:2026-08-07-freshness-preflight-and-reconciliation.md plan_no_spec       plan references no spec
+  ! plan:2026-08-07-pif-browser-evidence-integration.md plan_no_spec       plan references no spec
+  ! plan:2026-08-07-run-journal-and-recovery.md plan_no_spec       plan references no spec
+  ! plan:2026-08-08-system-navigator-briefing-validation-guide.md plan_no_spec       plan references no spec
+  ! plan:2026-08-10-system-navigator-navigation.md plan_no_spec       plan references no spec
+  ! plan:2026-08-13-spb-health-performance.md plan_no_spec       plan references no spec
+  ! plan:2026-08-13-system-navigator-visual-identity.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-0-baseline-enablement.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-0-evidence-register.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-1-agentic-io-freshness-foundation.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-1b-neutral-substrate-extraction.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-1c-codemap-kb-signatures.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-2-trace-register.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-increment-3-navigate-presentation-goals-simulation.md plan_no_spec       plan references no spec
+  ! plan:2026-08-20-coherence-programme-execution-map.md plan_no_spec       plan references no spec
+  ! plan:2026-08-30-test-campaign-reduction-surgical-plan.md plan_no_spec       plan references no spec
+  ! plan:2026-08-31-coherence-knowledge-base-classroom.md plan_no_spec       plan references no spec
+  ! plan:2026-08-31-sr-code-validation-traceability-plan.md plan_no_spec       plan references no spec
+  ! plan:2026-09-07-feat017-closure-bookkeeping.md plan_no_spec       plan references no spec
+  ! plan:2026-09-07-feat017-t038-review-report.md plan_no_spec       plan references no spec
+  ! plan:2026-09-07-legal-actions-lifecycle-projection.md plan_no_spec       plan references no spec
+  ! plan:2026-09-08-feat017-coordinated-closure-slice.md plan_no_spec       plan references no spec
+  ! FEAT-001                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-002                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-003                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-004                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-005                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-006                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-007                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-008                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-009                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-010                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-011                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-012                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-013                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-014                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-015                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-016                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-017                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-018                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-019                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! FEAT-020                 artifact_uncovered no requirement's relates_to reaches this feat
+  ! SR-001                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-003                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-004                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-005                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-006                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-007                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-008                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-010                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-011                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-012                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-013                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-014                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-015                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-016                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-017                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-018                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-019                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-020                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-021                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-022                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-023                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-025                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-026                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-027                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-028                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-029                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-030                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-031                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-032                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-033                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-034                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-035                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-036                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-037                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-038                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-039                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-040                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-041                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-042                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-043                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-044                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-045                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-046                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-047                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-048                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-049                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-051                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-052                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-053                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-054                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-055                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-056                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-057                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-060                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-063                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-064                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-065                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-070                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-071                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! SR-072                   artifact_uncovered no requirement's relates_to reaches this sr
+  ! spec:2026-07-16-deterministic-agent-dev-factory-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-20-factory-live-visualization-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-20-factory-plan-and-run-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-21-deterministic-task-export-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-21-review-plans-command-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-22-factory-human-review-ui-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-22-mission-control-and-session-review-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-23-mission-control-observation-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-24-already-done-task-routing-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-24-mission-control-review-decision-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-27-human-review-loop-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-27-in-session-mission-control-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-27-review-focus-guide-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-28-dev-escalation-pairing-handoff-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-28-factory-state-visibility-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-29-coherence-evidence-connectors-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-29-review-ux-dual-surface-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-30-system-requirement-validation-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-07-31-polish-workflow-and-validation-node-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-01-req-validation-inc2-webapp-live-harness-and-polish-node-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-03-review-plans-browser-and-trace-health-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-05-drone-factory-separation-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-05-project-configurable-gates-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-06-factory-init-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-06-requirement-doctor-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-06-trace-fix-field-of-view-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-07-factory-evidence-lifecycle-and-recovery-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-08-system-navigator-briefing-validation-guide-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-09-system-navigator-increment-b-vcycle-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-10-curation-increment-2-seed.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-10-curation-workflow-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-10-review-browser-task-context-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-10-system-control-center-program-decomposition.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-11-system-feature-spine-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-12-grill-understanding-node-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-12-system-control-center-spb-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-13-project-bootstrap-factory-init-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-13-spb-health-performance-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-13-system-navigator-visual-identity-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-code-context-bundle-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-context-packet-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-pipeline-node-registry-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-session-memory-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-system-navigator-comprehension-layer-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-14-system-navigator-comprehension-layer-visual-addendum.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-16-system-navigator-execution-engine-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-16-system-navigator-legibility-increment-2-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-17-requirement-coverage-review-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-18-coherence-toolset-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-20-coherence-agentic-io-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-21-polish-menu-playground-usecase.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-22-coherence-progressive-assurance-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-22-system-traceability-course-overhaul-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-23-pi-package-adoption-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-24-coherence-release-strategy.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-26-coherence-inc9-programme-session-capture.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-coherence-console-webui-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-feat13-governed-execution-driver-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-feat14-validation-gates-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-feat15-polish-flow-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-feat16-modular-workflows-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-filesystem-first-architecture-assessment.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-27-free-subagent-reliability-retro.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-08-31-sr-code-validation-traceability-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-09-05-codex-coherence-plan-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-09-05-feat003-planning-workflow-alignment-intent.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-09-06-codex-guided-coherence-plan-parity-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:2026-09-14-coherence-plan-requirements-authoring-design.md artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:SPEC-FEAT-013-GOVERNED-EXECUTION-DRIVER artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:SPEC-FEAT-017-CLOSURE-SLICE artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:SPEC-FEAT-017-PLANNING-BOOTSTRAP artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:SPEC-FEAT-017-PLANNING-SCHEMA2-TRANSPORT artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:coherence-product-definition artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:coherence-tooling-performance-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:commit-claim-traceability artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:completion-gate-duplication-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:cross-feat-semantic-overlap-detection-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:manual-criteria-enforcement-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:per-criterion-measurement-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:progressive-review-decision-presentation-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:sr050-t3-relation-maintenance-design artifact_uncovered no requirement's relates_to reaches this spec
+  ! spec:typed-relation-wikilink-mirroring-seed artifact_uncovered no requirement's relates_to reaches this spec
+  ! SR-001                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-002                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-003                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-004                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-005                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-006                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-007                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-008                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-010                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-011                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-012                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-013                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-014                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-015                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-016                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-017                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-018                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-019                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-020                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-021                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-022                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-023                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-024                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-025                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-026                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-027                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-028                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-029                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-030                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-031                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-032                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-033                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-035                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-036                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-037                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-038                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-039                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-040                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-041                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-042                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-045                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-046                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-047                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-048                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-055                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-056                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-057                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-058                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-059                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-060                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-063                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-064                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-065                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-070                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-071                   sr_unsatisfied     no task declares satisfies for this SR
+  ! SR-072                   sr_unsatisfied     no task declares satisfies for this SR
+  ! T-030                    task_plan_missing  source_plan target missing: plan:2026-08-20-sim-polish-playground.md
+
+deferred — discussed, still open:
+  ~ SR-009                   artifact_uncovered no requirement's relates_to reaches this sr (deferred: status/inbox obligation-consumption not yet implemented (status.py and inbox.py have zero references to compile_obligations/Obligation); statement kept at the full source claim per human decision during authoring consent (2026-09-03), deferred pending future wiring work)
+  ~ SR-009                   sr_unsatisfied     no task declares satisfies for this SR (deferred: status/inbox obligation-consumption not yet implemented (status.py and inbox.py have zero references to compile_obligations/Obligation); statement kept at the full source claim per human decision during authoring consent (2026-09-03), deferred pending future wiring work)
+  ~ SR-008                   sr_proposed        binding not yet decided
+  ~ SR-009                   sr_proposed        binding not yet decided (deferred: status/inbox obligation-consumption not yet implemented (status.py and inbox.py have zero references to compile_obligations/Obligation); statement kept at the full source claim per human decision during authoring consent (2026-09-03), deferred pending future wiring work)
+  ~ SR-010                   sr_proposed        binding not yet decided
+  ~ SR-011                   sr_proposed        binding not yet decided
+  ~ SR-012                   sr_proposed        binding not yet decided
+  ~ SR-013                   sr_proposed        binding not yet decided
+  ~ SR-014                   sr_proposed        binding not yet decided
+  ~ SR-015                   sr_proposed        binding not yet decided
+  ~ SR-016                   sr_proposed        binding not yet decided
+  ~ SR-017                   sr_proposed        binding not yet decided
+  ~ SR-018                   sr_proposed        binding not yet decided
+  ~ SR-019                   sr_proposed        binding not yet decided
+  ~ SR-020                   sr_proposed        binding not yet decided
+  ~ SR-021                   sr_proposed        binding not yet decided
+  ~ SR-022                   sr_proposed        binding not yet decided
+  ~ SR-023                   sr_proposed        binding not yet decided
+  ~ SR-024                   sr_proposed        binding not yet decided
+  ~ SR-025                   sr_proposed        binding not yet decided
+  ~ SR-026                   sr_proposed        binding not yet decided
+  ~ SR-027                   sr_proposed        binding not yet decided
+  ~ SR-028                   sr_proposed        binding not yet decided
+  ~ SR-029                   sr_proposed        binding not yet decided
+  ~ SR-030                   sr_proposed        binding not yet decided
+  ~ SR-031                   sr_proposed        binding not yet decided
+  ~ SR-032                   sr_proposed        binding not yet decided
+  ~ SR-033                   sr_proposed        binding not yet decided
+  ~ SR-034                   sr_proposed        binding not yet decided
+  ~ SR-035                   sr_proposed        binding not yet decided
+  ~ SR-036                   sr_proposed        binding not yet decided
+  ~ SR-037                   sr_proposed        binding not yet decided
+  ~ SR-038                   sr_proposed        binding not yet decided
+  ~ SR-039                   sr_proposed        binding not yet decided
+  ~ SR-040                   sr_proposed        binding not yet decided
+  ~ SR-041                   sr_proposed        binding not yet decided
+  ~ SR-042                   sr_proposed        binding not yet decided
+  ~ SR-043                   sr_proposed        binding not yet decided
+  ~ SR-044                   sr_proposed        binding not yet decided
+  ~ SR-045                   sr_proposed        binding not yet decided
+  ~ SR-046                   sr_proposed        binding not yet decided
+  ~ SR-047                   sr_proposed        binding not yet decided
+  ~ SR-048                   sr_proposed        binding not yet decided
+  ~ SR-049                   sr_proposed        binding not yet decided
+  ~ SR-050                   sr_proposed        binding not yet decided
+  ~ SR-051                   sr_proposed        binding not yet decided
+  ~ SR-052                   sr_proposed        binding not yet decided
+  ~ SR-053                   sr_proposed        binding not yet decided
+  ~ SR-054                   sr_proposed        binding not yet decided
+  ~ SR-055                   sr_proposed        binding not yet decided
+  ~ SR-056                   sr_proposed        binding not yet decided
+  ~ SR-057                   sr_proposed        binding not yet decided
+  ~ SR-058                   sr_proposed        binding not yet decided
+  ~ SR-059                   sr_proposed        binding not yet decided
+  ~ SR-060                   sr_proposed        binding not yet decided
+  ~ SR-063                   sr_proposed        binding not yet decided
+  ~ SR-064                   sr_proposed        binding not yet decided
+  ~ SR-065                   sr_proposed        binding not yet decided
+  ~ SR-070                   sr_proposed        binding not yet decided
+  ~ SR-071                   sr_proposed        binding not yet decided
+  ~ SR-072                   sr_proposed        binding not yet decided

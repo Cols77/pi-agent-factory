@@ -1,0 +1,140 @@
+...........s............................................................ [  4%]
+.......................................s................................ [  8%]
+........................................................................ [ 12%]
+........................................................................ [ 17%]
+........................................................................ [ 21%]
+........................................................................ [ 25%]
+........................................................................ [ 30%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+............................s........................................... [ 42%]
+........................................................................ [ 47%]
+........................................................................ [ 51%]
+.........................................................s.............. [ 55%]
+........................................................................ [ 60%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+........................................................................ [ 72%]
+........................................................................ [ 77%]
+...................................................ss................... [ 81%]
+sss..................................s.................................. [ 85%]
+........................................................................ [ 90%]
+........................................................................ [ 94%]
+........................................................................ [ 98%]
+.....................                                                    [100%]
+============================== warnings summary ===============================
+src\factory\memory\durable.py:38
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:38: DeprecationWarning: factory.goals is deprecated; use coherence.goals
+    from factory.goals import registry as goal_registry
+
+src\factory\memory\durable.py:39
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:39: DeprecationWarning: factory.goals.lifecycle is deprecated; use coherence.goals.lifecycle
+    from factory.goals.lifecycle import TERMINAL_GOAL_STATES
+
+src\factory\memory\durable.py:40
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:40: DeprecationWarning: factory.goals.schema is deprecated; use coherence.goals.schema
+    from factory.goals.schema import Goal
+
+src\factory\memory\durable.py:42
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:42: DeprecationWarning: factory.system is deprecated; use coherence.navigate
+    from factory.system import adr as adr_module
+
+src\factory\memory\durable.py:42
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:42: DeprecationWarning: factory.system.adr is deprecated; use coherence.navigate.adr
+    from factory.system import adr as adr_module
+
+src\factory\memory\durable.py:43
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:43: DeprecationWarning: factory.system.bundles is deprecated; use coherence.navigate.bundles
+    from factory.system import bundles
+
+src\factory\memory\durable.py:44
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:44: DeprecationWarning: factory.system._claims is deprecated; use coherence.navigate._claims
+    from factory.system._claims import evidence_dir as _evidence_dir
+
+src\factory\memory\durable.py:47
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\memory\durable.py:47: DeprecationWarning: factory.system.models is deprecated; use coherence.navigate.models
+    from factory.system.models import (
+
+src\factory\freshness\deps.py:29
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:29: DeprecationWarning: factory.freshness.fingerprint is deprecated; import substrate.freshness.fingerprint
+    from factory.freshness.fingerprint import fingerprint_file, fingerprint_value
+
+src\factory\freshness\deps.py:30
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:30: DeprecationWarning: factory.simulation is deprecated; use coherence.simulation
+    from factory.simulation.registry import Run, load_runs
+
+src\factory\freshness\deps.py:30
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:30: DeprecationWarning: factory.simulation.registry is deprecated; use coherence.simulation.registry
+    from factory.simulation.registry import Run, load_runs
+
+src\factory\freshness\deps.py:32
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:32: DeprecationWarning: factory.trace is deprecated; use coherence.trace
+    from factory.trace import explainers as explainers_module
+
+src\factory\freshness\deps.py:32
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:32: DeprecationWarning: factory.trace.explainers is deprecated; use coherence.trace.explainers
+    from factory.trace import explainers as explainers_module
+
+src\factory\freshness\deps.py:33
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\deps.py:33: DeprecationWarning: factory.trace.model is deprecated; use coherence.trace.model
+    from factory.trace import model as trace_model
+
+src\coherence\audit\runner.py:27
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\coherence\audit\runner.py:27: DeprecationWarning: factory.orchestrator.pi_backend is deprecated; import substrate.agents.backend and compose scope_for from factory.orchestrator.roles.ROLE_SCOPE
+    from factory.orchestrator.pi_backend import PiAgentBackend
+
+tests\unit\coherence\test_audit_parallel.py:25
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_audit_parallel.py:25: DeprecationWarning: factory.orchestrator.types.AgentResult is deprecated; import substrate.agents.model.AgentResult
+    from factory.orchestrator.types import AgentResult
+
+tests\unit\coherence\test_audit_policy.py:24
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_audit_policy.py:24: DeprecationWarning: factory.orchestrator.types.AgentResult is deprecated; import substrate.agents.model.AgentResult
+    from factory.orchestrator.types import AgentResult
+
+tests\unit\coherence\test_task1_seams.py:9
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_task1_seams.py:9: DeprecationWarning: factory.trace.validation_status is deprecated; use coherence.trace.validation_status
+    from factory.trace.validation_status import requirement_validation
+
+tests/unit/coherence/navigate/test_contract_freshness.py::test_sr076_ac2_all_six_contract_codes_stable_and_attributed
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\policy.py:295: DeprecationWarning: factory.requirements is deprecated; use coherence.register
+    from factory.requirements import register as req_register
+
+tests/unit/coherence/navigate/test_contract_freshness.py::test_sr076_ac2_all_six_contract_codes_stable_and_attributed
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\freshness\policy.py:295: DeprecationWarning: factory.requirements.register is deprecated; import coherence.register.register
+    from factory.requirements import register as req_register
+
+tests/unit/coherence/test_execution_cli.py::test_execution_dispatch_requires_safe_run_and_task_ids
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\evidence\finalize.py:18: DeprecationWarning: factory.trace.graph is deprecated; use coherence.trace.graph
+    from factory.trace.graph import build_graph
+
+tests/unit/coherence/test_execution_cli.py::test_execution_dispatch_requires_safe_run_and_task_ids
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\orchestrator\runner.py:18: DeprecationWarning: factory.orchestrator.ledger is deprecated; import substrate.ledger.tasks
+    from factory.orchestrator.ledger import (
+
+tests/unit/coherence/test_execution_cli.py::test_execution_dispatch_requires_safe_run_and_task_ids
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\orchestrator\nodes.py:22: DeprecationWarning: factory.validation.pipeline is deprecated; import coherence.measurement.pipeline
+    from factory.validation.pipeline import validate_task_requirements
+
+tests/unit/coherence/test_execution_cli.py::test_execution_dispatch_requires_safe_run_and_task_ids
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\orchestrator\nodes.py:23: DeprecationWarning: factory.validation.report is deprecated; import coherence.measurement.report
+    from factory.validation.report import write_validation_report
+
+tests/unit/coherence/test_execution_cli.py::test_execution_dispatch_requires_safe_run_and_task_ids
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\src\factory\preflight\checks.py:10: DeprecationWarning: factory.freshness.model is deprecated; import substrate.freshness.model
+    from factory.freshness.model import FreshnessIssue, FreshnessReport, FreshnessSeverity
+
+tests/unit/coherence/test_goals_simulation_migration.py::test_coherence_goal_and_simulation_public_apis_match_factory
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_goals_simulation_migration.py:59: DeprecationWarning: factory.goals.cli is deprecated; use coherence.goals.cli
+    from factory.goals.cli import main as factory_goals_main
+
+tests/unit/coherence/test_goals_simulation_migration.py::test_coherence_goal_and_simulation_public_apis_match_factory
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_goals_simulation_migration.py:60: DeprecationWarning: factory.goals.registry is deprecated; use coherence.goals.registry
+    from factory.goals.registry import load_goals as factory_load_goals
+
+tests/unit/coherence/test_goals_simulation_migration.py::test_coherence_goal_and_simulation_public_apis_match_factory
+  C:\coding\pi-agent-factory-wt\optional-contract-artifacts\tests\unit\coherence\test_goals_simulation_migration.py:61: DeprecationWarning: factory.simulation.cli is deprecated; use coherence.simulation.cli
+    from factory.simulation.cli import main as factory_simulation_main
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1667 passed, 10 skipped, 6 deselected, 28 warnings in 1376.12s (0:22:56)
+EXIT=0

@@ -1,0 +1,1 @@
+{"run": "RUN-SC", "feature": "FEAT-X", "dependencies": [{"kind": "contract", "name": "SCHEMA", "source": "SCHEMA", "digest": "sha256:e23a91b549b79f4975f0060453864c7e5e61fd8e9a0884b09e70a0ec0c7610ea"}]}

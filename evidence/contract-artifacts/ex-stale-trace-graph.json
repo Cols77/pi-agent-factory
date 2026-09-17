@@ -1,0 +1,181 @@
+{
+  "nodes": [
+    {
+      "id": "contract:BROKEN",
+      "kind": "contract",
+      "title": "BROKEN",
+      "path": "evidence\\contract-artifacts\\fixtures\\stale\\contracts\\broken.schema.json",
+      "exempt": false,
+      "deferred": null,
+      "proposed": false,
+      "diagram_file": null,
+      "scope_error": null,
+      "migration_hint": null
+    },
+    {
+      "id": "contract:DEFS",
+      "kind": "contract",
+      "title": "DEFS",
+      "path": "evidence\\contract-artifacts\\fixtures\\stale\\contracts\\defs.schema.json",
+      "exempt": false,
+      "deferred": null,
+      "proposed": false,
+      "diagram_file": null,
+      "scope_error": null,
+      "migration_hint": null
+    },
+    {
+      "id": "contract:FIX",
+      "kind": "contract",
+      "title": "FIX",
+      "path": "evidence\\contract-artifacts\\fixtures\\stale\\fixtures\\seed.json",
+      "exempt": false,
+      "deferred": null,
+      "proposed": false,
+      "diagram_file": null,
+      "scope_error": null,
+      "migration_hint": null
+    },
+    {
+      "id": "contract:ORPHAN",
+      "kind": "contract",
+      "title": "ORPHAN",
+      "path": "evidence\\contract-artifacts\\fixtures\\stale\\contracts\\orphan.json",
+      "exempt": false,
+      "deferred": null,
+      "proposed": false,
+      "diagram_file": null,
+      "scope_error": null,
+      "migration_hint": null
+    },
+    {
+      "id": "contract:SCHEMA",
+      "kind": "contract",
+      "title": "SCHEMA",
+      "path": "evidence\\contract-artifacts\\fixtures\\stale\\contracts\\schema.schema.json",
+      "exempt": false,
+      "deferred": null,
+      "proposed": false,
+      "diagram_file": null,
+      "scope_error": null,
+      "migration_hint": null
+    }
+  ],
+  "edges": [
+    {
+      "src": "contract:FIX",
+      "dst": "code:backend/app.py",
+      "kind": "consumed_by"
+    },
+    {
+      "src": "contract:FIX",
+      "dst": "contract:SCHEMA",
+      "kind": "validates_against"
+    },
+    {
+      "src": "contract:SCHEMA",
+      "dst": "contract:DEFS",
+      "kind": "references"
+    },
+    {
+      "src": "contract:SCHEMA",
+      "dst": "contract:FIX",
+      "kind": "validated_by"
+    },
+    {
+      "src": "contract:SCHEMA",
+      "dst": "test:tests/schema_test.py",
+      "kind": "consumed_by"
+    },
+    {
+      "src": "spec:SPEC-1",
+      "dst": "contract:SCHEMA",
+      "kind": "defines"
+    }
+  ],
+  "gaps": [
+    {
+      "node_id": "contract:BROKEN",
+      "kind": "contract_missing_provenance",
+      "detail": "contract 'BROKEN' (contracts/broken.schema.json) has no authority, no validates_against and no consumers; its provenance is unreadable",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:DEFS",
+      "kind": "contract_missing_provenance",
+      "detail": "contract 'DEFS' (contracts/defs.schema.json) has no authority, no validates_against and no consumers; its provenance is unreadable",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:ORPHAN",
+      "kind": "contract_missing_provenance",
+      "detail": "contract 'ORPHAN' (contracts/orphan.json) has no authority, no validates_against and no consumers; its provenance is unreadable",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:BROKEN",
+      "kind": "contract_reference_broken",
+      "detail": "contract 'BROKEN' (contracts/broken.schema.json) carries a broken reference: contract 'BROKEN' local $ref 'missing.json' resolves to a missing or non-file target; the reference is rejected",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:BROKEN",
+      "kind": "contract_missing_consumer",
+      "detail": "contract 'BROKEN' (contracts/broken.schema.json) has no consumers, no validates_against and no authority",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:DEFS",
+      "kind": "contract_missing_consumer",
+      "detail": "contract 'DEFS' (contracts/defs.schema.json) has no consumers, no validates_against and no authority",
+      "disposition": "pending"
+    },
+    {
+      "node_id": "contract:ORPHAN",
+      "kind": "contract_missing_consumer",
+      "detail": "contract 'ORPHAN' (contracts/orphan.json) has no consumers, no validates_against and no authority",
+      "disposition": "pending"
+    }
+  ],
+  "validation": {},
+  "health": {
+    "percent": 100,
+    "satisfied": 0,
+    "expected": 0,
+    "dangling": 0,
+    "deferred": 0,
+    "proposed": 0,
+    "classes": [
+      {
+        "name": "task->plan",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "task->SR",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "plan->spec",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "SR satisfied",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "SR validated",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      }
+    ]
+  }
+}
