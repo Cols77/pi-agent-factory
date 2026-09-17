@@ -140,7 +140,7 @@ def test_sr075_ac2_repeat_compilation_is_byte_identical(tmp_path: Path) -> None:
         _contract(id="A", path="shared/a.schema.json"),
     )
     files = {
-        "api/root.schema.json": '{"$ref": "shared/a.schema.json"}',
+        "api/root.schema.json": '{"$ref": "../shared/a.schema.json"}',
         "shared/a.schema.json": '{"type": "object"}',
     }
     root = _project(tmp_path)
@@ -167,7 +167,7 @@ def test_sr075_ac2_output_is_identical_across_declaration_order(tmp_path: Path) 
     # not change the compiled closure: nodes/deps/fingerprints/edges are canonical.
     root = _project(tmp_path)
     files = {
-        "api/root.schema.json": '{"$ref": "shared/a.schema.json"}',
+        "api/root.schema.json": '{"$ref": "../shared/a.schema.json"}',
         "shared/a.schema.json": '{"title": "A"}',
     }
     for rel, content in files.items():
@@ -278,8 +278,8 @@ def test_sr075_ac1_transitive_dep_change_invalidates_root_without_root_changing(
         _contract(id="B", path="shared/b.schema.json"),
     )
     files = {
-        "api/root.schema.json": '{"$ref": "shared/a.schema.json"}',
-        "shared/a.schema.json": '{"$ref": "shared/b.schema.json"}',
+        "api/root.schema.json": '{"$ref": "../shared/a.schema.json"}',
+        "shared/a.schema.json": '{"$ref": "b.schema.json"}',
         "shared/b.schema.json": '{"type": "object", "version": 1}',
     }
     root = _project(tmp_path)
@@ -314,7 +314,7 @@ def test_local_ref_to_declared_contract_records_references_edge_and_deps(tmp_pat
         _contract(id="A", path="defs/a.schema.json"),
     )
     files = {
-        "api/root.schema.json": '{"$ref": "defs/a.schema.json"}',
+        "api/root.schema.json": '{"$ref": "../defs/a.schema.json"}',
         "defs/a.schema.json": '{"type": "object"}',
     }
     root, compiled = _compile(tmp_path, contracts, files)
@@ -328,7 +328,7 @@ def test_local_ref_to_declared_contract_records_references_edge_and_deps(tmp_pat
 def test_local_ref_to_non_contract_file_records_code_references_edge(tmp_path: Path) -> None:
     contracts = (_contract(id="ROOT", path="api/root.schema.json"),)
     files = {
-        "api/root.schema.json": '{"$ref": "docs/note.json"}',
+        "api/root.schema.json": '{"$ref": "../docs/note.json"}',
         "docs/note.json": '{"shared": true}',
     }
     root, compiled = _compile(tmp_path, contracts, files)
@@ -351,7 +351,7 @@ def test_duplicate_alias_refs_dedupe_by_resolved_path(tmp_path: Path) -> None:
     contracts = (_contract(id="ROOT", path="api/root.schema.json"),)
     files = {
         "api/root.schema.json": (
-            '{"allOf": [{"$ref": "defs/app.json"}, {"$ref": "./defs/app.json"}]}'
+            '{"allOf": [{"$ref": "../defs/app.json"}, {"$ref": "./../defs/app.json"}]}'
         ),
         "defs/app.json": '{"type": "string"}',
     }
@@ -449,3 +449,86 @@ def test_sr075_ac3_network_url_and_uri_scheme_are_rejected(tmp_path: Path) -> No
     _, compiled2 = _compile(tmp_path, contracts, files)
     assert CODE_REFERENCE_BROKEN in _codes(compiled2)
     assert all("references" not in e.kind for e in compiled2.edges)
+
+
+# ---------------------------------------------------------------------------
+# SR-075 regression: $ref base = containing file's directory, in-tree '..' OK
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.sr("SR-075")
+def test_sr075_t1_same_directory_ref_resolves_relative_to_containing_file(
+    tmp_path: Path,
+) -> None:
+    # A catalog declares A at shared/a.schema.json whose content is {"$ref":
+    # "b.schema.json"} and B at shared/b.schema.json. The ref is same-directory,
+    # so it MUST resolve to shared/b.schema.json (not root/b.schema.json).
+    contracts = (
+        _contract(id="B", path="shared/b.schema.json"),
+        _contract(id="A", path="shared/a.schema.json"),
+    )
+    files = {
+        "shared/a.schema.json": '{"$ref": "b.schema.json"}',
+        "shared/b.schema.json": '{"type": "object", "version": 1}',
+    }
+    root, compiled = _compile(tmp_path, contracts, files)
+
+    assert CODE_REFERENCE_BROKEN not in _codes(compiled)
+    assert _edge_kinds(compiled, "A", "B") == ["references"]
+    a_node = _node(compiled, "A")
+    assert a_node.deps == ("shared/b.schema.json",)
+    assert a_node.closure_fingerprint != a_node.content_fingerprint
+
+    # Transitive closure: changing B changes A's compiled fingerprint.
+    _write_file(root, "shared/b.schema.json", '{"type": "object", "version": 2}')
+    second = _recompile(root)
+    assert a_node.closure_fingerprint != _node(second, "A").closure_fingerprint
+
+
+@pytest.mark.sr("SR-075")
+def test_sr075_t2_cross_directory_in_tree_parent_ref_resolves_and_chains(
+    tmp_path: Path,
+) -> None:
+    # ROOT at api/root.schema.json holds {"$ref": "../shared/a.schema.json"}.
+    # The '..' stays in-tree (shared/ is under the repo root) so it is legal:
+    # it must resolve to shared/a.schema.json, emit references ROOT->A, and the
+    # transitive closure must reach B (shared/a refs shared/b).
+    contracts = (
+        _contract(id="B", path="shared/b.schema.json"),
+        _contract(id="A", path="shared/a.schema.json"),
+        _contract(id="ROOT", path="api/root.schema.json"),
+    )
+    files = {
+        "api/root.schema.json": '{"$ref": "../shared/a.schema.json"}',
+        "shared/a.schema.json": '{"$ref": "b.schema.json"}',
+        "shared/b.schema.json": '{"type": "object", "version": 1}',
+    }
+    root, compiled = _compile(tmp_path, contracts, files)
+
+    assert CODE_REFERENCE_BROKEN not in _codes(compiled)
+    assert _edge_kinds(compiled, "ROOT", "A") == ["references"]
+    assert _edge_kinds(compiled, "A", "B") == ["references"]
+    root_node = _node(compiled, "ROOT")
+    assert root_node.deps == ("shared/a.schema.json", "shared/b.schema.json")
+
+    # A change to the transitive leaf B propagates to ROOT's closure fingerprint.
+    root_before = root_node.closure_fingerprint
+    _write_file(root, "shared/b.schema.json", '{"type": "object", "version": 2}')
+    second = _recompile(root)
+    assert _node(second, "ROOT").closure_fingerprint != root_before
+
+
+@pytest.mark.sr("SR-075")
+def test_sr075_t3_parent_ref_escaping_the_repo_root_is_rejected(tmp_path: Path) -> None:
+    # A catalog contract whose JSON holds {"$ref": "../../outside/x.json"}: the
+    # '..' traversal escapes the temp project root, so it must be CODE_REFERENCE
+    # _BROKEN with no references edge -- even though in-tree '..' is legal.
+    contracts = (_contract(id="ROOT", path="api/root.schema.json"),)
+    files = {
+        "api/root.schema.json": '{"$ref": "../../outside/x.json"}',
+    }
+    root, compiled = _compile(tmp_path, contracts, files)
+
+    assert CODE_REFERENCE_BROKEN in _codes(compiled)
+    assert all("references" not in e.kind for e in compiled.edges)
+    assert _node(compiled, "ROOT").deps == ()

@@ -23,11 +23,11 @@ semantics are the responsibility of project gates and declared consumer tests.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from pathlib import Path
 from typing import Any
 
-from coherence.contracts.catalog import _lexical_error
 from coherence.contracts.model import (
     CODE_DECLARATION_INVALID,
     CODE_FILE_MISSING,
@@ -244,7 +244,7 @@ def _collect_file_refs(
     seen: set[str] = set()
     resolved_refs: list[str] = []
     for ref in _iter_json_pointer_refs(payload):
-        relative = _resolve_local_ref(declaration_id, ref, declared_by_path, add_edge, add_diagnostic, root)
+        relative = _resolve_local_ref(declaration_id, ref, resolved, declared_by_path, add_edge, add_diagnostic, root)
         if relative is not None and relative not in seen:
             seen.add(relative)
             resolved_refs.append(relative)
@@ -271,6 +271,7 @@ def _iter_json_pointer_refs(value: object) -> list[str]:
 def _resolve_local_ref(
     declaration_id: str,
     ref: str,
+    resolved: Path,
     declared_by_path: dict[str, ContractDeclaration],
     add_edge: Any,
     add_diagnostic: Any,
@@ -278,10 +279,15 @@ def _resolve_local_ref(
 ) -> str | None:
     """Resolve one ``$ref`` to a repository-relative path, or None when broken.
 
-    Pure JSON-pointer fragments (``#/...``) are intra-file and yield no
-    dependency. Network URLs, non-file URI schemes, UNC/absolute/rooted forms,
-    escape-through-reparse-point resolutions and missing targets are all rejected
-    with `CODE_REFERENCE_BROKEN` and produce no edge.
+    A local file ``$ref`` resolves relative to the DIRECTORY of the file that
+    contains it (RFC 3986), never the repository root. The raw ref string is
+    screened first -- before any base-relative joining -- for network URLs and
+    non-file URI schemes and for rooted/absolute and UNC forms. In-tree parent
+    ``..`` components in a *provided* ``$ref`` are legal (SR-075) and are
+    collapsed lexically against the containing file's directory; only a ``..``
+    that escapes the repository root is rejected. After lexical collapse the
+    candidate is safety-checked and resolved via ``safe_resolve``; a reparse
+    escape or non-file target is `CODE_REFERENCE_BROKEN`.
     """
     text = ref.strip()
     if text.startswith("#"):
@@ -294,17 +300,33 @@ def _resolve_local_ref(
             "network URL, not an in-repository file; the reference is rejected",
         )
         return None
-    lexical = _lexical_error(text)
-    if lexical is not None:
+    if _raw_ref_is_rooted_or_unc(text):
         add_diagnostic(
             CODE_REFERENCE_BROKEN,
             declaration_id,
-            f"contract {declaration_id!r} local $ref {ref!r} is not a plain "
-            f"repository-relative path: {lexical}",
+            f"contract {declaration_id!r} local $ref {ref!r} is an absolute or UNC "
+            "path, not a repository-relative path; the reference is rejected",
         )
         return None
-    resolved = _try_resolve(root, text)
-    if resolved is None:
+
+    # Resolve the ref against the directory of the containing contract file.
+    containing_rel = _relpath(root, resolved)
+    base_dir = posixpath.dirname(containing_rel)
+    joined = text if not base_dir else f"{base_dir}/{text}"
+    candidate_repo_rel = posixpath.normpath(joined.replace("\\", "/"))
+
+    safety = _candidate_safety_error(candidate_repo_rel)
+    if safety is not None:
+        add_diagnostic(
+            CODE_REFERENCE_BROKEN,
+            declaration_id,
+            f"contract {declaration_id!r} local $ref {ref!r} is an unsafe repository "
+            f"path: {safety}",
+        )
+        return None
+
+    resolved_target = _try_resolve(root, candidate_repo_rel)
+    if resolved_target is None:
         add_diagnostic(
             CODE_REFERENCE_BROKEN,
             declaration_id,
@@ -313,7 +335,7 @@ def _resolve_local_ref(
             "or other reparse point); the reference is rejected",
         )
         return None
-    if not resolved.is_file():
+    if not resolved_target.is_file():
         add_diagnostic(
             CODE_REFERENCE_BROKEN,
             declaration_id,
@@ -321,7 +343,7 @@ def _resolve_local_ref(
             "non-file target; the reference is rejected",
         )
         return None
-    relative = _relpath(root, resolved)
+    relative = candidate_repo_rel
     owner = declared_by_path.get(relative)
     if owner is not None:
         add_edge(declaration_id, owner.id, "references")
@@ -337,6 +359,37 @@ def _has_non_local_scheme(text: str) -> bool:
     # A scheme is any leading ``[A-Za-z][A-Za-z0-9+.-]*:`` (http, https, file, ftp,
     # urn, ...); Windows drive roots (``C:\``) also match and are unsafe anyway.
     return bool(_SCHEME_URI_RE.match(text))
+
+
+def _raw_ref_is_rooted_or_unc(text: str) -> bool:
+    """True when a raw ``$ref`` is an absolute or UNC path (still unsafe)."""
+    forward = text.replace("\\", "/")
+    return forward.startswith("//") or forward.startswith("/")
+
+
+def _candidate_safety_error(candidate: str) -> str | None:
+    """Reason a lexically-normalized repo-relative candidate is unsafe, or None.
+
+    The lexical collapse already removed harmless in-tree ``///./`` / ``..``, so
+    the remaining threats are NUL/drive/UNC/rooted forms, empty paths, and a
+    leading ``..`` that proves the parent traversal escaped the repository root.
+    """
+    if candidate == "":
+        return "path is empty or whitespace-only; a repository-relative path is required"
+    if "\x00" in candidate:
+        return "path contains a NUL character, which is not a valid path"
+    if candidate.startswith("//"):
+        return "path is a UNC absolute path; a repository-relative path is required"
+    if candidate.startswith("/"):
+        return "path is rooted/absolute; a repository-relative path is required"
+    if len(candidate) >= 2 and candidate[0].isalpha() and candidate[1] == ":":
+        return "path is drive-rooted (absolute); a repository-relative path is required"
+    if candidate == ".." or candidate.startswith("../"):
+        return (
+            "path contains a parent '..' component that escapes the repository root; "
+            "the reference is rejected"
+        )
+    return None
 
 
 def _try_resolve(root: Path, relative: str) -> Path | None:
