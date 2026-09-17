@@ -32,6 +32,12 @@ from factory.system._claims import evidence_dir as _evidence_dir
 from factory.trace import explainers as explainers_module
 from factory.trace import model as trace_model
 
+# Optional-contract-artifacts (task 7): materialise the contract compiler's
+# typed relationships as ordinary freshness edges. factory -> coherence is an
+# architecturally-valid layering (`factory -> coherence -> substrate`).
+from coherence.contracts.catalog import load_contract_catalog
+from coherence.contracts.compiler import compile_contracts
+
 #: Artifact kinds that are authoritative sources of truth; they never go stale
 #: against themselves (their *dependents* go stale). Cover 5h separately.
 _AUTHORITATIVE_PREFIXES = ("sr:", "br:", "goal:", "metric:", "adr:", "feat:")
@@ -105,17 +111,32 @@ def _run_dependencies(root: Path, run: Run) -> list[ArtifactDependency]:
             ArtifactDependency(f"goal:{goal}", f"run:{run.run_id}", None, "metric-definition->evidence")
         )
     for dep in manifest.get("dependencies", []):
-        if not isinstance(dep, dict) or dep.get("kind") != "file":
+        if not isinstance(dep, dict):
             continue
+        kind = dep.get("kind")
         source = dep.get("source")
         digest = dep.get("digest")
-        if isinstance(source, str):
+        if kind == "file":
+            if isinstance(source, str):
+                out.append(
+                    ArtifactDependency(
+                        f"code:{source}",
+                        f"run:{run.run_id}",
+                        str(digest) if digest else None,
+                        "implementation->evidence",
+                    )
+                )
+        elif kind == "contract" and isinstance(source, str):
+            # Recorded validation evidence for a declared contract: the run
+            # stores the contract's closure_fingerprint at validation time, so a
+            # change to the contract (directly or via a transitive `$ref`) stales
+            # the evidence through the ordinary check_artifact path (task 7).
             out.append(
                 ArtifactDependency(
-                    f"code:{source}",
+                    f"contract:{source}",
                     f"run:{run.run_id}",
                     str(digest) if digest else None,
-                    "implementation->evidence",
+                    "contract->consumer",
                 )
             )
     # The SR's implementation: the code files its validating runs recorded as
@@ -211,6 +232,89 @@ def _diagram_edges(root: Path, nodes=None, edges=None) -> list[ArtifactDependenc
     return out
 
 
+def _compile_contract_closure(root: Path):
+    """Compiled contract closure, or None when no catalog / nothing compilable.
+
+    ``load_contract_catalog`` returns ``present=False`` for a project without
+    ``.factory/contracts.yaml``; a fresh closure compiles to
+    ``{declarations=[], edges=[], nodes=[]}``. Consumers wanting the closure
+    re-use ``coherence.contracts.compiler`` here -- no second graph.
+    """
+    closure = load_contract_catalog(root)
+    if not closure.present:
+        return None
+    return compile_contracts(closure, root)
+
+
+def _contract_dependency_edges(root: Path) -> list[ArtifactDependency]:
+    """The compiler's typed contract relationships as ArtifactDependency edges.
+
+    Maps deterministic ContractEdge tuples to ``ArtifactDependency``
+    (dependent -> source) exactly as the controller pins, using the source
+    contract's *closure* fingerprint (not content) so a change to a transitive
+    ``$ref`` invalidates the dependent even when its own bytes did not change:
+
+    * ``references`` (S -> D contract | code:path):
+        dependent ``contract:S``, source ``contract:D`` / ``code:<path>``.
+    * ``validates_against`` (fixture -> schema contract):
+        dependent ``contract:<fixture>``, source ``contract:<schema>``.
+    * ``consumed_by`` (contract -> declared consumer):
+        dependent ``<consumer code|test>``, source ``contract:<contract>``.
+    * recorded consumer evidence (run manifest ``kind: contract`` dep) is the
+        ``contract->consumer`` edge emitted by ``_run_dependencies``.
+
+    ``validated_by`` (schema -> fixture reverse) and ``defines`` (spec
+    authority) are intentionally not rematerialised: the former is redundant
+    with ``validates_against`` and the latter is authority provenance (handled
+    by CONTRACT_MISSING_PROVENANCE / diagnostics), so they stay off the
+    freshness graph.
+
+    Deterministic and additive: no catalog -> no edges. The caller dedupes by
+    ``(dependent_ref, source_ref)``; the first edge wins (keeps a recorded
+    fingerprint when both a topology edge and an evidence edge describe the
+    same pair), matching the existing dedupe semantics.
+    """
+    compiled = _compile_contract_closure(root)
+    if compiled is None:
+        return []
+    declaration_ids = {declaration.id for declaration in compiled.declarations}
+    closure_by_id = {node.id: node.closure_fingerprint for node in compiled.nodes}
+
+    def _qualify(endpoint: str) -> str:
+        return f"contract:{endpoint}" if endpoint in declaration_ids else endpoint
+
+    out: list[ArtifactDependency] = []
+    for edge in compiled.edges:
+        if edge.kind == "references":
+            out.append(
+                ArtifactDependency(
+                    _qualify(edge.dst),
+                    f"contract:{edge.src}",
+                    closure_by_id.get(edge.dst),
+                    "contract-reference",
+                )
+            )
+        elif edge.kind == "validates_against":
+            out.append(
+                ArtifactDependency(
+                    _qualify(edge.dst),
+                    f"contract:{edge.src}",
+                    closure_by_id.get(edge.dst),
+                    "contract-validates-against",
+                )
+            )
+        elif edge.kind == "consumed_by":
+            out.append(
+                ArtifactDependency(
+                    f"contract:{edge.src}",
+                    _qualify(edge.dst),
+                    closure_by_id.get(edge.src),
+                    "contract-consumer",
+                )
+            )
+    return out
+
+
 def collect_dependency_edges(root: Path, *, nodes=None, edges=None) -> list[ArtifactDependency]:
     """Every declared/authoritative artifact dependency, deterministically ordered.
 
@@ -224,6 +328,13 @@ def collect_dependency_edges(root: Path, *, nodes=None, edges=None) -> list[Arti
     for explainer in explainers_module.load_explainers(root):
         dep_edges.extend(_explainer_edges(root, explainer))
     dep_edges.extend(_diagram_edges(root, nodes, edges))
+    # Optional-contract-artifacts (task 7): the contract compiler's typed
+    # relationships (references / validates_against / consumed_by / recorded
+    # consumer evidence) are ordinary ArtifactDependency edges. A present
+    # catalog adds only its own declared edges; a project with no catalog
+    # contributes nothing here (load_contract_catalog -> absent_closure),
+    # preserving byte-identical no-catalog freshness.
+    dep_edges.extend(_contract_dependency_edges(root))
     dedup: dict[tuple[str, str], ArtifactDependency] = {}
     for edge in sorted(dep_edges, key=lambda e: (e.dependent_ref, e.source_ref, e.dependency_kind)):
         key = (edge.dependent_ref, edge.source_ref)
@@ -347,6 +458,25 @@ def _current_source_digest(root: Path, source_ref: str) -> str | None:
         return _sr_content_digest(root, identifier)
     if kind == "code":
         return _code_digest(root, identifier)
+    if kind == "contract":
+        return _contract_closure_fingerprint(root, identifier)
+    return None
+
+
+def _contract_closure_fingerprint(root: Path, contract_id: str) -> str | None:
+    """Current closure fingerprint of one compiled contract, or None when absent.
+
+    Resolves against the *current* compiled closure so ``check_artifact`` sees
+    a change to a contract's file or any transitive ``$ref`` as a stale source
+    even when the dependent's own bytes are unchanged (task 7). Scope is
+    exactly the ``contract:`` kind -- ``sr``/``code`` handling is untouched.
+    """
+    compiled = _compile_contract_closure(root)
+    if compiled is None:
+        return None
+    for node in compiled.nodes:
+        if node.id == contract_id:
+            return node.closure_fingerprint
     return None
 
 
