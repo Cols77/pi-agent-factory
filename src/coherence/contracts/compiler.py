@@ -33,6 +33,7 @@ from coherence.contracts.model import (
     CODE_FILE_MISSING,
     CODE_REFERENCE_BROKEN,
     CODE_REFERENCE_CYCLE,
+    CODE_RELATION_UNRESOLVED,
     ContractClosure,
     ContractDeclaration,
     ContractDiagnostic,
@@ -117,7 +118,7 @@ def compile_contracts(closure: ContractClosure, root: Path) -> ContractClosure:
             refs_by_id[declaration_id] = []
 
     for declaration_id in present:
-        relation_edges(by_id[declaration_id], add_edge)
+        relation_edges(by_id[declaration_id], set(present), add_edge, add_diagnostic)
 
     visiting: set[str] = set()
     memo: dict[str, tuple[dict[str, str], str]] = {}
@@ -198,12 +199,36 @@ def compile_contracts(closure: ContractClosure, root: Path) -> ContractClosure:
     )
 
 
-def relation_edges(declaration: ContractDeclaration, add_edge: Any) -> None:
-    """Emit the declared-relationship edges for one compiled declaration."""
+def relation_edges(
+    declaration: ContractDeclaration,
+    declared_present_ids: set[str],
+    add_edge: Any,
+    add_diagnostic: Any,
+) -> None:
+    """Emit the declared-relationship edges for one compiled declaration.
+
+    Relationship endpoints that are REQUIRED to be a declared contract id are
+    guarded fail-closed: a ``validates_against`` target that names a contract id
+    which is not a present declared id in the closure is reported as a
+    `CODE_RELATION_UNRESOLVED` diagnostic and its edges are NOT emitted (an
+    unresolved relationship is a visible finding, never silently accepted as a
+    bare trace endpoint). ``consumed_by`` endpoints are ``code:``/``test:`` file
+    paths, not contract ids, so they are never validated here.
+    """
     validators = declaration.validates_against
     if validators is not None and validators.kind == "contract":
-        add_edge(declaration.id, validators.target, "validates_against")
-        add_edge(validators.target, declaration.id, "validated_by")
+        if validators.target in declared_present_ids:
+            add_edge(declaration.id, validators.target, "validates_against")
+            add_edge(validators.target, declaration.id, "validated_by")
+        else:
+            add_diagnostic(
+                CODE_RELATION_UNRESOLVED,
+                declaration.id,
+                f"declaration {declaration.id!r} declares `validates_against` "
+                f"{validators.raw!r}, whose target contract id {validators.target!r} "
+                "is not a present declared contract id in the closure; the "
+                "unresolved relationship is not emitted as an edge",
+            )
     for consumer in declaration.consumers:
         add_edge(declaration.id, f"{consumer.kind}:{consumer.target}", "consumed_by")
     authority = declaration.authority

@@ -29,6 +29,7 @@ from coherence.contracts.model import (
     CODE_FILE_MISSING,
     CODE_REFERENCE_BROKEN,
     CODE_REFERENCE_CYCLE,
+    CODE_RELATION_UNRESOLVED,
     ContractClosure,
     ContractDeclaration,
     ContractRelation,
@@ -261,6 +262,86 @@ def test_declared_relationships_produce_edges(tmp_path: Path) -> None:
     assert _edge_kinds(compiled, "FIX", "code:backend/app.py") == ["consumed_by"]
     assert _edge_kinds(compiled, "FIX", "test:tests/seed.py") == ["consumed_by"]
     assert _edge_kinds(compiled, "spec:SPEC-1", "FIX") == ["defines"]
+
+
+# ---------------------------------------------------------------------------
+# Unresolved contract relationships are visible findings (layer review finding)
+# ---------------------------------------------------------------------------
+
+
+def test_validates_against_undeclared_id_is_rejected_with_no_edge(tmp_path: Path) -> None:
+    # FIX declares validates_against contract:GHOST, but GHOST is NOT a declared
+    # contract id in the closure. This must be a reported, deterministic finding
+    # (an unresolved relationship is a visible finding, never silently accepted)
+    # and the dangling relationship edges must NOT be emitted.
+    contracts = (
+        _contract(
+            id="FIX",
+            path="fixtures/seed.json",
+            kind="fixture",
+            validates_against="contract:GHOST",
+        ),
+    )
+    files = {"fixtures/seed.json": '{"a": 1}'}
+    _, compiled = _compile(tmp_path, contracts, files)
+
+    assert CODE_RELATION_UNRESOLVED in _codes(compiled)
+    # No validates_against edge to GHOST and no validated_by inverse edge.
+    assert _edge_kinds(compiled, "FIX", "GHOST") == []
+    assert _edge_kinds(compiled, "GHOST", "FIX") == []
+    assert not any(
+        edge.kind in ("validates_against", "validated_by")
+        and "GHOST" in (edge.src, edge.dst)
+        for edge in compiled.edges
+    )
+    diagnostic = next(
+        d for d in compiled.diagnostics if d.code == CODE_RELATION_UNRESOLVED
+    )
+    assert diagnostic.declaration_id == "FIX"
+    assert "GHOST" in diagnostic.message
+
+
+def test_validates_against_declared_id_emits_edges_cleanly(tmp_path: Path) -> None:
+    # Guard against over-/under-firing: validating against a PRESENT declared id
+    # must still emit both relationship edges with no new diagnostic.
+    contracts = (
+        _contract(
+            id="FIX",
+            path="fixtures/seed.json",
+            kind="fixture",
+            validates_against="contract:WIRE",
+        ),
+        _contract(id="WIRE", path="docs/wire.schema.json"),
+    )
+    files = {
+        "fixtures/seed.json": '{"a": 1}',
+        "docs/wire.schema.json": '{"type": "object"}',
+    }
+    _, compiled = _compile(tmp_path, contracts, files)
+
+    assert _edge_kinds(compiled, "FIX", "WIRE") == ["validates_against"]
+    assert _edge_kinds(compiled, "WIRE", "FIX") == ["validated_by"]
+    assert CODE_RELATION_UNRESOLVED not in _codes(compiled)
+
+
+def test_consumed_by_to_undeclared_consumer_path_is_file_based(tmp_path: Path) -> None:
+    # consumers are code:/test: file paths, not contract ids -- they must NOT be
+    # subject to contract-id resolution. An undeclared(ish) consumer path is still
+    # emitted as a consumed_by edge, unchanged.
+    contracts = (
+        _contract(
+            id="FIX",
+            path="fixtures/seed.json",
+            kind="fixture",
+            consumers=["code:backend/app.py", "test:tests/seed.py"],
+        ),
+    )
+    files = {"fixtures/seed.json": '{"a": 1}'}
+    _, compiled = _compile(tmp_path, contracts, files)
+
+    assert _edge_kinds(compiled, "FIX", "code:backend/app.py") == ["consumed_by"]
+    assert _edge_kinds(compiled, "FIX", "test:tests/seed.py") == ["consumed_by"]
+    assert CODE_RELATION_UNRESOLVED not in _codes(compiled)
 
 
 # ---------------------------------------------------------------------------
