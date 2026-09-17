@@ -20,8 +20,9 @@ NodeKind = Literal[
     "metric",
     "goal",
     "run",
-    "diag",
-]
+        "diag",
+        "contract",
+    ]
 
 _HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
@@ -315,11 +316,19 @@ EdgeKind = Literal[
     "impacts",
     "supersedes",
     # Task-justification-only kinds (substrate.ledger.tasks._JUSTIFICATION_KINDS)
-    # that spec §4's lifecycle list does not itself name -- added so every
-    # legal justification entry maps to a real edge kind (see Task 7 Decision 1).
-    "maintains",
-    "explores",
-]
+        # that spec §4's lifecycle list does not itself name -- added so every
+        # legal justification entry maps to a real edge kind (see Task 7 Decision 1).
+        "maintains",
+        "explores",
+        # Optional-contract-artifacts (task 5): the five typed contract edges emitted
+        # by the contract compiler (coherence.contracts.compiler.CONTRACT_EDGE_KINDS),
+        # composed into the trace graph via coherence.trace.contracts.
+        "defines",
+        "consumed_by",
+        "validated_by",
+        "validates_against",
+        "references",
+    ]
 
 _SPEC_REF_RE = re.compile(r"docs/superpowers/specs/([A-Za-z0-9._-]+\.md)")
 

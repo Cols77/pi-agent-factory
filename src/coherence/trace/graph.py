@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from coherence.trace.gaps import Gap, find_gaps
+from coherence.contracts.catalog import load_contract_catalog
+from coherence.contracts.compiler import compile_contracts
+from coherence.trace.contracts import contract_edges, contract_gaps, contract_nodes
+from coherence.trace.gaps import Gap, _KIND_ORDER, find_gaps
 from coherence.trace.health import Health, compute_health
 from coherence.trace.model import Edge, Node, extract_edges, load_nodes
 from coherence.trace.validation_status import SrStatus, load_validation
@@ -31,6 +34,21 @@ def build_graph(root: Path) -> Graph:
     edges = extract_edges(root, nodes)
     validation = load_validation(root)
     gaps = find_gaps(nodes, edges, validation)
+
+    # Optional-contract-artifacts (task 5): compose the contract compiler's
+    # closure into the trace graph. Only a project that opts in with a
+    # .factory/contracts.yaml (closure.present) gains contract nodes, edges and
+    # findings; a project without a catalog is byte-identical to before.
+    closure = compile_contracts(load_contract_catalog(root), root)
+    if closure.present:
+        contract_ns = contract_nodes(closure, root)
+        nodes = nodes + contract_ns
+        edges = edges + contract_edges(closure)
+        gaps = gaps + contract_gaps(closure, root)
+        # Keep the whole gap list deterministically ordered by (kind, node_id);
+        # the no-catalog path re-sorts an already-sorted list, a no-op.
+        gaps.sort(key=lambda gap: (_KIND_ORDER[gap.kind], gap.node_id))
+
     return Graph(nodes, edges, gaps, validation, compute_health(nodes, gaps))
 
 

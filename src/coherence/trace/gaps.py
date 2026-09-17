@@ -18,8 +18,16 @@ GapKind = Literal[
     "sr_unvalidatable",
     "sr_unvalidated",
     "sr_stale",
-    "dangling_reference",
-]
+        "dangling_reference",
+        # Optional-contract-artifacts (task 5): contract findings computed from the
+        # compiler closure by coherence.trace.contracts (see contract_gaps there).
+        # The freshness-class findings (stale consumer, stale fixture, unavailable
+        # validation) are task 7's scope and are not defined here.
+        "contract_missing_provenance",
+        "contract_reference_broken",
+        "contract_file_missing",
+        "contract_missing_consumer",
+    ]
 
 Disposition = Literal["pending", "exempt", "deferred"]
 
@@ -34,9 +42,13 @@ _KIND_ORDER: dict[str, int] = {
     "sr_unvalidated": 7,
     "sr_stale": 8,
     "dangling_upstream": 9,
-    "dangling_reference": 10,
-    "task_plan_missing": 11,
-}
+        "dangling_reference": 10,
+        "task_plan_missing": 11,
+        "contract_missing_provenance": 12,
+        "contract_reference_broken": 13,
+        "contract_file_missing": 14,
+        "contract_missing_consumer": 15,
+    }
 
 
 @dataclass(frozen=True)
