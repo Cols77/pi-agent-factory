@@ -1,0 +1,172 @@
+{
+  "findings": [
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T08-26-54Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T08-34-13Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T09-01-11Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T10-50-50Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:SR-004-006-050-evidence-refresh-20260903T025651Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-001.md: changed since evidence; code:requirements/SR-002.md: changed since evidence; code:requirements/SR-003.md: changed since evidence; code:requirements/SR-004.md: changed since evidence; code:requirements/SR-005.md: changed since evidence; code:requirements/SR-006.md: changed since evidence; code:requirements/SR-007.md: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-6-evidence-execution-20260901T114021Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-001.md: changed since evidence; code:requirements/SR-002.md: changed since evidence; code:requirements/SR-003.md: changed since evidence; code:requirements/SR-004.md: changed since evidence; code:requirements/SR-005.md: changed since evidence; code:requirements/SR-006.md: changed since evidence; code:requirements/SR-007.md: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9008-evidence-execution-20260902T223423Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-008.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9009-evidence-execution-20260902T233750Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-009.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9010-evidence-execution-20260903T000239Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9011-evidence-execution-20260903T003052Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-011.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9012-evidence-execution-20260903T014536Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9013-evidence-execution-20260904T011224Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T104906Z",
+      "detail": "no declared dependencies"
+    },
+    {
+      "code": "MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T125327Z",
+      "detail": "no declared dependencies"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T08-26-54Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T08-34-13Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T09-01-11Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T10-50-50Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:SR-004-006-050-evidence-refresh-20260903T025651Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-6-evidence-execution-20260901T114021Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9008-evidence-execution-20260902T223423Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9009-evidence-execution-20260902T233750Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9010-evidence-execution-20260903T000239Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9011-evidence-execution-20260903T003052Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9012-evidence-execution-20260903T014536Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9013-evidence-execution-20260904T011224Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T104906Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T125327Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    }
+  ]
+}

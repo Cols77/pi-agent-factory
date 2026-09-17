@@ -24,6 +24,10 @@ from coherence.trace import gaps as gaps_module
 from coherence.trace import model as trace_model
 from coherence.trace.health import compute_health
 from coherence.trace.validation_status import SrStatus, load_validation
+from coherence.contracts.catalog import load_contract_catalog
+from coherence.contracts.compiler import compile_contracts
+from coherence.contracts.model import CODE_REFERENCE_BROKEN
+from factory.freshness.deps import ArtifactDependency
 
 
 @dataclass(frozen=True)
@@ -604,7 +608,176 @@ def freshness_health(
                     )
                 )
 
+    # Optional-contract-artifacts (task 7): CONTRACT_* freshness findings.
+    # Only a project that declares a catalog contributes anything; a catalogue-
+    # less project gets zero contract findings and byte-identical output.
+    findings.extend(_contract_freshness_findings(root, dep_edges))
+
     findings.sort(key=lambda f: (f.code, f.subject))
+    return findings
+
+
+def _contract_freshness_findings(
+    root: Path, dep_edges: list[ArtifactDependency]
+) -> list[Finding]:
+    """CONTRACT_* freshness findings from the compiled contract closure.
+
+    Six stable, additive Finding codes -- all derived deterministically, all
+    gated on a *present* catalog (``load_contract_catalog`` absent -> []), and
+    all pointing only at *declared* contract relationships -- never at a
+    contract merely because its file exists. ``dep_edges`` is the same edge set
+    ``freshness_health`` already built (collect_dependency_edges), so the
+    recorded consumer evidence and the compiled topology are shared, not
+    re-derived on a second graph. Codes:
+
+    * ``CONTRACT_REFERENCE_BROKEN``   -- declaration carrying the compiler's
+      CONTRACT_REFERENCE_BROKEN diagnostic (e.g. a dangling / non-local $ref).
+    * ``CONTRACT_MISSING_PROVENANCE`` -- declaration with no authority, no
+      validates_against and no consumers.
+    * ``CONTRACT_STALE``              -- a contract whose closure changed: its
+      recorded closure fingerprint (in consumer evidence) no longer matches the
+      current compiled closure. Derived via ``check_artifact`` staleness on the
+      contract source.
+    * ``CONTRACT_CONSUMER_STALE``     -- a consumer evidence entry (run) whose
+      recorded contract closure fingerprint no longer matches (mirrors how the
+      engine already marks runs stale against recorded code digests).
+    * ``CONTRACT_FIXTURE_STALE``      -- a fixture contract whose validating
+      schema's fingerprint changed (identical mechanism; fixture subject).
+    * ``CONTRACT_VALIDATION_UNAVAILABLE`` -- a declared consumer/test has no
+      recorded validation evidence for the declaring contract.
+    """
+    from factory.freshness.deps import _current_source_digest
+
+    closure = load_contract_catalog(root)
+    if not closure.present:
+        return []
+    compiled = compile_contracts(closure, root)
+    findings: list[Finding] = []
+    kind_by_id = {declaration.id: declaration.kind for declaration in compiled.declarations}
+
+    # CONTRACT_REFERENCE_BROKEN from the compiler's diagnostics.
+    broken: dict[str, list[str]] = {}
+    for diagnostic in compiled.diagnostics:
+        if diagnostic.code == CODE_REFERENCE_BROKEN:
+            broken.setdefault(diagnostic.declaration_id, []).append(diagnostic.message)
+    for declaration_id in sorted(broken):
+        findings.append(
+            Finding(
+                "CONTRACT_REFERENCE_BROKEN",
+                "error",
+                f"contract:{declaration_id}",
+                " ".join(broken[declaration_id]),
+            )
+        )
+
+    # CONTRACT_MISSING_PROVENANCE: no authority, no validates_against,
+    # no consumers.
+    for declaration in sorted(compiled.declarations, key=lambda d: d.id):
+        if (
+            declaration.authority is None
+            and declaration.validates_against is None
+            and not declaration.consumers
+        ):
+            findings.append(
+                Finding(
+                    "CONTRACT_MISSING_PROVENANCE",
+                    "warning",
+                    f"contract:{declaration.id}",
+                    f"contract {declaration.id!r} ({declaration.path}) has no authority, "
+                    "no validates_against and no consumers; provenance is unreadable",
+                )
+            )
+
+    # Recorded consumer evidence (run manifest ``kind: contract`` deps) --
+    # the declared validation state, keyed by (contract source, consumer ref).
+    recorded_validation: set[tuple[str, str]] = set()
+    stale_consumers: set[str] = set()
+    changed_contracts: set[str] = set()
+    for edge in dep_edges:
+        if edge.dependency_kind != "contract->consumer" or edge.fingerprint is None:
+            continue
+        recorded_validation.add((edge.source_ref, edge.dependent_ref))
+        current = _current_source_digest(root, edge.source_ref)
+        if current is not None and current != edge.fingerprint:
+            stale_consumers.add(edge.dependent_ref)
+            changed_contracts.add(edge.source_ref)
+
+    # CONTRACT_CONSUMER_STALE: recorded contract fingerprint no longer matches.
+    for ref in sorted(stale_consumers):
+        findings.append(
+            Finding(
+                "CONTRACT_CONSUMER_STALE",
+                "error",
+                ref,
+                "recorded contract validation fingerprint no longer matches the "
+                "compiled closure",
+            )
+        )
+
+    # CONTRACT_STALE / CONTRACT_FIXTURE_STALE: the invalidated contract itself.
+    for source_ref in sorted(changed_contracts):
+        contract_id = source_ref.partition(":")[2]
+        if kind_by_id.get(contract_id) == "fixture":
+            findings.append(
+                Finding(
+                    "CONTRACT_FIXTURE_STALE",
+                    "error",
+                    source_ref,
+                    f"fixture contract {contract_id!r} changed; re-validate the fixture",
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    "CONTRACT_STALE",
+                    "error",
+                    source_ref,
+                    f"contract {contract_id!r} closure changed (its source "
+                    "dependencies changed)",
+                )
+            )
+
+    # A fixture validated against a schema that changed is a stale fixture even
+    # when the fixture file itself is byte-identical (its validating schema is
+    # the authority for the fixture's correctness).
+    for declaration in sorted(compiled.declarations, key=lambda d: d.id):
+        if (
+            declaration.kind != "fixture"
+            or declaration.validates_against is None
+            or declaration.validates_against.kind != "contract"
+        ):
+            continue
+        schema_ref = f"contract:{declaration.validates_against.target}"
+        if schema_ref in changed_contracts:
+            findings.append(
+                Finding(
+                    "CONTRACT_FIXTURE_STALE",
+                    "error",
+                    f"contract:{declaration.id}",
+                    f"fixture contract {declaration.id!r}'s validating schema "
+                    f"{schema_ref} changed; re-validate the fixture",
+                )
+            )
+
+    # CONTRACT_VALIDATION_UNAVAILABLE: a declared consumer/test has no recorded
+    # validation evidence for the declaring contract.
+    for declaration in sorted(compiled.declarations, key=lambda d: d.id):
+        contract_ref = f"contract:{declaration.id}"
+        for consumer in declaration.consumers:
+            if consumer.kind not in ("code", "test"):
+                continue
+            consumer_ref = f"{consumer.kind}:{consumer.target}"
+            if (contract_ref, consumer_ref) not in recorded_validation:
+                findings.append(
+                    Finding(
+                        "CONTRACT_VALIDATION_UNAVAILABLE",
+                        "warning",
+                        consumer_ref,
+                        f"declared consumer {consumer_ref} has no recorded validation "
+                        f"evidence for contract {declaration.id!r}",
+                    )
+                )
+
     return findings
 
 

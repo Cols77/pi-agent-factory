@@ -1,0 +1,4 @@
+{
+  "$ref": "common/common.schema.json",
+  "title": "wire"
+}

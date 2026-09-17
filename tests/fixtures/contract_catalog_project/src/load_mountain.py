@@ -1,0 +1,1 @@
+MOUNTAIN_CONTRACT = "contract:MOUNTAIN"

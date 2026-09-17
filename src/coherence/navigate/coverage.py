@@ -13,7 +13,10 @@ kinds share -- and compared on that.
 
 Artifact enumeration reuses `coherence.trace.model.load_nodes` rather than
 re-globbing: a second set of parsing rules is how two surfaces start disagreeing
-about what exists.
+about what exists. Contract artifacts are the one opt-in exception: they are
+enumerated from the same *compiled* contract catalog the trace surface uses
+(`coherence.contracts.compiler.compile_contracts`), and only when such a catalog
+is present -- a project with no catalog gains zero contract rows or findings.
 """
 
 from __future__ import annotations
@@ -27,7 +30,10 @@ from coherence.trace import model as trace_model
 
 # Ordered for stable reporting. `br` is deliberately absent: the BR tier is
 # SP-D, and counting a kind with no artifacts would report a permanent 0/0.
+# `contract` is NOT in this tuple: it is gated on catalog presence in
+# `_effective_kinds`, so a no-catalog project never sees a contract row (0/0).
 _KINDS = ("sr", "task", "spec", "plan", "adr")
+_CONTRACT_KIND = "contract"
 
 
 @dataclass(frozen=True)
@@ -78,9 +84,56 @@ def build_artifact_lookup(
         path = doc.path.resolve()
         artifacts["adr"].append((ref, path))
         targets.setdefault(ref, path)
+    # Contract artifacts come from the *compiled* contract catalog, and only
+    # when a catalog is present -- never from re-globbing JSON, and never added
+    # for a project that opted out (no-catalog invariance). The `contract` key
+    # is absent unless there is at least one cataloged contract, so a no-catalog
+    # project contributes zero contract rows/artifacts and no 0/0 row.
+    contract_entries = _catalog_contracts(repo_root)
+    if contract_entries:
+        artifacts[_CONTRACT_KIND] = contract_entries
+        for ref, path in contract_entries:
+            targets.setdefault(ref, path)
     for kind in artifacts:
         artifacts[kind].sort(key=lambda pair: pair[0])
     return ArtifactLookup(targets=targets, artifacts=artifacts)
+
+
+def _effective_kinds(lookup: ArtifactLookup) -> list[str]:
+    """The kinds worth a coverage row for this project.
+
+    Base kinds are always present; `contract` appears only when the compiled
+    catalog actually produced entries (opt-in). This is what keeps a no-catalog
+    project byte-identical to the pre-contract output.
+    """
+    kinds = list(_KINDS)
+    if lookup.artifacts.get(_CONTRACT_KIND):
+        kinds.append(_CONTRACT_KIND)
+    return kinds
+
+
+def _catalog_contracts(repo_root: Path) -> list[tuple[str, Path]]:
+    """Cataloged contract refs + resolved paths from the compiled catalog.
+
+    Returns ``[]`` when no contract catalog is present (opt-out), so the caller
+    can gate the whole contract kind on `closure.present`-equivalence without
+    duplicating catalog parsing here. Uses the same compiled catalog the trace
+    surface consumes (`compile_contracts(load_contract_catalog(root), root)`)
+    -- never a second filesystem parse of the catalog YAML.
+    """
+    from coherence.contracts.catalog import load_contract_catalog
+    from coherence.contracts.compiler import compile_contracts
+
+    closure = compile_contracts(load_contract_catalog(repo_root), repo_root)
+    if not closure.present:
+        return []
+    entries: list[tuple[str, Path]] = []
+    for node in closure.nodes:
+        ref = f"{_CONTRACT_KIND}:{node.id}"
+        path = (repo_root / node.path).resolve()
+        entries.append((ref, path))
+    entries.sort(key=lambda pair: pair[0])
+    return entries
 
 
 def _artifacts(
@@ -89,11 +142,11 @@ def _artifacts(
     """Every bundleable artifact as `{kind: [(ref, resolved_path), ...]}`.
 
     `ref` is the exact string a bundle member would have to declare to claim
-    this artifact -- id-based for sr/task/adr, repo-relative path for
-    spec/plan.
+    this artifact -- id-based for sr/task/adr/contract, repo-relative path for
+    spec/plan. Kinds mirror the effective (opt-in) set for this project.
     """
     active_lookup = lookup if lookup is not None else build_artifact_lookup(repo_root)
-    return {kind: list(active_lookup.artifacts[kind]) for kind in _KINDS}
+    return {kind: list(active_lookup.artifacts[kind]) for kind in _effective_kinds(active_lookup)}
 
 
 def member_target(
@@ -114,6 +167,14 @@ def member_target(
     if kind in ("spec", "plan"):
         path = repo_root / identifier
         return path.resolve() if path.is_file() else None
+    if kind == _CONTRACT_KIND:
+        # Resolve through the compiled catalog (shared with trace), never a
+        # second parse of the catalog YAML. Unresolvable -> None.
+        ref = member_ref
+        for catalog_ref, catalog_path in _catalog_contracts(repo_root):
+            if catalog_ref == ref:
+                return catalog_path
+        return None
     if lookup is not None:
         return None
     if kind == "adr":
@@ -143,7 +204,7 @@ def bundle_coverage(repo_root: Path, *, lookup: ArtifactLookup | None = None) ->
     all_unbundled: list[str] = []
     total = 0
     bundled = 0
-    for kind in _KINDS:
+    for kind in _effective_kinds(active_lookup):
         entries = artifacts[kind]
         unbundled = [ref for ref, path in entries if path not in claimed]
         kinds.append(

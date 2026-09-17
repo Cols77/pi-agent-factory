@@ -1,0 +1,6 @@
+{
+  "id": "FEAT-900",
+  "label": "contract catalog end-to-end feature",
+  "description": "A real consumer-style contract closure demonstrating the compile to trace to coverage to freshness to health sequence for the optional-contract-artifacts workstream.",
+  "members": ["contract:WIRE", "contract:COMMON", "contract:MOUNTAIN"]
+}

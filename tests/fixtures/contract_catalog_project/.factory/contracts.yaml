@@ -1,0 +1,21 @@
+schema: coherence.contract-catalog.v1
+contracts:
+  - id: WIRE
+    path: contracts/wire.schema.json
+    kind: json_schema
+    status: active
+    authority: spec:WIRE-SPEC
+    consumers:
+      - test:tests/wire_test.py
+  - id: COMMON
+    path: contracts/common/common.schema.json
+    kind: json_schema
+    status: active
+    authority: spec:WIRE-SPEC
+  - id: MOUNTAIN
+    path: fixtures/mountain.json
+    kind: fixture
+    status: active
+    validates_against: contract:WIRE
+    consumers:
+      - code:src/load_mountain.py

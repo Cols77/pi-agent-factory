@@ -1,0 +1,4 @@
+=== trace check ===
+traceability health: 100%
+0 pending, 0 deferred, 0 exempt
+EXIT=0

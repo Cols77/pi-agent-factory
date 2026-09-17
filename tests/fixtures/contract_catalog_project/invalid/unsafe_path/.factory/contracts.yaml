@@ -1,0 +1,6 @@
+schema: coherence.contract-catalog.v1
+contracts:
+  - id: ESCAPE
+    path: ../outside.json
+    kind: json_schema
+    status: active

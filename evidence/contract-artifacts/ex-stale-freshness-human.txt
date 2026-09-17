@@ -1,0 +1,12 @@
+freshness: 11 findings
+  [CONTRACT_CONSUMER_STALE] error run:RUN-SC: recorded contract validation fingerprint no longer matches the compiled closure
+  [CONTRACT_FIXTURE_STALE] error contract:FIX: fixture contract 'FIX''s validating schema contract:SCHEMA changed; re-validate the fixture
+  [CONTRACT_MISSING_PROVENANCE] warning contract:BROKEN: contract 'BROKEN' (contracts/broken.schema.json) has no authority, no validates_against and no consumers; provenance is unreadable
+  [CONTRACT_MISSING_PROVENANCE] warning contract:DEFS: contract 'DEFS' (contracts/defs.schema.json) has no authority, no validates_against and no consumers; provenance is unreadable
+  [CONTRACT_MISSING_PROVENANCE] warning contract:ORPHAN: contract 'ORPHAN' (contracts/orphan.json) has no authority, no validates_against and no consumers; provenance is unreadable
+  [CONTRACT_REFERENCE_BROKEN] error contract:BROKEN: contract 'BROKEN' local $ref 'missing.json' resolves to a missing or non-file target; the reference is rejected
+  [CONTRACT_STALE] error contract:SCHEMA: contract 'SCHEMA' closure changed (its source dependencies changed)
+  [CONTRACT_VALIDATION_UNAVAILABLE] warning code:backend/app.py: declared consumer code:backend/app.py has no recorded validation evidence for contract 'FIX'
+  [CONTRACT_VALIDATION_UNAVAILABLE] warning test:tests/schema_test.py: declared consumer test:tests/schema_test.py has no recorded validation evidence for contract 'SCHEMA'
+  [EVIDENCE_STALE] error run:RUN-SC: contract:SCHEMA: changed since evidence
+  [REFRESH_BLOCKED] warning run:RUN-SC: required action rerun-validation has no registered generator/harness

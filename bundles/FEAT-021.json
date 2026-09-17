@@ -1,0 +1,13 @@
+{
+  "description": "Exact-closure bundle for FEAT-021's opt-in contract artifacts. It allocates the feature and its four consented SRs; implementation artifacts, human consent, and validation remain governed by their existing Coherence paths.",
+  "draft": true,
+  "id": "FEAT-021",
+  "label": "OPTIONAL-CONTRACT-ARTIFACTS dossier bundle",
+  "members": [
+    "feat:FEAT-021",
+    "sr:SR-073",
+    "sr:SR-074",
+    "sr:SR-075",
+    "sr:SR-076"
+  ]
+}

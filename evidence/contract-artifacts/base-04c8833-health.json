@@ -1,0 +1,1780 @@
+{
+  "health": {
+    "classes": [
+      {
+        "name": "task->plan",
+        "satisfied": 38,
+        "expected": 39,
+        "exempt": 5
+      },
+      {
+        "name": "task->SR",
+        "satisfied": 17,
+        "expected": 39,
+        "exempt": 5
+      },
+      {
+        "name": "plan->spec",
+        "satisfied": 61,
+        "expected": 102,
+        "exempt": 0
+      },
+      {
+        "name": "SR satisfied",
+        "satisfied": 9,
+        "expected": 66,
+        "exempt": 0
+      },
+      {
+        "name": "SR validated",
+        "satisfied": 7,
+        "expected": 7,
+        "exempt": 0
+      }
+    ],
+    "satisfied": 132,
+    "expected": 253,
+    "percent": 52,
+    "dangling": 1,
+    "deferred": 2,
+    "proposed": 59
+  },
+  "coverage": {
+    "total": 294,
+    "bundled": 58,
+    "unbundled": [
+      "sr:SR-050",
+      "sr:SR-056",
+      "sr:SR-057",
+      "sr:SR-058",
+      "sr:SR-059",
+      "sr:SR-063",
+      "sr:SR-064",
+      "sr:SR-070",
+      "task:T-001",
+      "task:T-002",
+      "task:T-003",
+      "task:T-004",
+      "task:T-005",
+      "task:T-006",
+      "task:T-007",
+      "task:T-011",
+      "task:T-012",
+      "task:T-013",
+      "task:T-014",
+      "task:T-015",
+      "task:T-016",
+      "task:T-017",
+      "task:T-018",
+      "task:T-019",
+      "task:T-020",
+      "task:T-025",
+      "task:T-026",
+      "task:T-027",
+      "task:T-028",
+      "task:T-029",
+      "task:T-030",
+      "task:T-031",
+      "task:T-032",
+      "task:T-033",
+      "task:T-034",
+      "task:T-035",
+      "task:T-036",
+      "task:T-037",
+      "task:T-038",
+      "task:T-039",
+      "task:T-040",
+      "task:T-041",
+      "task:T-042",
+      "task:T-043",
+      "task:T-044",
+      "task:T-045",
+      "task:T-046",
+      "task:T-047",
+      "task:T-058",
+      "task:T-059",
+      "task:T-060",
+      "task:T-061",
+      "spec:docs/superpowers/specs/2026-07-16-deterministic-agent-dev-factory-design.md",
+      "spec:docs/superpowers/specs/2026-07-20-factory-live-visualization-design.md",
+      "spec:docs/superpowers/specs/2026-07-20-factory-plan-and-run-design.md",
+      "spec:docs/superpowers/specs/2026-07-21-deterministic-task-export-design.md",
+      "spec:docs/superpowers/specs/2026-07-21-review-plans-command-design.md",
+      "spec:docs/superpowers/specs/2026-07-22-factory-human-review-ui-design.md",
+      "spec:docs/superpowers/specs/2026-07-22-mission-control-and-session-review-design.md",
+      "spec:docs/superpowers/specs/2026-07-23-mission-control-observation-design.md",
+      "spec:docs/superpowers/specs/2026-07-24-already-done-task-routing-design.md",
+      "spec:docs/superpowers/specs/2026-07-24-mission-control-review-decision-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-human-review-loop-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-in-session-mission-control-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-review-focus-guide-design.md",
+      "spec:docs/superpowers/specs/2026-07-28-dev-escalation-pairing-handoff-design.md",
+      "spec:docs/superpowers/specs/2026-07-28-factory-state-visibility-design.md",
+      "spec:docs/superpowers/specs/2026-07-29-coherence-evidence-connectors-design.md",
+      "spec:docs/superpowers/specs/2026-07-29-review-ux-dual-surface-design.md",
+      "spec:docs/superpowers/specs/2026-07-30-system-requirement-validation-design.md",
+      "spec:docs/superpowers/specs/2026-07-31-polish-workflow-and-validation-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-01-req-validation-inc2-webapp-live-harness-and-polish-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-03-review-plans-browser-and-trace-health-design.md",
+      "spec:docs/superpowers/specs/2026-08-05-drone-factory-separation-design.md",
+      "spec:docs/superpowers/specs/2026-08-05-project-configurable-gates-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-factory-init-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-requirement-doctor-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-trace-fix-field-of-view-design.md",
+      "spec:docs/superpowers/specs/2026-08-07-factory-evidence-lifecycle-and-recovery-design.md",
+      "spec:docs/superpowers/specs/2026-08-08-system-navigator-briefing-validation-guide-design.md",
+      "spec:docs/superpowers/specs/2026-08-09-system-navigator-increment-b-vcycle-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-curation-increment-2-seed.md",
+      "spec:docs/superpowers/specs/2026-08-10-curation-workflow-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-review-browser-task-context-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md",
+      "spec:docs/superpowers/specs/2026-08-11-system-feature-spine-design.md",
+      "spec:docs/superpowers/specs/2026-08-12-grill-understanding-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-12-system-control-center-spb-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-project-bootstrap-factory-init-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-spb-health-performance-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-system-navigator-visual-identity-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-code-context-bundle-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-context-packet-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-pipeline-node-registry-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-session-memory-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-visual-addendum.md",
+      "spec:docs/superpowers/specs/2026-08-16-system-navigator-execution-engine-design.md",
+      "spec:docs/superpowers/specs/2026-08-16-system-navigator-legibility-increment-2-design.md",
+      "spec:docs/superpowers/specs/2026-08-17-requirement-coverage-review-design.md",
+      "spec:docs/superpowers/specs/2026-08-18-coherence-toolset-design.md",
+      "spec:docs/superpowers/specs/2026-08-20-coherence-agentic-io-design.md",
+      "spec:docs/superpowers/specs/2026-08-21-polish-menu-playground-usecase.md",
+      "spec:docs/superpowers/specs/2026-08-22-coherence-progressive-assurance-design.md",
+      "spec:docs/superpowers/specs/2026-08-22-system-traceability-course-overhaul-design.md",
+      "spec:docs/superpowers/specs/2026-08-23-pi-package-adoption-design.md",
+      "spec:docs/superpowers/specs/2026-08-24-coherence-release-strategy.md",
+      "spec:docs/superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md",
+      "spec:docs/superpowers/specs/2026-08-27-coherence-console-webui-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat13-governed-execution-driver-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat14-validation-gates-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat15-polish-flow-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat16-modular-workflows-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-filesystem-first-architecture-assessment.md",
+      "spec:docs/superpowers/specs/2026-08-27-free-subagent-reliability-retro.md",
+      "spec:docs/superpowers/specs/2026-08-31-sr-code-validation-traceability-design.md",
+      "spec:docs/superpowers/specs/2026-09-01-coherence-product-definition.md",
+      "spec:docs/superpowers/specs/2026-09-02-progressive-review-decision-presentation-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-cross-feat-semantic-overlap-detection-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-manual-criteria-enforcement-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-typed-relation-wikilink-mirroring-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-coherence-tooling-performance-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-commit-claim-traceability-design.md",
+      "spec:docs/superpowers/specs/2026-09-04-completion-gate-duplication-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md",
+      "spec:docs/superpowers/specs/2026-09-05-codex-coherence-plan-design.md",
+      "spec:docs/superpowers/specs/2026-09-05-feat003-planning-workflow-alignment-intent.md",
+      "spec:docs/superpowers/specs/2026-09-05-per-criterion-measurement-seed.md",
+      "spec:docs/superpowers/specs/2026-09-06-codex-guided-coherence-plan-parity-design.md",
+      "spec:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md",
+      "spec:docs/superpowers/specs/2026-09-08-feat017-closure-slice-design.md",
+      "spec:docs/superpowers/specs/2026-09-13-planning-schema2-transport-design.md",
+      "spec:docs/superpowers/specs/2026-09-14-coherence-plan-requirements-authoring-design.md",
+      "plan:docs/superpowers/plans/2026-07-16-agent-dev-factory-core.md",
+      "plan:docs/superpowers/plans/2026-07-16-factory-orchestrator.md",
+      "plan:docs/superpowers/plans/2026-07-16-scope-guard-pi-extension.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-plan-and-run.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-status-reporting.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-watch-extension.md",
+      "plan:docs/superpowers/plans/2026-07-21-deterministic-task-export.md",
+      "plan:docs/superpowers/plans/2026-07-21-review-plans-command.md",
+      "plan:docs/superpowers/plans/2026-07-22-factory-human-review-ui.md",
+      "plan:docs/superpowers/plans/2026-07-22-mission-control-and-session-review.md",
+      "plan:docs/superpowers/plans/2026-07-23-mission-control-observation.md",
+      "plan:docs/superpowers/plans/2026-07-24-already-done-task-routing.md",
+      "plan:docs/superpowers/plans/2026-07-24-mission-control-review-decision.md",
+      "plan:docs/superpowers/plans/2026-07-27-in-session-mission-control.md",
+      "plan:docs/superpowers/plans/2026-07-27-review-focus-guide.md",
+      "plan:docs/superpowers/plans/2026-07-28-dev-escalation-pairing-handoff.md",
+      "plan:docs/superpowers/plans/2026-07-28-factory-state-visibility.md",
+      "plan:docs/superpowers/plans/2026-07-29-coherence-evidence-connectors.md",
+      "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-a-model-tui-python.md",
+      "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-b-web-server.md",
+      "plan:docs/superpowers/plans/2026-07-30-system-requirement-validation-inc1a.md",
+      "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p1.md",
+      "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p2.md",
+      "plan:docs/superpowers/plans/2026-07-31-req-validation-1b.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceA-playwright-harness.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB-polish-orchestrator.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB2-polish-ui-bridge.md",
+      "plan:docs/superpowers/plans/2026-08-03-docs-browser-viewer.md",
+      "plan:docs/superpowers/plans/2026-08-03-trace-fix-workflow.md",
+      "plan:docs/superpowers/plans/2026-08-03-trace-model-and-cli.md",
+      "plan:docs/superpowers/plans/2026-08-05-drone-factory-separation.md",
+      "plan:docs/superpowers/plans/2026-08-05-project-configurable-gates.md",
+      "plan:docs/superpowers/plans/2026-08-06-factory-init.md",
+      "plan:docs/superpowers/plans/2026-08-06-requirement-doctor.md",
+      "plan:docs/superpowers/plans/2026-08-06-trace-fix-field-of-view.md",
+      "plan:docs/superpowers/plans/2026-08-07-evidence-store-and-manifests.md",
+      "plan:docs/superpowers/plans/2026-08-07-freshness-preflight-and-reconciliation.md",
+      "plan:docs/superpowers/plans/2026-08-07-pif-browser-evidence-integration.md",
+      "plan:docs/superpowers/plans/2026-08-07-run-journal-and-recovery.md",
+      "plan:docs/superpowers/plans/2026-08-08-system-navigator-briefing-validation-guide.md",
+      "plan:docs/superpowers/plans/2026-08-09-system-navigator-increment-b-vcycle.md",
+      "plan:docs/superpowers/plans/2026-08-10-curation-increment-1-cli-vocabulary.md",
+      "plan:docs/superpowers/plans/2026-08-10-review-browser-task-context.md",
+      "plan:docs/superpowers/plans/2026-08-10-system-navigator-navigation.md",
+      "plan:docs/superpowers/plans/2026-08-10-system-navigator-trace-and-sidebar.md",
+      "plan:docs/superpowers/plans/2026-08-11-system-feature-spine.md",
+      "plan:docs/superpowers/plans/2026-08-12-grill-understanding-node.md",
+      "plan:docs/superpowers/plans/2026-08-12-system-control-center-spb.md",
+      "plan:docs/superpowers/plans/2026-08-13-spb-health-performance.md",
+      "plan:docs/superpowers/plans/2026-08-13-system-navigator-visual-identity.md",
+      "plan:docs/superpowers/plans/2026-08-14-code-context-bundle-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-context-packet-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-pipeline-node-registry-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-session-memory.md",
+      "plan:docs/superpowers/plans/2026-08-14-system-navigator-comprehension-layer.md",
+      "plan:docs/superpowers/plans/2026-08-16-code-context-tree-sitter-consumer-setup.md",
+      "plan:docs/superpowers/plans/2026-08-16-system-navigator-legibility-increment-2.md",
+      "plan:docs/superpowers/plans/2026-08-17-requirement-coverage-review.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-baseline-enablement.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-evidence-register.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1-agentic-io-freshness-foundation.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1b-neutral-substrate-extraction.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1c-codemap-kb-signatures.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-2-trace-register.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-3-navigate-presentation-goals-simulation.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-4-audit-measurement-observations.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-5-status-focus-dispatcher.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-6-gate-inbox-staleness.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-7-unified-long-run-surface.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-8-artifact-families.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-programme-execution-map.md",
+      "plan:docs/superpowers/plans/2026-08-21-polish-menu-playground-usecase.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2b-progressive-assurance-foundation.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2c-ci-obligation-consumer.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-3b-obligation-aware-views.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-6b-thin-vertical-slice.md",
+      "plan:docs/superpowers/plans/2026-08-23-pi-package-adoption.md",
+      "plan:docs/superpowers/plans/2026-08-23-system-traceability-course-overhaul.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-execution-runbook.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-health-resolution-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-console-slice-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-dossier-slice-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-session-handoff.md",
+      "plan:docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+      "plan:docs/superpowers/plans/2026-08-30-test-campaign-reduction-surgical-plan.md",
+      "plan:docs/superpowers/plans/2026-08-31-coherence-knowledge-base-classroom.md",
+      "plan:docs/superpowers/plans/2026-08-31-feat17-sr-authoring-plan.md",
+      "plan:docs/superpowers/plans/2026-08-31-sr-code-validation-traceability-plan.md",
+      "plan:docs/superpowers/plans/2026-09-01-feat001-first-vertical-slice.md",
+      "plan:docs/superpowers/plans/2026-09-01-feat001-reference-run.md",
+      "plan:docs/superpowers/plans/2026-09-03-sr050-t5-fidelity-reviewer-plan.md",
+      "plan:docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+      "plan:docs/superpowers/plans/2026-09-04-sr050-t3-relation-maintenance-plan.md",
+      "plan:docs/superpowers/plans/2026-09-05-codex-coherence-plan.md",
+      "plan:docs/superpowers/plans/2026-09-06-feat17-guided-planning-entrypoint-plan.md",
+      "plan:docs/superpowers/plans/2026-09-07-feat017-closure-bookkeeping.md",
+      "plan:docs/superpowers/plans/2026-09-07-feat017-t038-review-report.md",
+      "plan:docs/superpowers/plans/2026-09-07-legal-actions-lifecycle-projection.md",
+      "plan:docs/superpowers/plans/2026-09-08-feat017-coordinated-closure-slice.md",
+      "plan:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md",
+      "plan:docs/superpowers/plans/2026-09-13-planning-schema2-transport.md",
+      "plan:docs/superpowers/plans/2026-09-14-coherence-plan-requirements-authoring.md"
+    ],
+    "kinds": [
+      {
+        "kind": "sr",
+        "total": 66,
+        "bundled": 58,
+        "unbundled": [
+          "sr:SR-050",
+          "sr:SR-056",
+          "sr:SR-057",
+          "sr:SR-058",
+          "sr:SR-059",
+          "sr:SR-063",
+          "sr:SR-064",
+          "sr:SR-070"
+        ]
+      },
+      {
+        "kind": "task",
+        "total": 44,
+        "bundled": 0,
+        "unbundled": [
+          "task:T-001",
+          "task:T-002",
+          "task:T-003",
+          "task:T-004",
+          "task:T-005",
+          "task:T-006",
+          "task:T-007",
+          "task:T-011",
+          "task:T-012",
+          "task:T-013",
+          "task:T-014",
+          "task:T-015",
+          "task:T-016",
+          "task:T-017",
+          "task:T-018",
+          "task:T-019",
+          "task:T-020",
+          "task:T-025",
+          "task:T-026",
+          "task:T-027",
+          "task:T-028",
+          "task:T-029",
+          "task:T-030",
+          "task:T-031",
+          "task:T-032",
+          "task:T-033",
+          "task:T-034",
+          "task:T-035",
+          "task:T-036",
+          "task:T-037",
+          "task:T-038",
+          "task:T-039",
+          "task:T-040",
+          "task:T-041",
+          "task:T-042",
+          "task:T-043",
+          "task:T-044",
+          "task:T-045",
+          "task:T-046",
+          "task:T-047",
+          "task:T-058",
+          "task:T-059",
+          "task:T-060",
+          "task:T-061"
+        ]
+      },
+      {
+        "kind": "spec",
+        "total": 82,
+        "bundled": 0,
+        "unbundled": [
+          "spec:docs/superpowers/specs/2026-07-16-deterministic-agent-dev-factory-design.md",
+          "spec:docs/superpowers/specs/2026-07-20-factory-live-visualization-design.md",
+          "spec:docs/superpowers/specs/2026-07-20-factory-plan-and-run-design.md",
+          "spec:docs/superpowers/specs/2026-07-21-deterministic-task-export-design.md",
+          "spec:docs/superpowers/specs/2026-07-21-review-plans-command-design.md",
+          "spec:docs/superpowers/specs/2026-07-22-factory-human-review-ui-design.md",
+          "spec:docs/superpowers/specs/2026-07-22-mission-control-and-session-review-design.md",
+          "spec:docs/superpowers/specs/2026-07-23-mission-control-observation-design.md",
+          "spec:docs/superpowers/specs/2026-07-24-already-done-task-routing-design.md",
+          "spec:docs/superpowers/specs/2026-07-24-mission-control-review-decision-design.md",
+          "spec:docs/superpowers/specs/2026-07-27-human-review-loop-design.md",
+          "spec:docs/superpowers/specs/2026-07-27-in-session-mission-control-design.md",
+          "spec:docs/superpowers/specs/2026-07-27-review-focus-guide-design.md",
+          "spec:docs/superpowers/specs/2026-07-28-dev-escalation-pairing-handoff-design.md",
+          "spec:docs/superpowers/specs/2026-07-28-factory-state-visibility-design.md",
+          "spec:docs/superpowers/specs/2026-07-29-coherence-evidence-connectors-design.md",
+          "spec:docs/superpowers/specs/2026-07-29-review-ux-dual-surface-design.md",
+          "spec:docs/superpowers/specs/2026-07-30-system-requirement-validation-design.md",
+          "spec:docs/superpowers/specs/2026-07-31-polish-workflow-and-validation-node-design.md",
+          "spec:docs/superpowers/specs/2026-08-01-req-validation-inc2-webapp-live-harness-and-polish-node-design.md",
+          "spec:docs/superpowers/specs/2026-08-03-review-plans-browser-and-trace-health-design.md",
+          "spec:docs/superpowers/specs/2026-08-05-drone-factory-separation-design.md",
+          "spec:docs/superpowers/specs/2026-08-05-project-configurable-gates-design.md",
+          "spec:docs/superpowers/specs/2026-08-06-factory-init-design.md",
+          "spec:docs/superpowers/specs/2026-08-06-requirement-doctor-design.md",
+          "spec:docs/superpowers/specs/2026-08-06-trace-fix-field-of-view-design.md",
+          "spec:docs/superpowers/specs/2026-08-07-factory-evidence-lifecycle-and-recovery-design.md",
+          "spec:docs/superpowers/specs/2026-08-08-system-navigator-briefing-validation-guide-design.md",
+          "spec:docs/superpowers/specs/2026-08-09-system-navigator-increment-b-vcycle-design.md",
+          "spec:docs/superpowers/specs/2026-08-10-curation-increment-2-seed.md",
+          "spec:docs/superpowers/specs/2026-08-10-curation-workflow-design.md",
+          "spec:docs/superpowers/specs/2026-08-10-review-browser-task-context-design.md",
+          "spec:docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md",
+          "spec:docs/superpowers/specs/2026-08-11-system-feature-spine-design.md",
+          "spec:docs/superpowers/specs/2026-08-12-grill-understanding-node-design.md",
+          "spec:docs/superpowers/specs/2026-08-12-system-control-center-spb-design.md",
+          "spec:docs/superpowers/specs/2026-08-13-project-bootstrap-factory-init-design.md",
+          "spec:docs/superpowers/specs/2026-08-13-spb-health-performance-design.md",
+          "spec:docs/superpowers/specs/2026-08-13-system-navigator-visual-identity-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-code-context-bundle-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-context-packet-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-pipeline-node-registry-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-session-memory-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-design.md",
+          "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-visual-addendum.md",
+          "spec:docs/superpowers/specs/2026-08-16-system-navigator-execution-engine-design.md",
+          "spec:docs/superpowers/specs/2026-08-16-system-navigator-legibility-increment-2-design.md",
+          "spec:docs/superpowers/specs/2026-08-17-requirement-coverage-review-design.md",
+          "spec:docs/superpowers/specs/2026-08-18-coherence-toolset-design.md",
+          "spec:docs/superpowers/specs/2026-08-20-coherence-agentic-io-design.md",
+          "spec:docs/superpowers/specs/2026-08-21-polish-menu-playground-usecase.md",
+          "spec:docs/superpowers/specs/2026-08-22-coherence-progressive-assurance-design.md",
+          "spec:docs/superpowers/specs/2026-08-22-system-traceability-course-overhaul-design.md",
+          "spec:docs/superpowers/specs/2026-08-23-pi-package-adoption-design.md",
+          "spec:docs/superpowers/specs/2026-08-24-coherence-release-strategy.md",
+          "spec:docs/superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md",
+          "spec:docs/superpowers/specs/2026-08-27-coherence-console-webui-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-feat13-governed-execution-driver-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-feat14-validation-gates-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-feat15-polish-flow-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-feat16-modular-workflows-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+          "spec:docs/superpowers/specs/2026-08-27-filesystem-first-architecture-assessment.md",
+          "spec:docs/superpowers/specs/2026-08-27-free-subagent-reliability-retro.md",
+          "spec:docs/superpowers/specs/2026-08-31-sr-code-validation-traceability-design.md",
+          "spec:docs/superpowers/specs/2026-09-01-coherence-product-definition.md",
+          "spec:docs/superpowers/specs/2026-09-02-progressive-review-decision-presentation-seed.md",
+          "spec:docs/superpowers/specs/2026-09-03-cross-feat-semantic-overlap-detection-seed.md",
+          "spec:docs/superpowers/specs/2026-09-03-manual-criteria-enforcement-seed.md",
+          "spec:docs/superpowers/specs/2026-09-03-typed-relation-wikilink-mirroring-seed.md",
+          "spec:docs/superpowers/specs/2026-09-04-coherence-tooling-performance-seed.md",
+          "spec:docs/superpowers/specs/2026-09-04-commit-claim-traceability-design.md",
+          "spec:docs/superpowers/specs/2026-09-04-completion-gate-duplication-seed.md",
+          "spec:docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md",
+          "spec:docs/superpowers/specs/2026-09-05-codex-coherence-plan-design.md",
+          "spec:docs/superpowers/specs/2026-09-05-feat003-planning-workflow-alignment-intent.md",
+          "spec:docs/superpowers/specs/2026-09-05-per-criterion-measurement-seed.md",
+          "spec:docs/superpowers/specs/2026-09-06-codex-guided-coherence-plan-parity-design.md",
+          "spec:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md",
+          "spec:docs/superpowers/specs/2026-09-08-feat017-closure-slice-design.md",
+          "spec:docs/superpowers/specs/2026-09-13-planning-schema2-transport-design.md",
+          "spec:docs/superpowers/specs/2026-09-14-coherence-plan-requirements-authoring-design.md"
+        ]
+      },
+      {
+        "kind": "plan",
+        "total": 102,
+        "bundled": 0,
+        "unbundled": [
+          "plan:docs/superpowers/plans/2026-07-16-agent-dev-factory-core.md",
+          "plan:docs/superpowers/plans/2026-07-16-factory-orchestrator.md",
+          "plan:docs/superpowers/plans/2026-07-16-scope-guard-pi-extension.md",
+          "plan:docs/superpowers/plans/2026-07-20-factory-plan-and-run.md",
+          "plan:docs/superpowers/plans/2026-07-20-factory-status-reporting.md",
+          "plan:docs/superpowers/plans/2026-07-20-factory-watch-extension.md",
+          "plan:docs/superpowers/plans/2026-07-21-deterministic-task-export.md",
+          "plan:docs/superpowers/plans/2026-07-21-review-plans-command.md",
+          "plan:docs/superpowers/plans/2026-07-22-factory-human-review-ui.md",
+          "plan:docs/superpowers/plans/2026-07-22-mission-control-and-session-review.md",
+          "plan:docs/superpowers/plans/2026-07-23-mission-control-observation.md",
+          "plan:docs/superpowers/plans/2026-07-24-already-done-task-routing.md",
+          "plan:docs/superpowers/plans/2026-07-24-mission-control-review-decision.md",
+          "plan:docs/superpowers/plans/2026-07-27-in-session-mission-control.md",
+          "plan:docs/superpowers/plans/2026-07-27-review-focus-guide.md",
+          "plan:docs/superpowers/plans/2026-07-28-dev-escalation-pairing-handoff.md",
+          "plan:docs/superpowers/plans/2026-07-28-factory-state-visibility.md",
+          "plan:docs/superpowers/plans/2026-07-29-coherence-evidence-connectors.md",
+          "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-a-model-tui-python.md",
+          "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-b-web-server.md",
+          "plan:docs/superpowers/plans/2026-07-30-system-requirement-validation-inc1a.md",
+          "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p1.md",
+          "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p2.md",
+          "plan:docs/superpowers/plans/2026-07-31-req-validation-1b.md",
+          "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceA-playwright-harness.md",
+          "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB-polish-orchestrator.md",
+          "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB2-polish-ui-bridge.md",
+          "plan:docs/superpowers/plans/2026-08-03-docs-browser-viewer.md",
+          "plan:docs/superpowers/plans/2026-08-03-trace-fix-workflow.md",
+          "plan:docs/superpowers/plans/2026-08-03-trace-model-and-cli.md",
+          "plan:docs/superpowers/plans/2026-08-05-drone-factory-separation.md",
+          "plan:docs/superpowers/plans/2026-08-05-project-configurable-gates.md",
+          "plan:docs/superpowers/plans/2026-08-06-factory-init.md",
+          "plan:docs/superpowers/plans/2026-08-06-requirement-doctor.md",
+          "plan:docs/superpowers/plans/2026-08-06-trace-fix-field-of-view.md",
+          "plan:docs/superpowers/plans/2026-08-07-evidence-store-and-manifests.md",
+          "plan:docs/superpowers/plans/2026-08-07-freshness-preflight-and-reconciliation.md",
+          "plan:docs/superpowers/plans/2026-08-07-pif-browser-evidence-integration.md",
+          "plan:docs/superpowers/plans/2026-08-07-run-journal-and-recovery.md",
+          "plan:docs/superpowers/plans/2026-08-08-system-navigator-briefing-validation-guide.md",
+          "plan:docs/superpowers/plans/2026-08-09-system-navigator-increment-b-vcycle.md",
+          "plan:docs/superpowers/plans/2026-08-10-curation-increment-1-cli-vocabulary.md",
+          "plan:docs/superpowers/plans/2026-08-10-review-browser-task-context.md",
+          "plan:docs/superpowers/plans/2026-08-10-system-navigator-navigation.md",
+          "plan:docs/superpowers/plans/2026-08-10-system-navigator-trace-and-sidebar.md",
+          "plan:docs/superpowers/plans/2026-08-11-system-feature-spine.md",
+          "plan:docs/superpowers/plans/2026-08-12-grill-understanding-node.md",
+          "plan:docs/superpowers/plans/2026-08-12-system-control-center-spb.md",
+          "plan:docs/superpowers/plans/2026-08-13-spb-health-performance.md",
+          "plan:docs/superpowers/plans/2026-08-13-system-navigator-visual-identity.md",
+          "plan:docs/superpowers/plans/2026-08-14-code-context-bundle-implementation.md",
+          "plan:docs/superpowers/plans/2026-08-14-context-packet-implementation.md",
+          "plan:docs/superpowers/plans/2026-08-14-pipeline-node-registry-implementation.md",
+          "plan:docs/superpowers/plans/2026-08-14-session-memory.md",
+          "plan:docs/superpowers/plans/2026-08-14-system-navigator-comprehension-layer.md",
+          "plan:docs/superpowers/plans/2026-08-16-code-context-tree-sitter-consumer-setup.md",
+          "plan:docs/superpowers/plans/2026-08-16-system-navigator-legibility-increment-2.md",
+          "plan:docs/superpowers/plans/2026-08-17-requirement-coverage-review.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-baseline-enablement.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-evidence-register.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1-agentic-io-freshness-foundation.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1b-neutral-substrate-extraction.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1c-codemap-kb-signatures.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-2-trace-register.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-3-navigate-presentation-goals-simulation.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-4-audit-measurement-observations.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-5-status-focus-dispatcher.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-6-gate-inbox-staleness.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-7-unified-long-run-surface.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-increment-8-artifact-families.md",
+          "plan:docs/superpowers/plans/2026-08-20-coherence-programme-execution-map.md",
+          "plan:docs/superpowers/plans/2026-08-21-polish-menu-playground-usecase.md",
+          "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2b-progressive-assurance-foundation.md",
+          "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2c-ci-obligation-consumer.md",
+          "plan:docs/superpowers/plans/2026-08-22-coherence-increment-3b-obligation-aware-views.md",
+          "plan:docs/superpowers/plans/2026-08-22-coherence-increment-6b-thin-vertical-slice.md",
+          "plan:docs/superpowers/plans/2026-08-23-pi-package-adoption.md",
+          "plan:docs/superpowers/plans/2026-08-23-system-traceability-course-overhaul.md",
+          "plan:docs/superpowers/plans/2026-08-27-coherence-execution-runbook.md",
+          "plan:docs/superpowers/plans/2026-08-27-coherence-health-resolution-plan.md",
+          "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-console-slice-plan.md",
+          "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-dossier-slice-plan.md",
+          "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-session-handoff.md",
+          "plan:docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+          "plan:docs/superpowers/plans/2026-08-30-test-campaign-reduction-surgical-plan.md",
+          "plan:docs/superpowers/plans/2026-08-31-coherence-knowledge-base-classroom.md",
+          "plan:docs/superpowers/plans/2026-08-31-feat17-sr-authoring-plan.md",
+          "plan:docs/superpowers/plans/2026-08-31-sr-code-validation-traceability-plan.md",
+          "plan:docs/superpowers/plans/2026-09-01-feat001-first-vertical-slice.md",
+          "plan:docs/superpowers/plans/2026-09-01-feat001-reference-run.md",
+          "plan:docs/superpowers/plans/2026-09-03-sr050-t5-fidelity-reviewer-plan.md",
+          "plan:docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+          "plan:docs/superpowers/plans/2026-09-04-sr050-t3-relation-maintenance-plan.md",
+          "plan:docs/superpowers/plans/2026-09-05-codex-coherence-plan.md",
+          "plan:docs/superpowers/plans/2026-09-06-feat17-guided-planning-entrypoint-plan.md",
+          "plan:docs/superpowers/plans/2026-09-07-feat017-closure-bookkeeping.md",
+          "plan:docs/superpowers/plans/2026-09-07-feat017-t038-review-report.md",
+          "plan:docs/superpowers/plans/2026-09-07-legal-actions-lifecycle-projection.md",
+          "plan:docs/superpowers/plans/2026-09-08-feat017-coordinated-closure-slice.md",
+          "plan:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md",
+          "plan:docs/superpowers/plans/2026-09-13-planning-schema2-transport.md",
+          "plan:docs/superpowers/plans/2026-09-14-coherence-plan-requirements-authoring.md"
+        ]
+      },
+      {
+        "kind": "adr",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      }
+    ]
+  },
+  "bundles": [
+    {
+      "id": "FEAT-013",
+      "label": "GOVERNED-EXECUTION-DRIVER dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 2,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-013 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-017",
+      "label": "PLANNING-BOOTSTRAP dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 10,
+        "bound": 0,
+        "covered": 6,
+        "current": 0,
+        "deferred": 10,
+        "validated": 0
+      },
+      "members": 11,
+      "description": "Draft exact-closure bundle for FEAT-017's mature host-neutral planning workflow. It allocates the feature and its ten thin SR projections; implementation evidence, human consent, and validation remain governed by their existing Coherence paths."
+    },
+    {
+      "id": "FEAT-007",
+      "label": "MEASURE-AUDIT dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-007 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-001",
+      "label": "REQ-TRACEABILITY dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 7,
+        "bound": 7,
+        "covered": 0,
+        "current": 7,
+        "deferred": 0,
+        "validated": 7
+      },
+      "members": 8,
+      "description": "Declared bundle for feature FEAT-001 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-002",
+      "label": "PROGRESSIVE-ASSURANCE dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 6,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 6,
+        "validated": 5
+      },
+      "members": 7,
+      "description": "Declared bundle for feature FEAT-002 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-003",
+      "label": "NONCONFORMANCE-CLOSURE dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 3,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 3,
+        "validated": 0
+      },
+      "members": 4,
+      "description": "Declared bundle for feature FEAT-003 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-004",
+      "label": "NAVIGATION-UNDERSTANDING dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-004 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-005",
+      "label": "HEALTH-STATUS dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 4,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 4,
+        "validated": 0
+      },
+      "members": 5,
+      "description": "Declared bundle for feature FEAT-005 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-006",
+      "label": "EVIDENCE-PROVENANCE dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 4,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 4,
+        "validated": 0
+      },
+      "members": 5,
+      "description": "Declared bundle for feature FEAT-006 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-008",
+      "label": "GOALS-SIMULATION dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-008 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-009",
+      "label": "HOST-ADAPTERS dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 3,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 3,
+        "validated": 0
+      },
+      "members": 4,
+      "description": "Declared bundle for feature FEAT-009 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-010",
+      "label": "COHERENCE-CONSOLE dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-010 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-011",
+      "label": "WORKFLOW-ENFORCEMENT dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-011 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-012",
+      "label": "LIVE-RUN-PROGRESS dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 1,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 1,
+        "validated": 0
+      },
+      "members": 2,
+      "description": "Declared bundle for feature FEAT-012 so every SR/task/plan it owns is allocatable. Membership extends as the T-3 SR-authoring and T-5 link-closure steps bind real requirements."
+    },
+    {
+      "id": "FEAT-014",
+      "label": "VALIDATION-GATES dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 3,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 3,
+        "validated": 0
+      },
+      "members": 4,
+      "description": "Declared bundle for feature FEAT-014 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements."
+    },
+    {
+      "id": "FEAT-015",
+      "label": "POLISH-FLOW dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 2,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 2,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "Declared bundle for feature FEAT-015 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements."
+    },
+    {
+      "id": "FEAT-016",
+      "label": "MODULAR-WORKFLOWS dossier bundle",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 3,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 3,
+        "validated": 0
+      },
+      "members": 4,
+      "description": "Declared bundle for feature FEAT-016 so every SR/task/plan it owns is allocatable. Membership extends as SR-authoring and link-closure bind real requirements."
+    }
+  ],
+  "unbundled": {
+    "sr": [
+      "sr:SR-050",
+      "sr:SR-056",
+      "sr:SR-057",
+      "sr:SR-058",
+      "sr:SR-059",
+      "sr:SR-063",
+      "sr:SR-064",
+      "sr:SR-070"
+    ],
+    "task": [
+      "task:T-001",
+      "task:T-002",
+      "task:T-003",
+      "task:T-004",
+      "task:T-005",
+      "task:T-006",
+      "task:T-007",
+      "task:T-011",
+      "task:T-012",
+      "task:T-013",
+      "task:T-014",
+      "task:T-015",
+      "task:T-016",
+      "task:T-017",
+      "task:T-018",
+      "task:T-019",
+      "task:T-020",
+      "task:T-025",
+      "task:T-026",
+      "task:T-027",
+      "task:T-028",
+      "task:T-029",
+      "task:T-030",
+      "task:T-031",
+      "task:T-032",
+      "task:T-033",
+      "task:T-034",
+      "task:T-035",
+      "task:T-036",
+      "task:T-037",
+      "task:T-038",
+      "task:T-039",
+      "task:T-040",
+      "task:T-041",
+      "task:T-042",
+      "task:T-043",
+      "task:T-044",
+      "task:T-045",
+      "task:T-046",
+      "task:T-047",
+      "task:T-058",
+      "task:T-059",
+      "task:T-060",
+      "task:T-061"
+    ],
+    "spec": [
+      "spec:docs/superpowers/specs/2026-07-16-deterministic-agent-dev-factory-design.md",
+      "spec:docs/superpowers/specs/2026-07-20-factory-live-visualization-design.md",
+      "spec:docs/superpowers/specs/2026-07-20-factory-plan-and-run-design.md",
+      "spec:docs/superpowers/specs/2026-07-21-deterministic-task-export-design.md",
+      "spec:docs/superpowers/specs/2026-07-21-review-plans-command-design.md",
+      "spec:docs/superpowers/specs/2026-07-22-factory-human-review-ui-design.md",
+      "spec:docs/superpowers/specs/2026-07-22-mission-control-and-session-review-design.md",
+      "spec:docs/superpowers/specs/2026-07-23-mission-control-observation-design.md",
+      "spec:docs/superpowers/specs/2026-07-24-already-done-task-routing-design.md",
+      "spec:docs/superpowers/specs/2026-07-24-mission-control-review-decision-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-human-review-loop-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-in-session-mission-control-design.md",
+      "spec:docs/superpowers/specs/2026-07-27-review-focus-guide-design.md",
+      "spec:docs/superpowers/specs/2026-07-28-dev-escalation-pairing-handoff-design.md",
+      "spec:docs/superpowers/specs/2026-07-28-factory-state-visibility-design.md",
+      "spec:docs/superpowers/specs/2026-07-29-coherence-evidence-connectors-design.md",
+      "spec:docs/superpowers/specs/2026-07-29-review-ux-dual-surface-design.md",
+      "spec:docs/superpowers/specs/2026-07-30-system-requirement-validation-design.md",
+      "spec:docs/superpowers/specs/2026-07-31-polish-workflow-and-validation-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-01-req-validation-inc2-webapp-live-harness-and-polish-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-03-review-plans-browser-and-trace-health-design.md",
+      "spec:docs/superpowers/specs/2026-08-05-drone-factory-separation-design.md",
+      "spec:docs/superpowers/specs/2026-08-05-project-configurable-gates-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-factory-init-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-requirement-doctor-design.md",
+      "spec:docs/superpowers/specs/2026-08-06-trace-fix-field-of-view-design.md",
+      "spec:docs/superpowers/specs/2026-08-07-factory-evidence-lifecycle-and-recovery-design.md",
+      "spec:docs/superpowers/specs/2026-08-08-system-navigator-briefing-validation-guide-design.md",
+      "spec:docs/superpowers/specs/2026-08-09-system-navigator-increment-b-vcycle-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-curation-increment-2-seed.md",
+      "spec:docs/superpowers/specs/2026-08-10-curation-workflow-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-review-browser-task-context-design.md",
+      "spec:docs/superpowers/specs/2026-08-10-system-control-center-program-decomposition.md",
+      "spec:docs/superpowers/specs/2026-08-11-system-feature-spine-design.md",
+      "spec:docs/superpowers/specs/2026-08-12-grill-understanding-node-design.md",
+      "spec:docs/superpowers/specs/2026-08-12-system-control-center-spb-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-project-bootstrap-factory-init-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-spb-health-performance-design.md",
+      "spec:docs/superpowers/specs/2026-08-13-system-navigator-visual-identity-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-code-context-bundle-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-context-packet-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-pipeline-node-registry-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-session-memory-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-design.md",
+      "spec:docs/superpowers/specs/2026-08-14-system-navigator-comprehension-layer-visual-addendum.md",
+      "spec:docs/superpowers/specs/2026-08-16-system-navigator-execution-engine-design.md",
+      "spec:docs/superpowers/specs/2026-08-16-system-navigator-legibility-increment-2-design.md",
+      "spec:docs/superpowers/specs/2026-08-17-requirement-coverage-review-design.md",
+      "spec:docs/superpowers/specs/2026-08-18-coherence-toolset-design.md",
+      "spec:docs/superpowers/specs/2026-08-20-coherence-agentic-io-design.md",
+      "spec:docs/superpowers/specs/2026-08-21-polish-menu-playground-usecase.md",
+      "spec:docs/superpowers/specs/2026-08-22-coherence-progressive-assurance-design.md",
+      "spec:docs/superpowers/specs/2026-08-22-system-traceability-course-overhaul-design.md",
+      "spec:docs/superpowers/specs/2026-08-23-pi-package-adoption-design.md",
+      "spec:docs/superpowers/specs/2026-08-24-coherence-release-strategy.md",
+      "spec:docs/superpowers/specs/2026-08-26-coherence-inc9-programme-session-capture.md",
+      "spec:docs/superpowers/specs/2026-08-27-coherence-console-webui-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat13-governed-execution-driver-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat14-validation-gates-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat15-polish-flow-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat16-modular-workflows-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-feat17-planning-bootstrap-design.md",
+      "spec:docs/superpowers/specs/2026-08-27-filesystem-first-architecture-assessment.md",
+      "spec:docs/superpowers/specs/2026-08-27-free-subagent-reliability-retro.md",
+      "spec:docs/superpowers/specs/2026-08-31-sr-code-validation-traceability-design.md",
+      "spec:docs/superpowers/specs/2026-09-01-coherence-product-definition.md",
+      "spec:docs/superpowers/specs/2026-09-02-progressive-review-decision-presentation-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-cross-feat-semantic-overlap-detection-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-manual-criteria-enforcement-seed.md",
+      "spec:docs/superpowers/specs/2026-09-03-typed-relation-wikilink-mirroring-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-coherence-tooling-performance-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-commit-claim-traceability-design.md",
+      "spec:docs/superpowers/specs/2026-09-04-completion-gate-duplication-seed.md",
+      "spec:docs/superpowers/specs/2026-09-04-sr050-t3-relation-maintenance-design.md",
+      "spec:docs/superpowers/specs/2026-09-05-codex-coherence-plan-design.md",
+      "spec:docs/superpowers/specs/2026-09-05-feat003-planning-workflow-alignment-intent.md",
+      "spec:docs/superpowers/specs/2026-09-05-per-criterion-measurement-seed.md",
+      "spec:docs/superpowers/specs/2026-09-06-codex-guided-coherence-plan-parity-design.md",
+      "spec:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md",
+      "spec:docs/superpowers/specs/2026-09-08-feat017-closure-slice-design.md",
+      "spec:docs/superpowers/specs/2026-09-13-planning-schema2-transport-design.md",
+      "spec:docs/superpowers/specs/2026-09-14-coherence-plan-requirements-authoring-design.md"
+    ],
+    "plan": [
+      "plan:docs/superpowers/plans/2026-07-16-agent-dev-factory-core.md",
+      "plan:docs/superpowers/plans/2026-07-16-factory-orchestrator.md",
+      "plan:docs/superpowers/plans/2026-07-16-scope-guard-pi-extension.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-plan-and-run.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-status-reporting.md",
+      "plan:docs/superpowers/plans/2026-07-20-factory-watch-extension.md",
+      "plan:docs/superpowers/plans/2026-07-21-deterministic-task-export.md",
+      "plan:docs/superpowers/plans/2026-07-21-review-plans-command.md",
+      "plan:docs/superpowers/plans/2026-07-22-factory-human-review-ui.md",
+      "plan:docs/superpowers/plans/2026-07-22-mission-control-and-session-review.md",
+      "plan:docs/superpowers/plans/2026-07-23-mission-control-observation.md",
+      "plan:docs/superpowers/plans/2026-07-24-already-done-task-routing.md",
+      "plan:docs/superpowers/plans/2026-07-24-mission-control-review-decision.md",
+      "plan:docs/superpowers/plans/2026-07-27-in-session-mission-control.md",
+      "plan:docs/superpowers/plans/2026-07-27-review-focus-guide.md",
+      "plan:docs/superpowers/plans/2026-07-28-dev-escalation-pairing-handoff.md",
+      "plan:docs/superpowers/plans/2026-07-28-factory-state-visibility.md",
+      "plan:docs/superpowers/plans/2026-07-29-coherence-evidence-connectors.md",
+      "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-a-model-tui-python.md",
+      "plan:docs/superpowers/plans/2026-07-29-review-ux-plan-b-web-server.md",
+      "plan:docs/superpowers/plans/2026-07-30-system-requirement-validation-inc1a.md",
+      "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p1.md",
+      "plan:docs/superpowers/plans/2026-07-31-polish-workflow-p2.md",
+      "plan:docs/superpowers/plans/2026-07-31-req-validation-1b.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceA-playwright-harness.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB-polish-orchestrator.md",
+      "plan:docs/superpowers/plans/2026-08-01-req-validation-inc2-faceB2-polish-ui-bridge.md",
+      "plan:docs/superpowers/plans/2026-08-03-docs-browser-viewer.md",
+      "plan:docs/superpowers/plans/2026-08-03-trace-fix-workflow.md",
+      "plan:docs/superpowers/plans/2026-08-03-trace-model-and-cli.md",
+      "plan:docs/superpowers/plans/2026-08-05-drone-factory-separation.md",
+      "plan:docs/superpowers/plans/2026-08-05-project-configurable-gates.md",
+      "plan:docs/superpowers/plans/2026-08-06-factory-init.md",
+      "plan:docs/superpowers/plans/2026-08-06-requirement-doctor.md",
+      "plan:docs/superpowers/plans/2026-08-06-trace-fix-field-of-view.md",
+      "plan:docs/superpowers/plans/2026-08-07-evidence-store-and-manifests.md",
+      "plan:docs/superpowers/plans/2026-08-07-freshness-preflight-and-reconciliation.md",
+      "plan:docs/superpowers/plans/2026-08-07-pif-browser-evidence-integration.md",
+      "plan:docs/superpowers/plans/2026-08-07-run-journal-and-recovery.md",
+      "plan:docs/superpowers/plans/2026-08-08-system-navigator-briefing-validation-guide.md",
+      "plan:docs/superpowers/plans/2026-08-09-system-navigator-increment-b-vcycle.md",
+      "plan:docs/superpowers/plans/2026-08-10-curation-increment-1-cli-vocabulary.md",
+      "plan:docs/superpowers/plans/2026-08-10-review-browser-task-context.md",
+      "plan:docs/superpowers/plans/2026-08-10-system-navigator-navigation.md",
+      "plan:docs/superpowers/plans/2026-08-10-system-navigator-trace-and-sidebar.md",
+      "plan:docs/superpowers/plans/2026-08-11-system-feature-spine.md",
+      "plan:docs/superpowers/plans/2026-08-12-grill-understanding-node.md",
+      "plan:docs/superpowers/plans/2026-08-12-system-control-center-spb.md",
+      "plan:docs/superpowers/plans/2026-08-13-spb-health-performance.md",
+      "plan:docs/superpowers/plans/2026-08-13-system-navigator-visual-identity.md",
+      "plan:docs/superpowers/plans/2026-08-14-code-context-bundle-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-context-packet-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-pipeline-node-registry-implementation.md",
+      "plan:docs/superpowers/plans/2026-08-14-session-memory.md",
+      "plan:docs/superpowers/plans/2026-08-14-system-navigator-comprehension-layer.md",
+      "plan:docs/superpowers/plans/2026-08-16-code-context-tree-sitter-consumer-setup.md",
+      "plan:docs/superpowers/plans/2026-08-16-system-navigator-legibility-increment-2.md",
+      "plan:docs/superpowers/plans/2026-08-17-requirement-coverage-review.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-baseline-enablement.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-0-evidence-register.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1-agentic-io-freshness-foundation.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1b-neutral-substrate-extraction.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-1c-codemap-kb-signatures.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-2-trace-register.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-3-navigate-presentation-goals-simulation.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-4-audit-measurement-observations.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-5-status-focus-dispatcher.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-6-gate-inbox-staleness.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-7-unified-long-run-surface.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-increment-8-artifact-families.md",
+      "plan:docs/superpowers/plans/2026-08-20-coherence-programme-execution-map.md",
+      "plan:docs/superpowers/plans/2026-08-21-polish-menu-playground-usecase.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2b-progressive-assurance-foundation.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-2c-ci-obligation-consumer.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-3b-obligation-aware-views.md",
+      "plan:docs/superpowers/plans/2026-08-22-coherence-increment-6b-thin-vertical-slice.md",
+      "plan:docs/superpowers/plans/2026-08-23-pi-package-adoption.md",
+      "plan:docs/superpowers/plans/2026-08-23-system-traceability-course-overhaul.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-execution-runbook.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-health-resolution-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-console-slice-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-dossier-slice-plan.md",
+      "plan:docs/superpowers/plans/2026-08-27-coherence-inc9-session-handoff.md",
+      "plan:docs/superpowers/plans/2026-08-27-feat17-planning-workflow-plan.md",
+      "plan:docs/superpowers/plans/2026-08-30-test-campaign-reduction-surgical-plan.md",
+      "plan:docs/superpowers/plans/2026-08-31-coherence-knowledge-base-classroom.md",
+      "plan:docs/superpowers/plans/2026-08-31-feat17-sr-authoring-plan.md",
+      "plan:docs/superpowers/plans/2026-08-31-sr-code-validation-traceability-plan.md",
+      "plan:docs/superpowers/plans/2026-09-01-feat001-first-vertical-slice.md",
+      "plan:docs/superpowers/plans/2026-09-01-feat001-reference-run.md",
+      "plan:docs/superpowers/plans/2026-09-03-sr050-t5-fidelity-reviewer-plan.md",
+      "plan:docs/superpowers/plans/2026-09-04-commit-claim-traceability-plan.md",
+      "plan:docs/superpowers/plans/2026-09-04-sr050-t3-relation-maintenance-plan.md",
+      "plan:docs/superpowers/plans/2026-09-05-codex-coherence-plan.md",
+      "plan:docs/superpowers/plans/2026-09-06-feat17-guided-planning-entrypoint-plan.md",
+      "plan:docs/superpowers/plans/2026-09-07-feat017-closure-bookkeeping.md",
+      "plan:docs/superpowers/plans/2026-09-07-feat017-t038-review-report.md",
+      "plan:docs/superpowers/plans/2026-09-07-legal-actions-lifecycle-projection.md",
+      "plan:docs/superpowers/plans/2026-09-08-feat017-coordinated-closure-slice.md",
+      "plan:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md",
+      "plan:docs/superpowers/plans/2026-09-13-planning-schema2-transport.md",
+      "plan:docs/superpowers/plans/2026-09-14-coherence-plan-requirements-authoring.md"
+    ],
+    "adr": []
+  },
+  "ordering_available": true,
+  "sr_listed": false,
+  "degraded": [],
+  "vcycle_findings": [
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-001",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-002",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-003",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-004",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-005",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-006",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-007",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-011",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-012",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-013",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-014",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-015",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-016",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-017",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-018",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-019",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-020",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-025",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-026",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-027",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-028",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "IMPL_NO_REQ",
+      "severity": "warning",
+      "subject": "task:T-030",
+      "detail": "task declares no justification (satisfies/corrects/mitigates/implements/maintains/explores)"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-001",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-002",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-003",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-004",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-005",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-006",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-007",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-008",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-010",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-011",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-012",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-013",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-014",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-015",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-016",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-017",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-018",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-019",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-020",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-021",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-022",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-023",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-024",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-025",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-026",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-027",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-028",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-029",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-030",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-031",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-032",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-033",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-035",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-036",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-037",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-038",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-039",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-040",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-041",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-042",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-045",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-046",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-047",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-048",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-055",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-056",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-057",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-058",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-059",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-060",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-063",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-064",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-065",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-070",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-071",
+      "detail": "no task declares satisfies for this SR"
+    },
+    {
+      "code": "REQ_NO_IMPLEMENTATION",
+      "severity": "error",
+      "subject": "sr:SR-072",
+      "detail": "no task declares satisfies for this SR"
+    }
+  ],
+  "freshness_findings": [
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T08-26-54Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T08-34-13Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T09-01-11Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:2026-09-12T10-50-50Z",
+      "detail": "code:docs/superpowers/plans/2026-09-10-feat013-governed-execution-driver-plan.md: changed since evidence; code:docs/superpowers/specs/2026-09-08-feat013-governed-execution-driver-design.md: changed since evidence; code:requirements/SR-034.md: changed since evidence; code:requirements/SR-049.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:SR-004-006-050-evidence-refresh-20260903T025651Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-001.md: changed since evidence; code:requirements/SR-002.md: changed since evidence; code:requirements/SR-003.md: changed since evidence; code:requirements/SR-004.md: changed since evidence; code:requirements/SR-005.md: changed since evidence; code:requirements/SR-006.md: changed since evidence; code:requirements/SR-007.md: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-6-evidence-execution-20260901T114021Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-001.md: changed since evidence; code:requirements/SR-002.md: changed since evidence; code:requirements/SR-003.md: changed since evidence; code:requirements/SR-004.md: changed since evidence; code:requirements/SR-005.md: changed since evidence; code:requirements/SR-006.md: changed since evidence; code:requirements/SR-007.md: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9008-evidence-execution-20260902T223423Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-008.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9009-evidence-execution-20260902T233750Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-009.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9010-evidence-execution-20260903T000239Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9011-evidence-execution-20260903T003052Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-011.md: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9012-evidence-execution-20260903T014536Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence"
+    },
+    {
+      "code": "EVIDENCE_STALE",
+      "severity": "error",
+      "subject": "run:T-9013-evidence-execution-20260904T011224Z",
+      "detail": "code:.factory/factory.yaml: changed since evidence; code:requirements/SR-050.md: changed since evidence"
+    },
+    {
+      "code": "MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T104906Z",
+      "detail": "no declared dependencies"
+    },
+    {
+      "code": "MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T125327Z",
+      "detail": "no declared dependencies"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T08-26-54Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T08-34-13Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T09-01-11Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:2026-09-12T10-50-50Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:SR-004-006-050-evidence-refresh-20260903T025651Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-6-evidence-execution-20260901T114021Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9008-evidence-execution-20260902T223423Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9009-evidence-execution-20260902T233750Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9010-evidence-execution-20260903T000239Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9011-evidence-execution-20260903T003052Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9012-evidence-execution-20260903T014536Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:T-9013-evidence-execution-20260904T011224Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T104906Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    },
+    {
+      "code": "REFRESH_BLOCKED",
+      "severity": "warning",
+      "subject": "run:ingest-20260904T125327Z",
+      "detail": "required action rerun-validation has no registered generator/harness"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "requirement_quality",
+      "satisfied": 18,
+      "expected": 66,
+      "exempt": 0
+    },
+    {
+      "name": "decomposition_allocation",
+      "satisfied": 17,
+      "expected": 20,
+      "exempt": 0
+    },
+    {
+      "name": "implementation_trace",
+      "satisfied": 22,
+      "expected": 44,
+      "exempt": 0
+    },
+    {
+      "name": "verification_strategy",
+      "satisfied": 66,
+      "expected": 66,
+      "exempt": 0
+    },
+    {
+      "name": "executed_evidence",
+      "satisfied": 12,
+      "expected": 66,
+      "exempt": 0
+    },
+    {
+      "name": "validation_scenarios",
+      "satisfied": 0,
+      "expected": 66,
+      "exempt": 0
+    },
+    {
+      "name": "evidence_freshness",
+      "satisfied": 2,
+      "expected": 14,
+      "exempt": 0
+    },
+    {
+      "name": "suspect_relationships",
+      "satisfied": 66,
+      "expected": 66,
+      "exempt": 0
+    },
+    {
+      "name": "nonconformance_closure",
+      "satisfied": 1,
+      "expected": 10,
+      "exempt": 0
+    },
+    {
+      "name": "deferrals_waivers",
+      "satisfied": 71,
+      "expected": 354,
+      "exempt": 0
+    },
+    {
+      "name": "human_review",
+      "satisfied": 66,
+      "expected": 66,
+      "exempt": 0
+    }
+  ],
+  "shape": {
+    "sentence": "This project is described by 66 requirements, grouped into 17 features. 44 tasks implement them, and 7 of those requirements have a passing validation.",
+    "parts": {
+      "requirements": 66,
+      "features": 17,
+      "tasks": 44,
+      "validated": 7
+    }
+  }
+}

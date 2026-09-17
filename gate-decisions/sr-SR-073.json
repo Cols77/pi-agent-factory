@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "gate_id": "sr:SR-073",
+  "artifact_ref": "artifact:requirements/SR-073.md",
+  "decisions": [
+    {
+      "item_id": "sr:SR-073",
+      "action": "accept",
+      "reason": "Authored as presented to, and consented by, the project owner in an interactive Hermes session on 2026-09-17. Consent covered the exact statement, source anchor and acceptance criteria of each of SR-073, SR-074, SR-075 and SR-076 as shown in that session. Acceptance criteria bind to test_marker refs that the optional-contract-artifacts implementation creates.",
+      "review_after": null,
+      "decided_by": null
+    }
+  ],
+  "decided_at": "2026-09-17T04:15:00Z",
+  "decided_by": "Cols77",
+  "content_checksum": "sha256:f72101e444d081a22ce03216a5b8fbdcc2965363e142f918ff9c216188af355c"
+}

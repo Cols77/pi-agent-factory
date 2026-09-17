@@ -1,0 +1,6 @@
+schema: coherence.contract-catalog.v1
+contracts:
+  - id: WIRE
+    path: contracts/wire.schema.json
+    kind: json_schema
+    status: active

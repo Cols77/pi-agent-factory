@@ -1,0 +1,40 @@
+{
+  "findings": [
+    {
+      "code": "CONTRACT_MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "contract:BROKEN",
+      "detail": "contract 'BROKEN' (contracts/broken.schema.json) has no authority, no validates_against and no consumers; provenance is unreadable"
+    },
+    {
+      "code": "CONTRACT_MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "contract:DEFS",
+      "detail": "contract 'DEFS' (contracts/defs.schema.json) has no authority, no validates_against and no consumers; provenance is unreadable"
+    },
+    {
+      "code": "CONTRACT_MISSING_PROVENANCE",
+      "severity": "warning",
+      "subject": "contract:ORPHAN",
+      "detail": "contract 'ORPHAN' (contracts/orphan.json) has no authority, no validates_against and no consumers; provenance is unreadable"
+    },
+    {
+      "code": "CONTRACT_REFERENCE_BROKEN",
+      "severity": "error",
+      "subject": "contract:BROKEN",
+      "detail": "contract 'BROKEN' local $ref 'missing.json' resolves to a missing or non-file target; the reference is rejected"
+    },
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "code:backend/app.py",
+      "detail": "declared consumer code:backend/app.py has no recorded validation evidence for contract 'FIX'"
+    },
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "test:tests/schema_test.py",
+      "detail": "declared consumer test:tests/schema_test.py has no recorded validation evidence for contract 'SCHEMA'"
+    }
+  ]
+}

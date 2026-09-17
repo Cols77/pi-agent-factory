@@ -1,0 +1,207 @@
+{
+  "health": {
+    "classes": [
+      {
+        "name": "task->plan",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "task->SR",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "plan->spec",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "SR satisfied",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      },
+      {
+        "name": "SR validated",
+        "satisfied": 0,
+        "expected": 0,
+        "exempt": 0
+      }
+    ],
+    "satisfied": 0,
+    "expected": 0,
+    "percent": 100,
+    "dangling": 0,
+    "deferred": 0,
+    "proposed": 0
+  },
+  "coverage": {
+    "total": 3,
+    "bundled": 3,
+    "unbundled": [],
+    "kinds": [
+      {
+        "kind": "sr",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      },
+      {
+        "kind": "task",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      },
+      {
+        "kind": "spec",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      },
+      {
+        "kind": "plan",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      },
+      {
+        "kind": "adr",
+        "total": 0,
+        "bundled": 0,
+        "unbundled": []
+      },
+      {
+        "kind": "contract",
+        "total": 3,
+        "bundled": 3,
+        "unbundled": []
+      }
+    ]
+  },
+  "bundles": [
+    {
+      "id": "FEAT-900",
+      "label": "contract catalog end-to-end feature",
+      "readiness": "weak",
+      "readiness_counts": {
+        "sr_total": 0,
+        "bound": 0,
+        "covered": 0,
+        "current": 0,
+        "deferred": 0,
+        "validated": 0
+      },
+      "members": 3,
+      "description": "A real consumer-style contract closure demonstrating the compile to trace to coverage to freshness to health sequence for the optional-contract-artifacts workstream."
+    }
+  ],
+  "unbundled": {
+    "sr": [],
+    "task": [],
+    "spec": [],
+    "plan": [],
+    "adr": [],
+    "contract": []
+  },
+  "ordering_available": false,
+  "sr_listed": false,
+  "degraded": [
+    "git unavailable: bundle ordering fell back to id ascending"
+  ],
+  "vcycle_findings": [],
+  "freshness_findings": [
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "code:src/load_mountain.py",
+      "detail": "declared consumer code:src/load_mountain.py has no recorded validation evidence for contract 'MOUNTAIN'"
+    },
+    {
+      "code": "CONTRACT_VALIDATION_UNAVAILABLE",
+      "severity": "warning",
+      "subject": "test:tests/wire_test.py",
+      "detail": "declared consumer test:tests/wire_test.py has no recorded validation evidence for contract 'WIRE'"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "requirement_quality",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "decomposition_allocation",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "implementation_trace",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "verification_strategy",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "executed_evidence",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "validation_scenarios",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "evidence_freshness",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "suspect_relationships",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "nonconformance_closure",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "deferrals_waivers",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    },
+    {
+      "name": "human_review",
+      "satisfied": 0,
+      "expected": 0,
+      "exempt": 0
+    }
+  ],
+  "shape": {
+    "sentence": "This project is described by 0 requirements, grouped into 1 feature. 0 tasks implement them, and 0 of those requirements have a passing validation.",
+    "parts": {
+      "requirements": 0,
+      "features": 1,
+      "tasks": 0,
+      "validated": 0
+    }
+  }
+}
