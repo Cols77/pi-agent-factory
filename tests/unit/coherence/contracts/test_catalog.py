@@ -76,7 +76,13 @@ def test_sr073_ac1_absent_is_empty_and_present_but_bad_is_blocking(tmp_path: Pat
     assert absent.declarations == ()
     assert absent.diagnostics == ()
     assert absent.ok is True
-    assert absent.to_dict() == {"present": False, "declarations": [], "diagnostics": []}
+    assert absent.to_dict() == {
+        "present": False,
+        "declarations": [],
+        "diagnostics": [],
+        "nodes": [],
+        "edges": [],
+    }
 
     # Present but malformed -> visible blocking diagnostic, not silent acceptance.
     malformed_root = tmp_path / "malformed"

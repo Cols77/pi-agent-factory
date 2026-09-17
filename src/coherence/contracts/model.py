@@ -63,6 +63,8 @@ CODE_PATH_UNSAFE = "CONTRACT_PATH_UNSAFE"
 CODE_PATH_ESCAPES_ROOT = "CONTRACT_PATH_ESCAPES_ROOT"
 CODE_FILE_MISSING = "CONTRACT_DECLARED_FILE_MISSING"
 CODE_CATALOG_UNREADABLE = "CONTRACT_CATALOG_UNREADABLE"
+CODE_REFERENCE_BROKEN = "CONTRACT_REFERENCE_BROKEN"
+CODE_REFERENCE_CYCLE = "CONTRACT_REFERENCE_CYCLE"
 
 DIAGNOSTIC_CODES: frozenset[str] = frozenset(
     {
@@ -77,6 +79,8 @@ DIAGNOSTIC_CODES: frozenset[str] = frozenset(
         CODE_PATH_ESCAPES_ROOT,
         CODE_FILE_MISSING,
         CODE_CATALOG_UNREADABLE,
+        CODE_REFERENCE_BROKEN,
+        CODE_REFERENCE_CYCLE,
     }
 )
 
@@ -155,12 +159,61 @@ class ContractDiagnostic:
 
 
 @dataclass(frozen=True, slots=True)
+class ContractNode:
+    """One compiled contract artifact with its dependency fingerprints (task 4).
+
+    ``content_fingerprint`` is the artifact file's own hash; ``closure_fingerprint``
+    folds in every transitive local dependency's fingerprint, so a change to a
+    referenced schema invalidates its referrers even when their own bytes are
+    unchanged. ``deps`` is the reference-relative sorted path closure.
+    """
+
+    id: str
+    path: str
+    kind: str
+    status: str
+    content_fingerprint: str
+    closure_fingerprint: str
+    deps: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "path": self.path,
+            "kind": self.kind,
+            "status": self.status,
+            "content_fingerprint": self.content_fingerprint,
+            "closure_fingerprint": self.closure_fingerprint,
+            "deps": list(self.deps),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ContractEdge:
+    """A directed relationship between two compiled contract surfaces (task 4)."""
+
+    src: str
+    dst: str
+    kind: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {"src": self.src, "dst": self.dst, "kind": self.kind}
+
+
+@dataclass(frozen=True, slots=True)
 class ContractClosure:
-    """The parsed catalog: presence flag, accepted declarations, findings."""
+    """The parsed catalog: presence flag, accepted declarations, findings.
+
+    ``nodes`` and ``edges`` are populated by the deterministic compiler (a later
+    task) and are empty for a freshly parsed catalog. They default to ``()`` so a
+    parsed closure and ``absent_closure()`` carry no compilation state.
+    """
 
     present: bool
     declarations: tuple[ContractDeclaration, ...] = ()
     diagnostics: tuple[ContractDiagnostic, ...] = ()
+    nodes: tuple[ContractNode, ...] = ()
+    edges: tuple[ContractEdge, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -172,6 +225,8 @@ class ContractClosure:
             "present": self.present,
             "declarations": [declaration.to_dict() for declaration in self.declarations],
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [edge.to_dict() for edge in self.edges],
         }
 
 

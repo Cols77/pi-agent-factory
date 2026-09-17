@@ -104,7 +104,13 @@ def test_absent_catalog_is_a_valid_empty_closure_with_no_findings():
     assert closure.declarations == ()
     assert closure.diagnostics == ()
     assert closure.ok is True
-    assert closure.to_dict() == {"present": False, "declarations": [], "diagnostics": []}
+    assert closure.to_dict() == {
+        "present": False,
+        "declarations": [],
+        "diagnostics": [],
+        "nodes": [],
+        "edges": [],
+    }
 
 
 def test_unsupported_kind_is_reported_and_the_entry_is_not_accepted():
@@ -264,7 +270,13 @@ def test_closure_projection_is_json_serializable_and_deterministic():
 
     assert first.to_dict() == second.to_dict()
     assert [d.id for d in first.declarations] == ["ALPHA", "ZED"]
-    assert set(first.to_dict()) == {"present", "declarations", "diagnostics"}
+    assert set(first.to_dict()) == {
+        "present",
+        "declarations",
+        "diagnostics",
+        "nodes",
+        "edges",
+    }
     assert first.to_dict()["declarations"][0] == {
         "id": "ALPHA",
         "path": "a.json",
