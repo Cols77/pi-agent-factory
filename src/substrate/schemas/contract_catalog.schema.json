@@ -17,7 +17,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "path", "kind"],
+        "required": ["id", "path", "kind", "status"],
         "properties": {
           "id": {
             "type": "string",
@@ -33,7 +33,7 @@
           },
           "status": {
             "type": "string",
-            "description": "Lifecycle state from coherence.contracts.model.CONTRACT_STATUSES. Optional: an omitted status is normalized to `active` by the model so older catalogs stay readable. Membership is checked by the model, for the same per-declaration diagnostic reason as `kind`."
+            "description": "Lifecycle state from coherence.contracts.model.CONTRACT_STATUSES. Required: an entry with no status is rejected, never silently defaulted. Membership is checked by the model (a present-but-unsupported value is reported per declaration as CONTRACT_STATUS_UNSUPPORTED), for the same per-declaration diagnostic reason as `kind`."
           },
           "authority": {
             "type": "string",

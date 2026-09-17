@@ -184,14 +184,14 @@ def test_sr075_ac2_output_is_identical_across_declaration_order(tmp_path: Path) 
 
     forward = parse_catalog(
         _document(
-            {"id": "ROOT", "path": "api/root.schema.json", "kind": "json_schema"},
-            {"id": "A", "path": "shared/a.schema.json", "kind": "json_schema"},
+            {"id": "ROOT", "path": "api/root.schema.json", "kind": "json_schema", "status": "active"},
+            {"id": "A", "path": "shared/a.schema.json", "kind": "json_schema", "status": "active"},
         )
     )
     # Build closure manually with the reverse declaration order.
     reversed_doc = _document(
-        {"id": "A", "path": "shared/a.schema.json", "kind": "json_schema"},
-        {"id": "ROOT", "path": "api/root.schema.json", "kind": "json_schema"},
+        {"id": "A", "path": "shared/a.schema.json", "kind": "json_schema", "status": "active"},
+        {"id": "ROOT", "path": "api/root.schema.json", "kind": "json_schema", "status": "active"},
     )
     reversed_closure = parse_catalog(reversed_doc)
 

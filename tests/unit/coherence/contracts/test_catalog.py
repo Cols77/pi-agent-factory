@@ -35,6 +35,7 @@ def _contract(**overrides: object) -> dict[str, object]:
         "id": "WIRE-API",
         "path": "docs/wire.schema.json",
         "kind": "json_schema",
+        "status": "active",
     }
     entry.update(overrides)
     return entry

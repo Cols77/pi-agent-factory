@@ -124,19 +124,35 @@ def test_unsupported_kind_is_reported_and_the_entry_is_not_accepted():
     assert closure.ok is False
 
 
-def test_unsupported_status_is_reported_and_status_defaults_to_active():
+def test_status_is_required_and_is_never_silently_defaulted():
     from coherence.contracts.model import parse_catalog
 
+    # A present-but-unsupported status is still a per-declaration rejection.
     unsupported = parse_catalog(_catalog(_declaration(status="archived")))
     assert _codes(unsupported) == ["CONTRACT_STATUS_UNSUPPORTED"]
     assert unsupported.diagnostics[0].declaration_id == "SENTINEL-V0-WIRE"
     assert unsupported.declarations == ()
 
+    # An OMITTED status is rejected, never silently defaulted: `status` is a
+    # required entry field, so the schema fails the document (naming the
+    # declaration) instead of narrowing the entry to `active`.
     omitted = _declaration()
     del omitted["status"]
-    defaulted = parse_catalog(_catalog(omitted))
-    assert defaulted.diagnostics == ()
-    assert [d.status for d in defaulted.declarations] == ["active"]
+    rejected = parse_catalog(_catalog(omitted))
+    assert _codes(rejected) == ["CONTRACT_CATALOG_INVALID"]
+    assert rejected.diagnostics[0].declaration_id == "SENTINEL-V0-WIRE"
+    assert rejected.declarations == ()
+
+    # A blank status is present-but-unusable: the model reports it per-declaration.
+    blank = parse_catalog(_catalog(_declaration(status="   ")))
+    assert _codes(blank) == ["CONTRACT_DECLARATION_INVALID"]
+    assert blank.diagnostics[0].declaration_id == "SENTINEL-V0-WIRE"
+    assert blank.declarations == ()
+
+    # An explicit, supported status parses clean.
+    clean = parse_catalog(_catalog(_declaration(status="active")))
+    assert clean.diagnostics == ()
+    assert [d.status for d in clean.declarations] == ["active"]
 
 
 def test_duplicate_raw_ids_keep_the_first_declaration_and_report_the_second():
@@ -175,7 +191,9 @@ def test_duplicate_normalized_repository_paths_are_reported():
 def test_absent_or_empty_declaration_ids_are_reported():
     from coherence.contracts.model import MISSING_DECLARATION_ID, parse_catalog
 
-    missing = parse_catalog(_catalog({"path": "docs/contracts/a.json", "kind": "json_schema"}))
+    missing = parse_catalog(
+        _catalog({"path": "docs/contracts/a.json", "kind": "json_schema", "status": "active"})
+    )
     assert _codes(missing) == ["CONTRACT_CATALOG_INVALID"]
     assert missing.diagnostics[0].declaration_id == MISSING_DECLARATION_ID
     assert missing.declarations == ()
@@ -254,7 +272,7 @@ def test_ac2_catalog_requires_explicit_schema_identity_and_rejects_unknown_field
     assert CATALOG_SCHEMA["additionalProperties"] is False
     item = CATALOG_SCHEMA["properties"]["contracts"]["items"]
     assert item["additionalProperties"] is False
-    assert sorted(item["required"]) == ["id", "kind", "path"]
+    assert sorted(item["required"]) == ["id", "kind", "path", "status"]
 
 
 def test_closure_projection_is_json_serializable_and_deterministic():
@@ -298,6 +316,7 @@ def test_parse_catalog_text_accepts_yaml_and_json_and_flags_an_empty_document():
         "  - id: SENTINEL-V0-WIRE\n"
         "    path: docs/contracts/sentinel-v0-wire.schema.json\n"
         "    kind: json_schema\n"
+        "    status: active\n"
     )
 
     assert closure.present is True

@@ -49,7 +49,6 @@ CONTRACT_KINDS: frozenset[str] = frozenset(
 CONTRACT_STATUSES: frozenset[str] = frozenset({"active", "deprecated", "draft"})
 RELATION_KINDS: frozenset[str] = frozenset({"contract", "code", "test", "spec"})
 
-DEFAULT_CONTRACT_STATUS = "active"
 MISSING_DECLARATION_ID = "<unknown>"
 
 CODE_CATALOG_INVALID = "CONTRACT_CATALOG_INVALID"
@@ -436,8 +435,19 @@ def _parse_entry(
             )
         ]
 
-    status = entry.get("status", DEFAULT_CONTRACT_STATUS)
-    if not isinstance(status, str) or status not in CONTRACT_STATUSES:
+    status = entry.get("status")
+    if not isinstance(status, str) or not status.strip():
+        return None, [
+            ContractDiagnostic(
+                code=CODE_DECLARATION_INVALID,
+                declaration_id=identifier,
+                message=(
+                    f"declaration {identifier!r} has no usable non-empty `status`; status is "
+                    f"a required field and is never silently defaulted"
+                ),
+            )
+        ]
+    if status not in CONTRACT_STATUSES:
         return None, [
             ContractDiagnostic(
                 code=CODE_STATUS_UNSUPPORTED,
