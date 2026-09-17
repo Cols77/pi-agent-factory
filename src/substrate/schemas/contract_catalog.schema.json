@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.local/schemas/contract_catalog.schema.json",
+  "title": "Coherence contract catalog",
+  "description": "The project's opt-in inventory of declared contract artifacts. It carries identity, relationships and status only -- each contract file stays authoritative for its own semantics, so this catalog must never become a second copy of contract content. Absence of the file is valid and produces no contract findings; presence makes every declared entry authoritative and fail-closed, which is why unknown fields are rejected at every level rather than tolerated.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contracts"],
+  "properties": {
+    "schema": {
+      "const": "coherence.contract-catalog.v1",
+      "description": "Explicit, versioned catalog identity. It is a `const` rather than a free string because every rule in this file is only meaningful for the version the tooling actually understands: a catalog that names a future or misspelled version must fail loudly here instead of being read as if it were v1."
+    },
+    "contracts": {
+      "type": "array",
+      "description": "Exact declarations only. There is deliberately no glob or directory form: a project opts in by naming each artifact, so no generic scan of JSON/YAML files is possible. An empty array is a valid, explicit empty inventory.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "kind"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable declaration identity, referenced elsewhere as `contract:<id>`. Emptiness is not checked here: blank or non-string ids are reported by the model as CONTRACT_DECLARATION_INVALID so the diagnostic can name the offending declaration instead of collapsing into a generic document-level schema failure."
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository-relative artifact path, interpreted with forward slashes. Lexical safety (rooted forms, `..` components, symlink escapes) is enforced before resolution by the catalog loader, not by this schema."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Artifact family vocabulary owned by coherence.contracts.model.CONTRACT_KINDS. It is intentionally NOT an inline enum here: an unsupported kind must be reported per declaration as CONTRACT_KIND_UNSUPPORTED (naming the entry) rather than as an anonymous schema failure for the whole document."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle state from coherence.contracts.model.CONTRACT_STATUSES. Optional: an omitted status is normalized to `active` by the model so older catalogs stay readable. Membership is checked by the model, for the same per-declaration diagnostic reason as `kind`."
+          },
+          "authority": {
+            "type": "string",
+            "description": "Relationship ref `<kind>:<identifier>` naming the document that authorizes this artifact (for example `spec:SPEC-SENTINEL-WP0`)."
+          },
+          "validates_against": {
+            "type": "string",
+            "description": "Relationship ref naming the declaration this artifact validates (for example `contract:SENTINEL-V0-WIRE-SCHEMA`)."
+          },
+          "consumers": {
+            "type": "array",
+            "description": "Relationship refs to code or tests that consume this artifact. Order is preserved: it is the order edges and fingerprints are reported in.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
