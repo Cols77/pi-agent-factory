@@ -544,3 +544,23 @@ Nothing from increments 0–8 as originally scoped is removed. Increments 0–3 
 because they already shipped. Increments 4–8 keep their original contents and gain the
 additions in the table above. New increments 2B, 2C, 3B and 6B carry the delta that would
 otherwise have reopened increments 0–3.
+
+### 16.1 Amendment (2026-09-17): optional contract artifacts — FEAT-021 / SR-073..SR-076
+
+This amendment adds an *opt-in* contract-artifact inventory to the toolset without reopening
+any shipped increment. It is recorded here as an additive change — nothing in §1–§16 above is
+rewritten or removed. The authoritative user-facing documentation is
+`docs/contract-artifacts.md` (new), which records the strict local-only model (SR-074/SR-075),
+catalog ownership, the compiler boundary, the relationship vocabulary, bundle behaviour and
+the consumer-evidence model. Delivery is FEAT-021, tracked through stable requirements
+SR-073 (strict local-only catalog model and path/reference safety), SR-074 (declared path and
+`$ref` safety with per-declaration diagnostics), SR-075 (network URL and non-file URI rejection)
+and SR-076 (six stable machine-readable `CONTRACT_*` freshness codes exposed through existing
+CLI JSON projections, with no-catalog projects byte-identical).
+
+| Original concept | Amendment | What still lands |
+|---|---|---|
+| Artifact families are discovered by the existing JSON/markdown globbers | A `contract` node family is composed into the trace graph only for a project whose `.factory/contracts.yaml` catalog is present; a catalogue-less project is byte-identical | Existing node/edge/gap discovery unchanged; contract nodes, typed edges and findings are additive projections of the compiled closure |
+| `coherence navigate health`/`freshness` have a fixed finding vocabulary | Declared contracts contribute six additive `CONTRACT_*` freshness findings (reference broken, missing provenance, stale, consumer stale, fixture stale, validation unavailable), all gated on a present catalog | Existing freshness findings and their codes unchanged |
+| Bundles/coverage recognise a fixed member-kind set | `contract:<id>` is an additive permitted bundle member; membership describes scope while the catalog remains artifact authority | All existing bundles remain valid untouched |
+| Only CLI-owned entities are documented for operators | A catalog'd project gets concise, deterministic JSON + human diagnostics through the existing `trace` / `navigate` CLIs; no new heavyweight suite or host adapter | Existing CLI surfaces and their contracts unchanged |

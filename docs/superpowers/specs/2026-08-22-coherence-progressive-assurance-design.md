@@ -329,3 +329,30 @@ corrected reading — `{python}` substitution ownership, §6's dimension classif
 suspect-state STRICT rule, `feat.schema.json`'s `profile` property, or D18's day-one `blocking`
 divergence — this table is the authoritative correction; the sections it corrects stand as
 originally written except where this table overrides them.
+
+### 13.1 Amendment (2026-09-17): optional contract artifacts — FEAT-021 / SR-073..SR-076
+
+Recorded here as an additive change, matching how §15/§16 of the toolset design record their own
+correction rounds. Nothing in §1–§13 above is rewritten or removed. This amendment adds an
+*opt-in* contract-artifact inventory to the toolset; it does not change the progressive-assurance
+model, the obligation compiler, or the health vector. The authoritative user-facing documentation
+is `docs/contract-artifacts.md` (new), which records the strict local-only model (SR-074/SR-075),
+catalog ownership, the compiler boundary, the relationship vocabulary, the additive `contract:<id>`
+bundle-member behaviour, and how validation evidence is recorded by consumer projects. Delivery is
+FEAT-021 through stable requirements SR-073 (strict local-only catalog model and path/reference
+safety), SR-074 (declared path and `$ref` safety with per-declaration diagnostics), SR-075 (network
+URL and non-file URI rejection) and SR-076 (six stable machine-readable `CONTRACT_*` freshness
+codes — reference broken, missing provenance, stale, consumer stale, fixture stale, validation
+unavailable — exposed through the existing `coherence navigate health`/`freshness --json` and
+`coherence trace` projections).
+
+| Original concept | Amendment | What still lands |
+|---|---|---|
+| Evidence freshness is derived from recorded run/test manifest dependency digests | Declared contract sources and their recorded validation closures participate in the same machinery: a changed contract closure marks the recorded consumer evidence stale, the fixture it validates stale, and the contract itself stale — all under stable `CONTRACT_*` codes | Existing `EVIDENCE_STALE`/`REFRESH_BLOCKED` finding logic unchanged |
+| A contract's validity is inferred from its file existing | A declared contract is never reported as covered merely because its file exists; only declared relationships and recorded validation evidence produce `CONTRACT_*` findings | The compiler remains the single boundary that reads contract files; no second authoritative artifact |
+
+A consumer project records validation evidence by writing a run manifest (under `evidence/runs/`)
+whose `dependencies` list carries an entry of `kind: contract` naming the contract source with the
+recorded closure digest; the freshness engine compares that recorded digest against the current
+compiled closure to derive staleness. Validation is always an executed gate or assertion recorded
+as evidence — never inferred by the compiler.
