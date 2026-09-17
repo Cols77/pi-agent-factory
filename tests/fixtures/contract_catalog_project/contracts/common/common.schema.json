@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "title": "common",
+  "required": ["altitude"],
+  "properties": {
+    "altitude": { "type": "number", "minimum": 0 }
+  }
+}
