@@ -85,13 +85,20 @@ satisfied*.
 
 ## 4. Relationship vocabulary
 
-Relationships attach to contract declarations in the catalog:
+Relationships attach to contract declarations in the catalog and surface in the trace graph
+as *typed edges* between `contract:<id>` nodes and other artifacts. The compiler emits exactly
+five edge kinds, each naming a declared relationship:
 
-| Field | Meaning |
+| Field / edge | Meaning |
 |---|---|
-| `authority` | `spec:<id>` (or other artifact ref) naming the document that authorizes this contract. |
-| `validates_against` | `contract:<id>` naming another declaration (e.g. a `fixture` validating against the `json_schema` it satisfies). |
-| `consumers` | `code:<path>` / `test:<path>` (and `contract:<id>`) refs naming consumers of this contract. |
+| `defines` | A contract (or `contract:<id>`) is defined/produced by this artifact (source of the contract as a node in the graph). |
+| `consumed_by` | This contract is consumed by the named artifact — the inverse of `consumers`. |
+| `validated_by` | This contract is validated by the named artifact (a fixture validating against its schema). |
+| `validates_against` | `contract:<id>` naming another declaration this artifact validates (e.g. a `fixture` validating against the `json_schema` it satisfies). |
+| `references` | A local `$ref` dependency from one contract to another. |
+
+The catalog declares intent through `authority`, `validates_against`, and `consumers`;
+`compile_contracts` turns those declarations into the typed edges above.
 
 Validation evidence is recorded separately (see §7); the vocabulary above only *declares*
 intent. The compiler exposes typed edges for these relationships, which appear in the trace
