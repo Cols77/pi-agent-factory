@@ -693,14 +693,51 @@ def _contract_freshness_findings(
     recorded_validation: set[tuple[str, str]] = set()
     stale_consumers: set[str] = set()
     changed_contracts: set[str] = set()
+    contract_edges: list[ArtifactDependency] = []
     for edge in dep_edges:
         if edge.dependency_kind != "contract->consumer" or edge.fingerprint is None:
             continue
+        contract_edges.append(edge)
         recorded_validation.add((edge.source_ref, edge.dependent_ref))
         current = _current_source_digest(root, edge.source_ref)
         if current is not None and current != edge.fingerprint:
             stale_consumers.add(edge.dependent_ref)
             changed_contracts.add(edge.source_ref)
+
+    # Derived join (kb-boot-11): a run manifest records its contract evidence
+    # AND the file dependencies it actually exercised in the same
+    # ``dependencies`` list, both keyed on the run. For each recorded contract
+    # edge (contract:S -> run:<id>), a file edge in the same run whose target
+    # matches a declared consumer (kind+target) of S is the consumer-facing
+    # face of that same validation, so it additionally registers
+    # (contract:S, test:<path>) / (contract:S, code:<path>). Additive only:
+    # the run edge stays untouched (consumer-stale keying and the
+    # one-run-many-consumers reality both depend on it).
+    consumers_by_contract: dict[str, set[str]] = {}
+    for declaration in compiled.declarations:
+        refs = consumers_by_contract.setdefault(f"contract:{declaration.id}", set())
+        for consumer in declaration.consumers:
+            if consumer.kind in ("code", "test"):
+                refs.add(f"{consumer.kind}:{consumer.target}")
+    run_file_paths: dict[str, set[str]] = {}
+    for edge in dep_edges:
+        if edge.dependency_kind == "implementation->evidence" and edge.dependent_ref.startswith(
+            "run:"
+        ):
+            # source_ref is ``code:<path>``; the consumer target is a bare path.
+            run_file_paths.setdefault(edge.dependent_ref, set()).add(
+                edge.source_ref.partition(":")[2]
+            )
+    for edge in contract_edges:
+        declared = consumers_by_contract.get(edge.source_ref)
+        if not declared:
+            continue
+        files = run_file_paths.get(edge.dependent_ref)
+        if not files:
+            continue
+        for consumer_ref in declared:
+            if consumer_ref.partition(":")[2] in files:
+                recorded_validation.add((edge.source_ref, consumer_ref))
 
     # CONTRACT_CONSUMER_STALE: recorded contract fingerprint no longer matches.
     for ref in sorted(stale_consumers):

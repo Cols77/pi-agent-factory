@@ -209,3 +209,91 @@ def test_catalog_present_but_no_evidence_reports_only_unavailable_and_broken(tmp
     assert "CONTRACT_REFERENCE_BROKEN" in by_code
     assert "CONTRACT_MISSING_PROVENANCE" in by_code
     assert "CONTRACT_VALIDATION_UNAVAILABLE" in by_code
+
+
+def _evidence_with_file_deps(
+    run_id: str,
+    contract_source: str,
+    digest: str,
+    file_paths: list[str],
+    root: Path,
+) -> None:
+    """A run manifest that recorded the contract closure *and* the file
+    dependencies (the consumers the run actually exercised)."""
+    run_dir = root / "evidence" / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    deps: list[dict] = [
+        {"kind": "contract", "name": contract_source, "source": contract_source, "digest": digest}
+    ]
+    deps.extend({"kind": "file", "name": p, "source": p, "digest": "sha256:x"} for p in file_paths)
+    manifest = {"run": run_id, "feature": "FEAT-X", "dependencies": deps}
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _single_consumer_project(root: Path) -> str:
+    """One contract with a declared test consumer + a declared code consumer;
+    both consumer files exist on disk. Returns the contract's closure digest."""
+    document = {
+        "schema": CATALOG_SCHEMA,
+        "contracts": [
+            {
+                "id": "SCHEMA",
+                "path": "contracts/schema.schema.json",
+                "kind": "json_schema",
+                "status": "active",
+                "authority": "spec:SPEC-1",
+                "consumers": ["test:tests/schema_test.py", "code:backend/app.py"],
+            }
+        ],
+    }
+    _catalog(root, document)
+    _write(root, "contracts/schema.schema.json", '{"type": "object"}')
+    _write(root, "backend/app.py", "x = 1")
+    _write(root, "tests/schema_test.py", "def test_wire(): pass")
+    closure = _contract_closure_fingerprint(root, "SCHEMA")
+    assert closure is not None
+    return closure
+
+
+def test_sr075_run_contract_evidence_alone_cannot_clear_unavailable(tmp_path: Path) -> None:
+    """GATE-RED-1: reproduces the key mismatch. The run manifest records
+    kind:contract evidence for the current closure, but the checker keys
+    recorded evidence on the declared consumer refs -- which the run edge
+    never carries -- so CONTRACT_VALIDATION_UNAVAILABLE must still be
+    PRESENT (this test FAILS once the join is implemented)."""
+    root = tmp_path / "project"
+    closure = _single_consumer_project(root)
+    _evidence("RUN-1", "SCHEMA", closure, root)
+
+    by_code = _contract_findings(root)
+
+    unavailable = by_code.get("CONTRACT_VALIDATION_UNAVAILABLE", [])
+    assert any(f["subject"] == "test:tests/schema_test.py" for f in unavailable)
+    assert any(f["subject"] == "code:backend/app.py" for f in unavailable)
+
+
+def test_sr075_run_file_deps_join_to_declared_consumers_clear_unavailable(
+    tmp_path: Path,
+) -> None:
+    """GATE-RED-2: the same manifest ALSO carries kind:file dependencies for
+    the consumer paths. The derived join (run file deps matching declared
+    consumers) lets recorded evidence clear CONTRACT_VALIDATION_UNAVAILABLE
+    without changing the run edge; no stale false-positives appear."""
+    root = tmp_path / "project"
+    closure = _single_consumer_project(root)
+    _evidence_with_file_deps(
+        "RUN-1",
+        "SCHEMA",
+        closure,
+        ["tests/schema_test.py", "backend/app.py"],
+        root,
+    )
+
+    by_code = _contract_findings(root)
+
+    unavailable = by_code.get("CONTRACT_VALIDATION_UNAVAILABLE", [])
+    assert not any(f["subject"] == "test:tests/schema_test.py" for f in unavailable)
+    assert not any(f["subject"] == "code:backend/app.py" for f in unavailable)
+    assert "CONTRACT_STALE" not in by_code
+    assert "CONTRACT_CONSUMER_STALE" not in by_code
+    assert "CONTRACT_FIXTURE_STALE" not in by_code
